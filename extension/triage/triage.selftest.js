@@ -1848,6 +1848,32 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.decisions("A")]), {});
   assert.strictEqual(t.S.decisions.BV1.action, "keep");
 
+  // T1/D2: D moves the focus on as it sends, as 保留 does; B站's answer (yes or no) leaves the focus where it is by then,
+  // and the record waits for the yes.
+  {
+    const realFocus = t.setFocus;
+    const was = { focused: t.S.focused, tab: t.S.tab, kept: t.S.kept, decisions: t.S.decisions, items: t.S.items, itemMap: t.S.itemMap };
+    t.setFocus = (b) => (t.S.focused = b);
+    for (const ok of [true, false]) {
+      openFake("A", [item(1), item(2), item(3)]);
+      Object.assign(t.S, { tab: "none", focused: "BV1", kept: {} });
+      delete store[t.K.decisions("A")];
+      let answer;
+      handlers["triage-unfav"] = () => new Promise((res) => (answer = res));
+      const done = t.fav.unfav("BV1");
+      await new Promise(setImmediate);
+      assert.deepStrictEqual([t.S.focused, t.fav.state().pending("BV1"), t.S.decisions.BV1], ["BV2", "取消收藏", undefined], "focus first, data later");
+      t.S.focused = "BV3"; // J/K meanwhile
+      answer(ok ? { ok: true } : { ok: false, error: "网络错误" });
+      await done;
+      assert.deepStrictEqual([t.S.focused, t.S.decisions.BV1?.action], ["BV3", ok ? "unfav" : undefined], ok ? "a yes does not pull the focus back" : "a no only says so");
+      if (!ok) assert.strictEqual(toasts.at(-1), "取消收藏失败：网络错误");
+    }
+    handlers["triage-unfav"] = () => ({ ok: true });
+    t.setFocus = realFocus;
+    Object.assign(t.S, was);
+  }
+
   // 已出分拣范围: a video that left every folder is recorded with where it had been; one still in another folder only gets
   // this folder on its trail; one listed again is dropped from the record and this folder from its trail.
   {

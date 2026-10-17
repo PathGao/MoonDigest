@@ -251,7 +251,11 @@ const fav = {
     let folders = it.folders ? [...it.folders] : [S.mediaId];
     if (folders.length > 1) folders = await pickUnfavFolders(it);
     if (!folders.length) return;
-    const r = await W.single(UNFAV, folders.map((f) => ({ msg: { type: "triage-unfav", mediaId: f, aids: [it.aid] }, keys: [bvid], folders: [f] })), ({ folders: [f] }) => bumpCount(f, -1));
+    // The data waits for B站, the focus does not (DESIGN 改 B站 的操作和撤销): the card shows 正在取消收藏… and the next
+    // card takes the focus now; B站's answer leaves the focus wherever it is by then.
+    const sending = W.single(UNFAV, folders.map((f) => ({ msg: { type: "triage-unfav", mediaId: f, aids: [it.aid] }, keys: [bvid], folders: [f] })), ({ folders: [f] }) => bumpCount(f, -1));
+    advanceFrom(bvid, before);
+    const r = await sending;
     if (r.error) toast(`取消收藏失败：${r.limited ? MdgErrors.TEXT.biliThrottled : r.error}`, true);
     folders = folders.slice(0, r.done);
     if (!folders.length) return render();
@@ -267,7 +271,6 @@ const fav = {
     const from = left.length ? `从「${folders.map(folderName).join("、")}」` : "";
     toast(`已${from}取消收藏《${shortTitle(it)}》${UNDO}`);
     render();
-    advanceFrom(bvid, before);
   },
 
   // The selection bar's and 「按 AI 判断」's batch 取消收藏. It runs to the end even after another folder opens;
