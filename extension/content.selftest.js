@@ -219,57 +219,35 @@ const settle = async () => {
     Object.assign(t, saved);
   }
 
-  // G4: a refresh waiting for the player's metadata is dropped when the video changed during the wait.
+  // V6: a video change in 专注模式 reads the new video at once, without waiting for the player to report a duration.
+  // Until its info is read the title is the same video's for another part, else none (the page may still show the last one).
+  // Entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
+  // already read without subtitles. Only 刷新 does.
   {
-    const refreshed = [];
-    t.settledClip = t.refreshClip = async () => refreshed.push(state.fetchRunId);
-    let meta = gate();
-    t.waitForVideoMetadata = () => meta.promise;
+    const prev = Object.fromEntries(["settledClip", "refreshClip", "ensureUiReady", "enforceNormalPageStateIfNeeded", "resetClipState", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
+    const forces = [];
+    t.settledClip = async (force) => forces.push(force);
     state.subtitleBody = [];
     t.maybeRefreshReaderSubtitleInBackground();
-    state.fetchRunId++;
-    meta.open();
-    await settle();
-    assert.deepStrictEqual(refreshed, [], "background refresh after a change");
-    meta = gate();
-    t.maybeRefreshReaderSubtitleInBackground();
-    meta.open();
-    await settle();
-    assert.strictEqual(refreshed.length, 1, "without a change it refreshes");
+    assert.deepStrictEqual(forces, [false], "entering 专注模式 reads at once and does not force a reread");
 
-    // The URL watcher's own wait, in focus mode: a second navigation during it wins.
-    refreshed.length = 0;
-    for (const f of ["ensureUiReady", "enforceNormalPageStateIfNeeded", "resetClipState"]) t[f] = () => {};
+    const refreshed = [];
+    t.refreshClip = async () => refreshed.push(state.title);
+    for (const f of ["ensureUiReady", "enforceNormalPageStateIfNeeded"]) t[f] = () => {};
+    t.resetClipState = () => Object.assign(state, { videoId: "", title: "" });
     let sig = 0;
     t.computeCurrentClipSignature = () => `clip${++sig}`;
     t.stepReader("mark");
     t.stepReader("enter");
-    meta = gate();
-    t.checkUrlChange();
-    const second = gate();
-    t.waitForVideoMetadata = () => second.promise;
-    t.checkUrlChange();
-    meta.open();
-    await settle();
-    assert.deepStrictEqual(refreshed, [], "the first navigation's wait gives way");
-    second.open();
-    await settle();
-    assert.strictEqual(refreshed.length, 1);
+    for (const id of ["BV1GJ411x7h7", "BV1xx411c7mD"]) {
+      Object.assign(state, { videoId: "BV1GJ411x7h7", title: "A" });
+      t.location.href = `https://www.bilibili.com/video/${id}/?p=2`;
+      t.checkUrlChange();
+    }
+    assert.deepStrictEqual(refreshed, ["A", ""], "read at once, with the title it has");
     t.stepReader("close");
-  }
-
-  // A3: entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video
-  // already read without subtitles. Only 刷新 does.
-  {
-    const prev = [t.settledClip, t.waitForVideoMetadata];
-    const forces = [];
-    t.settledClip = async (force) => forces.push(force);
-    t.waitForVideoMetadata = async () => {};
-    state.subtitleBody = [];
-    t.maybeRefreshReaderSubtitleInBackground();
-    await settle();
-    assert.deepStrictEqual(forces, [false], "entering 专注模式 does not force a reread");
-    [t.settledClip, t.waitForVideoMetadata] = prev;
+    t.location.href = "https://www.bilibili.com/video/BV1GJ411x7h7/";
+    Object.assign(t, prev);
   }
 
   // V2: 专注模式 shows the transcript once it is here; only the note waits for the hot comments.
@@ -935,7 +913,7 @@ const settle = async () => {
 
   // The 2026-10-16 scan, group c2 (C67–C146): one assertion per behavior fix.
   {
-    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "waitForVideoMetadata", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
+    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
     const saved = Object.fromEntries(touched.map((k) => [k, t[k]]));
     const savedState = Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(state)).filter(([, d]) => "value" in d).map(([k, d]) => [k, d.value]));
     const notices = [];
@@ -1000,7 +978,6 @@ const settle = async () => {
     }
     // C101: focus mode's background read that fails after focus mode closed says nothing on the page.
     {
-      t.waitForVideoMetadata = async () => {};
       t.settledClip = async () => Promise.reject(new Error("网络断了"));
       for (const closeFirst of [true, false]) {
         notices.splice(0);

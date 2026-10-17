@@ -815,7 +815,9 @@ function startUrlWatcher() {
   state.urlWatcherStarted = true;
 
   window.setInterval(checkUrlChange, 1200);
-  // YouTube navigates in place; its event beats the interval by up to a second.
+  // Both sites navigate in place (B站's next part or next 稍后再看 video too); the Navigation API sees each URL change
+  // at once, the interval is the fallback. YouTube's own event comes when its page has switched.
+  window.navigation?.addEventListener("currententrychange", checkUrlChange);
   document.addEventListener("yt-navigate-finish", checkUrlChange);
 }
 
@@ -838,7 +840,11 @@ function checkUrlChange() {
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
   state.fetchRunId++;
   state.refreshPromise = null;
+  const prev = { id: state.videoId, title: state.title };
   resetClipState();
+  // Another part of the same video keeps its title until the info is read. The page's own title is not used: at this
+  // point it may still be the last video's (B站 updates it later, YouTube's og:title not at all).
+  if (MdgSites.parseRef(nextUrl)?.id === prev.id) state.title = prev.title;
   const shouldEnterReaderMode = hasReaderParam(nextUrl);
   if (!state.readingViewOpen && shouldEnterReaderMode) {
     markReaderMode();
@@ -847,13 +853,8 @@ function checkUrlChange() {
   }
   if (state.readingViewOpen || shouldEnterReaderMode) {
     setReadingNotice("");
-    const runId = state.fetchRunId;
-    waitForVideoMetadata().then(() => {
-      if (runId !== state.fetchRunId) {
-        return;
-      }
-      refreshClip().catch(readerReadFailed);
-    });
+    // Not waiting for the player: the video's info and duration come from the site (sites.js fetchMeta).
+    refreshClip().catch(readerReadFailed);
   }
   // Out of 专注模式 nothing is read here: the next entry that asks (popup, side panel, player ✦) reads it via settledClip.
 }
@@ -944,7 +945,7 @@ function buildSidepanelContext() {
 }
 
 // The tab's current video, settled: every entry point (popup, side panel, player ✦, focus mode) reads it here.
-// It first takes up a URL change the 1.2 s watcher has not seen yet, so nothing returns the old video or races a second
+// It first takes up a URL change the URL watcher has not seen yet, so nothing returns the old video or races a second
 // fetch. It joins the run in flight, or starts one when forced or nothing is loaded. A run the video change
 // superseded is never the answer: it waits for the run that replaced it, or starts one for the current video.
 // Rejects with the current video's failure.
@@ -1042,6 +1043,9 @@ async function runRefreshClip() {
     state.cid = meta.cid || "";
     // Without a duration the subtitle is not checked against one, as on every other entry (sites.js).
     state.videoDuration = Number(meta.duration) > 0 ? Number(meta.duration) : readRuntimeVideoDuration();
+    if (state.readingViewOpen) {
+      renderReadingView();
+    }
 
     logInfo("[MDG] resolved video ids", {
       url: location.href,
@@ -1555,14 +1559,8 @@ function maybeRefreshReaderSubtitleInBackground() {
   if (state.subtitleBody.length) {
     return;
   }
-  const runId = state.fetchRunId;
-  waitForVideoMetadata().then(() => {
-    if (runId !== state.fetchRunId) {
-      return;
-    }
-    // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
-    settledClip(false).catch(readerReadFailed);
-  });
+  // Joins a read in flight or reads a video not read yet; a video already read without subtitles is not reread.
+  settledClip(false).catch(readerReadFailed);
 }
 
 // A read focus mode started (entry, video change, 重试) failed: red in focus mode, nothing once it has closed.
@@ -1570,20 +1568,6 @@ function readerReadFailed(error) {
   if (state.readingViewOpen && !isStaleRunError(error)) {
     setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
   }
-}
-
-function waitForVideoMetadata(timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      if (readRuntimeVideoDuration() > 0 || Date.now() - start >= timeoutMs) {
-        resolve();
-        return;
-      }
-      window.setTimeout(check, 150);
-    };
-    check();
-  });
 }
 
 function syncReaderModeAfterMount() {
