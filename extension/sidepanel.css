@@ -414,6 +414,12 @@ body {
   scroll-behavior: smooth;
 }
 
+/* Room for the question just sent to scroll to the top (sidepanel.js turnAnchor); sized by script, so never squeezed. */
+.sp-turn-spacer {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 .sp-suggestions {
   display: flex;
   flex-direction: column;
