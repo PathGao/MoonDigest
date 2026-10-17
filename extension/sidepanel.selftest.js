@@ -127,6 +127,11 @@ const chatOn = (context) => {
     // Neither gate of sendMessage reaches the request (chrome.runtime.connect is not stubbed and would throw).
     const errors = [];
     let loads = 0;
+    // The question and its reply's cursor are drawn before the context loads (S4); here they only stand in.
+    const [realUser, realPlaceholder] = [ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    const drawn = [];
+    ctx.appendUserMessage = (text) => (drawn.push(text), { remove: () => drawn.push(`-${text}`) });
+    ctx.appendAssistantPlaceholder = () => stubEl();
     ctx.showConversationContextError = (text) => errors.push(text);
     ctx.ensureCurrentContextForSend = async () => (loads++, true);
     vm.runInContext("providers = [{}]", ctx);
@@ -144,6 +149,7 @@ const chatOn = (context) => {
     vm.runInContext('els.input.value = "q"', ctx);
     await ctx.sendMessage();
     assert.deepStrictEqual([loads, ...errors, vm.runInContext("els.input.value", ctx)], [1, "q"]);
+    assert.deepStrictEqual(drawn, ["q", "-q"], "the question shows while the context loads and goes when it is not asked");
     // No enabled platform: the conversation and the typed text stay, and the settings page opens.
     let resets = 0;
     let opened = 0;
@@ -158,10 +164,8 @@ const chatOn = (context) => {
     // 快捷追问 and 重试 send their own text: the draft in the input box stays as typed.
     const asked = [];
     const realConnect = ctx.chrome.runtime.connect;
-    const [realUser, realPlaceholder] = [ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
     ctx.chrome.runtime.connect = () => ({ onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
-    ctx.appendUserMessage = (text) => asked.push(text);
-    ctx.appendAssistantPlaceholder = () => stubEl();
+    ctx.appendUserMessage = (text) => (asked.push(text), stubEl());
     ctx.ensureCurrentContextForSend = async () => true;
     state.dispatch({ type: "NEW" });
     show(video);
@@ -909,14 +913,18 @@ const chatOn = (context) => {
     chatOn(video);
     ctx.appendStreamError({ node, prompt: "这个视频", raw: "回答" }, "x", true, "");
     ctx.document.createElement = prevCreate;
-    const prev = ctx.ensureCurrentContextForSend;
-    ctx.ensureCurrentContextForSend = async () => false;
+    const prev = [ctx.ensureCurrentContextForSend, ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    let hiddenWhileLoading;
+    ctx.ensureCurrentContextForSend = async () => ((hiddenWhileLoading = node.hidden), false);
+    ctx.appendUserMessage = () => stubEl();
+    ctx.appendAssistantPlaceholder = () => stubEl();
     vm.runInContext('activeStream = null; sendPending = false; els.modelSelect.value = "p"', ctx);
     made.find((b) => /重试/.test(b.innerHTML || "")).listeners.click();
     await tick();
     await tick();
-    assert.deepStrictEqual([view().messages.length, Boolean(node.removed)], [2, false]);
-    ctx.ensureCurrentContextForSend = prev;
+    // S4: the failed turn is hidden while the resend waits for the video, and comes back when it is not sent.
+    assert.deepStrictEqual([view().messages.length, Boolean(node.removed), hiddenWhileLoading, node.hidden], [2, false, true, false]);
+    [ctx.ensureCurrentContextForSend, ctx.appendUserMessage, ctx.appendAssistantPlaceholder] = prev;
   }
 
   // C351: an auto-sync with nothing to do (the video has no note) takes down an earlier failure.

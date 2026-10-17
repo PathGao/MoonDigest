@@ -176,11 +176,12 @@
   // among the shown video's parts; another video follows at once); follow (a tab event asked to follow); keyChanged
   // (payload: the tab's context is not the shown one); fillsShown (payload: the shown context is its placeholder).
   // action: "follow" (show the tab's video: its latest conversation or a fresh one), "keep" (the conversation holds its
-  // context), "adopt" (the unbound conversation takes the payload), "none" (tab stage: wait for the payload).
+  // context), "adopt" (the unbound conversation takes the payload, or at the tab stage the tab URL's placeholder), "none"
+  // (tab stage: wait for the payload).
   // Videos compare by URL (site, id, part). Following only leaves a conversation that belongs to the video just played,
   // or one with nothing asked yet (opened on a web page, an empty 问 AI one); a history conversation the user opened stays.
   // An unbound conversation on another video follows whichever load saw the change, so every entry ends alike; the panel's
-  // first load only adopts, without the AI 总结 fill. lastVideoUrl moves when the panel takes the tab's video or a follow
+  // first load (or one after a failed read) only adopts, without the AI 总结 fill, and does so at the tab URL already. lastVideoUrl moves when the panel takes the tab's video or a follow
   // load watches it, never on a load that leaves a bound conversation in place.
   function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged, fillsShown }) {
     const same = doesTabMatchContextUrl;
@@ -188,7 +189,8 @@
     if (stage === "tab") {
       const otherVideo = (url) => MdgSites.parseRef(url)?.id !== MdgSites.parseRef(toUrl)?.id;
       const placed = !oid || (otherVideo(shownUrl) && otherVideo(lastVideoUrl));
-      return follow && hasContext && placed && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
+      if (!hasContext) return toUrl && placed ? { action: "adopt", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
+      return follow && placed && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
     }
     const taken = toUrl || lastVideoUrl;
     if (!hasContext) return { action: "adopt", lastVideoUrl: taken };
@@ -479,12 +481,17 @@
         const ref = MdgSites.parseRef(s.live.tabUrl);
         const decision = decideFollow(snapshot(s), { stage: "tab", toUrl: ref?.url || "", oid: Boolean(ref?.part?.oid), follow: event.follow });
         s.live.lastVideoUrl = decision.lastVideoUrl;
-        if (decision.action !== "follow") {
+        if (decision.action === "none") {
           return [];
         }
         const placeholder = buildTabVideoPlaceholder(event.tab, ref, shown(s));
         s.live = { ...s.live, context: placeholder, key: buildContextKey(placeholder), error: "" };
-        return follow(s, placeholder);
+        if (decision.action === "follow") {
+          return follow(s, placeholder);
+        }
+        // Nothing was shown: the video's saved conversation, else the placeholder in the empty one (placed: draw it).
+        const restored = restoreLatest(s, placeholder, s.live.key);
+        return restored.length ? restored : [{ type: "placed" }];
       }
       // The tab's context came back: payload, or error when it could not be read.
       case "CONTEXT_ARRIVED": {

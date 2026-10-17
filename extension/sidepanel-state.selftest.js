@@ -72,7 +72,9 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), oid: true }), { action: "follow", lastVideoUrl: v("BV1aa") }, "oid, another video");
   const onAa = { ...fresh, shownUrl: v("BV1aa"), lastVideoUrl: v("BV1aa") };
   assert.deepStrictEqual(tab(onAa, { toUrl: `${v("BV1aa")}?p=2`, oid: true }), { action: "none", lastVideoUrl: v("BV1aa") }, "oid, same video");
-  assert.deepStrictEqual(tab({ ...fresh, hasContext: false }, { toUrl: v("BV1aa") }), { action: "none", lastVideoUrl: "" }, "first load");
+  // The first load (nothing shown yet) adopts the tab URL at once, a tab event or not; a web page waits for its payload.
+  assert.deepStrictEqual(tab({ ...fresh, shownUrl: "", hasContext: false }, { toUrl: v("BV1aa"), follow: false }), { action: "adopt", lastVideoUrl: v("BV1aa") }, "first load");
+  assert.deepStrictEqual(tab({ ...fresh, shownUrl: "", hasContext: false }, { toUrl: "" }), { action: "none", lastVideoUrl: "" }, "first load on a web page");
   assert.deepStrictEqual(tab(fresh, { toUrl: v("BV1aa"), follow: false }), { action: "none", lastVideoUrl: "" }, "not a tab event");
 }
 
@@ -84,6 +86,19 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.ok(!types(first).includes("followed"), "first load adopts");
   assert.strictEqual(p.view().live.lastVideoUrl, v("BV1aa"));
   assert.deepStrictEqual(types(p.dispatch({ type: "SUMMARY_SHOWN", prompt: "总结" })), [], "first load does not fill");
+  // S3: the first load shows the tab URL's video before its subtitles load: its saved conversation, else the pending
+  // placeholder in the empty conversation; the payload then fills it in, still without following or filling.
+  for (const list of [[], [saved("ha", video("BV1aa"))]]) {
+    const q = S.create();
+    q.dispatch({ type: "SAVED_CHANGED", list });
+    const atTab = types(q.dispatch({ type: "TAB_READ", tab: { url: v("BV1aa"), title: "a_哔哩哔哩_bilibili" }, follow: false }));
+    assert.deepStrictEqual([atTab.includes("followed"), atTab.includes("previous")], [false, false]);
+    assert.deepStrictEqual([q.view().id, q.view().context.pending, q.view().context.title], list.length ? ["ha", true, "t-BV1aa"] : ["", true, "a"]);
+    if (!list.length) assert.deepStrictEqual(atTab, ["placed"]);
+    const atPayload = types(q.dispatch({ type: "CONTEXT_ARRIVED", payload: video("BV1aa"), follow: false }));
+    assert.deepStrictEqual([atPayload, q.view().id, q.view().context.pending], [[], list.length ? "ha" : "", undefined]);
+    assert.deepStrictEqual(types(q.dispatch({ type: "SUMMARY_SHOWN", prompt: "总结" })), [], "the first load does not fill");
+  }
 
   // A tab switch follows at the tab URL: a pending placeholder named from the tab title until the payload fills it.
   const atTab = p.dispatch({ type: "TAB_READ", tab: { url: v("BV1bb"), title: "新视频_哔哩哔哩_bilibili" }, follow: true });
