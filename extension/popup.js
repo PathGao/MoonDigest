@@ -32,6 +32,12 @@ const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 const setDisabledReason = MdgErrors.setReason;
 // After 专注模式 or the side panel opened: long enough for the status to show before the popup closes.
 const CLOSE_DELAY_MS = 80;
+// Whether 写入 Obsidian showed last time: the settings come from the background after the first paint, so the button
+// takes its place from this one at once and the tools row does not reflow as the popup opens.
+const OBSIDIAN_SHOWN_KEY = "mdg_popup_obsidian_shown";
+try {
+  el.sendBtn.hidden = localStorage.getItem(OBSIDIAN_SHOWN_KEY) !== "1";
+} catch {}
 
 
 init().catch((error) => {
@@ -45,6 +51,9 @@ async function init() {
   onVideoPage = isSupportedSubtitlePage(tab?.url || "");
   getSettingsFromRuntime().then((settings) => {
     el.sendBtn.hidden = !settings.obsidianEnabled;
+    try {
+      localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
+    } catch {}
   });
   // A web page has nothing to read: say so instead of a failed fetch.
   if (!onVideoPage) {
