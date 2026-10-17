@@ -681,9 +681,20 @@ function contextErrorHtml() {
   return escapeHtml(state.view().live.error);
 }
 
+// The empty state drawn ([stateHtml, retry]); "" once anything else is drawn into the messages.
+let emptyStateShown = "";
+
 // retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
+// The same empty state again (a tab event, the panel shown again) is not torn down: only its suggestions update.
 function resetConversationView(stateHtml = "", { retry = false } = {}) {
   updateSidepanelLayoutState();
+  const shown = JSON.stringify([stateHtml, retry]);
+  if (suggestionsNode?.isConnected && emptyStateShown === shown) {
+    renderSuggestions();
+    renderPresetPrompts();
+    return;
+  }
+  emptyStateShown = shown;
   clearMessages();
   if (stateHtml) {
     const stateNode = document.createElement("div");
@@ -721,40 +732,58 @@ function introText() {
   return `${MdgErrors.subtitleMissing(context || {})}，AI 只能读标题、简介和评论。${hint}`;
 }
 
-function renderSuggestions() {
-  if (!suggestionsNode) {
-    return;
-  }
-  suggestionsNode.innerHTML = "";
-  renderFollowups();
+// What the empty conversation offers; summary: AI 总结 is offered, for the video it names.
+function suggestionsContent() {
   const { context, messages } = state.view();
   if (messages.length) {
-    return;
+    return { html: "" };
   }
   if (providersError) {
-    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(providersError)}</p>`;
-    return;
+    return { html: `<p class="sp-empty-intro">${escapeHtml(providersError)}</p>` };
   }
   if (!providers.length) {
-    suggestionsNode.innerHTML = `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn">去设置页添加平台</button>`;
-    suggestionsNode.querySelector("button").addEventListener("click", () => chrome.runtime.openOptionsPage());
-    return;
+    return { html: `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn" data-act="settings">去设置页添加平台</button>` };
   }
   if (!context || context.isVideoContext === false) {
-    return;
+    return { html: "" };
   }
   // A followed video's placeholder: no summary to offer until its subtitles arrive (sending still waits for them).
   if (context.pending) {
-    suggestionsNode.innerHTML = `<p class="sp-empty-intro" aria-busy="true">${MdgErrors.TEXT.subtitleReading}</p>`;
-    return;
+    return { html: `<p class="sp-empty-intro" aria-busy="true">${MdgErrors.TEXT.subtitleReading}</p>` };
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = aiPrefs.playerAiQuickPrompt;
-  suggestionsNode.innerHTML = `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`;
-  suggestionsNode.querySelector(".sp-summary-btn")?.addEventListener("click", () => fillPrompt(prompt));
+  const ref = buildConversationContextRef(context);
+  return {
+    html: `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
+    summary: { prompt, video: `${ref.site}:${ref.videoId}:${ref.pageIndex}` }
+  };
+}
+
+// Drawn again only when it changed, so a redraw never blinks it; the 分拣台 card of the same video stays until its new
+// read is in. AI 总结 is offered (SUMMARY_SHOWN) at every call: the fill is per conversation, not per drawing.
+function renderSuggestions() {
+  const node = suggestionsNode;
+  if (!node) {
+    return;
+  }
+  renderFollowups();
+  const { html, summary } = suggestionsContent();
+  const video = summary?.video || "";
+  if (node.dataset.html !== html || node.dataset.video !== video) {
+    const card = video && node.dataset.video === video ? node.querySelector(".sp-triage-summary") : null;
+    node.innerHTML = html;
+    if (card) node.prepend(card);
+    Object.assign(node.dataset, { html, video });
+    node.querySelector('[data-act="settings"]')?.addEventListener("click", () => chrome.runtime.openOptionsPage());
+    node.querySelector('[data-act="summary"]')?.addEventListener("click", () => fillPrompt(summary.prompt));
+    if (video) void renderTriageSummary(node);
+  }
+  if (!summary) {
+    return;
+  }
   syncSummaryButton();
-  void act({ type: "SUMMARY_SHOWN", prompt });
-  void renderTriageSummary(suggestionsNode);
+  void act({ type: "SUMMARY_SHOWN", prompt: summary.prompt });
 }
 
 // 分拣台 finishing 细看 on the open video: its AI 总结 card shows now, not at the next redraw.
@@ -774,10 +803,12 @@ async function renderTriageSummary(node) {
   const summary = MdgNote.buildTriageSummary((await chrome.storage.local.get(key))[key]);
   const now = state.view();
   const nowRef = buildConversationContextRef(now.context);
-  if (!summary || node !== suggestionsNode || now.messages.length || nowRef?.videoId !== ref.videoId || nowRef.pageIndex !== 1) {
+  if (node !== suggestionsNode || now.messages.length || nowRef?.videoId !== ref.videoId || nowRef.pageIndex !== 1) {
     return;
   }
+  // The card a redraw kept goes now, also when the analysis is gone.
   node.querySelector(".sp-triage-summary")?.remove();
+  if (!summary) return;
   // renderMarkdown has no blockquotes, so the one-liner loses its "> ".
   node.insertAdjacentHTML("afterbegin", `<div class="sp-triage-summary"><div class="sp-triage-summary-label">分拣台的 AI 总结</div>${renderMarkdown(summary.replace(/^> /, ""))}</div>`);
 }
@@ -2134,6 +2165,7 @@ function showConversationContextError(message) {
   }
   removeConversationContextNotice();
   removeCenteredState();
+  emptyStateShown = "";
   const stateNode = document.createElement("div");
   stateNode.className = "sp-center-error";
   stateNode.textContent = String(message);
