@@ -371,7 +371,8 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }));
   assert.ok(!t.syncFinished({ finishedAt: 5 }, { finishedAt: 5, beat: 6 }), "a tick of the same job is not a finish");
   assert.ok(!t.syncFinished({ running: true }, { running: false, hold: null }), "stopped (no finishedAt) is not a finish");
-  assert.ok(/if \(syncFinished\(fc\.jobs\?\.oldValue, fc\.jobs\?\.newValue\)\) \{\s*F\.feed = null;/.test(source), "the page drops F.feed on it");
+  // T7: it marks 视频投稿 stale, read anew on the next visit (feedOnEnter), not cleared under the pages being looked at.
+  assert.ok(/if \(syncFinished\(fc\.jobs\?\.oldValue, fc\.jobs\?\.newValue\) && F\.feed\) F\.feed\.stale = true;/.test(source) && /F\.feed\.stale \|\|/.test(source), "the page marks F.feed stale on it");
 }
 
 // The deep link's hash is dropped once read: the same tag clicked again changes the hash again (the worker sets it), and a

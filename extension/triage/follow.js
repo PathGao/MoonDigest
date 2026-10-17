@@ -562,9 +562,10 @@ const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false,
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
-// Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS starts it over; a redraw meanwhile keeps the pages loaded.
+// Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS, or after a refresh finished (stale), starts it over;
+// a redraw meanwhile keeps the pages loaded.
 function feedOnEnter() {
-  if (F.feed && !F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS) F.feed = null;
+  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = null;
 }
 function renderFeed() {
   F.feed ||= freshFeed();
@@ -1605,10 +1606,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const fc = MdgLimits.followShort(changes);
   if (area === "local" && fc.hold) F.hold = fc.hold.newValue || null;
   if (area !== "local" || !F.loaded) return;
-  if (syncFinished(fc.jobs?.oldValue, fc.jobs?.newValue)) {
-    F.feed = null;
-    if (F.mode === "follow" && F.tab === "feed") render();
-  }
+  // A finished refresh may change who is followed: 视频投稿 reads from page 1 again the next time it is opened, not
+  // under the pages loaded now.
+  if (syncFinished(fc.jobs?.oldValue, fc.jobs?.newValue) && F.feed) F.feed.stale = true;
   const keys = Object.keys(fc).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
   if (keys.every((k) => k === "jobs")) {
