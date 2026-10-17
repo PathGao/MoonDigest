@@ -270,6 +270,10 @@
   const cache = new Map(); // bvid -> info | null
   let shared = null;
   let sharedFid = null;
+  // Every key in chrome.storage.local (getKeys, Chrome 130+), kept current from onChanged: a video with no key of its
+  // own needs no read, so most cards are marked (or left alone) from memory. Null: unknown, so read.
+  let keys = null;
+  let keyEpoch = 0; // bumped on every local change, so a getKeys answer that raced one is dropped
   let enabled = false;
   let timer = 0;
   let running = false;
@@ -277,7 +281,7 @@
   let pop = null;
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
-  const observer = new MutationObserver(() => schedule());
+  const observer = new MutationObserver((records) => onMutations(records));
   const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key"] };
 
   // BewlyCat draws its own pages (首页, 收藏, 稍后再看…) inside #bewly's open shadow root. Only that root is searched:
@@ -289,11 +293,24 @@
     const list = [...document.querySelectorAll(sel)];
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
   };
+  // What run() looks at: the queued nodes (each one, what it holds and the match it sits in), or the whole page.
+  let scope = null;
+  const scanned = (sel) => {
+    if (!scope || lineOnly) return findAll(sel);
+    const out = new Set();
+    for (const r of scope) {
+      const up = r.closest(sel);
+      if (up) out.add(up);
+      for (const n of r.querySelectorAll(sel)) out.add(n);
+    }
+    return [...out];
+  };
   let bewlyHooked = null;
-  // Page CSS doesn't reach into a shadow root, so it gets its own copy of badges.css.
+  // Page CSS doesn't reach into a shadow root, so it gets its own copy of badges.css. True when newly hooked: what
+  // the root already holds was never queued.
   function hookBewly() {
     const r = bewlyRoot();
-    if (!r || r === bewlyHooked) return;
+    if (!r || r === bewlyHooked) return false;
     bewlyHooked = r;
     markBewly();
     observer.observe(r, OBSERVE);
@@ -302,6 +319,7 @@
       link.dataset.mdg = "";
       r.append(link);
     }
+    return true;
   }
 
   // badges.css hides BewlyCat's own watch progress while ours is on.
@@ -312,48 +330,115 @@
   // In-page navigation (a space page's tabs, BewlyCat's ?page=) changes the page without a reload, and its DOM changes
   // schedule a run. Marks drawn under the old page's rules or folder go, so the run redraws them under the new ones.
   let shownFor = `${surface}|${favFid()}`;
+  // True when the page changed: the run then covers the whole page.
   function followNav() {
     surface = surfaceNow();
     const now = `${surface}|${favFid()}`;
-    if (now === shownFor) return;
+    if (now === shownFor) return false;
     shownFor = now;
     clearMarks();
     clearUps();
+    return true;
   }
   // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
   const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
 
-  // ponytail: rescans at most every 400ms; the video page's danmaku layer mutates constantly and this caps that cost.
+  // ---- When to look: the nodes a page change added are queued and marked in the next animation frame, before the
+  // browser paints them, from what is already in memory. The whole page is looked at once at start, after in-page
+  // navigation, when the tab comes back into view and when more than MAX nodes piled up; data changes do it too,
+  // throttled (schedule). ----
+  // The player's own nodes (danmaku, progress, subtitles) change every frame and hold nothing that is marked.
+  const QUIET = "#bilibili-player, .bpx-player-container";
+  const MAX = 100;
+  const pending = new Set();
+  let full = false;
+  let frame = 0;
+  const ours = (n) => n.nodeType === 1 && /(?:^|\s)mdg-/.test(n.className?.baseVal ?? n.className ?? "");
+  function want(n) {
+    if (full) return;
+    if (pending.size >= MAX) {
+      pending.clear();
+      full = true;
+    } else pending.add(n);
+  }
+  function onMutations(records) {
+    // A hidden tab runs no frames: keep no detached nodes around, look at the whole page once it shows (onVisible).
+    if (document.hidden) {
+      pending.clear();
+      full = true;
+      return;
+    }
+    for (const r of records) {
+      const t = r.target;
+      if ((t.nodeType === 1 ? t : t.parentElement)?.closest?.(QUIET)) continue;
+      if (r.type === "attributes") {
+        want(t);
+        continue;
+      }
+      const added = [...r.addedNodes];
+      const removed = [...r.removedNodes];
+      // Our own writes: nothing new to mark.
+      if (added.every(ours) && removed.every(ours)) continue;
+      for (const n of added) if (n.nodeType === 1 && !ours(n)) want(n);
+      // New text in an existing node, or a mark of ours taken out by the page: the parent is looked at again.
+      if (t.nodeType === 1 && (added.some((n) => n.nodeType !== 1) || removed.some(ours))) want(t);
+    }
+    if (full || pending.size) soon();
+  }
+  const onVisible = () => !document.hidden && (full || pending.size) && soon();
   // An extension disabled or removed injects no fresh copy (standDown): this one stops on its own.
+  function soon() {
+    if (!enabled || frame) return;
+    if (!chrome.runtime?.id) return standDown();
+    frame = requestAnimationFrame(flush);
+  }
+  function flush() {
+    frame = 0;
+    if (!enabled) return;
+    if (document.hidden) return onMutations([]);
+    const roots = full ? null : [...pending].filter((n) => n.isConnected);
+    pending.clear();
+    full = false;
+    run(roots).catch(() => {});
+  }
+  // A whole-page look for data and setting changes, at most every 400ms: the 分拣台 writes results in bursts.
   function schedule() {
     if (!enabled || timer) return;
-    if (!chrome.runtime?.id) return standDown();
     timer = setTimeout(() => {
       timer = 0;
-      // Switched off or stood down while waiting for idle time: nothing to run, nothing to re-hook.
-      const go = () => enabled && run().catch(() => {});
-      window.requestIdleCallback ? requestIdleCallback(go, { timeout: 600 }) : go();
+      full = true;
+      soon();
     }, 400);
   }
+  const rescan = () => {
+    full = true;
+    soon();
+  };
 
-  async function run() {
+  // Marks `roots` (null: the whole page). Without a storage read to wait for, it runs to the end synchronously, so a
+  // frame's queued nodes are drawn before that frame paints.
+  async function run(roots = null) {
     if (running) {
+      if (roots) roots.forEach(want);
+      else full = true;
       again = true;
       return;
     }
     running = true;
     try {
-      followNav();
       const g = gen;
-      hookBewly();
+      const nav = followNav();
+      const hooked = hookBewly();
+      scope = nav || hooked ? null : roots;
       if (upOn) await markUps();
       if (triageOn || seenCfg.on) await markVideos(g);
       fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => !b.dataset.fit));
     } finally {
+      scope = null;
       running = false;
       if (again) {
         again = false;
-        schedule();
+        soon();
       }
     }
   }
@@ -398,7 +483,7 @@
   async function markUps() {
     const owner = pageOwner();
     const spots = [];
-    for (const a of findAll(UP_SEL)) {
+    for (const a of scanned(UP_SEL)) {
       const mid = midFromHref(a.getAttribute("href"));
       // On a space page the owner's own links (its video cards) would all say the same thing; the nickname carries it.
       const spot = mid && mid !== owner ? spotIn(a) : null;
@@ -408,14 +493,14 @@
       spots.push(row ? [row, mid, rules.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
     // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
-    if (owner) for (const el of findAll(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
-    const nameEls = findAll(NAME_SEL);
-    const idx = nameEls.length ? await whoIs() : null;
+    if (owner) for (const el of scanned(OWNER_SEL)) spots.push([el, owner, surface === "space" ? rules.nick : rules.fav]);
+    const nameEls = scanned(NAME_SEL);
+    // The 动态 page reads follow_people up front, so the cards it loads later are matched in the frame they appear.
+    const idx = nameEls.length || surface === "feed" ? who || (await whoIs()) : null;
     if (!enabled || !upOn) return; // stood down, or the marks or the UP tags switched off, while reading
-    const byEl = new Map(nameEls.map((el) => [el, nameMid(el, idx)]));
-    for (const [el, mid] of byEl) spots.push([el, mid, ruleFor(el)]);
+    for (const el of nameEls) spots.push([el, nameMid(el, idx), ruleFor(el)]);
     const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
-    if (onFeed()) writes.push(...feedFilter(byEl));
+    if (onFeed()) writes.push(...feedFilter(idx));
     for (const w of writes) w?.();
   }
 
@@ -484,8 +569,8 @@
   }
 
   // The 全部 / per-tag bar above the 动态 list. A pick only adds a class to other UPs' cards, so Bilibili's own tabs,
-  // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered on the next scan.
-  function feedFilter(byEl) {
+  // its UP avatar strip and infinite scroll keep working, and newly loaded cards are filtered in the frame they are added in.
+  function feedFilter(idx) {
     // The bar filters by UP tags: with 动态页's UP tags off in the settings table, it goes too and every card shows.
     if (!rules.feed.ups) {
       const hidden = document.querySelectorAll(".mdg-up-hide");
@@ -497,7 +582,11 @@
     const items = [...document.querySelectorAll(".bili-dyn-list__item")];
     let sel = readFilter();
     if (sel && !up.tags.some((t) => t.id === sel)) sel = "";
-    const mids = items.map((it) => byEl.get(it.querySelector(".bili-dyn-title__text")) || "");
+    // Every loaded card, not only the queued ones: the counts cover the whole list.
+    const mids = items.map((it) => {
+      const el = it.querySelector(".bili-dyn-title__text");
+      return el ? nameMid(el, idx) : "";
+    });
     const counts = upCounts(mids, up.tags, up.map);
     const writes = items.map((it, i) => {
       const hide = upHidden(mids[i], sel, up.map);
@@ -779,65 +868,90 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (!upOn) clearUps();
     else if (!pick?.editing) renderPick();
     setEnabled(triageOn || seenCfg.on || upOn);
-    schedule();
+    rescan();
   }
 
   async function markVideos(g) {
+    const covers = scanned(COVERS);
+    const here = pageBvid();
     // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
-    if (!pageBvid() && !findAll(COVERS).length) return;
+    if (!here && !covers.length) return;
     const fid = favFid();
-    if (seenCfg.on) await loadSeen(g);
+    if (!keys && chrome.storage.local.getKeys) {
+      const epoch = keyEpoch;
+      const list = await chrome.storage.local.getKeys();
+      if (epoch === keyEpoch) keys = new Set(list);
+    }
+    if (seenCfg.on) await loadSeen(covers, g);
     if (g !== gen) return;
     if (!triageOn) {
-      const writes = findAll(COVERS).map(markCover);
+      const writes = covers.map(markCover);
       for (const w of writes) w?.();
       return;
     }
-    if (!shared || fid !== sharedFid) {
-      // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
-      // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
-      const all = fid ? [] : (await chrome.storage.local.getKeys?.()) || [];
-      const decisionKeys = [K.triageKept, ...(fid ? [K.triageDecisions(fid)] : all.filter((k) => k.startsWith(K.triageDecisionsPrefix)))];
-      // 已失效 comes from the folder's snapshot, so only a favorites page knows it: reading every folder's snapshot (its
-      // whole item list) on every B站 page costs too much, and invalid videos are mostly met in favorites.
-      const snapshot = fid ? K.triageSnapshot(fid) : "";
-      const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
+    if (!shared || fid !== sharedFid) await loadShared(fid, g);
+    if (g !== gen) return;
+    const anchors = scanned(SEL);
+    const want = [...new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here))].filter((b) => b && !known(b));
+    if (want.length) {
+      const got = await chrome.storage.local.get(want.flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]));
       if (g !== gen) return;
-      sharedFid = fid;
-      shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got, Boolean(fid)), invalid: new Set(got[snapshot]?.invalid || []) };
-      cache.clear();
-    }
-    const anchors = findAll(SEL);
-    const here = pageBvid();
-    const want = new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here).filter((b) => b && !cache.has(b)));
-    if (want.size) {
-      const keys = [...want].flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]);
-      const got = await chrome.storage.local.get(keys);
-      if (g !== gen) return;
-      for (const b of want) {
-        cache.set(
-          b,
-          badgeInfo({
-            title: got[K.triageTitle(b)],
-            analysis: got[K.triageAnalysis(b)],
-            invalid: shared.invalid.has(b),
-            tagIds: shared.videoTags[b],
-            tags: shared.tags,
-            decision: shared.decisions[b]
-          })
-        );
-      }
+      for (const b of want) cache.set(b, infoFor(b, got));
     }
     if (!enabled) return;
     // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
-    const writes = [...anchors.map(markAnchor), ...findAll(COVERS).map(markCover)];
+    const writes = [...anchors.map(markAnchor), ...covers.map(markCover)];
     for (const w of writes) w?.();
     markVideoLine(here);
   }
 
+  const hasResult = (b) => !keys || keys.has(K.triageTitle(b)) || keys.has(K.triageAnalysis(b));
+  const infoFor = (b, got) =>
+    badgeInfo({
+      title: got[K.triageTitle(b)],
+      analysis: got[K.triageAnalysis(b)],
+      invalid: shared.invalid.has(b),
+      tagIds: shared.videoTags[b],
+      tags: shared.tags,
+      decision: shared.decisions[b]
+    });
+  // Cached, or nothing stored under its own keys: its info comes from the shared data alone.
+  function known(b) {
+    if (cache.has(b)) return true;
+    if (hasResult(b)) return false;
+    cache.set(b, infoFor(b, {}));
+    return true;
+  }
+
+  async function loadShared(fid, g) {
+    // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
+    // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
+    const decisionKeys = [K.triageKept, ...(fid ? [K.triageDecisions(fid)] : [...(keys || [])].filter((k) => k.startsWith(K.triageDecisionsPrefix)))];
+    // 已失效 comes from the folder's snapshot, so only a favorites page knows it: reading every folder's snapshot (its
+    // whole item list) on every B站 page costs too much, and invalid videos are mostly met in favorites.
+    const snapshot = fid ? K.triageSnapshot(fid) : "";
+    const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
+    if (g !== gen) return;
+    sharedFid = fid;
+    shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got, Boolean(fid)), invalid: new Set(got[snapshot]?.invalid || []) };
+    cache.clear();
+    // The snapshot also lists the folder's videos: their results are read now, so the cards B站 draws once its own
+    // request returns are marked in the frame they appear.
+    const pre = (got[snapshot]?.bvids || []).filter(hasResult);
+    if (!pre.length) return;
+    const res = await chrome.storage.local.get(pre.flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]));
+    if (g === gen) for (const b of pre) cache.set(b, infoFor(b, res));
+  }
+
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
-  async function loadSeen(g) {
-    const want = [...new Set(findAll(COVERS).map(bvidOf).filter((b) => b && !seenCache.has(b)))];
+  // A video with no key of its own has no progress, so it needs no read.
+  async function loadSeen(covers, g) {
+    const want = [];
+    for (const b of new Set(covers.map(bvidOf))) {
+      if (!b || seenCache.has(b)) continue;
+      if (keys && !keys.has(K.seen(b))) seenCache.set(b, 0);
+      else want.push(b);
+    }
     if (!want.length) return;
     const got = await chrome.storage.local.get(want.map(K.seen));
     if (g !== gen) return;
@@ -1109,22 +1223,26 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     enabled = on;
     if (on) {
       observer.observe(document.documentElement, OBSERVE);
+      document.addEventListener("visibilitychange", onVisible);
       document.addEventListener("mouseover", onOver, true);
       document.addEventListener("focusin", onFocus, true);
       document.addEventListener("focusout", hidePop, true);
       document.addEventListener("click", onChip, true);
       document.addEventListener("keydown", onChip, true);
-      schedule();
+      rescan();
     } else {
       observer.disconnect();
       bewlyHooked = null;
+      document.removeEventListener("visibilitychange", onVisible);
       document.removeEventListener("mouseover", onOver, true);
       document.removeEventListener("focusin", onFocus, true);
       document.removeEventListener("focusout", hidePop, true);
       document.removeEventListener("click", onChip, true);
       document.removeEventListener("keydown", onChip, true);
       clearTimeout(timer);
-      timer = 0;
+      cancelAnimationFrame(frame);
+      timer = frame = 0;
+      pending.clear();
       clearMarks();
       clearUps();
     }
@@ -1166,6 +1284,10 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (superseded) return;
+    if (area === "local") {
+      keyEpoch++;
+      for (const [k, c] of Object.entries(changes)) keys?.[c.newValue === undefined ? "delete" : "add"](k);
+    }
     const fc = MdgLimits.followShort(changes);
     if (area === "local" && (fc.tags || fc.tag_map || fc.list)) loadUps().catch(() => {});
     else if (area === "local" && fc.people && upOn) {
