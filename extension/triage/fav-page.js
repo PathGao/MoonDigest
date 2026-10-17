@@ -299,12 +299,16 @@ function bindEvents() {
   window.addEventListener("focus", autoSync);
   document.addEventListener("visibilitychange", autoSync);
 
+  // A new tab, filter, search or sort lists other cards: it starts at the top, where its first results are.
+  const fromTop = () => {
+    el.list.scrollTop = 0;
+    render();
+  };
   const showTab = (tab) => {
     if (tab !== S.tab) S.selected.clear();
     S.tab = tab;
     S.focused = "";
-    el.list.scrollTop = 0;
-    render();
+    fromTop();
   };
   el.tabs.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tab]");
@@ -313,7 +317,7 @@ function bindEvents() {
     if (kind) {
       S.kindFilter = kind.dataset.kindtab;
       S.selected.clear(); // a selection belongs to its tab
-      render();
+      fromTop();
     }
   });
   UI.bindSearch(el.searchInput, (q) => {
@@ -321,7 +325,7 @@ function bindEvents() {
     // A search that hides the focused card starts the focus at the top.
     const f = S.itemMap.get(S.focused);
     if (!f || !passFilter(f)) S.focused = "";
-    render();
+    fromTop();
   });
   // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).
   el.classFilter.addEventListener("click", (e) => {
@@ -336,7 +340,7 @@ function bindEvents() {
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
     else return;
-    render();
+    fromTop();
   });
   el.tagFilter.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tagfilter]");
@@ -344,7 +348,7 @@ function bindEvents() {
     const ids = btn.dataset.tagfilter.split(",");
     const on = ids.some((id) => S.tagFilter.has(id));
     for (const id of ids) on ? S.tagFilter.delete(id) : S.tagFilter.add(id);
-    render();
+    fromTop();
   });
 
   const onHeadClick = (e) => {
@@ -654,6 +658,13 @@ function openViewer(it) {
   el.viewer.hidden = false;
   el.main.classList.add("viewing");
   showViewing(it.bvid);
+  revealCard(".playing");
+}
+
+// Opening or closing the player re-lays the list (the sidebar hides, the cards narrow), so the scroll offset points
+// elsewhere: the card playing (or that was) is brought back into view. 关注 does the same for its list (follow.js).
+function revealCard(sel) {
+  if (!followMode()) el.list.querySelector(sel)?.scrollIntoView({ block: "nearest" });
 }
 
 // The folders of videos played earlier in this viewer (B站's autoplay moved on): closing refreshes them too.
@@ -696,12 +707,14 @@ function setBasketOpen(open) {
 function closeViewer() {
   if (!S.viewing) return;
   const home = [...(S.viewer?.folders || []), ...viewerPast];
+  const was = S.viewing ? `.card[data-bvid="${CSS.escape(S.viewing)}"]` : ".focused";
   S.viewing = "";
   S.viewer = null;
   el.viewerFrame.src = "about:blank";
   el.viewer.hidden = true;
   el.main.classList.remove("viewing");
   render();
+  revealCard(was);
   if (inFolderView() && !followMode() && home.includes(String(S.mediaId))) quickSync({ force: true });
 }
 

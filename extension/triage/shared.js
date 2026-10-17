@@ -800,5 +800,29 @@
     return instant;
   }
 
-  globalThis.TriageUi = { https, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
+  // A list redrawn whole (innerHTML) keeps the cards in view where they were, by card rather than by pixel: a card added
+  // or gone above would shift every card under the eye. keepScroll(list, sel) before the redraw notes the cards (sel,
+  // keyed by data-bvid or data-mid) showing and where; the function it returns puts the first of them still there back
+  // at its place, else the old offset. A list at its top stays at the top, so a card added there shows.
+  function keepScroll(list, sel) {
+    const top = list.scrollTop;
+    if (!(top > 0)) return () => (list.scrollTop = 0);
+    const key = (n) => n.dataset.bvid || n.dataset.mid || "";
+    const box = list.getBoundingClientRect();
+    const seen = [];
+    for (const n of list.querySelectorAll(sel)) {
+      const r = n.getBoundingClientRect();
+      if (r.bottom <= box.top) continue;
+      if (r.top >= box.bottom) break;
+      if (key(n)) seen.push([key(n), r.top]);
+    }
+    return () => {
+      list.scrollTop = top;
+      const now = new Map([...list.querySelectorAll(sel)].map((n) => [key(n), n]));
+      const hit = seen.find(([k]) => now.has(k));
+      if (hit) list.scrollTop += now.get(hit[0]).getBoundingClientRect().top - hit[1];
+    };
+  }
+
+  globalThis.TriageUi = { https, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
 })();

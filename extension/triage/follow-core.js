@@ -298,6 +298,13 @@
     return { followSlowDays, followDeadDays: Math.max(followSlowDays + 1, UI.numSetting("deadDays", dead)) };
   }
 
+  // list in before's order, the ones not in before after them in list's own order: a refresh's redraws leave the cards
+  // where they are.
+  function keptOrder(list, before) {
+    const at = new Map(before.map((m, i) => [m, i]));
+    return [...list].sort((a, b) => (at.get(a) ?? before.length) - (at.get(b) ?? before.length));
+  }
+
   // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
   const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
 
@@ -343,5 +350,5 @@
     };
   }
 
-  globalThis.FollowCore = { DAY, ALL, STATUS, lastPostOf, followStatus, withFeedInProgress, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, inGroupId, inGroup, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, tagPass, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, sortCmp, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, aiRoomHint, syncView };
+  globalThis.FollowCore = { DAY, ALL, STATUS, lastPostOf, followStatus, withFeedInProgress, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, inGroupId, inGroup, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, tagPass, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, sortCmp, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, aiRoomHint, syncView };
 })();

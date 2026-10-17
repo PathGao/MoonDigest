@@ -44,6 +44,7 @@ const ctx = vm.createContext({
   structuredClone,
   TextEncoder,
   TagDialogs,
+  CSS: { escape: (x) => x },
   __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
   __TRIAGE_SETTLE_MS: 40, // a written folder settles this fast here, not in 3 s
   setTimeout: (f) => setImmediate(f),
@@ -1848,6 +1849,32 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.decisions("A")]), {});
   assert.strictEqual(t.S.decisions.BV1.action, "keep");
 
+  // T1/D2: D moves the focus on as it sends, as 保留 does; B站's answer (yes or no) leaves the focus where it is by then,
+  // and the record waits for the yes.
+  {
+    const realFocus = t.setFocus;
+    const was = { focused: t.S.focused, tab: t.S.tab, kept: t.S.kept, decisions: t.S.decisions, items: t.S.items, itemMap: t.S.itemMap };
+    t.setFocus = (b) => (t.S.focused = b);
+    for (const ok of [true, false]) {
+      openFake("A", [item(1), item(2), item(3)]);
+      Object.assign(t.S, { tab: "none", focused: "BV1", kept: {} });
+      delete store[t.K.decisions("A")];
+      let answer;
+      handlers["triage-unfav"] = () => new Promise((res) => (answer = res));
+      const done = t.fav.unfav("BV1");
+      await new Promise(setImmediate);
+      assert.deepStrictEqual([t.S.focused, t.fav.state().pending("BV1"), t.S.decisions.BV1], ["BV2", "取消收藏", undefined], "focus first, data later");
+      t.S.focused = "BV3"; // J/K meanwhile
+      answer(ok ? { ok: true } : { ok: false, error: "网络错误" });
+      await done;
+      assert.deepStrictEqual([t.S.focused, t.S.decisions.BV1?.action], ["BV3", ok ? "unfav" : undefined], ok ? "a yes does not pull the focus back" : "a no only says so");
+      if (!ok) assert.strictEqual(toasts.at(-1), "取消收藏失败：网络错误");
+    }
+    handlers["triage-unfav"] = () => ({ ok: true });
+    t.setFocus = realFocus;
+    Object.assign(t.S, was);
+  }
+
   // 已出分拣范围: a video that left every folder is recorded with where it had been; one still in another folder only gets
   // this folder on its trail; one listed again is dropped from the record and this folder from its trail.
   {
@@ -2184,6 +2211,61 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.loadFolders = realLoad;
     t.followShared({ [t.K.folderCriteria]: { newValue: { 2: "只留教程" } } });
     assert.strictEqual(t.S.folderCriteria[2], "只留教程");
+  }
+
+  // T5: the page opens from the folder list last read: the last folder shows its snapshot before B站's list is back, and
+  // that list (the same folders) leaves the folder open as it was. Ticking another folder does not reopen it either.
+  // 稍后再看 shows its snapshot first too, then reads its list.
+  {
+    const keep = { allFolders: t.S.allFolders, folders: t.S.folders, mediaId: t.S.mediaId, tab: t.S.tab };
+    const flush = async () => { for (let i = 0; i < 30; i++) await new Promise(setImmediate); };
+    for (const k of Object.keys(store)) delete store[k];
+    const folders = [{ id: 1, title: "甲", count: 2 }, { id: 2, title: "乙", count: 1 }];
+    Object.assign(store, {
+      triage_included_folders: ["1"],
+      triage_last_folder: "1",
+      triage_snapshot_1: { bvids: ["BV1", "BV2"], ids: ["BV1", "BV2"], items: [item(1), item(2)], intro: "" },
+      triage_snapshot_2: { bvids: ["BV3"], ids: ["BV3"], items: [item(3)], intro: "" }
+    });
+    handlers["triage-folder-ids"] = ({ mediaId }) => ({ ok: true, data: { bvids: store[t.K.snapshot(mediaId)]?.bvids || [] } });
+    handlers["triage-folders"] = () => ({ ok: true, data: { mid: 7, folders } });
+    t.S.allFolders = [];
+    t.S.mediaId = "";
+    await t.loadFolders();
+    assert.deepStrictEqual(plain(store[t.K.folderList]), { mid: 7, folders }, "B站's list is kept for the next open");
+    let answer;
+    handlers["triage-folders"] = () => new Promise((res) => (answer = res));
+    t.S.allFolders = [];
+    t.S.mediaId = "";
+    const loading = t.loadFolders();
+    await flush();
+    assert.deepStrictEqual(plain([t.S.mediaId, t.S.items.map((it) => it.bvid)]), ["1", ["BV1", "BV2"]], "the last folder's snapshot, before B站's list");
+    t.S.selected.add("BV2");
+    t.S.tab = "done";
+    answer({ ok: true, data: { mid: 7, folders } });
+    await loading;
+    assert.deepStrictEqual([t.S.mediaId, [...t.S.selected], t.S.tab], ["1", ["BV2"], "done"], "the same list leaves the folder open as it was");
+    handlers["triage-folders"] = () => ({ ok: true, data: { mid: 7, folders } });
+    store.triage_included_folders = ["1", "2"];
+    await t.applyIncluded(["1", "2"]);
+    assert.deepStrictEqual([t.S.mediaId, [...t.S.selected], t.S.tab, t.S.folders.length], ["1", ["BV2"], "done", 2], "ticking a folder keeps the open one");
+    // 稍后再看: its snapshot first, then its list.
+    store.triage_snapshot_toview = { bvids: ["BV5"], items: [item(5)] };
+    const stub = t.syncFolder;
+    t.syncFolder = realSync;
+    let list;
+    handlers["triage-folder-items"] = () => new Promise((res) => (list = res));
+    const opening = t.openFolder("toview");
+    await flush();
+    assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV5"], "稍后再看's snapshot first");
+    list({ ok: true, data: { items: [item(5), item(6)] } });
+    await opening;
+    await flush();
+    assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid).sort()), ["BV5", "BV6"], "then what B站 lists");
+    delete handlers["triage-folder-items"];
+    t.syncFolder = stub;
+    t.S.selected.clear();
+    Object.assign(t.S, keep);
   }
 
   // A tag greyed out in 批量打 is nowhere in what the AI gets; a reply that still adds, creates or removes it is dropped.
@@ -4103,6 +4185,21 @@ assert.deepStrictEqual(plain(t.zipNotes("夹", [{ filename: "Go.md", markdown: "
   assert.strictEqual(synced, 1, "the first video's folder is re-read");
   Object.assign(t.S, { mediaId: keep.mediaId, viewing: keep.viewing, viewer: keep.viewer });
   t.quickSync = keep.quickSync;
+}
+
+// T2: opening or closing the player re-lays the list; the card playing (or that was) is scrolled back into view.
+{
+  const keep = { list: t.el.list, viewing: t.S.viewing, viewer: t.S.viewer, quickSync: t.quickSync };
+  const shown = [];
+  t.el.list = { querySelector: (sel) => ({ scrollIntoView: (o) => shown.push([sel, o.block]) }), querySelectorAll: () => [] };
+  t.quickSync = () => {};
+  t.S.viewing = "";
+  t.openViewer(item(1));
+  t.closeViewer();
+  assert.deepStrictEqual(shown, [[".playing", "nearest"], ['.card[data-bvid="BV1"]', "nearest"]]);
+  Object.assign(t.S, { viewing: keep.viewing, viewer: keep.viewer });
+  Object.assign(t, { quickSync: keep.quickSync });
+  t.el.list = keep.list;
 }
 
 // C557 / C600: 已出分拣范围's kind is its tab: an empty one names the kind, not a filter; its 导出 reason names the view.

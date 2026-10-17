@@ -12,7 +12,7 @@ const {
   sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, visibleUps,
   SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, feedOrdered, feedCounts, feedList, feedLeaving,
   withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
-  syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
+  keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
   aiRoomHint, syncView
 } = globalThis.FollowCore;
 
@@ -75,7 +75,8 @@ const F = {
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
   loaded: false,
-  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at }; order: 随机's (feedOrdered); wait: B站限流, waiting FEED_RUN out
+  order: null, // the UP 主 cards' order (mids) kept while a refresh runs (renderUps), null otherwise
+  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at, stale }; order: 随机's (feedOrdered); wait: B站限流, waiting FEED_RUN out; stale: a refresh finished since
   viewing: "",
   viewingMid: "", // the playing video's UP
   hover: "", // the 视频投稿 card under the mouse (bvid), for T
@@ -237,9 +238,7 @@ function setTab(tab) {
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
-  // Both tabs draw into #fwList, whose redraws keep scrollTop: start the other tab at its top, as 收藏夹.
-  E.list.scrollTop = 0;
-  render();
+  fromTop(); // both tabs draw into #fwList
 }
 
 // ---------- render ----------
@@ -397,7 +396,12 @@ const filtersOn = () => (F.side === "out" ? Boolean(F.source || F.tagState || F.
 function renderUps() {
   const recentAll = new Set((D.recent?.mids || []).filter((m) => rows.has(m) && !rows.get(m).gone));
   const out = F.side === "out";
-  const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  let { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  // A refresh rewrites the data every second for minutes: meanwhile the cards keep their order (newly listed ones go
+  // last), and are sorted again once it ends, or when you change what is listed or the sort (fromTop).
+  const syncing = Boolean(D.jobs?.running);
+  if (syncing && F.order) list = keptOrder(list, F.order);
+  F.order = syncing ? list : null;
   shown = list;
   // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
@@ -418,14 +422,14 @@ function renderUps() {
   E.sort.innerHTML = UI.sortControl({ sorts: out ? OUT_SORTS : SORTS, sort: so.sort, dir: so.dir, words: dirLabel(so.sort, so.dir), selectAttr: 'data-fw="sort"', dirAttr: 'data-fw="dir"' });
   E.qCount.textContent = UI.resultCount(F.q.trim() || filtersOn(), list.length);
   const hint = hintHtml();
-  const scroll = E.list.scrollTop;
+  const restore = UI.keepScroll(E.list, ".fw-up[data-mid]");
   let body;
   if (!D.list && !out) body = emptyHtml();
   else if (!list.length) body = `<p class="empty">${UI.noMatch(F.q, filtersOn(), WHO) || (out && !F.kind ? "没有已出分拣范围的 UP 主" : F.side.startsWith("g:") ? EMPTY_GROUP : "这里没有 UP 主")}</p>`;
   else body = list.map(upCard).join("");
   E.list.className = "fw-list";
   E.list.innerHTML = hint + body;
-  E.list.scrollTop = scroll;
+  restore();
   renderSel();
 }
 
@@ -564,9 +568,10 @@ const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false,
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
-// Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS starts it over; a redraw meanwhile keeps the pages loaded.
+// Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS, or after a refresh finished (stale), starts it over;
+// a redraw meanwhile keeps the pages loaded.
 function feedOnEnter() {
-  if (F.feed && !F.feed.loading && Date.now() - F.feed.at > FEED_KEEP_MS) F.feed = null;
+  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = null;
 }
 function renderFeed() {
   F.feed ||= freshFeed();
@@ -586,10 +591,10 @@ function renderFeed() {
   E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
-  const scroll = E.list.scrollTop;
+  const restore = UI.keepScroll(E.list, ".fw-video[data-bvid]");
   E.list.className = "fw-list fw-feed";
   E.list.innerHTML = `<div class="fw-grid">${list.map(feedCard).join("")}</div><div class="fw-foot" id="fwFoot"></div>`;
-  E.list.scrollTop = scroll;
+  restore();
   E.sel.innerHTML = "";
   renderFoot(list.length);
   observeFoot();
@@ -731,7 +736,6 @@ function play(bvid) {
   F.viewingMid = playingMid(bvid, F.feed?.items, rows);
   T.openViewer({ bvid, title: it.title || it.t });
   render();
-  E.list.querySelector(`[data-bvid="${CSS.escape(bvid)}"]`)?.scrollIntoView({ block: "nearest" });
 }
 
 // An UP's space in the player, as a video plays there: F.viewing is "up:<mid>", so T and the line above the player are this UP's.
@@ -1420,8 +1424,13 @@ function pickSide(id) {
   F.side = id;
   if (F.feed) F.feed.dry = 0;
   saveView();
-  render();
+  fromTop();
+}
+// A new sidebar item, tab, filter, search or sort lists other cards: it starts at the top, as 收藏夹's.
+function fromTop() {
   E.list.scrollTop = 0;
+  F.order = null;
+  render();
 }
 
 main.addEventListener("click", async (e) => {
@@ -1434,7 +1443,7 @@ main.addEventListener("click", async (e) => {
     if (kt.dataset.fwkind !== F.kind) F.sel.clear();
     F.kind = kt.dataset.fwkind;
     if (F.kind !== "" && F.kind !== "gone") F.source = "";
-    return render();
+    return fromTop();
   }
   const s = t.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
@@ -1442,28 +1451,28 @@ main.addEventListener("click", async (e) => {
   const st = t.closest("[data-status]");
   if (st) {
     F.status = F.status === st.dataset.status ? "" : st.dataset.status;
-    return render();
+    return fromTop();
   }
   if (t.closest("[data-fw-all]")) {
     F.status = F.tagState = F.source = "";
     F.recentFilter = false;
-    return render();
+    return fromTop();
   }
   const ts = t.closest("[data-fw-tagstate]");
   if (ts) {
     F.tagState = F.tagState === ts.dataset.fwTagstate ? "" : ts.dataset.fwTagstate;
-    return render();
+    return fromTop();
   }
   const tg = t.closest("[data-fw-tag]");
   if (tg) {
     if (!F.tags.delete(tg.dataset.fwTag)) F.tags.add(tg.dataset.fwTag);
     if (F.feed) F.feed.dry = 0;
-    return render();
+    return fromTop();
   }
   const src = t.closest("[data-source]");
   if (src) {
     F.source = F.source === src.dataset.source ? "" : src.dataset.source;
-    return render();
+    return fromTop();
   }
   // The UP cards pick as 收藏夹's do (UI.cardPickClick): a click anywhere but the video titles and controls.
   const up = t.closest(".fw-up");
@@ -1518,11 +1527,10 @@ main.addEventListener("click", async (e) => {
     const so = sortState();
     so.dir = so.dir === "asc" ? "desc" : "asc";
     saveView();
-    render();
+    fromTop();
   } else if (act === "reshuffle") {
     F.feed.order = null;
-    render();
-    E.list.scrollTop = 0;
+    fromTop();
   } else if (act === "ai") openAi();
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
@@ -1530,12 +1538,12 @@ main.addEventListener("click", async (e) => {
   else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${MdgCommon.localDate()}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
-    render();
+    fromTop();
   } else if (act === "recent-done") {
     F.recentFilter = false;
     D.recent = null;
     await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
-    render();
+    fromTop();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {
     UI.toggleAll(shown, F.sel);
@@ -1557,7 +1565,7 @@ main.addEventListener("click", async (e) => {
 UI.bindSearch(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;
-  render();
+  fromTop();
 });
 main.addEventListener("change", (e) => {
   const act = e.target.dataset.fw;
@@ -1566,14 +1574,13 @@ main.addEventListener("change", (e) => {
     so.sort = e.target.value;
     so.dir = SORT_DIR[so.sort];
     saveView();
-    render();
+    fromTop();
   } else if (act === "fsort") {
     // 更新时间 is the loaded list as it is; 随机 shuffles it anew. Both start at the top.
     F.fsort = e.target.value;
     F.feed.order = null;
     saveView();
-    render();
-    E.list.scrollTop = 0;
+    fromTop();
   } else if (act === "side") pickSide(e.target.value);
 });
 
@@ -1606,10 +1613,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const fc = MdgLimits.followShort(changes);
   if (area === "local" && fc.hold) F.hold = fc.hold.newValue || null;
   if (area !== "local" || !F.loaded) return;
-  if (syncFinished(fc.jobs?.oldValue, fc.jobs?.newValue)) {
-    F.feed = null;
-    if (F.mode === "follow" && F.tab === "feed") render();
-  }
+  // A finished refresh may change who is followed: 视频投稿 reads from page 1 again the next time it is opened, not
+  // under the pages loaded now.
+  if (syncFinished(fc.jobs?.oldValue, fc.jobs?.newValue) && F.feed) F.feed.stale = true;
   const keys = Object.keys(fc).filter((k) => KEYS.includes(k));
   if (!keys.length) return;
   if (keys.every((k) => k === "jobs")) {
@@ -1633,12 +1639,16 @@ setInterval(() => {
   if (F.mode === "follow" && D.jobs?.running && D.jobs.hold?.until) renderHead();
 }, 1000);
 
-// Leaving the viewer (× or Esc) clears the playing mark.
+// Leaving the viewer (× or Esc) clears the playing mark. Opening or closing it re-lays the list, as in 收藏夹: the card
+// playing (or that was, else the current one) is brought back into view.
 new MutationObserver(() => {
+  const card = F.mode === "follow" ? E.list.querySelector(".playing") || E.list.querySelector(".focused") : null;
+  const sel = card?.dataset.mid ? `[data-mid="${CSS.escape(card.dataset.mid)}"]` : card?.dataset.bvid ? `[data-bvid="${CSS.escape(card.dataset.bvid)}"]` : "";
   if (F.viewing && !T.viewing()) {
     F.viewing = "";
     render();
   }
+  if (sel) E.list.querySelector(sel)?.scrollIntoView({ block: "nearest" });
 }).observe($("viewer"), { attributes: true, attributeFilter: ["hidden"] });
 
 const [{ [VIEW_KEY]: view }, days] = await Promise.all([

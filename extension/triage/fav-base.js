@@ -27,6 +27,7 @@ const runName = (step, redo) => (redo ? `按新标准重新${STEP_NAME[step].sli
 const KEYS = MdgLimits.KEYS;
 const K = {
   lastFolder: "triage_last_folder",
+  folderList: "triage_folder_list", // { mid, folders }: B站's folder list as last read, so the page opens before it reads it again
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
   folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
   videoTags: KEYS.triageVideoTags,
@@ -643,6 +644,7 @@ function renderSort() {
 function setSort(sort, dir) {
   S.sortBy = { ...S.sortBy, [String(S.mediaId)]: { sort, dir } };
   storeSet(K.sort, S.sortBy);
+  el.list.scrollTop = 0; // as a new filter: from the first card
   render();
 }
 
