@@ -2162,9 +2162,13 @@ function scrollToBottom() {
 // only its last third, so the reply still starts in view.
 function turnAnchorTop() {
   const { node } = turnAnchor;
-  const box = els.messages;
-  const top = node.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - parseFloat(getComputedStyle(box).paddingTop);
-  return top + Math.max(0, node.offsetHeight - box.clientHeight / 3);
+  const top = offsetInMessages(node) - parseFloat(getComputedStyle(els.messages).paddingTop);
+  return top + Math.max(0, node.offsetHeight - els.messages.clientHeight / 3);
+}
+
+// A node's top in the scrolled content of the messages box.
+function offsetInMessages(node) {
+  return node.getBoundingClientRect().top - els.messages.getBoundingClientRect().top + els.messages.scrollTop;
 }
 
 // Room after the reply, enough to scroll the anchored question to the top, and no more.
@@ -2177,7 +2181,8 @@ function syncTurnSpacer() {
     els.messages.append(turnSpacer);
   }
   const top = turnAnchorTop();
-  const content = els.messages.scrollHeight - turnSpacer.offsetHeight;
+  // Where the content ends is where the spacer starts: scrollHeight never goes below the box's height.
+  const content = offsetInMessages(turnSpacer) + parseFloat(getComputedStyle(els.messages).paddingBottom);
   turnSpacer.style.height = `${Math.max(0, Math.ceil(top + els.messages.clientHeight - content))}px`;
   if (turnAnchor.top !== null && Math.abs(top - turnAnchor.top) > 1) {
     turnAnchor.top = top;
