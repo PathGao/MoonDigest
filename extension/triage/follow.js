@@ -237,9 +237,7 @@ function setTab(tab) {
   F.tab = tab;
   E.q.value = tab === "feed" ? F.fq : F.q;
   saveView();
-  // Both tabs draw into #fwList, whose redraws keep scrollTop: start the other tab at its top, as 收藏夹.
-  E.list.scrollTop = 0;
-  render();
+  fromTop(); // both tabs draw into #fwList
 }
 
 // ---------- render ----------
@@ -1419,8 +1417,12 @@ function pickSide(id) {
   F.side = id;
   if (F.feed) F.feed.dry = 0;
   saveView();
-  render();
+  fromTop();
+}
+// A new sidebar item, tab, filter, search or sort lists other cards: it starts at the top, as 收藏夹's.
+function fromTop() {
   E.list.scrollTop = 0;
+  render();
 }
 
 main.addEventListener("click", async (e) => {
@@ -1433,7 +1435,7 @@ main.addEventListener("click", async (e) => {
     if (kt.dataset.fwkind !== F.kind) F.sel.clear();
     F.kind = kt.dataset.fwkind;
     if (F.kind !== "" && F.kind !== "gone") F.source = "";
-    return render();
+    return fromTop();
   }
   const s = t.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
@@ -1441,28 +1443,28 @@ main.addEventListener("click", async (e) => {
   const st = t.closest("[data-status]");
   if (st) {
     F.status = F.status === st.dataset.status ? "" : st.dataset.status;
-    return render();
+    return fromTop();
   }
   if (t.closest("[data-fw-all]")) {
     F.status = F.tagState = F.source = "";
     F.recentFilter = false;
-    return render();
+    return fromTop();
   }
   const ts = t.closest("[data-fw-tagstate]");
   if (ts) {
     F.tagState = F.tagState === ts.dataset.fwTagstate ? "" : ts.dataset.fwTagstate;
-    return render();
+    return fromTop();
   }
   const tg = t.closest("[data-fw-tag]");
   if (tg) {
     if (!F.tags.delete(tg.dataset.fwTag)) F.tags.add(tg.dataset.fwTag);
     if (F.feed) F.feed.dry = 0;
-    return render();
+    return fromTop();
   }
   const src = t.closest("[data-source]");
   if (src) {
     F.source = F.source === src.dataset.source ? "" : src.dataset.source;
-    return render();
+    return fromTop();
   }
   // The UP cards pick as 收藏夹's do (UI.cardPickClick): a click anywhere but the video titles and controls.
   const up = t.closest(".fw-up");
@@ -1517,11 +1519,10 @@ main.addEventListener("click", async (e) => {
     const so = sortState();
     so.dir = so.dir === "asc" ? "desc" : "asc";
     saveView();
-    render();
+    fromTop();
   } else if (act === "reshuffle") {
     F.feed.order = null;
-    render();
-    E.list.scrollTop = 0;
+    fromTop();
   } else if (act === "ai") openAi();
   else if (act === "tags") openManage();
   else if (act === "settings") openSettings();
@@ -1529,12 +1530,12 @@ main.addEventListener("click", async (e) => {
   else if (act === "csv") MdgDownload.text(`MoonDigest-关注-${MdgCommon.localDate()}.csv`, upCsv(), "text/csv;charset=utf-8");
   else if (act === "recent") {
     F.recentFilter = !F.recentFilter;
-    render();
+    fromTop();
   } else if (act === "recent-done") {
     F.recentFilter = false;
     D.recent = null;
     await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
-    render();
+    fromTop();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {
     UI.toggleAll(shown, F.sel);
@@ -1556,7 +1557,7 @@ main.addEventListener("click", async (e) => {
 UI.bindSearch(E.q, (q) => {
   if (F.tab === "feed") F.fq = q;
   else F.q = q;
-  render();
+  fromTop();
 });
 main.addEventListener("change", (e) => {
   const act = e.target.dataset.fw;
@@ -1565,14 +1566,13 @@ main.addEventListener("change", (e) => {
     so.sort = e.target.value;
     so.dir = SORT_DIR[so.sort];
     saveView();
-    render();
+    fromTop();
   } else if (act === "fsort") {
     // 更新时间 is the loaded list as it is; 随机 shuffles it anew. Both start at the top.
     F.fsort = e.target.value;
     F.feed.order = null;
     saveView();
-    render();
-    E.list.scrollTop = 0;
+    fromTop();
   } else if (act === "side") pickSide(e.target.value);
 });
 

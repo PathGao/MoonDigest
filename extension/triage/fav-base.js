@@ -643,6 +643,7 @@ function renderSort() {
 function setSort(sort, dir) {
   S.sortBy = { ...S.sortBy, [String(S.mediaId)]: { sort, dir } };
   storeSet(K.sort, S.sortBy);
+  el.list.scrollTop = 0; // as a new filter: from the first card
   render();
 }
 
