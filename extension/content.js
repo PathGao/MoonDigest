@@ -109,7 +109,8 @@ const state = {
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
   readingDocumentClickBound: false,
-  readingManualScrollPauseUntil: 0,
+  readingFollowPaused: false,
+  readingLastInputAt: 0,
   readingProgrammaticScrollUntil: 0,
   statusText: "准备就绪，点击「刷新」开始。",
   messageText: "",
@@ -306,6 +307,7 @@ const ids = {
   readingMeta: "mdg-reading-meta",
   readingChapterList: "mdg-reading-chapters",
   readingTranscriptList: "mdg-reading-transcript",
+  readingFollowResumeBtn: "mdg-reading-follow-resume",
   readingTranscriptTailSpacer: "mdg-reading-tail-spacer",
   // In the page's DOM, next to its player: the transcript column focus mode moves there.
   readingInlineHost: "mdg-reading-inline-host"
@@ -326,8 +328,8 @@ const PLAYER_WAIT = "正在等待视频播放器就绪…";
 const META_READING = MdgErrors.TEXT.videoReading;
 // A subtitle track without a label or language, in the dropdown and focus mode's info line.
 const UNNAMED_SUBTITLE = "未命名字幕";
-// How long a click or drag in focus mode's lists keeps the transcript from following the video.
-const MANUAL_PAUSE_MS = 3500;
+// How long the reader leaves the transcript alone, the playing line in view, before following resumes by itself.
+const READER_FOLLOW_IDLE_MS = 1000;
 // Between two tries to mount the player after focus mode opened without one.
 const PLAYER_RETRY_MS = 500;
 // Smaller than this is a thumbnail or a preview, not the player.
@@ -545,7 +547,7 @@ function bindRuntimeEvents() {
       }
       const nextTime = seekVideo(video, seconds);
       if (state.readingViewOpen) {
-        state.readingManualScrollPauseUntil = 0;
+        state.readingFollowPaused = false;
         state.readingNextScrollBehavior = "auto";
         updateReaderFollowState();
         syncReadingViewPlayback(true);
@@ -680,6 +682,7 @@ function buildUiHtml() {
           </div>
 
           <section class="mdg-reading-main">
+            <div class="mdg-reading-follow-hint">跟随已停<button id="${ids.readingFollowResumeBtn}" type="button">回到当前</button></div>
             <div id="${ids.readingTranscriptList}" class="mdg-reading-transcript"></div>
           </section>
         </section>
@@ -706,7 +709,7 @@ function bindUiEvents() {
   readingAutoScroll.addEventListener("change", (event) => {
     state.readingAutoScroll = Boolean(event.target.checked);
     if (state.readingAutoScroll) {
-      state.readingManualScrollPauseUntil = 0;
+      state.readingFollowPaused = false;
       syncReadingViewPlayback(true);
     }
     updateReaderFollowState();
@@ -769,8 +772,12 @@ function bindUiEvents() {
 
   bindReaderManualScroll(transcriptList);
   bindReaderManualScroll(chapterList);
-  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
-  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction(MANUAL_PAUSE_MS));
+  chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction());
+  transcriptList.addEventListener("pointerdown", () => noteManualReaderInteraction());
+  byId(ids.readingFollowResumeBtn).addEventListener("click", () => {
+    state.readingFollowPaused = false;
+    syncReadingViewPlayback(true);
+  });
   byId(ids.readingStatus).addEventListener("click", () => setReadingNotice(""));
   // The popup's request, from 专注模式 (source reader): it works even when the player button is turned off.
   byId(ids.readingAiBtn).addEventListener("click", () => {
@@ -1711,7 +1718,7 @@ function closeReadingView() {
   stepReader("close");
   setReadingNotice("");
   state.readingSettingsExpanded = false;
-  state.readingManualScrollPauseUntil = 0;
+  state.readingFollowPaused = false;
   state.readingProgrammaticScrollUntil = 0;
   state.readingNextScrollBehavior = "smooth";
   if (state.readingPlayerRetryTimer) {
@@ -3505,6 +3512,8 @@ function syncReadingViewPlayback(forceScroll = false) {
   const changed =
     subtitleIndex !== state.readingActiveSubtitleIndex ||
     chapterIndex !== state.readingActiveChapterIndex;
+  // Checked every tick, so the hint goes as soon as following may resume, not at the next line.
+  readerFollowHeld();
   updateReaderFollowState();
   if (changed || forceScroll) {
     setActiveReadingItems(subtitleIndex, chapterIndex, true);
@@ -3565,7 +3574,7 @@ function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false
   }
 
   if (shouldScroll && state.readingAutoScroll) {
-    if (Date.now() < state.readingManualScrollPauseUntil) {
+    if (readerFollowHeld()) {
       updateReaderFollowState();
       state.readingActiveSubtitleIndex = subtitleIndex;
       state.readingActiveChapterIndex = chapterIndex;
@@ -3642,7 +3651,7 @@ function jumpReadingTarget(seconds) {
   // A jump that works answers the last one that found no player.
   if (byId(ids.readingStatus).textContent === NO_PLAYER) setReadingNotice("");
 
-  state.readingManualScrollPauseUntil = 0;
+  state.readingFollowPaused = false;
   state.readingNextScrollBehavior = "auto";
   updateReaderFollowState();
   seekVideo(video, seconds);
@@ -3682,13 +3691,40 @@ function onReadingTranscriptClick(event) {
   jumpReadingTarget(target.dataset.seconds);
 }
 
-function noteManualReaderInteraction(durationMs = 3000) {
-  if (!state.readingAutoScroll) {
-    updateReaderFollowState();
-    return;
+function noteManualReaderInteraction() {
+  if (state.readingAutoScroll) {
+    state.readingFollowPaused = true;
+    state.readingLastInputAt = Date.now();
   }
-  state.readingManualScrollPauseUntil = Date.now() + durationMs;
   updateReaderFollowState();
+}
+
+// Once the reader scrolls, clicks or types in focus mode's lists, the transcript stops following the video. It
+// follows again by itself only when the playing line is back in view (scrolled back to, or caught up with), the
+// reader has left the lists alone for a moment and no text is selected there; a jump or 回到当前 resumes it at once.
+// No timeout: the reader may read back for minutes, and the hint offers 回到当前.
+function readerFollowHeld() {
+  if (!state.readingFollowPaused) {
+    return false;
+  }
+  const selection = window.getSelection?.();
+  const selecting = selection && !selection.isCollapsed && byId(ids.readingTranscriptList).contains(selection.anchorNode);
+  if (selecting || Date.now() - state.readingLastInputAt < READER_FOLLOW_IDLE_MS || !readingActiveLineInView()) {
+    return true;
+  }
+  state.readingFollowPaused = false;
+  return false;
+}
+
+function readingActiveLineInView() {
+  const node = byId(ids.readingTranscriptList).querySelector(".mdg-reading-item.is-active");
+  const rect = node?.getBoundingClientRect();
+  if (!(rect?.height > 0)) {
+    return false;
+  }
+  const host = document.getElementById(ids.readingInlineHost);
+  const box = host && host.scrollHeight > host.clientHeight + 8 ? host.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  return rect.top >= box.top && rect.bottom <= box.bottom;
 }
 
 function updateReaderFollowState() {
@@ -3696,8 +3732,8 @@ function updateReaderFollowState() {
   if (!readingView) {
     return;
   }
-  // A paused video gets no playback ticks to clear the hint, so it is not shown while paused; the scroll guard still holds.
-  const manual = Date.now() < state.readingManualScrollPauseUntil && !state.readingVideoEl?.paused;
+  // Following only moves a playing video's transcript, so the hint waits for playback.
+  const manual = state.readingFollowPaused && !state.readingVideoEl?.paused;
   const mode = !state.readingAutoScroll ? "off" : manual ? "manual" : "auto";
   if (readingView.getAttribute("data-mdg-reader-follow") !== mode) {
     readingView.setAttribute("data-mdg-reader-follow", mode);

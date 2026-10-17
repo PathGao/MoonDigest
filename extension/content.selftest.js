@@ -530,23 +530,38 @@ const settle = async () => {
     t.stepReader("close");
   }
 
-  // 跟随已停 shows after a manual scroll only while playing: a paused video sends no ticks to clear it. The scroll guard holds either way.
+  // 跟随已停 shows after a manual scroll only while playing. Following stays off while the reader is away from the
+  // playing line, however long; it resumes once the line is back in view and the reader has let go, or at 回到当前.
   {
     const attrs = {};
     const view = { getAttribute: (k) => attrs[k], setAttribute: (k, v) => (attrs[k] = v) };
-    const realGet = t.document.getElementById;
+    const prev = [t.document.getElementById, t.readingActiveLineInView];
     t.document.getElementById = () => view;
+    let inView = false;
+    t.readingActiveLineInView = () => inView;
     state.readingAutoScroll = true;
     state.readingVideoEl = { paused: true };
     t.noteManualReaderInteraction();
-    assert.ok(state.readingManualScrollPauseUntil > Date.now(), "the guard is set while paused");
+    assert.ok(state.readingFollowPaused, "paused while the video is paused too");
     assert.strictEqual(attrs["data-mdg-reader-follow"], "auto", "no hint while paused");
     state.readingVideoEl.paused = false;
     t.updateReaderFollowState();
-    assert.strictEqual(attrs["data-mdg-reader-follow"], "manual", "the hint shows once playing within the guard");
-    t.document.getElementById = realGet;
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "manual", "the hint shows once playing");
+    state.readingLastInputAt = Date.now() - 600000;
+    assert.strictEqual(t.readerFollowHeld(), true, "reading back for ten minutes is not cut short");
+    inView = true;
+    state.readingLastInputAt = Date.now();
+    assert.strictEqual(t.readerFollowHeld(), true, "not while the reader is still at it");
+    state.readingLastInputAt = Date.now() - 2000;
+    assert.strictEqual(t.readerFollowHeld(), false, "back in view and let go: following resumes");
+    t.updateReaderFollowState();
+    assert.strictEqual(attrs["data-mdg-reader-follow"], "auto");
+    state.readingAutoScroll = false;
+    t.noteManualReaderInteraction();
+    assert.strictEqual(state.readingFollowPaused, false, "with 跟随 off nothing pauses");
+    state.readingAutoScroll = true;
+    [t.document.getElementById, t.readingActiveLineInView] = prev;
     state.readingVideoEl = null;
-    state.readingManualScrollPauseUntil = 0;
   }
 
   // The page's reads under the shared subtitle step (which tracks, in what order, what counts as a limit is
