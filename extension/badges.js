@@ -1229,7 +1229,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       document.addEventListener("focusout", hidePop, true);
       document.addEventListener("click", onChip, true);
       document.addEventListener("keydown", onChip, true);
-      rescan();
+      // Not in a frame: the first look starts its reads now, while B站 is still parsing, so what it marks is in memory
+      // by the time the title and the cards are parsed (the script runs at document_start).
+      run().catch(() => {});
     } else {
       observer.disconnect();
       bewlyHooked = null;
