@@ -272,6 +272,22 @@ const settle = async () => {
     [t.settledClip, t.waitForVideoMetadata] = prev;
   }
 
+  // V2: 专注模式 shows the transcript once it is here; only the note waits for the hot comments.
+  {
+    const prev = Object.fromEntries(["refreshDerivedContent", "renderReadingView", "moveReadingMainInline", "startReaderPlayerObserver"].map((k) => [k, t[k]]));
+    const comments = gate();
+    let drawn = 0;
+    Object.assign(t, { refreshDerivedContent: () => comments.promise, renderReadingView: () => drawn++, moveReadingMainInline() {}, startReaderPlayerObserver() {} });
+    t.stepReader("mark");
+    t.stepReader("enter");
+    const shown = t.showSubtitle({ track: { url: "u", lang: "zh" }, body: [{ from: 0, to: 1, content: "x" }] }, state.fetchRunId);
+    assert.strictEqual(drawn, 1, "drawn before the comments are read");
+    comments.open();
+    await shown;
+    t.stepReader("close");
+    Object.assign(t, prev);
+  }
+
   // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
   {
     const prev = t.bindReadingViewVideo;

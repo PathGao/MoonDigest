@@ -1060,12 +1060,6 @@ async function runRefreshClip() {
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
     await showSubtitle(found, runId);
-    if (state.readingViewOpen) {
-      moveReadingMainInline();
-      renderReadingView();
-      startReaderPlayerObserver();
-      syncReadingViewPlayback(true);
-    }
     setStatus(state.subtitleWarning + readDoneText());
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
@@ -1143,13 +1137,16 @@ async function showSubtitle({ track, body, mismatch }, runId) {
   state.subtitleBody = body;
   state.subtitleWarning = mismatch ? subtitleMismatchWarning(mismatch) : "";
   state.subtitleFetchState = "ready";
-  await refreshDerivedContent();
-  ensureRunActive(runId);
+  // Only the note waits for the hot comments: the transcript shows as soon as it is here.
   if (state.readingViewOpen) {
+    moveReadingMainInline();
     renderReadingView();
+    startReaderPlayerObserver();
     syncReadingViewPlayback(true);
     setReadingNotice(state.subtitleWarning);
   }
+  await refreshDerivedContent();
+  ensureRunActive(runId);
 }
 
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
