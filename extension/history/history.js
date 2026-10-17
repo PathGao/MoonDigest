@@ -146,6 +146,9 @@ function render() {
   const anchor = top && { key: top.dataset.key, offset: top.getBoundingClientRect().top };
   const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
   const caret = active ? [active.selectionStart, active.selectionEnd] : null;
+  // A focused control is replaced too: the new list gives focus back to the same entry's same control.
+  const act = document.activeElement?.dataset?.act;
+  const actKey = act && document.activeElement.closest(".entry")?.dataset.key;
   rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
@@ -185,7 +188,7 @@ function render() {
   if (textarea) {
     textarea.focus();
     textarea.setSelectionRange(...(caret || [textarea.value.length, textarea.value.length]));
-  }
+  } else if (actKey) entryOf(actKey)?.querySelector(`[data-act="${act}"]`)?.focus({ preventScroll: true });
   const again = anchor && entryOf(anchor.key);
   if (again) window.scrollBy(0, again.getBoundingClientRect().top - anchor.offset);
   else window.scrollTo(0, scrollY);

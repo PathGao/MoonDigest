@@ -291,6 +291,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await reload();
     assert.strictEqual(keys()[0], "new", "the new entry is on top");
     assert.deepStrictEqual([firstInView().dataset.key, firstInView().getBoundingClientRect().top, win.scrollY], [read.dataset.key, at, 370]);
+    // (b) The focused 展开 of an entry keeps the focus once the list is rebuilt.
+    const focused = [];
+    const realQsa2 = els.list.querySelectorAll;
+    els.list.querySelectorAll = (sel) => realQsa2(sel).map((e) => ({ ...e, querySelector: (q) => ({ focus: (o) => focused.push(JSON.stringify([e.dataset.key, q, o])) }) }));
+    ctx.document.activeElement = { dataset: { act: "summary" }, closest: (sel) => (sel === ".entry" ? { dataset: { key: "b" } } : null) };
+    await reload();
+    ctx.document.activeElement = null;
+    assert.deepStrictEqual(focused, [JSON.stringify(["b", '[data-act="summary"]', { preventScroll: true }])]);
     els.list.querySelectorAll = realQsa;
   }
 
