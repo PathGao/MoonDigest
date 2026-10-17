@@ -874,8 +874,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   async function markVideos(g) {
     const covers = scanned(COVERS);
     const here = pageBvid();
-    // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads.
-    if (!here && !covers.length) return;
+    // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads. The top frame reads at once,
+    // links or not: its cards come later (B站 draws them after its own requests), and are then marked from memory.
+    if (!here && !covers.length && window !== window.top) return;
     const fid = favFid();
     if (!keys && chrome.storage.local.getKeys) {
       const epoch = keyEpoch;
