@@ -283,6 +283,10 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.strictEqual(t.stepIn(["a", "b", "c"], "c", 1), "c", "stops at the end");
   assert.strictEqual(t.stepIn(["a", "b", "c"], "b", -1), "a");
   assert.strictEqual(t.stepIn(["a", "b", "c"], "a", -1), "a", "stops at the top");
+  // T4: while a refresh runs the cards keep their order; newly listed ones go last, gone ones leave.
+  assert.deepStrictEqual(plain(t.keptOrder(["c", "new", "a", "b"], ["a", "b", "c"])), ["a", "b", "c", "new"]);
+  assert.deepStrictEqual(plain(t.keptOrder(["c", "a"], ["a", "b", "c"])), ["a", "c"]);
+  assert.ok(/if \(syncing && F\.order\) list = keptOrder\(list, F\.order\);/.test(source) && /function fromTop\(\) \{[^}]*F\.order = null;/.test(source), "kept while syncing, sorted again on a new list or sort");
   assert.strictEqual(t.stepIn(["a", "b"], "gone", -1), "a", "a current card that left the list: back to the top");
 
   const before = t.tagsOf({ a: ["x"], b: ["y"] }, ["a", "n"]);

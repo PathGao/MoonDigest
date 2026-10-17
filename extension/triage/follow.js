@@ -12,7 +12,7 @@ const {
   sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, visibleUps,
   SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, feedOrdered, feedCounts, feedList, feedLeaving,
   withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
-  syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
+  keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
   aiRoomHint, syncView
 } = globalThis.FollowCore;
 
@@ -75,7 +75,8 @@ const F = {
   tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
   loaded: false,
-  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at }; order: 随机's (feedOrdered); wait: B站限流, waiting FEED_RUN out
+  order: null, // the UP 主 cards' order (mids) kept while a refresh runs (renderUps), null otherwise
+  feed: null, // { items, order, offset, hasMore, loading, error, errorCode, wait, dry, at, stale }; order: 随机's (feedOrdered); wait: B站限流, waiting FEED_RUN out; stale: a refresh finished since
   viewing: "",
   viewingMid: "", // the playing video's UP
   hover: "", // the 视频投稿 card under the mouse (bvid), for T
@@ -395,7 +396,12 @@ const filtersOn = () => (F.side === "out" ? Boolean(F.source || F.tagState || F.
 function renderUps() {
   const recentAll = new Set((D.recent?.mids || []).filter((m) => rows.has(m) && !rows.get(m).gone));
   const out = F.side === "out";
-  const { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  let { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
+  // A refresh rewrites the data every second for minutes: meanwhile the cards keep their order (newly listed ones go
+  // last), and are sorted again once it ends, or when you change what is listed or the sort (fromTop).
+  const syncing = Boolean(D.jobs?.running);
+  if (syncing && F.order) list = keptOrder(list, F.order);
+  F.order = syncing ? list : null;
   shown = list;
   // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
@@ -1423,6 +1429,7 @@ function pickSide(id) {
 // A new sidebar item, tab, filter, search or sort lists other cards: it starts at the top, as 收藏夹's.
 function fromTop() {
   E.list.scrollTop = 0;
+  F.order = null;
   render();
 }
 
