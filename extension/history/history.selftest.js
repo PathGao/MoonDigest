@@ -300,6 +300,30 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.document.activeElement = null;
     assert.deepStrictEqual(focused, [JSON.stringify(["b", '[data-act="summary"]', { preventScroll: true }])]);
     els.list.querySelectorAll = realQsa;
+    // (c) 删除 takes the entry off the list before the write ends; a failed write brings it back, still selected, in red.
+    let settle;
+    ctx.chrome.storage.local.set = () => new Promise((ok, fail) => (settle = { ok, fail }));
+    const del = { dataset: { act: "delete" }, closest: (sel) => (sel === ".entry" ? { dataset: { key: "new" } } : del) };
+    pick("new", true);
+    L.list.click.forEach((f) => f({ target: del }));
+    await wait(20);
+    assert.ok(!html.includes('data-key="new"') && settle, "gone while the write runs");
+    settle.fail(new Error("存储已满"));
+    await wait(20);
+    assert.ok(html.includes('data-key="new"') && /data-key="new">\s*<input[^>]*checked/.test(html), "back and still selected");
+    assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
+    L.list.click.forEach((f) => f({ target: del }));
+    await wait(20);
+    settle.ok();
+    await wait(20);
+    assert.ok(!html.includes('data-key="new"') && els.status.textContent === "已删除 1 个视频的 AI 对话");
+    // 清空全部 too: the list is empty before the write ends.
+    for (const f of L.clearAll.click) void f({});
+    await wait(20);
+    assert.ok(!html.includes('data-act="delete"'), "no conversation left while the write runs");
+    settle.ok();
+    await wait(20);
+    ctx.chrome.storage.local.set = async () => {};
   }
 
 

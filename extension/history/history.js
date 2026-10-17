@@ -251,17 +251,27 @@ function deletableKeys(keys) {
   return keys.filter((key) => withConvs.has(key));
 }
 
-// Reads storage again before writing so a reply the side panel saved meanwhile is kept.
+// Drops the conversations from the list at once, then writes. The write reads storage again so a reply the side panel
+// saved meanwhile is kept; if it fails, the list (and the selection) is read back from storage and the line says so.
+async function removeConversations(keep, done, unselect = []) {
+  const picked = new Set(selected);
+  unselect.forEach((key) => selected.delete(key));
+  conversations = conversations.filter(keep);
+  render();
+  try {
+    await MdgLimits.updateConversations((current) => current.filter(keep));
+  } catch (error) {
+    picked.forEach((key) => selected.add(key));
+    await load();
+    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
+  }
+  setStatus(done);
+}
+
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
   if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
-  try {
-    await MdgLimits.updateConversations((current) => current.filter((c) => !keys.includes(c?.contextKey || c?.id)));
-  } catch (error) {
-    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
-  }
-  keys.forEach((key) => selected.delete(key));
-  setStatus(`已删除 ${keys.length} 个视频的 AI 对话`);
+  await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 个视频的 AI 对话`, keys);
 }
 
 // Several videos go into one file like the triage batch export: one save prompt, frontmatter
@@ -374,13 +384,8 @@ els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
 // AI conversations only: triage analyses and notes are other features' data and stay.
 els.clearAll.addEventListener("click", async () => {
   if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
-  try {
-    await MdgLimits.updateConversations(() => []);
-  } catch (error) {
-    return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
-  }
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
-  setStatus("已清空全部 AI 对话");
+  await removeConversations(() => false, "已清空全部 AI 对话");
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   // Triage analyses arrive in bursts; one reload per burst.
