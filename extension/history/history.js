@@ -127,6 +127,9 @@ function renderConversation(conv, index, total) {
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }
 
+// An entry by its key, without building a selector from the key (it is a contextKey or a saved id).
+const entryOf = (key) => [...els.list.querySelectorAll(".entry")].find((e) => e.dataset.key === key);
+
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
@@ -137,7 +140,10 @@ function render() {
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
   for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.
+  // New entries land above the one being read, so the first entry in view keeps its offset (by its key, not scrollY).
   const scrollY = window.scrollY;
+  const top = [...els.list.querySelectorAll(".entry")].find((e) => e.getBoundingClientRect().bottom > 0);
+  const anchor = top && { key: top.dataset.key, offset: top.getBoundingClientRect().top };
   const active = document.activeElement?.matches?.("[data-note]") ? document.activeElement : null;
   const caret = active ? [active.selectionStart, active.selectionEnd] : null;
   rendering = true;
@@ -180,7 +186,9 @@ function render() {
     textarea.focus();
     textarea.setSelectionRange(...(caret || [textarea.value.length, textarea.value.length]));
   }
-  window.scrollTo(0, scrollY);
+  const again = anchor && entryOf(anchor.key);
+  if (again) window.scrollBy(0, again.getBoundingClientRect().top - anchor.offset);
+  else window.scrollTo(0, scrollY);
   syncBulk(groups);
 }
 

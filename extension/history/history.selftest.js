@@ -268,6 +268,33 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   }
 
 
+  // T8: the list as laid out: entries 100px tall from y=50, each found by its data-key in the html.
+  {
+    const win = ctx.window;
+    win.scrollY = 0;
+    win.scrollTo = (x, y) => (win.scrollY = y);
+    win.scrollBy = (x, y) => (win.scrollY += y);
+    const realQsa = els.list.querySelectorAll;
+    els.list.querySelectorAll = (sel) =>
+      sel !== ".entry" ? [] : [...html.matchAll(/data-key="([^"]*)"/g)].map((m, i) => ({
+        dataset: { key: m[1].replace(/&amp;/g, "&") },
+        getBoundingClientRect: () => ({ top: 50 + i * 100 - win.scrollY, bottom: 150 + i * 100 - win.scrollY })
+      }));
+    const keys = () => els.list.querySelectorAll(".entry").map((e) => e.dataset.key);
+    const firstInView = () => els.list.querySelectorAll(".entry").find((e) => e.getBoundingClientRect().bottom > 0);
+    const reload = async () => (onChanged({ mdg_ai_conversations_v1: {} }, "local"), await wait(350));
+    // (a) A conversation saved in the background lands on top: the entry being read stays where it was.
+    win.scrollY = 270;
+    const read = firstInView();
+    const at = read.getBoundingClientRect().top;
+    store.mdg_ai_conversations_v1 = [...store.mdg_ai_conversations_v1, { ...conv("new", "新对话"), createdAt: 9e12, updatedAt: 9e12 }];
+    await reload();
+    assert.strictEqual(keys()[0], "new", "the new entry is on top");
+    assert.deepStrictEqual([firstInView().dataset.key, firstInView().getBoundingClientRect().top, win.scrollY], [read.dataset.key, at, 370]);
+    els.list.querySelectorAll = realQsa;
+  }
+
+
   // B7: several entries download as one file dated by the local day, not UTC.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
