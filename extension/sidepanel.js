@@ -139,7 +139,6 @@ function bindEvents() {
   });
   els.input.addEventListener("input", () => {
     autosizeInput();
-    syncSummaryButton();
   });
   turnSpacer.className = "sp-turn-spacer";
   turnSpacer.setAttribute("aria-hidden", "true");
@@ -440,19 +439,13 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
   return true;
 }
 
-// The AI 总结 button only fills an empty input, so with text in it the button is off and says why.
-function syncSummaryButton() {
-  const button = suggestionsNode?.querySelector('.sp-summary-btn[data-act="summary"]');
-  if (button) setDisabledReason(button, els.input.value.trim() ? "输入框里有文字，清空后才能填入 AI 总结" : "", aiPrefs.playerAiQuickPrompt);
-}
-
-// AI 总结 never sends by itself: it fills an empty input and leaves the send to the user.
+// AI 总结 from the popup, ✦ or a video switch never sends by itself: it fills an empty input and leaves the send to the
+// user. The panel's own AI 总结 button sends (sendSummary).
 function fillPrompt(prompt) {
   if (!els.input.value.trim()) {
     els.input.value = prompt;
   }
   autosizeInput();
-  syncSummaryButton();
   els.input.focus();
   const end = els.input.value.length;
   els.input.setSelectionRange(end, end);
@@ -492,7 +485,6 @@ async function runEffect(effect) {
       if (typed && effect.from !== effect.to) drafts.set(effect.from, typed);
       els.input.value = drafts.get(effect.to) || "";
       drafts.delete(effect.to);
-      syncSummaryButton();
       return autosizeInput();
     }
     case "fill":
@@ -791,13 +783,12 @@ function renderSuggestions() {
     if (card) node.prepend(card);
     Object.assign(node.dataset, { html, video });
     node.querySelector('[data-act="settings"]')?.addEventListener("click", () => chrome.runtime.openOptionsPage());
-    node.querySelector('[data-act="summary"]')?.addEventListener("click", () => fillPrompt(summary.prompt));
+    node.querySelector('[data-act="summary"]')?.addEventListener("click", () => sendSummary(summary.prompt));
     if (video) void renderTriageSummary(node);
   }
   if (!summary) {
     return;
   }
-  syncSummaryButton();
   void act({ type: "SUMMARY_SHOWN", prompt: summary.prompt });
 }
 
@@ -907,6 +898,12 @@ function startFollowupMarquee(btn) {
   btn.style.setProperty("--marquee-shift", `-${shift}px`);
   btn.style.setProperty("--marquee-duration", `${(2 + shift / 20).toFixed(2)}s`);
   btn.classList.add("is-marquee");
+}
+
+// The panel's AI 总结 sends at once. The prompt a video switch filled in goes with it, so it is not left in the box.
+function sendSummary(prompt) {
+  if (els.input.value.trim() === prompt.trim()) void sendMessage();
+  else sendPrompt(prompt);
 }
 
 // 快捷追问 sends its text as is; the input box and what is typed there stay.
