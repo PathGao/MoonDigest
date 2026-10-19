@@ -67,8 +67,8 @@ assert.throws(() => t.triageParseLlm('{"points":[]}'), /缺少一句话总结/);
 
 // title line
 assert.strictEqual(
-  t.triageTitleLine({ title: "a|b\nc", upper: "UP", duration: 125, pubdate: new Date(2024, 4, 30, 12).getTime() / 1000, intro: "简".repeat(150) }, 3),
-  `3|a b c|UP|2:05|2024-05-30|${"简".repeat(120)}`
+  t.triageTitleLine({ title: "a|b\nc", upper: "UP", duration: 125, pubdate: new Date(2024, 4, 30, 12).getTime() / 1000, intro: "简".repeat(300) }, 3),
+  `3|a b c|UP|2:05|2024-05-30|${"简".repeat(255)}`
 );
 assert.strictEqual(t.triageTitleLine({ title: "T", upper: "U", duration: 0, intro: "" }, 1), "1|T|U|||", "no publish date or duration leaves its field empty, not 0:00");
 // An hour and up reads 1:15:00, as on the cards (the old copy here wrote 75:00).
@@ -136,8 +136,8 @@ assert.deepStrictEqual(plain(t.triageTagNames(["AI", " 编程 ", "", null])), ["
 
 // command line + messages
 assert.strictEqual(
-  t.triageCommandLine({ title: "T|x", upper: "U", duration: 61, intro: "简介|第二行\n" + "长".repeat(200), currentTags: ["AI", "编程"], oneLiner: "一句", points: ["p1", "p2", "p3"] }, 2),
-  `2|T x|U|1:01|${("简介 第二行 " + "长".repeat(200)).slice(0, 120)}|AI、编程|一句|p1；p2；p3`
+  t.triageCommandLine({ title: "T|x", upper: "U", duration: 61, intro: "简介|第二行\n" + "长".repeat(300), currentTags: ["AI", "编程"], oneLiner: "一句", points: ["p1", "p2", "p3"] }, 2),
+  `2|T x|U|1:01|${("简介 第二行 " + "长".repeat(300)).slice(0, 255)}|AI、编程|一句|p1；p2；p3`
 );
 assert.strictEqual(t.triageCommandLine({ title: "T" }, 1), "1|T||||||");
 const cmdMsgs = t.triageBuildCommandMessages({ instruction: "把讲 AI 的都标上", tags: ["AI", "编程"], items: [{ bvid: "BV1", title: "T" }] });

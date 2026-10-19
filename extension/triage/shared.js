@@ -537,9 +537,10 @@
 
   // Titles one 粗看 request carries (fixed, not a setting; the output limit's 自动 grows with it).
   const TITLES_PER_REQUEST = 20;
-  // 粗看 and ✦ AI 打标签 send the first INTRO_CHARS of each description; 细看 reads DEEP_COMMENTS hot comments when a
+  // 粗看 and ✦ AI 打标签 send the first INTRO_CHARS of each description (B站's folder list cuts descriptions at 255,
+  // so this sends all it gives; 稍后再看's full ones get cut here); 细看 reads DEEP_COMMENTS hot comments when a
   // video has no subtitle (fewer than a note's MdgLimits.HOT_COMMENTS: the AI only needs the gist).
-  const INTRO_CHARS = 120;
+  const INTRO_CHARS = 255;
   const DEEP_COMMENTS = 10;
   // Fixed numbers the hints quote, through [data-hint-num="key"] spans that fillNumHints fills (options.html, triage.html).
   const hintNums = () => ({
