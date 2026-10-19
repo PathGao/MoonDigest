@@ -743,14 +743,12 @@ const chatOn = (context) => {
     vm.runInContext("providers = [{}]; settingsReadFailed = false", ctx);
   }
 
-  // C320: AI 总结 only fills an empty box: with text in it the button is off and says why.
+  // C320: the panel's AI 总结 sends at once; the prompt a video switch filled goes with it, typed text stays.
   {
-    const btn = el();
-    ctx.__sugg = { querySelector: (q) => (q.includes("summary") ? btn : null) };
-    vm.runInContext('suggestionsNode = __sugg; els.input.value = "草稿"; syncSummaryButton()', ctx);
-    assert.deepStrictEqual([btn.disabled, btn.title], [true, "输入框里有文字，清空后才能填入 AI 总结"]);
-    vm.runInContext('els.input.value = ""; syncSummaryButton(); suggestionsNode = null', ctx);
-    assert.strictEqual(btn.disabled, false);
+    vm.runInContext('__realSend = sendMessage; __sent = []; sendMessage = async (p) => { __sent.push(p === undefined ? ["box", els.input.value] : ["prompt", p]); }', ctx);
+    vm.runInContext('els.input.value = "总结一下"; sendSummary("总结一下"); els.input.value = "草稿"; sendSummary("总结一下")', ctx);
+    assert.deepStrictEqual(JSON.parse(vm.runInContext("JSON.stringify(__sent)", ctx)), [["box", "总结一下"], ["prompt", "总结一下"]]);
+    vm.runInContext('sendMessage = __realSend; els.input.value = ""', ctx);
   }
 
   // C323: the chip offers to go to the video only on a video.
