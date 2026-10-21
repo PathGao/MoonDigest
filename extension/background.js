@@ -984,6 +984,15 @@ function trimAiHistory(history) {
   return { messages: items.slice(start), dropped: start };
 }
 
+// The default 系统提示词 is written for videos (字幕与评论, 时间戳); on a web page its words become the page's. A prompt the
+// user wrote goes as written.
+const PAGE_DEFAULT_SYSTEM_PROMPT = MdgSettings.DEFAULTS.aiSystemPrompt
+  .replace("视频内容分析助手", "网页阅读助手")
+  .replace("基于字幕与评论", "基于网页正文")
+  .split("\n")
+  .filter((line) => !line.includes("时间戳"))
+  .join("\n");
+
 // A web page the side panel read (pageAccess ready): its main text, sampled like a long subtitle.
 function pageAiSections(ctx, notices) {
   const body = sampleAiSubtitle(ctx.pageMarkdown);
@@ -1045,7 +1054,8 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const trimmed = trimAiHistory(history);
   const notices = [];
   const sections = ctx.isVideoContext === false ? pageAiSections(ctx, notices) : videoAiSections(ctx, notices);
-  const customSystemPrompt = normalizeAiSystemPrompt(systemPrompt);
+  const own = normalizeAiSystemPrompt(systemPrompt);
+  const customSystemPrompt = ctx.isVideoContext === false && own === MdgSettings.DEFAULTS.aiSystemPrompt ? PAGE_DEFAULT_SYSTEM_PROMPT : own;
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);
   }

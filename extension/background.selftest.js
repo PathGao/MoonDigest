@@ -297,6 +297,12 @@ process.on("exit", (code) => {
   assert.match(pageSystem, /以下是额外系统要求：\n自定义要求/);
   assert.doesNotMatch(pageSystem, /字幕|评论|视频/);
   assert.deepStrictEqual([...pageAsk.notices], []);
+  // The default 系统提示词 speaks of videos: on a page it is the page's version, with its other rules kept.
+  const pageDefault = ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: ctx.MdgSettings.DEFAULTS.aiSystemPrompt }).messages[0].content;
+  assert.match(pageDefault, /以下是额外系统要求：\n你是一名专业的网页阅读助手。\n基于网页正文提炼高价值信息/);
+  assert.match(pageDefault, /不得猜测或编造/);
+  assert.doesNotMatch(pageDefault, /字幕|视频|时间戳/);
+  assert.ok(ctx.buildAiMessages({ context: { isVideoContext: true, subtitleMarkdown: "字幕" }, userPrompt: "q", systemPrompt: ctx.MdgSettings.DEFAULTS.aiSystemPrompt }).messages[0].content.includes(ctx.MdgSettings.DEFAULTS.aiSystemPrompt), "a video keeps it");
   const longPage = ctx.buildAiMessages({ context: { ...pageCtx, pageMarkdown: Array.from({ length: 4000 }, (_, i) => `第 ${i} 行 ${"字".repeat(40)}`).join("\n") }, userPrompt: "q" });
   assert.ok(longPage.messages[0].content.length < 62000);
   assert.match(longPage.messages[0].content, /全文过长，均匀抽取了约 1\/\d+ 的行/);
