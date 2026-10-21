@@ -497,6 +497,105 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     pick(pageKey, false);
   }
 
+  // ✦ AI 打标签: one request per batch keyed by record (a video's parts are one record, a web page is one), the proposal
+  // applied in one marks write, new tags within READING_TAGS.
+  {
+    const MARKS = ctx.MdgLimits.KEYS.readingMarks;
+    const BV = "BV1star00001";
+    const videoKey = `video:bilibili:${BV}|`;
+    const pageKey = "page:https://example.com/post";
+    const qa = (q) => [{ role: "user", content: q }, { role: "assistant", content: "答" }];
+    const part = (n) => ({ id: `s${n}`, contextKey: `video:bilibili:${BV}|c${n}`, title: "星标视频", contextRef: { site: "bilibili", videoId: BV, cid: `c${n}`, pageIndex: n, title: "星标视频", url: `https://www.bilibili.com/video/${BV}` }, createdAt: n, updatedAt: 10 + n, messages: qa(`第${n}P 讲了什么`) });
+    const web = { id: "w", contextKey: pageKey, title: "一篇文章", contextUrl: "https://example.com/post", contextRef: { title: "一篇文章", url: "https://example.com/post", isVideoContext: false }, createdAt: 1, updatedAt: 1, messages: qa("这篇的结论") };
+    const old = { id: "t1", name: "旧", color: "#111111" };
+    const reset = async (tags = [old]) => {
+      for (const k of Object.keys(store)) delete store[k];
+      Object.assign(store, {
+        mdg_ai_conversations_v1: [part(1), part(2), web],
+        [ctx.MdgLimits.KEYS.triageAnalysis(BV)]: { status: "done", oneLiner: "讲 Transformer", points: [] },
+        [ctx.MdgLimits.KEYS.triageNotes]: { [BV]: { text: "值得再看", updatedAt: 1 } },
+        [MARKS]: { tags, items: {} }
+      });
+      onChanged({ [MARKS]: {} }, "local");
+      await wait(350);
+    };
+    await reset();
+    const plain = (v) => JSON.parse(JSON.stringify(v ?? null));
+    let ad = null;
+    const realOpen = ctx.TagDialogs.ai.open;
+    ctx.TagDialogs.ai.open = (a) => (ad = a);
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
+    await wait(20);
+    assert.ok(els.filters.innerHTML.includes('data-f="ai"') && ad?.who === "记录", "「✦ AI 打标签」 opens the dialog with 摘读记录's adapter");
+    // Scopes: 当前筛选 counts records (the video's two parts once); 选中 counts the selected ones, hidden or not.
+    const scopes = () => plain(ad.scopes().map((s) => [s.value, s.n, s.shown]));
+    assert.deepStrictEqual(scopes(), [["filter", 2, null], ["selected", 0, 0]]);
+    pick(`video:bilibili:${BV}|c1`, true);
+    pick(`video:bilibili:${BV}|c2`, true);
+    assert.deepStrictEqual(scopes(), [["filter", 2, null], ["selected", 1, 1]]);
+    await search("一篇文章");
+    assert.deepStrictEqual(scopes(), [["filter", 1, null], ["selected", 1, 0]], "a hidden selection still counts in n, not in shown");
+    await search("");
+    pick(`video:bilibili:${BV}|c1`, false);
+    pick(`video:bilibili:${BV}|c2`, false);
+    assert.strictEqual(ad.room(), 5, "the new-tag cap's default");
+
+    // A run: one request with both records by key, what the AI reads of each.
+    const sent = [];
+    const answer = { newTags: ["新"], assignments: { [videoKey]: { add: ["新", "旧"], remove: [] }, [pageKey]: { add: ["旧"], remove: [] } }, note: "按主题分" };
+    ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), { ok: true, data: answer });
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    assert.strictEqual(sent.length, 1);
+    const { type, items, tags, maxNewTags } = sent[0];
+    assert.deepStrictEqual([type, tags, maxNewTags], ["triage-reading-ai-tag", [{ name: "旧", rule: "" }], 5]);
+    const byId = Object.fromEntries(items.map((it) => [it.id, it]));
+    assert.deepStrictEqual(Object.keys(byId).sort(), [pageKey, videoKey]);
+    assert.deepStrictEqual(byId[videoKey], { id: videoKey, title: "星标视频", site: "B站", oneLiner: "讲 Transformer", note: "值得再看", questions: ["第2P 讲了什么", "第1P 讲了什么"], currentTags: [] });
+    assert.deepStrictEqual([byId[pageKey].site, byId[pageKey].questions], ["网页", ["这篇的结论"]]);
+    assert.deepStrictEqual(plain(ad.proposal().rows.map((r) => [r.id, r.add]).sort()), [[pageKey, ["id:t1"]], [videoKey, ["new:新", "id:t1"]]]);
+
+    // 应用: the new tag and both records' tags in one marks write; a page keeps its address.
+    const realSet = ctx.chrome.storage.local.set;
+    let writes = 0;
+    ctx.chrome.storage.local.set = async (o) => ((writes += MARKS in o), Object.assign(store, o));
+    await ad.apply();
+    const made = store[MARKS].tags.find((t) => t.name === "新");
+    assert.ok(made, plain(store[MARKS].tags));
+    assert.deepStrictEqual(plain([writes, [...store[MARKS].items[videoKey].tags].sort(), store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [1, ["t1", made.id].sort(), ["t1"], "https://example.com/post"]);
+    assert.strictEqual(ad.proposal(), null);
+    assert.ok(html.includes(">新</span>"), "the chips show on the records");
+
+    // Room: never past READING_TAGS (50); 应用 creates only what fits.
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, name: `标签${i}`, color: "#222222" }));
+    await reset(many(48));
+    assert.strictEqual(ad.room(), 2);
+    await reset(many(50));
+    assert.strictEqual(ad.room(), 0, "full: the AI may make none");
+    await reset(many(49));
+    assert.strictEqual(ad.room(), 1);
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true, data: { newTags: ["甲", "乙"], assignments: { [videoKey]: { add: ["甲", "乙"], remove: [] } }, note: "" } });
+    await ad.run({ instruction: "分", scope: "filter", allowRemove: false });
+    writes = 0;
+    await ad.apply();
+    assert.deepStrictEqual(plain([writes, store[MARKS].tags.length, store[MARKS].items[videoKey].tags.length]), [1, 50, 1], "one of the two new tags fits");
+    assert.match(els.status.textContent, /1 个新标签没有建/);
+
+    // A tag deleted while the run waits for the AI: the proposal naming it is dropped, not kept for 应用.
+    await reset();
+    ctx.chrome.runtime.sendMessage = async () => {
+      store[MARKS] = { tags: [], items: {} };
+      onChanged({ [MARKS]: {} }, "local");
+      await wait(350);
+      return { ok: true, data: answer };
+    };
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    assert.strictEqual(ad.proposal(), null);
+    assert.ok(els.status.textContent.includes(ctx.TriageUi.AI_TAG_GONE), els.status.textContent);
+
+    ctx.chrome.storage.local.set = realSet;
+    ctx.TagDialogs.ai.open = realOpen;
+  }
+
   // B7: several entries download as one file dated by the local day, not UTC.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };

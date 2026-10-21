@@ -8,6 +8,45 @@
   const manageDlg = $("tagManageDialog");
   const aiDlg = $("aiTagDialog");
   if (!manageDlg || !aiDlg) return;
+  // The page has the empty dialog; its markup is here, so the 分拣台 and 摘读记录 share one copy.
+  aiDlg.innerHTML = `<form method="dialog">
+        <h2 id="aiTagTitle">AI 打标签</h2>
+        <section id="aiForm" class="ai-section">
+          <p id="aiHint" class="dialog-hint"></p>
+          <div class="ai-grid">
+            <label for="aiInstruction">指令</label>
+            <textarea id="aiInstruction" rows="3"></textarea>
+            <div id="aiHistory" class="ai-history"></div>
+            <label for="aiScope">作用范围</label>
+            <select id="aiScope"></select>
+            <p id="aiScopeCount" class="dialog-meta"></p>
+            <div id="aiTagsPreview"></div>
+            <label class="toggle"><input id="aiRemoveInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
+          </div>
+          <p id="aiProgress" class="dialog-meta" aria-live="polite"></p>
+          <div class="dialog-actions">
+            <span class="spacer"></span>
+            <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
+            <button id="aiStopBtn" type="button" class="danger" aria-label="${MdgErrors.LABEL.stop}" hidden>${MdgErrors.LABEL.stop}</button>
+            <button id="aiRunBtn" type="button" class="primary" aria-label="运行 AI 打标签">${UI.AI_SPARK}运行</button>
+          </div>
+        </section>
+        <section id="aiReview" class="ai-section" hidden>
+          <h3>检查 AI 的建议 <span id="aiReviewSummary" class="dialog-meta"></span></h3>
+          <div id="aiNotes"></div>
+          <h3 id="aiNewTagsHead">新标签</h3>
+          <div id="aiNewTags" class="tag-rows"></div>
+          <h3>改动汇总</h3>
+          <div id="aiRows" class="ai-tally"></div>
+          <p id="aiReviewHint" class="dialog-hint"></p>
+          <div id="aiRecentMeta" class="dialog-meta"></div>
+          <div class="dialog-actions">
+            <span class="spacer"></span>
+            <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
+            <button id="aiApplyBtn" type="button" class="primary">应用</button>
+          </div>
+        </section>
+      </form>`;
 
   // ----- 标签管理 (and 关注's 分组管理, the same list of named things) -----
   // a = { who: 视频 | UP 主, hint() (where the tags live, the limit), reason() ("" or why nothing can be edited here),
@@ -100,7 +139,8 @@
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), stopping() (stop was pressed and the batch in flight still runs), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
   // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none),
-  // allTags?() (every tag when tags() shows one per name; tags() otherwise) }.
+  // allTags?() (every tag when tags() shows one per name; tags() otherwise), applied?() (what 应用 leaves, for a mode without
+  // 「AI 刚打的」 and U; the 分拣台's words otherwise) }.
   // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
   const allTags = (a) => (a.allTags || a.tags)();
   const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, allTags(a)));
@@ -214,8 +254,9 @@
     </div>`;
       })
       .join("");
-    $("aiReviewHint").textContent = `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${UI.AI_RECENT_CHECK}。`;
-    $("aiRecentMeta").innerHTML = `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
+    const applied = a.applied?.();
+    $("aiReviewHint").textContent = applied || `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${UI.AI_RECENT_CHECK}。`;
+    $("aiRecentMeta").innerHTML = applied ? "" : `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
     renderTally(p);
   }
   function renderTally(p) {

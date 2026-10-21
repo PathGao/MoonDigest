@@ -60,6 +60,8 @@
     // 摘读记录's 星标 and tags: { tags: [{ id, name, color, rule }], items: { [record key]: { star, tags, ref, updatedAt } } }.
     // The record key is MdgNote.readingKey; ref keeps the title and address, so a record stays after its conversations go.
     readingMarks: "mdg_reading_marks_v1",
+    // 摘读记录's ✦ AI 打标签 instructions, newest first (TriageUi.aiHistoryAdd).
+    readingAiHistory: "mdg_reading_ai_history_v1",
     triageSeenMeta: "triage_seen_meta",
     // The 分拣台's folder choice and 判断标准: settings kept in local, carried by the settings file.
     triageIncludedFolders: "triage_included_folders",

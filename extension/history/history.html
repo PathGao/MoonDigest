@@ -6,6 +6,7 @@
     <title>MoonDigest · 摘读记录</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./history.css" />
+    <link rel="stylesheet" href="../triage/tags.css" />
   </head>
   <body>
     <header class="topbar">
@@ -26,8 +27,8 @@
     <div id="filters" class="filterbar" role="group" aria-label="筛选"></div>
     <main id="list" class="list"><p class="empty" data-text="loading">正在加载…</p></main>
 
-    <!-- The 分拣台's tag picker and 标签管理, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their words
-         when they open. tag-dialogs.js also needs #aiTagDialog; 摘读记录 has no AI 打标签, so it stays empty. -->
+    <!-- The 分拣台's tag picker, 标签管理 and AI 打标签, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their
+         words when they open, and tag-dialogs.js writes AI 打标签's markup. -->
     <dialog id="tagPicker" aria-labelledby="tagPickerTitle">
       <form method="dialog">
         <h2 id="tagPickerTitle" class="tp-title"></h2>
@@ -50,7 +51,7 @@
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
-    <dialog id="aiTagDialog"></dialog>
+    <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle"></dialog>
 
     <script src="../common.js"></script>
     <script src="../errors.js"></script>

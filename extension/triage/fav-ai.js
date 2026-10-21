@@ -408,7 +408,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   // A tag deleted during the run is still named by the batches before it: dropped like a saved proposal (pruneAiProposals).
   if (p && !UI.aiProposalOk(p, (id) => Boolean(tagById(id)))) {
     p = null;
-    errors.push("运行期间删除了建议用到的标签，请重新运行");
+    errors.push(UI.AI_TAG_GONE);
     TagDialogs.ai.progress(aiTags, errors.at(-1), folder);
   }
   if (p) {

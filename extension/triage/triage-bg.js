@@ -114,6 +114,8 @@ function triageCommandLine(item, n) {
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签，remove 只留视频现有标签且要 allowRemove；
 // 其他字段（如 verdict）一律丢弃，无改动的视频不返回。新建个数不在这里砍：超出上限的由检查页提示，用户自己取舍
+// An item by its id (摘读记录's record key), else its bvid (收藏夹's video, 关注's mid).
+const triageItemId = (item) => item?.id || item?.bvid;
 function triageParseCommand(content, items, tags, { allowRemove = false } = {}) {
   const obj = triageExtractJson(content, "{");
   const existing = new Set(triageTagNames(tags));
@@ -131,14 +133,14 @@ function triageParseCommand(content, items, tags, { allowRemove = false } = {}) 
   const assignments = {};
   items.forEach((item, idx) => {
     const r = byIndex.get(idx + 1);
-    if (!r || !item?.bvid) return;
+    if (!r || !triageItemId(item)) return;
     const current = new Set(triageTagNames(item.currentTags));
     const pick = (arr, ok) => [...new Set((Array.isArray(arr) ? arr : []).map((x) => TriageUi.cleanTagName(x)))].filter((x) => x && ok(x));
     const a = {
       add: pick(r.add, (x) => valid.has(x) && !current.has(x)),
       remove: allowRemove ? pick(r.remove, (x) => current.has(x)) : []
     };
-    if (a.add.length || a.remove.length) assignments[item.bvid] = a;
+    if (a.add.length || a.remove.length) assignments[triageItemId(item)] = a;
   });
   return { newTags, assignments, note: String(obj.note ?? "").trim() };
 }
@@ -219,6 +221,20 @@ const TRIAGE_AI_UNIT = {
   basis: "- 有“一句话”和“要点”的视频以它们为主要依据，它们比标题可靠得多。",
   header: `视频列表，每行格式：序号|标题|UP主|时长|简介前${TriageUi.INTRO_CHARS}字|现有标签|一句话|${triagePointNames.join("；")}（没有的字段留空）：`,
   line: triageCommandLine
+};
+// One record per line: n|title|type|分拣台 AI 总结|备注 (first INTRO_CHARS)|questions (；, 60 chars each)|tags
+function readingAiLine(item, n) {
+  const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
+  const list = (a, sep, max = Infinity) => (Array.isArray(a) ? a.map((x) => clean(x).slice(0, max)).filter(Boolean) : []).join(sep);
+  return [n, clean(item.title), clean(item.site), clean(item.oneLiner), clean(item.note).slice(0, TriageUi.INTRO_CHARS), list(item.questions, "；", 60), list(item.currentTags, "、")].join("|");
+}
+// 摘读记录 (history.js): videos and web pages, by record key (id).
+const READING_AI_UNIT = {
+  intro: "你是摘读记录整理助手，按用户指令给用户看过、问过 AI 的视频和网页打标签、做分类。",
+  noun: "记录",
+  basis: "- 有“AI 总结”的记录以它为主要依据；“提问”是用户问 AI 的问题，说明用户关心什么。",
+  header: `记录列表，每行格式：序号|标题|类型|AI 总结|备注前${TriageUi.INTRO_CHARS}字|提问（；分隔）|现有标签（没有的字段留空）：`,
+  line: readingAiLine
 };
 // The user's instruction sits between these two lines; the system prompt names them.
 const TRIAGE_INSTRUCTION_MARKS = ["<<<指令>>>", "<<<指令结束>>>"];
@@ -773,7 +789,7 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
 async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
-  const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
+  const list = (Array.isArray(items) ? items : []).filter(triageItemId);
   if (!list.length) throw triageError("缺少 items");
   const ai = await triageAiSettings();
   const opts = { maxNewTags: TriageUi.numSetting("newTagMax", maxNewTags), allowRemove: allowRemove === true };
@@ -985,6 +1001,7 @@ const TRIAGE_HANDLERS = {
   "triage-classify-titles": (msg) => triageClassifyTitles(msg),
 
   "triage-ai-command": (msg) => triageAiCommand(msg),
+  "triage-reading-ai-tag": (msg) => triageAiCommand(msg, READING_AI_UNIT),
 
   "triage-title-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];

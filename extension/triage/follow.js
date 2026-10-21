@@ -1349,7 +1349,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   // A tag deleted during the run is still named by the batches before it: dropped as a stored one is (derive), as 收藏夹's.
   if (proposal && !UI.aiProposalOk(proposal, tagOf)) {
     proposal = null;
-    errors.push("运行期间删除了建议用到的标签，请重新运行");
+    errors.push(UI.AI_TAG_GONE);
     progress(errors.at(-1));
   }
   setAiProposal(proposal);

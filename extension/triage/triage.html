@@ -6,6 +6,7 @@
     <title>MoonDigest · B站分拣台</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./triage.css" />
+    <link rel="stylesheet" href="./tags.css" />
     <link rel="stylesheet" href="./follow.css" />
   </head>
   <body>
@@ -276,7 +277,8 @@
       </form>
     </dialog>
 
-    <!-- 标签管理 and ✦ AI 打标签: one of each for both modes; tag-dialogs.js fills them from the mode's adapter. -->
+    <!-- 标签管理 and ✦ AI 打标签: one of each for both modes; tag-dialogs.js fills them from the mode's adapter (and writes
+         AI 打标签's markup, which 摘读记录 shares). -->
     <dialog id="tagManageDialog" class="wide" aria-labelledby="tagManageTitle">
       <form method="dialog">
         <h2 id="tagManageTitle">标签管理</h2>
@@ -295,46 +297,7 @@
       </form>
     </dialog>
 
-    <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle">
-      <form method="dialog">
-        <h2 id="aiTagTitle">AI 打标签</h2>
-        <section id="aiForm" class="ai-section">
-          <p id="aiHint" class="dialog-hint"></p>
-          <div class="ai-grid">
-            <label for="aiInstruction">指令</label>
-            <textarea id="aiInstruction" rows="3"></textarea>
-            <div id="aiHistory" class="ai-history"></div>
-            <label for="aiScope">作用范围</label>
-            <select id="aiScope"></select>
-            <p id="aiScopeCount" class="dialog-meta"></p>
-            <div id="aiTagsPreview"></div>
-            <label class="toggle"><input id="aiRemoveInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
-          </div>
-          <p id="aiProgress" class="dialog-meta" aria-live="polite"></p>
-          <div class="dialog-actions">
-            <span class="spacer"></span>
-            <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
-            <button id="aiStopBtn" type="button" class="danger" aria-label="停止" hidden data-text="stop">停止</button>
-            <button id="aiRunBtn" type="button" class="primary" aria-label="运行 AI 打标签"><span class="ai-spark" aria-hidden="true"></span>运行</button>
-          </div>
-        </section>
-        <section id="aiReview" class="ai-section" hidden>
-          <h3>检查 AI 的建议 <span id="aiReviewSummary" class="dialog-meta"></span></h3>
-          <div id="aiNotes"></div>
-          <h3 id="aiNewTagsHead">新标签</h3>
-          <div id="aiNewTags" class="tag-rows"></div>
-          <h3>改动汇总</h3>
-          <div id="aiRows" class="ai-tally"></div>
-          <p id="aiReviewHint" class="dialog-hint"></p>
-          <div id="aiRecentMeta" class="dialog-meta"></div>
-          <div class="dialog-actions">
-            <span class="spacer"></span>
-            <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
-            <button id="aiApplyBtn" type="button" class="primary">应用</button>
-          </div>
-        </section>
-      </form>
-    </dialog>
+    <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle"></dialog>
 
     <dialog id="helpDialog" aria-label="帮助">
       <form method="dialog">

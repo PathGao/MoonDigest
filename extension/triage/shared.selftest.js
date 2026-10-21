@@ -579,11 +579,11 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.
   assert.ok(!("ICON" in UI), "ICON is not exported");
 }
 
-// 「+ 标签 T」 has one look, in triage.css, wherever it shows (视频投稿 cards, UP cards, the viewer line).
+// 「+ 标签 T」 has one look, in tags.css, wherever it shows (视频投稿 cards, UP cards, the viewer line, 摘读记录).
 {
-  const [tc, fc] = ["triage.css", "follow.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8"));
-  assert.strictEqual((tc.match(/tag-plus \{/g) || []).length, 1, "triage.css styles 「+ 标签」 once, for every place");
-  assert.ok(!/tag-plus(:hover)? \{[^}]*(border|color|height|padding)/.test(fc), "follow.css has no 「+ 标签」 style of its own");
+  const [gc, ...others] = ["tags.css", "triage.css", "follow.css", "../history/history.css"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8"));
+  assert.strictEqual((gc.match(/tag-plus \{/g) || []).length, 1, "tags.css styles 「+ 标签」 once, for every place");
+  for (const css of others) assert.ok(!/tag-plus(:hover)? \{[^}]*(border|color|height|padding)/.test(css), "no other stylesheet has a 「+ 标签」 style of its own");
 }
 
 // Touch has no hover: a card's secondary actions (「更多」) show on every card, in both modes, by one triage.css rule.

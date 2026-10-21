@@ -86,6 +86,7 @@ function groupByVideo(items) {
 }
 
 const readingKey = (g) => MdgNote.readingKey(g.context);
+const siteOf = (g) => MdgSites.SITES[g.context.site]?.label || "网页";
 
 // 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order, its tags and 星标.
 function buildNote(group) {
@@ -113,6 +114,7 @@ async function saveMarks(edit) {
   try {
     marks = await MdgLimits.updateReadingMarks(edit);
     stored[MARKS_KEY] = marks;
+    dropStaleProposal();
     return true;
   } catch (error) {
     setStatus(`保存失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
@@ -202,6 +204,172 @@ const manageTags = {
   }
 };
 
+// ---------- ✦ AI 打标签 (tag-dialogs.js), as 关注's: the proposal waits in memory until 应用 writes it in one marks write ----------
+// ponytail: the settings are NUM_SETTINGS' defaults (batch size, interval, new-tag cap) with 去掉已有标签 off each time;
+// no 「AI 刚打的」, no U, and the proposal is lost on reload. Settings of its own if a list outgrows one batch.
+const AI_HISTORY = MdgLimits.KEYS.readingAiHistory;
+const AI = { excluded: new Set(), history: [], proposal: null, run: null }; // run: { stopping } while a run goes
+const AI_BATCH = UI.numSetting("aiBatch");
+const AI_GAP_MS = UI.numSetting("interval") * 1000;
+// Entries by record (a video's parts are one record), each record's entries in list order.
+function recordsOf(groups) {
+  const out = new Map();
+  for (const g of groups) if (readingKey(g)) out.set(readingKey(g), [...(out.get(readingKey(g)) || []), g]);
+  return out;
+}
+// 选中 counts the selected records the search and filters hide too, as the bulk buttons do.
+const aiRecords = (scope) => recordsOf(visibleGroups().filter((g) => scope !== "selected" || selected.has(g.key)));
+// What the AI reads of a record (its line in triage-bg.js readingAiLine): the 分拣台's one-liner is P1's.
+function aiItem(key, parts, excluded) {
+  const g = parts[0];
+  return {
+    id: key,
+    title: g.title,
+    site: siteOf(g),
+    oneLiner: parts.find((x) => x.analysis)?.analysis.oneLiner || "",
+    note: g.note?.text || "",
+    questions: parts.flatMap((x) => x.convs).flatMap((c) => MdgNote.buildConversationTurns(c.messages).map((t) => t.prompt)).slice(0, 3),
+    currentTags: tagsOf(g).map((t) => t.name).filter((name) => !excluded.has(name))
+  };
+}
+const aiRoom = () => Math.min(UI.numSetting("newTagMax"), Math.max(0, MdgLimits.READING_TAGS - marks.tags.length));
+// Records that exist now (live), with what their marks keep (refOf).
+const aiLive = () => new Map(groupByVideo(conversations).filter(readingKey).map((g) => [readingKey(g), refOf(g)]));
+// A proposal naming a deleted tag no longer fits: dropped, not applied.
+function dropStaleProposal() {
+  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) AI.proposal = null;
+}
+function aiProviderId() {
+  try {
+    return localStorage.getItem(MdgLimits.KEYS.aiSelectedProvider) || "";
+  } catch {
+    return "";
+  }
+}
+const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text));
+const aiTags = {
+  who: "记录",
+  sees: "标题、是视频还是网页、分拣台的 AI 总结、备注和你在 AI 对话里的前 3 个提问",
+  example: "按主题分成 编程、设计、生活，每条只打一个",
+  excluded: AI.excluded,
+  manage: manageTags,
+  tags: () => marks.tags,
+  scopes: () => [
+    { value: "filter", label: UI.scopeLabel.filter, n: aiRecords("filter").size },
+    { value: "selected", label: UI.scopeLabel.selected, n: recordsOf(groupByVideo(conversations).filter((g) => selected.has(g.key))).size, shown: aiRecords("selected").size }
+  ],
+  scopeText(scope) {
+    const n = aiRecords(scope).size;
+    return n ? `${n} 个记录${UI.batchesText(Math.ceil(n / AI_BATCH))}` : "作用范围里没有记录";
+  },
+  room: aiRoom,
+  roomHint: () => UI.aiRoomHint({ tags: marks.tags, excluded: AI.excluded, room: aiRoom(), full: `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个` }),
+  blocked: () => "",
+  history: () => AI.history,
+  allowRemove: () => false,
+  running: () => Boolean(AI.run),
+  proposal: () => AI.proposal,
+  run: runAi,
+  stop() {
+    if (AI.run) AI.run.stopping = true;
+  },
+  stopping: () => Boolean(AI.run?.stopping),
+  discard() {
+    AI.proposal = null;
+  },
+  apply: applyAi,
+  map: () => Object.fromEntries(Object.entries(marks.items).map(([key, item]) => [key, item.tags || []])),
+  live: aiLive,
+  tagName: (id) => tagOf(id)?.name,
+  applied: () => "应用后标签直接打在这些记录上，不能撤销；不对的在记录上点「+ 标签」改。"
+};
+async function openAi() {
+  if (!AI.run) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
+  TagDialogs.ai.open(aiTags);
+}
+
+// instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and records.
+// ponytail: one try per batch (no wait-and-resend on an AI 429 or timeout, as the 分拣台's aiJudge does); a setup or
+// access error ends the run, any other fails its batch.
+async function runAi({ instruction, scope, allowRemove }) {
+  const records = aiRecords(scope);
+  if (AI.run || !records.size) return;
+  const run = (AI.run = { stopping: false });
+  AI.history = UI.aiHistoryAdd(AI.history, instruction);
+  chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
+  const excluded = new Set(marks.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
+  const tags = marks.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
+  const items = [...records].map(([key, parts]) => aiItem(key, parts, excluded));
+  const opts = { tags: marks.tags, map: aiTags.map(), maxNewTags: aiRoom(), excluded, scope: new Set(records.keys()) };
+  const total = Math.ceil(items.length / AI_BATCH);
+  const p = { newTags: [], rows: [], notes: [], errors: [] };
+  let answered = 0;
+  for (let i = 0; i < total && !run.stopping; i++) {
+    for (let t = 0; i && t < AI_GAP_MS && !run.stopping; t += 200) await new Promise((r) => setTimeout(r, 200));
+    if (run.stopping) break;
+    aiProgress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
+    const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * AI_BATCH, (i + 1) * AI_BATCH), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
+    const r = await chrome.runtime.sendMessage(request).catch((error) => ({ ok: false, error: error.message }));
+    if (r?.ok) {
+      answered++;
+      UI.mergeAiBatch(p, r.data, opts);
+      continue;
+    }
+    p.errors.push(`第 ${i + 1} 批失败：${MdgErrors.text(r, MdgErrors.TEXT.unknown)}`);
+    if (MdgErrors.action(r?.code) === "settings" || r?.code === "AI_ACCESS") break;
+  }
+  if (run.stopping) p.errors.push(MdgErrors.LABEL.stopped);
+  // A new tag no record uses starts unticked, as on the 分拣台.
+  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(UI.aiRef.new(t.key)));
+  // A tag deleted during the run is still named by the batches before it.
+  if (answered && !UI.aiProposalOk(p, tagOf)) {
+    answered = 0;
+    p.errors.push(UI.AI_TAG_GONE);
+  }
+  AI.proposal = answered ? p : null;
+  AI.run = null;
+  aiProgress(answered ? "" : p.errors.join("；"));
+  if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
+  else if (answered) setStatus("AI 打标签已完成，点「✦ AI 打标签」确认建议");
+  else setStatus(UI.aiTagsFailed(p.errors.at(-1)), true);
+}
+
+// 应用: the checked new tags (within READING_TAGS) and every listed record's change, in one marks write. A failed write
+// keeps the proposal.
+async function applyAi() {
+  const p = AI.proposal;
+  if (!p) return;
+  AI.proposal = null;
+  const live = aiLive();
+  let changes = [];
+  let created = 0;
+  let full = 0;
+  const saved = await saveMarks((m) => {
+    const tags = [...m.tags];
+    const idFor = {};
+    created = full = 0;
+    for (const t of p.newTags) {
+      const name = MdgTagCore.cleanTagName(t.name);
+      if (!t.checked || !name) continue;
+      let tag = tags.find((x) => x.name === name);
+      if (!tag && tags.length < MdgLimits.READING_TAGS) {
+        tag = { id: MdgTagCore.newTagId("rt"), name, color: MdgTagCore.nextTagColor(tags) };
+        tags.push(tag);
+        created++;
+      }
+      if (tag) idFor[t.key] = tag.id;
+      else full++;
+    }
+    const map = Object.fromEntries(Object.entries(m.items).map(([key, item]) => [key, item.tags || []]));
+    changes = UI.aiChanges(p, map, live, (key) => idFor[key]);
+    const after = new Map(changes.map(([key, , ids]) => [key, ids.filter((id) => tags.some((t) => t.id === id))]));
+    return editItems({ ...m, tags }, Object.fromEntries(changes.map(([key]) => [key, live.get(key)])), (item, key) => ({ ...item, tags: after.get(key) }));
+  });
+  if (!saved) return void (AI.proposal = p);
+  const made = created ? `，新建 ${created} 个标签` : "";
+  setStatus(`${changes.length ? `AI 建议已应用到 ${changes.length} 个记录` : "没有记录的标签要改"}${made}${full ? `；${full} 个新标签没有建：${fullReason()}` : ""}`);
+}
+
 function renderTags(g) {
   const own = tagsOf(g).map((t) => `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`);
   const triage = triageTagsOf(g).map((t) => `<span class="chip triage-tag" style="--c:${esc(t.color)}" title="分拣台的标签，在分拣台里改">${esc(t.name)}</span>`);
@@ -213,7 +381,7 @@ function renderFilters(groups) {
   const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset.f;
   const stars = groups.filter((g) => g.mark?.star).length;
   const chips = marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: groups.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" }));
-  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button>`;
+  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button><button type="button" class="quiet" data-f="ai">${UI.AI_SPARK}AI 打标签</button>`;
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
@@ -325,7 +493,7 @@ function render() {
   rendering = true;
   els.list.innerHTML = groups.length
     ? groups.map((g) => {
-        const site = MdgSites.SITES[g.context.site]?.label || "网页";
+        const site = siteOf(g);
         const turnCount = g.convs.reduce((n, c) => n + MdgNote.buildConversationTurns(c.messages).length, 0);
         // A video whose title never arrived falls back to its id; show that as 未获取标题 with the id in the meta line.
         const untitled = g.title === g.context.videoId;
@@ -415,6 +583,7 @@ async function load() {
   triageTagById = new Map((all[TRIAGE_TAGS] || []).map((t) => [t.id, t]));
   triageVideoTags = all[TRIAGE_VIDEO_TAGS] || {};
   for (const id of [...tagFilter]) if (!tagOf(id)) tagFilter.delete(id);
+  dropStaleProposal();
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
   notes = Object.fromEntries(Object.entries(all[NOTES_KEY] || {}).filter(([, n]) => String(n?.text || "").trim()));
@@ -571,6 +740,7 @@ els.bulkTags.addEventListener("click", () => openPicker(visibleGroups().filter((
 els.filters.addEventListener("click", (event) => {
   const f = event.target.closest("[data-f]")?.dataset.f;
   if (f === "manage") return TagDialogs.manage.open(manageTags);
+  if (f === "ai") return void openAi();
   if (f === "star") starFilter = !starFilter;
   else if (f?.startsWith("tag:")) {
     const id = f.slice(4);
