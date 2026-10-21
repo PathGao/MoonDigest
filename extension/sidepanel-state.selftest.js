@@ -480,4 +480,38 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual(sent(w.load(ready)), [], "already readable: the user sends");
 }
 
+// The bar (上一个视频 / 上一个网页): leaving a page's conversation folds it, whatever the tab shows next; it stays while the
+// tab moves through pages without a conversation, readable or not, and changes only when another chatted one is left.
+{
+  const page = (id, extra) => ({ url: `https://example.com/${id}`, title: id, isVideoContext: false, pageAccess: "ready", pageMarkdown: "正文", ...extra });
+  const p = panel({ tab: page("A") });
+  p.ask("问A", "答A");
+  const a = p.view().id;
+  p.load(page("B"), { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().messages.length, p.view().context.url], [a, 0, "https://example.com/B"], "B: A folded");
+  p.load(blank, { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().context.url], [a, "chrome://newtab/"], "newtab: still A");
+  p.load(page("C", { pageAccess: "failed", pageError: "没有找到正文", pageMarkdown: undefined }), { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().context.pageAccess], [a, "failed"], "C failed: still A");
+  p.load(page("D"), { follow: true });
+  p.ask("问D", "答D");
+  const d = p.view().id;
+  assert.strictEqual(p.view().previousId, a, "D chatting: still A");
+  p.load({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }, { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().messages.length, p.view().context.pageAccess], [d, 0, "needPermission"], "leaving D (to a page before the grant): D folded");
+  // The same unreadable tab read again (focus, visibility) changes nothing.
+  assert.deepStrictEqual(types(p.load({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }, { follow: true })).filter((t) => t === "followed"), []);
+  // Straight from a chatted page to a tab that cannot be read: blocked state shown, the page's conversation in the bar.
+  const q = panel({ tab: page("E") });
+  q.ask("问E", "答E");
+  const e = q.view().id;
+  q.load(blank, { follow: true });
+  assert.deepStrictEqual([q.view().previousId, q.view().messages.length, q.view().context.url], [e, 0, "chrome://newtab/"]);
+  // Videos are as before: a chatted video stays shown on a page that cannot be read.
+  const r = panel();
+  r.ask("问", "答");
+  r.load(blank, { follow: true });
+  assert.deepStrictEqual([r.view().previousId, r.view().messages.length], ["", 2], "a video's conversation is kept");
+}
+
 console.log("sidepanel-state selftest: all passed");

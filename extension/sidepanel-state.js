@@ -147,6 +147,9 @@
 
   // ---- following the tab (跟随播放) ----
 
+  // Where a tab without a URL (Chrome hides it before the grant) is, for leaving a page's conversation.
+  const UNREADABLE = "about:blank#unreadable";
+
   // What a context load does with the tab's video.
   // state: shownUrl (the shown conversation's video), hasMessages, bound (a saved context or a reply in flight holds
   // the conversation), lastVideoUrl (the tab's video when a load last took or watched it), hasContext (a context was
@@ -498,9 +501,12 @@
         const before = snapshot(s);
         const keyChanged = contextKeyChanges(s, payload);
         const fillsShown = Boolean(shown(s)?.pending && key === shownKey(s));
+        // Leaving a web page's conversation folds it into the bar whatever the tab shows next, also a page that cannot be
+        // read (chrome://, an extension page, one whose URL Chrome hides before the grant).
+        const leavesPage = before.bound && shown(s)?.isVideoContext === false;
         s.live = { ...s.live, context: payload, key, error: "" };
-        // A web page is followed like a video; a page that can never be read (chrome://, an extension page) is not.
-        const toUrl = key && payload.pageAccess !== "unsupported" ? partUrl(payload) : "";
+        // A web page is followed like a video; a page that can never be read is not, except to leave a page's conversation.
+        const toUrl = key && (payload.pageAccess !== "unsupported" || leavesPage) ? partUrl(payload) : leavesPage ? UNREADABLE : "";
         const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged, fillsShown });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {
