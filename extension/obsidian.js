@@ -11,8 +11,9 @@ const obsidianWritten = (path) => `已写入 Obsidian：${path}`;
 const aiSectionResult = (path, updated) => (updated ? `已更新 AI 问答：${path}` : `AI 问答没有变化：${path}`);
 // Why a conversation went to its own note, after the path.
 const OWN_NOTE = "（单独的 AI 笔记）";
-// A recorded note without its open page cannot be rebuilt whole: the dialog disables 整篇覆盖 with this.
-const NEEDS_PAGE = "整篇覆盖要先打开视频页";
+// A recorded note without its open page (a video's, a web page's) cannot be rebuilt whole: the dialog disables 整篇覆盖
+// with this.
+const needsPage = (ref) => (ref.isVideoContext ? "整篇覆盖要先打开视频页" : "整篇覆盖要先打开这个网页");
 
 // Every Obsidian failure in the user's words. Code OBSIDIAN (not enabled, not set up, wrong key, an address that
 // answers 404) or OBSIDIAN_DOWN (closed, plugin off, nothing listening; 408 is fetchWithTimeout's timeout) fails every
@@ -194,9 +195,8 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   };
   let target;
   let built = null;
-  if (!key || (!ref.isVideoContext && !page?.markdown)) {
-    // A web page without its body (the tab closed, opened from 摘读记录): the conversation alone, linking the page's note.
-    target = standalone("", paths[key]?.path || "");
+  if (!key) {
+    target = standalone("", "");
   } else if (conversation && turns.length && !aiOn) {
     // 「附带 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
     target = standalone(OWN_NOTE, computedPath());
@@ -225,12 +225,14 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
       }
     }
   } else {
-    // A recorded note without its page (YouTube, 分 P): asked about like any other, but only its AI 问答 can change.
+    // A recorded note without its page (YouTube, 分 P, a web page whose tab is closed): asked about like any other, but
+    // only its AI 问答 can change. Without one, a web page's conversation is its own note as it always was.
     const recorded = section && paths[key]?.path;
     const note = recorded ? await readVaultNote(vault, recorded) : null;
+    const why = needsPage(ref);
     target = note?.exists
-      ? { video: true, path: recorded, note, fullReason: NEEDS_PAGE, body: async () => { throw new Error(NEEDS_PAGE); } }
-      : standalone(OWN_NOTE, computedPath());
+      ? { video: true, path: recorded, note, fullReason: why, body: async () => { throw new Error(why); } }
+      : ref.isVideoContext ? standalone(OWN_NOTE, computedPath()) : standalone("", "");
   }
 
   const { path } = target;
@@ -271,7 +273,7 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
   // Turned off is the user's choice; enabled but not set up fails as a manual write does.
   if (!settings.includeAiChatInNote || !settings.obsidianEnabled) return { path: "" };
   const done = await updateAiSectionInVault(obsidianConfig(settings), path, section, key);
-  return { path, ...done, text: done.exists ? aiSectionResult(path, done.updated) : "Obsidian 里的视频笔记已不存在，未写入" };
+  return { path, ...done, text: done.exists ? aiSectionResult(path, done.updated) : `Obsidian 里的${ref.isVideoContext ? "视频" : "网页"}笔记已不存在，未写入` };
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {

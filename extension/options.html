@@ -87,7 +87,7 @@
           <div class="row">
             <div class="lab">
               <label class="name" for="includeAiChatInNote">附带 AI 问答</label>
-              <p class="hint">把这个视频最近一段侧边栏对话写进笔记末尾的「AI 问答」。<span class="obsidian-only">写入 Obsidian 后，这一段随新回答更新，段内手改会被覆盖。</span></p>
+              <p class="hint">把这个视频或网页最近一段侧边栏对话写进笔记末尾的「AI 问答」。<span class="obsidian-only">写入 Obsidian 后，这一段随新回答更新，段内手改会被覆盖。</span></p>
             </div>
             <div class="ctl"><input id="includeAiChatInNote" type="checkbox" class="switch" /></div>
           </div>
@@ -306,11 +306,11 @@
               <div class="ctl">
                 <input id="noteFolder" class="mono" type="text" placeholder="MoonDigest/{{site}}" />
                 <div class="vars">
-                  <button class="var" type="button" data-var="{{site}}" title="网站：bilibili / youtube"><span class="mono">{{site}}</span>网站</button>
-                  <button class="var" type="button" data-var="{{author}}" title="UP 主或频道"><span class="mono">{{author}}</span>UP 主或频道</button>
+                  <button class="var" type="button" data-var="{{site}}" title="网站：bilibili / youtube，网页是「网页」"><span class="mono">{{site}}</span>网站</button>
+                  <button class="var" type="button" data-var="{{author}}" title="UP 主、频道或网页的作者"><span class="mono">{{author}}</span>作者</button>
                   <button class="var" type="button" data-var="{{created}}" title="导出日期" data-text="exportDate"><span class="mono">{{created}}</span><span data-text="exportDate">导出日期</span></button>
                   <button class="var" type="button" data-var="{{upload_date}}" title="发布日期" data-text="uploadDate"><span class="mono">{{upload_date}}</span><span data-text="uploadDate">发布日期</span></button>
-                  <button class="var" type="button" data-var="{{video_id}}" title="视频号：BV 号或 YouTube ID"><span class="mono">{{video_id}}</span>视频号</button>
+                  <button class="var" type="button" data-var="{{video_id}}" title="视频号：BV 号或 YouTube ID，网页为空"><span class="mono">{{video_id}}</span>视频号</button>
                 </div>
               </div>
             </div>

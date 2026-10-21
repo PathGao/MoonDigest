@@ -84,8 +84,8 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   const sa = els.selectAll;
   const reason = (id) => [els[id].disabled, els[id].title, els[id].attrs["aria-description"]];
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, false], "none selected: empty box");
-  assert.deepStrictEqual(reason("bulkMd"), [true, "先勾选视频", "先勾选视频"]);
-  assert.deepStrictEqual(reason("bulkDelete"), [true, "先勾选视频", "先勾选视频"]);
+  assert.deepStrictEqual(reason("bulkMd"), [true, "先勾选记录", "先勾选记录"]);
+  assert.deepStrictEqual(reason("bulkDelete"), [true, "先勾选记录", "先勾选记录"]);
   assert.deepStrictEqual(reason("clearAll"), [false, "", undefined], "conversations exist: clear-all usable, no reason");
   const pick = (key, checked) => {
     const target = { checked, dataset: { act: "pick" }, closest: (s) => (s === ".entry" ? { dataset: { key } } : target) };
@@ -132,7 +132,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.ok(renders > before && !html.includes("data-note"), "redrawn after the press, the box closed");
   pick("a", false);
   pick("b", false);
-  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的视频没有 AI 对话", "选中的视频没有 AI 对话"]]);
+  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的记录没有 AI 对话", "选中的记录没有 AI 对话"]]);
   // K13: each entry's button says what it deletes.
   assert.ok(html.includes('data-act="delete" class="danger">删除 AI 对话</button>'), html);
   // K10: 继续问 on a record that is not a video is off with why, through setReason.
@@ -316,7 +316,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await wait(20);
     settle.ok();
     await wait(20);
-    assert.ok(!html.includes('data-key="new"') && els.status.textContent === "已删除 1 个视频的 AI 对话");
+    assert.ok(!html.includes('data-key="new"') && els.status.textContent === "已删除 1 条记录的 AI 对话");
     // 清空全部 too: the list is empty before the write ends.
     for (const f of L.clearAll.click) void f({});
     await wait(20);

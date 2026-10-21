@@ -221,9 +221,22 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     resp = await send({ type: "sync-video-note-ai", ref: webRef, conversation: conversation("又问") });
     assert.deepStrictEqual([resp.path, resp.updated], ["N/网页/一篇文章.md", true]);
     assert.ok(vault.get("N/网页/一篇文章.md").includes("### 问：又问") && vault.get("N/网页/一篇文章.md").includes("正文第一段"));
+    // The page's tab closed (no body) with its note recorded: like a YouTube note without its page, asked about, and
+    // only 只更新 AI 问答 can be chosen; it then replaces only that section.
     resp = await write({ ref: webRef, conversation: conversation("历史") });
-    assert.deepStrictEqual([resp.path, resp.kind], ["N/网页/【AI笔记】一篇文章.md", "conversation"]);
-    assert.ok(vault.get(resp.path).includes('source: "[[N/网页/一篇文章]]"'), vault.get(resp.path));
+    assert.deepStrictEqual(resp, { ok: true, ask: true, path: "N/网页/一篇文章.md", hasAiSection: true, fullReason: "整篇覆盖要先打开这个网页" });
+    assert.deepStrictEqual(await write({ ref: webRef, conversation: conversation("历史"), mode: "full" }), { ok: false, error: "整篇覆盖要先打开这个网页" });
+    resp = await write({ ref: webRef, conversation: conversation("历史"), mode: "ai" });
+    assert.deepStrictEqual([resp.path, resp.kind], ["N/网页/一篇文章.md", "ai"]);
+    assert.ok(vault.get("N/网页/一篇文章.md").includes("### 问：历史") && vault.get("N/网页/一篇文章.md").includes("正文第一段"));
+    // No note recorded for the page: the conversation alone, as before.
+    const otherRef = { ...webRef, url: "https://example.com/other", title: "另一篇" };
+    resp = await write({ ref: otherRef, conversation: conversation("别处") });
+    assert.deepStrictEqual([resp.path, resp.kind, resp.text], ["N/网页/【AI笔记】另一篇.md", "conversation", "已写入 Obsidian：N/网页/【AI笔记】另一篇.md"]);
+    // The page's note deleted in the vault: auto-sync says so in a page's words.
+    vault.delete("N/网页/一篇文章.md");
+    resp = await send({ type: "sync-video-note-ai", ref: webRef, conversation: conversation("再问") });
+    assert.deepStrictEqual([resp.exists, resp.text], [false, "Obsidian 里的网页笔记已不存在，未写入"]);
   }
 
   // A26: 测试连接 passes only when the address answers the Local REST API's JSON, which names its service (F4).

@@ -1083,8 +1083,9 @@
     } catch {}
     const quoted = (key, value) => (value ? `${key}: "${escapeYaml(value)}"` : "");
     const tags = noteTags({}, settings);
-    // The user's 自定属性, by the video note's function; {{site}} is the host, {{upload_date}} the published date.
-    const meta = { title: page?.title, site: host, author: page?.author, uploadDate: page?.published };
+    // The user's 自定属性, by the video note's function. {{site}} is 网页 as in the folder template (one variable, one
+    // value everywhere; the host is the built-in site field), {{upload_date}} the published date.
+    const meta = { title: page?.title, site: "网页", author: page?.author, uploadDate: page?.published };
     const own = getFixedFrontmatterPropertyLines(settings, buildFrontmatterTemplateContext(meta, url, created, tags.join(", "), yamlList(tags)));
     const front = ["---", quoted("title", page?.title), quoted("url", url), quoted("site", host), quoted("author", page?.author), quoted("published", page?.published), quoted("created", created), `tags: ${yamlList(tags)}`, ...own, "---"];
     const markdown = `${front.filter(Boolean).join("\n")}\n\n${String(page?.pageMarkdown || "").trim()}`;

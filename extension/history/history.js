@@ -230,7 +230,7 @@ function syncBulk(groups = visibleGroups()) {
   // hidden by the search they say all of them and are disabled with HIDDEN_ALL, as on the 分拣台.
   const shown = shownPicks(groups);
   const n = shown.length || selected.size;
-  const none = !selected.size ? "先勾选视频" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
+  const none = !selected.size ? "先勾选记录" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
   els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
   // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
@@ -238,7 +238,7 @@ function syncBulk(groups = visibleGroups()) {
   setReason(els.bulkMd, none);
   // Only AI conversations are deleted here. A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only),
   // so the reason names no other place.
-  setReason(els.bulkDelete, none || (del ? "" : "选中的视频没有 AI 对话"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "");
+  setReason(els.bulkDelete, none || (del ? "" : "选中的记录没有 AI 对话"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "");
   setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
 }
 
@@ -293,8 +293,8 @@ async function removeConversations(keep, done, unselect = []) {
 
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
-  if (!keys.length || !confirm(`删除 ${keys.length} 个视频的全部 AI 对话？删除后不能恢复。`)) return;
-  await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 个视频的 AI 对话`, keys);
+  if (!keys.length || !confirm(`删除 ${keys.length} 条记录的全部 AI 对话？删除后不能恢复。`)) return;
+  await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 条记录的 AI 对话`, keys);
 }
 
 // Several videos go into one file like the triage batch export: one save prompt, frontmatter
@@ -307,7 +307,7 @@ function downloadGroups(groups) {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
     MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
   }
-  setStatus(`已下载 ${groups.length} 个视频的记录`);
+  setStatus(`已下载 ${groups.length} 条记录`);
 }
 
 // The background (write-video-note) decides where it goes, as for the side panel's 写入 Obsidian: the video note with

@@ -292,6 +292,9 @@ function autosizeInput() {
   els.input.style.height = `${els.input.scrollHeight}px`;
 }
 
+// What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
+const sourceKind = () => (state.view().nonVideo ? "网页" : "视频");
+
 // Why the shown conversation cannot be asked in at all: a web page not read, or a video that is gone.
 function readOnlyReason() {
   const { nonVideo, context } = state.view();
@@ -549,7 +552,7 @@ async function runEffect(effect) {
       // Another window's panel saved this conversation: drawn again, but never over a reply streaming here.
       return redrawConversation();
     case "resolve":
-      return hydratePinnedConversationContext({ silent: effect.silent, notice: showConversationContextNotice("正在加载原视频信息…") });
+      return hydratePinnedConversationContext({ silent: effect.silent, notice: showConversationContextNotice(`正在加载原${sourceKind()}信息…`) });
   }
 }
 
@@ -898,7 +901,7 @@ function followupBlockReason() {
     return MdgErrors.TEXT.subtitleReading;
   }
   if (!messages.length && !pinned && !context) {
-    return "打开一个视频后才能用快捷追问";
+    return "打开一个视频或网页后才能用快捷追问";
   }
   return "";
 }
@@ -1260,7 +1263,7 @@ function renderPreviousVideoBar() {
         <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
         <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
       </button>
-      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个视频" title="关闭">×</button>
+      <button type="button" class="sp-prev-dismiss" data-action="dismiss" aria-label="关闭上一个${kind}" title="关闭">×</button>
     </div>
     ${previousVideoExpanded ? `
     <div class="sp-prev-body">
@@ -1491,7 +1494,7 @@ function formatConversationTimestamp(value) {
 
 async function ensureCurrentContextForSend() {
   if (state.view().pinned) {
-    const notice = state.view().resolved ? null : showConversationContextNotice("正在加载原视频信息…");
+    const notice = state.view().resolved ? null : showConversationContextNotice(`正在加载原${sourceKind()}信息…`);
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext({ notice });
   }
@@ -1528,7 +1531,7 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   if (!contextRef) {
     notice?.remove();
     if (!silent) {
-      showConversationContextError("历史对话缺少原视频信息，无法继续。");
+      showConversationContextError(`历史对话缺少原${sourceKind()}信息，无法继续。`);
     }
     return false;
   }
@@ -1545,7 +1548,7 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   }
   // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back. Else a send tries again.
   const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
-  const text = gone ? VIDEO_GONE : `读取原视频失败：${MdgErrors.text(response)}`;
+  const text = gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}`;
   lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone };
   updateContextChip();
   if (!activeStream) setStreamingUiState(false);
