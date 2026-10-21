@@ -320,8 +320,7 @@
     return `${lines.join("\n").trim()}\n`;
   }
 
-  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done. Its last line starts
-  // with VERDICT_LINE (摘读记录 reads it back).
+  // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done.
   const VERDICT_LINE = "AI 判断：";
   function buildTriageSummary(analysis) {
     if (analysis?.status !== "done") {
@@ -1132,7 +1131,6 @@
     buildAiConversationFilename,
     buildAiConversationMarkdown,
     buildTriageSummary,
-    VERDICT_LINE,
     withTriageSummary,
     triageExtras,
     triageExtrasKeys,

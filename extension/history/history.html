@@ -5,27 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MoonDigest · 摘读记录</title>
     <link rel="stylesheet" href="../tokens.css" />
+    <link rel="stylesheet" href="../triage/triage.css" />
     <link rel="stylesheet" href="./history.css" />
     <link rel="stylesheet" href="../triage/tags.css" />
   </head>
   <body>
-    <header class="topbar">
-      <strong class="brand" data-text="history">摘读记录</strong>
-      <span id="count" class="count"></span>
-      <input id="search" type="search" placeholder="搜索标题、标签、AI 总结、备注或对话内容" aria-label="搜索标题、标签、AI 总结、备注或对话内容" />
+    <!-- The 分拣台's head card (triage.css): rows, filter pills, act-btns and 全选 are TriageUi's, drawn by history.js. -->
+    <header id="filters" class="rec-head">
+      <div class="rec-row1">
+        <h1 class="folder-title" data-text="history">摘读记录</h1>
+        <span id="count" class="folder-meta"></span>
+        <span id="status" class="status" role="status"></span>
+        <span class="rec-find">
+          <span id="searchSlot"></span>
+          <button id="clearAll" type="button" class="act-btn danger" disabled>清空全部 AI 对话</button>
+        </span>
+      </div>
+      <div class="rec-bar state-bar"><div id="stateRow" class="state-row"></div><div id="selectAllSlot"></div></div>
+      <div class="rec-bar"><div id="tagRow" class="tagfilter"></div><span id="tagActs" class="tags-acts"></span></div>
     </header>
-    <div class="bulkbar">
-      <label><input id="selectAll" type="checkbox" /> <span id="selectAllLabel" data-text="selectAll">全选</span></label>
-      <button id="bulkMd" type="button" disabled>下载选中的 .md</button>
-      <button id="bulkTags" type="button" disabled>打标签</button>
-      <span id="status" class="status" role="status"></span>
-      <span class="destructive">
-        <button id="bulkDelete" type="button" class="danger" disabled>删除选中的 AI 对话</button>
-        <button id="clearAll" type="button" class="danger" disabled>清空全部 AI 对话</button>
-      </span>
-    </div>
-    <div id="filters" class="filterbar" role="group" aria-label="筛选"></div>
-    <main id="list" class="list"><p class="empty" data-text="loading">正在加载…</p></main>
+    <main id="list" class="records"><p class="empty" data-text="loading">正在加载…</p></main>
+    <div id="selbar"></div>
 
     <!-- The 分拣台's tag picker, 标签管理 and AI 打标签, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their
          words when they open, and tag-dialogs.js writes AI 打标签's markup. -->

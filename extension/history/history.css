@@ -1,87 +1,55 @@
-[hidden] { display: none !important; }
+/* 摘读记录 on the 分拣台's styles: triage.css (linked before this file) draws the head's rows, pills, 全选, the selection
+   bar, cards, badges and empty states; this file lays out the page, its head card and its cards. */
+body { padding: 14px 16px 0; }
+.rec-head, .records { max-width: 1200px; margin: 0 auto; }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.5;
-  font-family: var(--font-sans);
-}
-
-input { font: inherit; color: inherit; }
-
-/* Top bar, bulk bar and list share one centered column, so the search box, 清空全部 and the cards end on one line. */
-.topbar, .bulkbar, .filterbar, .list { padding-inline: max(var(--space-4), calc((100% - 1200px) / 2)); }
-.topbar, .bulkbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  padding-block: var(--space-2);
-}
-.topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
-.brand { font-size: var(--fs-lg); }
-.count, .status { color: var(--muted); }
+/* ---------- the head: one white card as the 分拣台's, rows split by its thin rules (DESIGN 视觉设计 · 分拣台) ---------- */
+.rec-head { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05); }
+.rec-head > * { padding: 8px 16px; }
+.rec-head > * + * { border-top: 1px solid var(--border); }
+.rec-row1 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-block: 12px; }
+/* The search and 清空全部 wrap as one, so the rule never starts a line. */
+.rec-find { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.status { color: var(--muted); font-size: var(--fs-xs); }
+.status:empty { display: none; }
 .status.is-error { color: var(--danger); }
-#search {
-  flex: 1 1 240px;
-  height: 30px;
-  padding: 4px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--field-bg);
-}
-/* Lines the 全选 box up with the cards' boxes (card border + padding). */
-.bulkbar label { display: inline-flex; align-items: center; gap: 4px; margin-left: calc(var(--space-3) + 1px); }
-input[type="checkbox"] { accent-color: var(--action); }
-.destructive { display: inline-flex; gap: var(--space-2); margin-left: auto; }
+/* 清空全部 AI 对话: red text, no frame, a thin rule between it and the search. */
+.rec-row1 .danger { position: relative; margin-left: 9px; border-color: transparent; background: none; color: var(--danger); }
+.rec-row1 .danger:hover { background: var(--danger-bg); }
+.rec-row1 .danger:disabled { background: none; color: var(--text-2); }
+.rec-row1 .danger::before { content: ""; position: absolute; left: -11px; top: 6px; height: 16px; border-left: 1px solid var(--border-strong); }
+/* Rows 2 and 3: pills on the left, their buttons top-right, as the 分拣台's rows 3 and 4. */
+.rec-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+/* Row 2 has few pills: 全选 stays on their line, and only when it does not fit goes under them at the right. */
+.state-bar { display: flex; flex-wrap: wrap; }
+.state-bar > .state-row { flex: 1 1 auto; }
+#selectAllSlot { margin-left: auto; }
+/* 摘读记录设置's gear (TriageUi.gearBtn): always shown here. */
+.rec-head .act-btn.gear-only { display: inline-flex; }
 
-.list {
-  display: grid;
-  gap: var(--space-2);
-  padding-bottom: var(--space-5);
-}
-.empty { color: var(--muted); padding: var(--space-5) 0; text-align: center; }
+/* ---------- cards: the checkbox, the star in its own column so title, meta and body share one left edge, the body;
+   继续问 and 写入 Obsidian stacked top-right as the 分拣台's pair ---------- */
+.records { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 80px; }
+.entry { display: grid; grid-template-columns: auto 20px minmax(0, 1fr); column-gap: 8px; align-items: start; padding: 12px 140px 12px 12px; }
+.entry > .card-body { grid-column: 3; }
+/* On the title's first line (15px × 1.5). */
+.entry > [data-act="pick"] { margin: 5px 0 0; padding: 0; accent-color: var(--action); }
+.entry .title { overflow-wrap: anywhere; }
+/* ★ in --star, the one place that color is used; centered on the title's first line. */
+button.star { width: 20px; height: calc(var(--fs-lg) * 1.5); padding: 0; border: 0; background: none; color: var(--faint); font-size: var(--fs-md); line-height: 1; }
+button.star:hover { background: none; color: var(--star); }
+button.star[aria-pressed="true"] { color: var(--star); }
 
-.entry {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0 var(--space-3);
-  align-items: center;
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-}
-.entry:has([data-act="pick"]:checked) { border-color: var(--action); background: var(--action-bg); }
-.entry-body { grid-column: 2 / -1; max-width: 72ch; }
-.entry-title { color: var(--text); font-weight: 600; font-size: var(--fs-md); text-decoration: none; overflow-wrap: anywhere; }
-a.entry-title:hover { color: var(--link-hover); text-decoration: underline; }
-.entry-meta { color: var(--muted); font-size: var(--fs-xs); }
-.entry-actions { display: flex; gap: var(--space-1); }
-.entry-actions .danger { margin-left: var(--space-3); }
-/* Rows that cannot delete keep the button's space, so every row's buttons line up. */
-.entry-actions .slot { visibility: hidden; }
-/* 继续问 is each row's main action: a gray fill with plain text (buttons never use blue text, DESIGN.md 视觉设计 · 颜色). */
-button.ask { background: var(--field-bg); }
-button.ask:hover { background: var(--border); }
-button.ask:disabled { background: var(--surface); border-color: var(--border-strong); color: var(--text); }
-/* 写入中… sits in a cell sized by the idle label, so the button keeps its width and its row does not shift. */
-.write-label { display: inline-grid; justify-items: center; }
-.write-label::after { content: attr(data-idle); visibility: hidden; }
-.write-label > span, .write-label::after { grid-area: 1 / 1; }
-button:disabled:has(> .write-label [aria-busy="true"]) { opacity: 0.7; cursor: progress; }
-/* Delete is told apart by its red text and its gap, not a fill; disabled it is gray like any other button. */
-button.danger { background: var(--surface); }
-button.danger:hover { background: var(--danger-bg); }
-button.danger:disabled { color: var(--text); border-color: var(--border-strong); background: var(--surface); }
-.entry-summary, .entry-note { margin-top: var(--space-1); overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); }
-.entry-note { white-space: pre-wrap; }
-button.entry-summary { display: block; width: 100%; height: auto; padding: 0; border: 0; background: none; text-align: left; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
-button.entry-summary:hover { background: none; }
+button.entry-summary { display: block; width: 100%; height: auto; margin-top: 4px; padding: 0; border: 0; background: none; color: var(--text-2); text-align: left; overflow: hidden; text-overflow: ellipsis; }
+button.entry-summary:hover { background: none; color: var(--text); }
 button.entry-summary.open { white-space: normal; }
-.entry-points { color: var(--muted); }
+.entry-summary .badge { display: inline-block; margin-right: 4px; }
+.summary-reason { margin: 2px 0 0; color: var(--text-2); font-size: var(--fs-xs); }
+/* The 分拣台's tags: read-only here, so muted and dashed. */
+.card-body > .chips .chip.triage-tag { border-style: dashed; background: none; color: var(--muted); }
+button.note { display: block; height: auto; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+button.note:hover { background: var(--bg); color: var(--text); }
+div.note { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 details { margin-top: var(--space-1); }
 summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
@@ -97,36 +65,31 @@ summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 .turn-a :is(th, td) { border: 1px solid var(--border); padding: 2px 6px; }
 .conv-sep { margin: var(--space-4) 0 0; color: var(--faint); font-size: var(--fs-xs); }
 
-@media (max-width: 560px) {
-  .entry { grid-template-columns: auto minmax(0, 1fr); }
-  .entry-actions, .entry-body { grid-column: 2; }
-  .entry-actions { flex-wrap: wrap; margin-top: var(--space-1); }
+/* The foot: quiet buttons always shown; 删除 AI 对话 apart at the far right, red text, no frame. */
+.entry .card-foot { margin-top: 8px; gap: 4px; }
+.entry .card-foot button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+.entry .card-foot .danger { color: var(--danger); }
+.entry .card-foot .danger:hover { background: var(--danger-bg); }
+.entry .pair { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; width: 112px; }
+.entry .pair button { width: 100%; height: 32px; padding: 0; font-size: var(--fs-sm); }
+/* 继续问 is each card's main action: a gray fill with plain text (buttons never use blue text, DESIGN 视觉设计 · 颜色). */
+button.ask { border-color: transparent; background: var(--field-bg); }
+button.ask:hover { background: var(--border); }
+button.ask:disabled { background: var(--field-bg); }
+/* 写入中… sits in a cell sized by the idle label, so the button keeps its width. */
+.write-label { display: inline-grid; justify-items: center; }
+.write-label::after { content: attr(data-idle); visibility: hidden; }
+.write-label > span, .write-label::after { grid-area: 1 / 1; }
+button:disabled:has(> .write-label [aria-busy="true"]) { opacity: 0.7; cursor: progress; }
+
+/* As the 分拣台 without its sidebar: the pair goes into the foot's start. */
+@media (max-width: 760px) {
+  .rec-find { flex: 1 1 320px; min-width: 0; }
+  .rec-find .search { flex: 1 1 auto; width: auto; min-width: 0; }
+  .entry { padding-right: 12px; }
+  .entry .pair { position: static; flex-direction: row; gap: 4px; width: auto; }
+  .entry .pair button { width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
 }
-button.entry-note { display: block; width: 100%; height: auto; padding: 0; border: 0; background: none; font: inherit; text-align: left; cursor: text; }
-button.entry-note:hover { color: var(--text); }
-.note-add { display: block; margin-top: var(--space-1); height: auto; padding: 0; border: 0; background: none; color: var(--text-2); font-size: var(--fs-xs); }
-.note-add:hover { background: none; color: var(--text); }
-.entry-note-edit { display: block; width: 100%; box-sizing: border-box; margin-top: var(--space-1); padding: 4px 8px; resize: vertical; font: inherit; color: inherit; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--field-bg); field-sizing: content; min-height: 2.6em; }
-
-
-/* ---------- 星标 and tags ---------- */
-/* The star before the title, centered on its first line; ★ in --star, the one place that color is used. */
-.entry-line { display: flex; align-items: flex-start; gap: 4px; }
-button.star { flex: none; height: calc(var(--fs-md) * 1.5); padding: 0 2px; border: 0; background: none; color: var(--faint); font-size: var(--fs-md); line-height: 1; }
-button.star:hover { background: none; color: var(--star); }
-button.star[aria-pressed="true"] { color: var(--star); }
-.filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-block: 0 var(--space-2); }
-.filterbar:empty { display: none; }
-.filterbar .star-filter, .filterbar .ai-recent > button { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.filterbar .star-filter[aria-pressed="true"], .filterbar .ai-recent > button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
-/* 「✦ AI 刚打的」 and its × (shared.js aiRecentChip): one pill in two halves. */
-.filterbar .ai-recent { display: inline-flex; }
-.filterbar .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
-.filterbar .ai-recent > .ai-recent-x { padding: 0 8px 0 6px; border-left: 0; border-radius: 0 var(--radius-pill) var(--radius-pill) 0; color: var(--muted); }
-.filterbar .star-filter.zero:not([aria-pressed="true"]) { opacity: 0.5; }
-.filterbar .quiet { height: 22px; margin-left: var(--space-2); font-size: var(--fs-xs); }
-.entry-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: var(--space-1); }
-
-.entry-tags .chip { height: 20px; padding: 0 6px; border-color: color-mix(in srgb, var(--c) 60%, transparent); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--c) 12%, transparent); }
-/* The 分拣台's tags: read-only here, so muted and dashed. */
-.entry-tags .chip.triage-tag { border-style: dashed; background: none; color: var(--muted); }
+@media (max-width: 600px) {
+  body { padding: 8px 8px 0; }
+}
