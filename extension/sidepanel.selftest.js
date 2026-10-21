@@ -811,6 +811,15 @@ const chatOn = (context) => {
     show(video);
     real.updateContextChip();
     assert.deepStrictEqual([onWeb.includes("点击跳转目标视频"), els.contextChip.title.includes("点击跳转目标视频")], [false, true]);
+    // B1: a page without a title (chrome://newtab) is 这个页面, not the video words.
+    state.dispatch({ type: "NEW" });
+    show({ url: "chrome://newtab/", title: "", isVideoContext: false, pageAccess: "unsupported" });
+    real.updateContextChip();
+    assert.strictEqual(els.contextTitle.textContent, "这个页面");
+    show({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" });
+    real.updateContextChip();
+    assert.strictEqual(els.contextTitle.textContent, "这个页面");
+    show(video);
   }
 
   // C325: the tab moves from P1 to P2 while 分拣台's summary is read: P2 does not get P1's summary.

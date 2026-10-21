@@ -663,7 +663,9 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = context.title || (context.pending ? MdgErrors.TEXT.loading : context.url ? MdgErrors.TEXT.untitledVideo : "未知视频");
+  // A web page without a title (chrome://newtab, a URL Chrome hides) is no video: 这个页面, never the video words.
+  const untitled = context.isVideoContext === false ? "这个页面" : context.url ? MdgErrors.TEXT.untitledVideo : "未知视频";
+  const shortTitle = context.title || (context.pending ? MdgErrors.TEXT.loading : untitled);
   setContextChipText(shortTitle, context.isVideoContext === false ? context.siteName : context.author);
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = context.url
