@@ -1958,9 +1958,10 @@ async function buildCurrentConversationNote() {
   const filename = buildAiConversationFilename(context);
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
-  const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex };
-  const { analysis, note } = MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(extrasRef)), extrasRef);
-  const markdown = buildAiConversationMarkdown({ context, turns, filename });
+  const extrasRef = { site: ref.site, videoId: noteId, pageIndex: ref.pageIndex, url: ref.url };
+  const extras = MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(extrasRef)), extrasRef);
+  const { analysis, note } = extras;
+  const markdown = buildAiConversationMarkdown({ context, turns, filename, extras });
   return { context, filename, content: MdgNote.withTriageSummary(markdown, analysis, note) };
 }
 
@@ -2117,7 +2118,9 @@ async function pageNote(context, turns) {
   if (context?.isVideoContext !== false || context.pageAccess !== "ready") return null;
   const resp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
   const settings = resp?.ok && resp.settings ? resp.settings : MdgSettings.DEFAULTS;
-  return { filename: MdgNote.buildNoteFilename(context, settings), content: MdgNote.buildPageNote(context, settings, turns) };
+  const extrasRef = { url: context.url };
+  const { userTags, starred } = MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(extrasRef)), extrasRef);
+  return { filename: MdgNote.buildNoteFilename(context, settings), content: MdgNote.buildPageNote({ ...context, userTags, starred }, settings, turns) };
 }
 
 // The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.

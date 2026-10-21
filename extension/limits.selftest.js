@@ -56,7 +56,7 @@ assert.deepStrictEqual(
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");
 // Renaming one loses the data stored under it.
 assert.deepStrictEqual([...names].sort(), [
-  "aiProviderKeys", "aiProviders", "follow_", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_subtitle_cache_",
+  "aiProviderKeys", "aiProviders", "follow_", "mdg_ai_conversations_v1", "mdg_ai_selected_provider", "mdg_obsidian_note_paths_v1", "mdg_player_ai_quick_action_v1", "mdg_reading_marks_v1", "mdg_subtitle_cache_",
   "seen_", "triage_analysis_", "triage_basket", "triage_decisions_", "triage_folder_criteria", "triage_included_folders", "triage_kept", "triage_notes", "triage_removed",
   "triage_seen_meta", "triage_snapshot_", "triage_tags", "triage_title_", "triage_video_tags"
 ]);
@@ -166,6 +166,18 @@ for (const file of sources) {
   const offText = "✦ AI 总结按钮未开启";
   assert.deepStrictEqual(sources.filter((f) => fs.readFileSync(path.join(__dirname, f), "utf8").includes(offText)), ["background.js"], "the ✦ setting is checked once");
 
+  // The conversation cap counts only records without a 星标: a starred record keeps every conversation, the rest keep
+  // the newest AI_CONVERSATIONS. Every part of a video is the same record.
+  {
+    assert.deepStrictEqual([L.readingKeyOf("video:bilibili:BV1|c2"), L.readingKeyOf("page:https://a.com/?q=a|b")], ["video:bilibili:BV1|", "page:https://a.com/?q=a|b"]);
+    const n = L.AI_CONVERSATIONS;
+    const list = Array.from({ length: n + 2 }, (_, i) => ({ id: `c${i}`, contextKey: i === 0 ? "video:bilibili:BV1|c2" : `page:k${i}`, updatedAt: i }));
+    const marks = { items: { "video:bilibili:BV1|": { star: 1 }, "page:k1": { star: 0, tags: ["t"] } } };
+    const kept = L.capConversations(list, marks).map((c) => c.id);
+    assert.strictEqual(kept.length, n + 1, "the starred one is kept on top of the cap");
+    assert.ok(kept.includes("c0") && !kept.includes("c1"), "the oldest starred one stays; the oldest unstarred (tags only) goes");
+    assert.strictEqual(L.capConversations(list, undefined).length, n, "no marks: the plain cap");
+  }
   console.log("limits selftest ok");
 })().catch((error) => {
   console.error(error);

@@ -36,7 +36,18 @@
     triage_analysis_BV1mock000011: { bvid: "BV1mock000011", status: "error" },
     // Notes: BV1mock000001 joins its entry, BV1mock000012 and the YouTube abcDEF12345 are note-only entries, the blank one is ignored.
     triage_notes: { BV1mock000001: { text: "先看注意力那段\n再看位置编码", updatedAt: now - 3 * hour }, BV1mock000012: { text: "周末看，讲 CUDA 的那段", updatedAt: now - 5 * hour }, abcDEF12345: { text: "配合论文一起看", updatedAt: now - 6 * hour }, BV1mock000013: { text: " ", updatedAt: now } },
-    triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "深度学习调参：从学习率到批归一化" }, at: now }
+    triage_snapshot_42: { bvids: ["BV1mock000009"], titles: { BV1mock000009: "深度学习调参：从学习率到批归一化" }, at: now },
+    // 分拣台 tags (read-only here) on BV1mock000001; 摘读记录's own: a star and tags, and BV1mock000020 kept by its mark alone.
+    triage_tags: [{ id: "ft1", name: "深度学习", color: "#7c9cf0", folder: "42" }],
+    triage_video_tags: { BV1mock000001: ["ft1"] },
+    mdg_reading_marks_v1: {
+      tags: [{ id: "rt1", name: "要复习", color: "#da86c3" }, { id: "rt2", name: "已整理", color: "#298287" }],
+      items: {
+        "video:bilibili:BV1mock000001|": { star: now - hour, tags: ["rt1"], ref: { site: "bilibili", videoId: "BV1mock000001", url: bili.url, title: bili.title }, updatedAt: now - hour },
+        "page:https://example.com/post": { star: 0, tags: ["rt2"], ref: { site: "", videoId: "", url: page.url, title: page.title }, updatedAt: now - 300 * hour },
+        "video:bilibili:BV1mock000020|": { star: now - 20 * hour, tags: [], ref: { site: "bilibili", videoId: "BV1mock000020", url: "https://www.bilibili.com/video/BV1mock000020/", title: "对话已删、只留星标的视频" }, updatedAt: now - 20 * hour }
+      }
+    }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
   // ?demo swaps in the README screenshot data: B站-style videos, one side panel conversation, triage summaries and notes.

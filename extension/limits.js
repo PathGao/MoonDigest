@@ -9,6 +9,8 @@
   const SUBTITLE_CACHE_ENTRIES = 50;
   const SUBTITLE_CACHE_DAYS = 30;
   const AI_CONVERSATIONS = 500;
+  // 摘读记录's own tags (one list for videos and web pages).
+  const READING_TAGS = 50;
   const AI_SUBTITLE_MAX_CHARS = 60000;
   const AI_HISTORY_MAX_CHARS = 40000;
   // Hot comments a note or the side panel's AI gets (fetchComments' default). 分拣台细看 reads TriageUi.DEEP_COMMENTS.
@@ -55,6 +57,9 @@
     triageTags: "triage_tags",
     triageVideoTags: "triage_video_tags",
     triageBasket: "triage_basket",
+    // 摘读记录's 星标 and tags: { tags: [{ id, name, color, rule }], items: { [record key]: { star, tags, ref, updatedAt } } }.
+    // The record key is MdgNote.readingKey; ref keeps the title and address, so a record stays after its conversations go.
+    readingMarks: "mdg_reading_marks_v1",
     triageSeenMeta: "triage_seen_meta",
     // The 分拣台's folder choice and 判断标准: settings kept in local, carried by the settings file.
     triageIncludedFolders: "triage_included_folders",
@@ -140,14 +145,43 @@
   // The AI conversation list (KEYS.aiConversations) changed by read-modify-write, one change at a time across pages like
   // saveVideoNote: the side panel and 摘读记录 both write it, and a whole list written from an older read would bring back
   // what the other deleted. edit(stored list) returns the list to write.
+  // A 摘读记录 record's key (KEYS.readingMarks) from a context key (MdgSites.buildContextKey): a video's without its cid,
+  // so every part shares it, as 备注 do; a web page's as it is.
+  const readingKeyOf = (contextKey) => {
+    const key = String(contextKey || "");
+    return key.startsWith("video:") ? key.replace(/\|[^|]*$/, "|") : key;
+  };
+  // The cap is applied here, the one writer: AI_CONVERSATIONS counts only conversations of records without a 星标,
+  // newest kept; a starred record keeps all of its.
+  function capConversations(list, marks) {
+    const starred = new Set(Object.entries(marks?.items || {}).filter(([, item]) => item?.star).map(([key]) => key));
+    let room = AI_CONVERSATIONS;
+    return [...list].sort((a, b) => (b?.updatedAt || 0) - (a?.updatedAt || 0)).filter((c) => starred.has(readingKeyOf(c?.contextKey)) || room-- > 0);
+  }
   let conversationQueue = Promise.resolve();
   function updateConversations(edit) {
     const once = async () => {
-      const list = (await chrome.storage.local.get(KEYS.aiConversations))[KEYS.aiConversations];
-      await chrome.storage.local.set({ [KEYS.aiConversations]: edit(Array.isArray(list) ? list : []) });
+      const got = await chrome.storage.local.get([KEYS.aiConversations, KEYS.readingMarks]);
+      const list = got[KEYS.aiConversations];
+      await chrome.storage.local.set({ [KEYS.aiConversations]: capConversations(edit(Array.isArray(list) ? list : []), got[KEYS.readingMarks]) });
     };
     const done = conversationQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-ai-conversations", once) : once()));
     conversationQueue = done.catch(() => {});
+    return done;
+  }
+
+  // 摘读记录's marks (KEYS.readingMarks) changed by read-modify-write, one change at a time across pages like
+  // updateConversations. edit({ tags, items }) returns the marks to write. Resolves the marks written.
+  let marksQueue = Promise.resolve();
+  function updateReadingMarks(edit) {
+    const once = async () => {
+      const stored = (await chrome.storage.local.get(KEYS.readingMarks))[KEYS.readingMarks];
+      const next = edit({ tags: Array.isArray(stored?.tags) ? stored.tags : [], items: { ...stored?.items } });
+      await chrome.storage.local.set({ [KEYS.readingMarks]: next });
+      return next;
+    };
+    const done = marksQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-reading-marks", once) : once()));
+    marksQueue = done.catch(() => {});
     return done;
   }
 
@@ -224,7 +258,7 @@
       {
         label: "AI 对话",
         usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段`,
-        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「摘读记录」页按视频和网页查看、下载或删除。`
+        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的，加了星标的记录的对话不算在内、不删。在「摘读记录」页按视频和网页查看、下载或删除。`
       },
       {
         label: "AI 每次请求读的字幕或网页正文",
@@ -273,6 +307,7 @@
     SUBTITLE_CACHE_ENTRIES,
     SUBTITLE_CACHE_DAYS,
     AI_CONVERSATIONS,
+    READING_TAGS,
     AI_SUBTITLE_MAX_CHARS,
     AI_HISTORY_MAX_CHARS,
     HOT_COMMENTS,
@@ -291,6 +326,9 @@
     migrateRenamedLocalStorage,
     saveVideoNote,
     updateConversations,
+    capConversations,
+    readingKeyOf,
+    updateReadingMarks,
     askSidepanel,
     followFull,
     followShort,

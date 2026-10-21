@@ -1060,7 +1060,7 @@ const chatOn = (context) => {
     const KEY = ctx.MdgLimits.KEYS.aiConversations;
     const store = {};
     const [get, set] = [ctx.chrome.storage.local.get, ctx.chrome.storage.local.set];
-    ctx.chrome.storage.local.get = async (k) => ({ [k]: structuredClone(store[k]) });
+    ctx.chrome.storage.local.get = async (k) => Object.fromEntries([k].flat().map((x) => [x, structuredClone(store[x])]));
     ctx.chrome.storage.local.set = async (o) => void Object.assign(store, structuredClone(o));
     const c = (id) => ({ id, contextUrl: `https://www.bilibili.com/video/BV1${id}`, isVideoContext: true, updatedAt: 1, messages: [{ role: "user", content: "q" }] });
     state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });

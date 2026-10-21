@@ -229,7 +229,7 @@ async function runWrite(md = false) {
 // ---------- data export ----------
 // 待播 stays out: a list to watch from, not something to keep.
 const { triageSnapshotPrefix: SNAPSHOT, triageTitlePrefix: TITLE, triageAnalysisPrefix: ANALYSIS, triageDecisionsPrefix: DECISIONS } = KEYS;
-const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, K.videoTags, K.notes, SNAPSHOT, DECISIONS, TITLE, ANALYSIS];
+const BACKUP_PREFIXES = [K.kept, K.removed, K.left, K.tags, K.folderCriteria, K.videoTags, K.notes, KEYS.readingMarks, SNAPSHOT, DECISIONS, TITLE, ANALYSIS];
 
 async function buildBackup() {
   const all = await chrome.storage.local.get(null);

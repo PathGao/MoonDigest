@@ -23,6 +23,9 @@ const node = (id) =>
     classList: { toggle() {}, add() {}, remove() {} },
     querySelectorAll: () => [],
     querySelector: () => null,
+    contains: () => false,
+    focus() {},
+    showModal() {},
     addEventListener: (t, f) => ((L[id] ||= {})[t] ||= []).push(f)
   });
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
@@ -39,7 +42,8 @@ const ctx = vm.createContext({
   setTimeout,
   clearTimeout,
   window: { scrollY: 0, scrollTo() {} },
-  document: { getElementById: node, addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null },
+  // No #tagPicker: tag-picker.js loads its pure half, and the test stands in for the picker's open (TagPicker.open below).
+  document: { getElementById: (id) => (id === "tagPicker" ? null : node(id)), addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null },
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
@@ -363,6 +367,134 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     Object.assign(ctx.chrome, { sidePanel: was.sidePanel, tabs: was.tabs });
     ctx.chrome.storage.local.set = was.set;
     assert.match(els.count.textContent, /个视频、1 个网页 · 对话 2\//);
+  }
+
+  // 星标 and tags: one mark per record (every part of a video), kept in MdgLimits.KEYS.readingMarks.
+  {
+    const MARKS = ctx.MdgLimits.KEYS.readingMarks;
+    const BV = "BV1star00001";
+    const videoKey = `video:bilibili:${BV}|`;
+    const pageKey = "page:https://example.com/post";
+    const qa = [{ role: "user", content: "问" }, { role: "assistant", content: "答" }];
+    const part = (n) => ({ id: `s${n}`, contextKey: `video:bilibili:${BV}|c${n}`, title: "星标视频", contextRef: { site: "bilibili", videoId: BV, cid: `c${n}`, pageIndex: n, title: "星标视频", url: `https://www.bilibili.com/video/${BV}` }, createdAt: n, updatedAt: n, messages: qa });
+    const webConvs = store.mdg_ai_conversations_v1;
+    store.mdg_ai_conversations_v1 = [part(1), part(2), ...webConvs];
+    store[ctx.MdgLimits.KEYS.triageTags] = [{ id: "ft1", name: "分拣标签", color: "#888888", folder: "1" }, { id: "ft2", name: "分拣标签", color: "#888888", folder: "2" }];
+    store[ctx.MdgLimits.KEYS.triageVideoTags] = { [BV]: ["ft1", "ft2"] };
+    ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
+    ctx.CSS = { escape: (s) => s };
+    ctx.confirm = () => true;
+    const plain = (v) => JSON.parse(JSON.stringify(v ?? null));
+    const reload = async () => (onChanged({ [MARKS]: {} }, "local"), await wait(350));
+    const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
+    const on = async (key, name) => {
+      const t = { dataset: { act: name }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      (L.list.click || []).forEach((f) => f({ target: t }));
+      await wait(20);
+    };
+    const filter = async (f) => (L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f } }) } })), await wait(20));
+    await reload();
+    const p1 = `${videoKey}c1`;
+    const p2 = `${videoKey}c2`;
+
+    // ☆ before the title; a click stars the video (both parts) and keeps its title and address.
+    assert.match(entry(p1), /data-act="star" aria-pressed="false" aria-label="加星标" title="加星标">☆<\/button>\s*<a class="entry-title"/);
+    await on(p1, "star");
+    const item = store[MARKS].items[videoKey];
+    assert.ok(item.star > 0 && item.ref.title === "星标视频" && item.ref.videoId === BV, JSON.stringify(item));
+    for (const k of [p1, p2]) assert.ok(entry(k).includes('aria-pressed="true" aria-label="取消星标" title="取消星标">★'), entry(k));
+    // 清空全部 keeps a starred record's conversations and says so; they are not counted against the cap.
+    assert.ok(els.count.textContent.includes("星标 2 段不计"), els.count.textContent);
+    const allConvs = store.mdg_ai_conversations_v1;
+    let asked = "";
+    ctx.confirm = (text) => ((asked = text), true);
+    for (const f of L.clearAll.click) await f({});
+    assert.ok(asked.includes("加了星标的记录的 2 段不删"), asked);
+    assert.deepStrictEqual(plain(store.mdg_ai_conversations_v1.map((c) => c.id).sort()), ["s1", "s2"]);
+    assert.strictEqual(els.clearAll.title, "只剩加了星标的记录的 AI 对话");
+    ctx.confirm = () => true;
+    store.mdg_ai_conversations_v1 = allConvs;
+    await reload();
+    // The 分拣台's tags show read-only, one per name, and are said to be edited there.
+    assert.strictEqual(entry(p1).split("triage-tag").length - 1, 1, entry(p1));
+    assert.ok(entry(p1).includes('<span class="chip triage-tag" style="--c:#888888" title="分拣台的标签，在分拣台里改">分拣标签</span>'), entry(p1));
+    // 星标 filter: only starred records are listed.
+    await filter("star");
+    assert.ok(entry(p1) && entry(p2) && !entry(pageKey), html);
+    assert.match(els.filters.innerHTML, /data-f="star" class="star-filter" aria-pressed="true">★ 星标 2</);
+    // Unstarred under the filter: still listed (☆) until the page reloads, so the row does not vanish under the cursor.
+    await on(p1, "star");
+    assert.ok(entry(p1).includes("☆"), html);
+    await on(p1, "star");
+    await filter("star");
+
+    // A starred record stays when every conversation of it is gone, from what the mark kept.
+    store.mdg_ai_conversations_v1 = [...webConvs, conv("untagged", "没有标签")];
+    await reload();
+    assert.ok(entry(videoKey).includes("星标视频") && entry(videoKey).includes("仅星标，没有 AI 对话") && entry(videoKey).includes("★"), entry(videoKey));
+    // It is placed by when it was first marked: unstarring and starring again does not move it.
+    const order = () => [...html.matchAll(/data-key="([^"]+)"/g)].map((m) => m[1]).join();
+    // A record newer than its first mark is listed above it, and stays above.
+    Object.assign(store[MARKS].items[videoKey], { at: 1000, updatedAt: 1000 });
+    store.mdg_ai_conversations_v1.find((c) => c.id === "untagged").updatedAt = 2000;
+    await reload();
+    const before = order();
+    assert.ok(before.indexOf("untagged") < before.indexOf(videoKey), before);
+    await on(videoKey, "star");
+    await on(videoKey, "star");
+    assert.strictEqual(order(), before);
+
+    // 打标签 on the selected records: a tag made in the picker goes on all of them.
+    let picker = null;
+    ctx.TagPicker = { ...ctx.TagPicker, open: (o) => (picker = o) };
+    pick(videoKey, true);
+    pick(pageKey, true);
+    assert.deepStrictEqual([els.bulkTags.disabled, els.bulkTags.title], [false, ""]);
+    L.bulkTags.click.forEach((f) => f({}));
+    assert.deepStrictEqual(plain([picker.title, [...picker.targets].sort(), picker.anchor]), ["给选中的 2 个打标签", [pageKey, videoKey], ""]);
+    const tag = await picker.create(" 读过 ");
+    assert.deepStrictEqual(plain([tag.name, store[MARKS].tags.map((t) => t.name)]), ["读过", ["读过"]]);
+    assert.strictEqual(await picker.create("读过"), store[MARKS].tags[0], "the same name is the same tag");
+    await picker.onClose(picker.targets.map((key) => ({ key, add: [tag.id], remove: [] })));
+    await wait(20);
+    assert.deepStrictEqual(plain([store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [[tag.id], [tag.id], "https://example.com/post"]);
+    assert.ok(entry(pageKey).includes(">读过</span>"), entry(pageKey));
+    // A record's own 「+ 标签」 opens the picker under it, for that record alone.
+    await on(pageKey, "tags");
+    assert.deepStrictEqual(plain([picker.targets, picker.anchor]), [[pageKey], `.entry[data-key="${pageKey}"] .tag-plus`]);
+    // The tag filter and the search find the tagged records; the export carries the tags and 星标.
+    await filter(`tag:${tag.id}`);
+    assert.ok(entry(videoKey) && entry(pageKey) && !entry("untagged"), html);
+    await filter(`tag:${tag.id}`);
+    await search("读过");
+    assert.ok(entry(videoKey) && entry(pageKey), html);
+    await search("分拣标签");
+    assert.ok(entry(videoKey) && !entry(pageKey), "the search matches 分拣台 tag names too");
+    await search("");
+    ctx.navigator.clipboard.writeText = async (text) => (copied = text);
+    await on(videoKey, "copy");
+    assert.ok(copied.includes("starred: true") && /tags: .*读过/.test(copied) && /tags: .*分拣标签/.test(copied), copied);
+
+    // Deleting a tag in 标签管理 takes it off every record; the page, left with nothing, stays listed until a reload.
+    await filter("manage");
+    assert.ok(els.tagsRows.innerHTML.includes("读过") && els.tagsRows.innerHTML.includes("2 个记录"), els.tagsRows.innerHTML);
+    const del = { closest: (sel) => (sel === ".tag-row" ? { dataset: { id: tag.id } } : sel === "[data-tag-del]" ? {} : null) };
+    for (const f of L.tagsRows.click) await f({ target: del });
+    assert.deepStrictEqual(plain([store[MARKS].tags, store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey]]), [[], [], null]);
+    assert.ok(entry(pageKey) && !entry(pageKey).includes("读过"), entry(pageKey));
+
+    // Unstarring a record with nothing else: gone from storage, still listed (☆) until the page reloads.
+    await on(videoKey, "star");
+    assert.strictEqual(store[MARKS].items[videoKey], undefined);
+    assert.ok(entry(videoKey).includes("☆") && entry(videoKey).includes("星标视频"), entry(videoKey));
+    // Tagged again after that, it stays unstarred.
+    await on(videoKey, "tags");
+    const again = await picker.create("再看");
+    await picker.onClose([{ key: videoKey, add: [again.id], remove: [] }]);
+    await wait(20);
+    assert.deepStrictEqual(plain([store[MARKS].items[videoKey].star, store[MARKS].items[videoKey].tags]), [0, [again.id]]);
+    pick(videoKey, false);
+    pick(pageKey, false);
   }
 
   // B7: several entries download as one file dated by the local day, not UTC.

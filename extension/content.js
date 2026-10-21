@@ -4117,7 +4117,7 @@ function rebuildDerivedContent() {
   state.markdown =
     body.length || state.subtitleFetchState === "empty"
       ? MdgNote.withTriageSummary(
-          MdgNote.buildMarkdown({ ...state, userTags: state.triageExtras?.userTags }, body, state.settings, currentRef()),
+          MdgNote.buildMarkdown({ ...state, userTags: state.triageExtras?.userTags, starred: state.triageExtras?.starred }, body, state.settings, currentRef()),
           state.triageExtras?.analysis,
           state.triageExtras?.note
         )
