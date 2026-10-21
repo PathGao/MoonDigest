@@ -271,7 +271,7 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
   // Turned off is the user's choice; enabled but not set up fails as a manual write does.
   if (!settings.includeAiChatInNote || !settings.obsidianEnabled) return { path: "" };
   const done = await updateAiSectionInVault(obsidianConfig(settings), path, section, key);
-  return { path, ...done, text: done.exists ? aiSectionResult(path, done.updated) : "Obsidian 里的视频笔记已不存在，未写入" };
+  return { path, ...done, text: done.exists ? aiSectionResult(path, done.updated) : `Obsidian 里的${ref.isVideoContext ? "视频" : "网页"}笔记已不存在，未写入` };
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
