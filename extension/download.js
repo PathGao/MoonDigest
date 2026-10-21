@@ -16,7 +16,52 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  globalThis.MdgDownload = Object.freeze({ text });
+  const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
+    for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+    return n >>> 0;
+  });
+  function crc32(bytes) {
+    let c = ~0;
+    for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+    return ~c >>> 0;
+  }
+
+  // files: [{ name, text }] → zip bytes. Stored (no compression); flag bit 11 marks the names as UTF-8.
+  // "Made by" Unix with mode 0644: made by DOS, Info-ZIP unzip (macOS's) reads the names as a DOS code page and mangles them.
+  function zipStored(files, now = new Date()) {
+    const enc = new TextEncoder();
+    const entries = files.map((f) => ({ name: enc.encode(f.name), data: enc.encode(f.text) }));
+    const localSize = entries.reduce((n, e) => n + 30 + e.name.length + e.data.length, 0);
+    const centralSize = entries.reduce((n, e) => n + 46 + e.name.length, 0);
+    const out = new Uint8Array(localSize + centralSize + 22);
+    const view = new DataView(out.buffer);
+    const put = (at, fields) => fields.reduce((p, [size, value]) => (size === 2 ? view.setUint16(p, value, true) : view.setUint32(p, value, true), p + size), at);
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    let local = 0;
+    let central = localSize;
+    for (const e of entries) {
+      const common = [[2, 20], [2, 0x0800], [2, 0], [2, time], [2, date], [4, crc32(e.data)], [4, e.data.length], [4, e.data.length], [2, e.name.length], [2, 0]];
+      out.set(e.name, put(local, [[4, 0x04034b50], ...common]));
+      out.set(e.data, local + 30 + e.name.length);
+      out.set(e.name, put(central, [[4, 0x02014b50], [2, 0x0314], ...common, [2, 0], [2, 0], [2, 0], [4, 0x81a40000], [4, local]]));
+      local += 30 + e.name.length + e.data.length;
+      central += 46 + e.name.length;
+    }
+    put(central, [[4, 0x06054b50], [2, 0], [2, 0], [2, entries.length], [2, entries.length], [4, centralSize], [4, localSize], [2, 0]]);
+    return out;
+  }
+
+  // name, or name (2).md, (3)… while used has it ignoring case (macOS and Windows unzip 「A.md」 and 「a.md」 onto one
+  // file); the name returned is added to used.
+  function uniqueName(used, name) {
+    let path = name;
+    for (let i = 2; used.has(path.toLowerCase()); i++) path = name.replace(/(\.[^.]*)?$/, ` (${i})$1`);
+    used.add(path.toLowerCase());
+    return path;
+  }
+
+  globalThis.MdgDownload = Object.freeze({ text, zipStored, uniqueName });
 })();
 
 (() => {

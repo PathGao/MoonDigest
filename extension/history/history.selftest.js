@@ -39,6 +39,7 @@ let onChanged = null;
 const sync = {}; // chrome.storage.sync
 const store = { mdg_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
 const ctx = vm.createContext({
+  TextEncoder,
   console,
   setTimeout,
   clearTimeout,
@@ -102,16 +103,16 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   pick("b", true);
   assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
   assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
   // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
   // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
   const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
   await search("img");
   assert.deepStrictEqual([els.bulkMd.textContent, els.bulkMd.disabled], ["下载选中的 1 个 .md", false]);
   await search("没有这个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
   await search("");
-  assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "下载选中的 2 个 .md"], "the selection is still there");
+  assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "打包下载选中的 2 个 .md"], "the selection is still there");
   // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
   // with none that has a conversation it is disabled with the reason.
   const NOTES = ctx.MdgLimits.KEYS.triageNotes;
@@ -120,7 +121,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(350);
   const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
   pick(noteKey, true);
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下", undefined]]);
+  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["打包下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下", undefined]]);
   // A21: a 备注 closed by pressing another entry's button (focusout on pointerdown) redraws only after that press,
   // so the button the click lands on is still the one pressed.
   // A key pressed on the page (I, U), outside any text field.
@@ -731,14 +732,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.TagDialogs.ai.open = realOpen;
   }
 
-  // B7: several entries download as one file dated by the local day, not UTC.
+  // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC.
   const saved = [];
-  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
+  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name, data, type) => saved.push(name, type, data.length > 0) };
   const RealDate = ctx.Date;
   vm.runInContext("Date = class extends Date { constructor(...a) { a.length ? super(...a) : super(2026, 9, 14, 7, 30); } }", ctx);
   (L.bulkMd.click || []).forEach((f) => f({}));
   ctx.Date = RealDate;
-  assert.deepStrictEqual(saved, ["MoonDigest摘读记录-2026-10-14.md"]);
+  assert.deepStrictEqual(saved, ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", true]);
 
   console.log("history selftest: all passed");
 })().catch((e) => {

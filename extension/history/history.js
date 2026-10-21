@@ -663,7 +663,7 @@ function syncBulk(groups = visibleGroups()) {
   const shown = shownPicks(groups);
   const n = shown.length || selected.size;
   const none = !selected.size ? "先勾选记录" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
-  els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
+  els.bulkMd.textContent = n > 1 ? `打包下载选中的 ${n} 个 .md` : n ? "下载选中的 1 个 .md" : "下载选中的 .md";
   setReason(els.bulkTags, none);
   // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
@@ -747,8 +747,9 @@ function downloadGroups(groups) {
   if (notes.length === 1) {
     MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
-    const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
+    const used = new Set();
+    const files = notes.map((n) => ({ name: MdgDownload.uniqueName(used, n.filename), text: n.content }));
+    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate(new Date(), true)}.zip`, MdgDownload.zipStored(files), "application/zip");
   }
   setStatus(`已下载 ${groups.length} 条记录`);
 }
