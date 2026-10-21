@@ -111,3 +111,15 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
 .ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
+
+/* Settings rows (收藏夹设置, 关注设置, 摘读记录设置) follow the settings page: name and hint on the left, the control on the right. */
+.settings-ai { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.set-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.set-group h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.set-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 12px; }
+.set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.set-row + .set-row { border-top: 1px solid var(--border); }
+.set-row > div { flex: 1; min-width: 0; }
+.set-row .name { font-size: var(--fs-sm); color: var(--text); }
+.set-row .hint { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--faint); line-height: 1.5; }
+.set-row input[type="number"] { flex: none; width: 72px; text-align: right; }

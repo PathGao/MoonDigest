@@ -222,18 +222,20 @@ const TRIAGE_AI_UNIT = {
   header: `视频列表，每行格式：序号|标题|UP主|时长|简介前${TriageUi.INTRO_CHARS}字|现有标签|一句话|${triagePointNames.join("；")}（没有的字段留空）：`,
   line: triageCommandLine
 };
-// One record per line: n|title|type|分拣台 AI 总结|备注 (first INTRO_CHARS)|questions (；, 60 chars each)|tags
+// One record per line: n|title|type|tags|conversation (问：… 答：…, cut by the page to TriageUi.READING_AI_CHARS)|分拣台 AI
+// 总结|备注 (first INTRO_CHARS). A record with a conversation has no 总结 or 备注, one without has only those.
 function readingAiLine(item, n) {
   const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  const list = (a, sep, max = Infinity) => (Array.isArray(a) ? a.map((x) => clean(x).slice(0, max)).filter(Boolean) : []).join(sep);
-  return [n, clean(item.title), clean(item.site), clean(item.oneLiner), clean(item.note).slice(0, TriageUi.INTRO_CHARS), list(item.questions, "；", 60), list(item.currentTags, "、")].join("|");
+  const list = (a) => (Array.isArray(a) ? a : []);
+  const talk = list(item.turns).map((t) => `问：${clean(t?.q)}${clean(t?.a) ? ` 答：${clean(t.a)}` : ""}`).join(" ");
+  return [n, clean(item.title), clean(item.site), list(item.currentTags).map(clean).filter(Boolean).join("、"), talk, clean(item.oneLiner), clean(item.note).slice(0, TriageUi.INTRO_CHARS)].join("|");
 }
 // 摘读记录 (history.js): videos and web pages, by record key (id).
 const READING_AI_UNIT = {
   intro: "你是摘读记录整理助手，按用户指令给用户看过、问过 AI 的视频和网页打标签、做分类。",
   noun: "记录",
-  basis: "- 有“AI 总结”的记录以它为主要依据；“提问”是用户问 AI 的问题，说明用户关心什么。",
-  header: `记录列表，每行格式：序号|标题|类型|AI 总结|备注前${TriageUi.INTRO_CHARS}字|提问（；分隔）|现有标签（没有的字段留空）：`,
+  basis: "- 有“对话”的记录以它为主要依据：问是用户问 AI 的问题，说明用户关心什么；答是 AI 的回答，说明内容讲了什么（太长的答已截断）。没有对话的记录看“AI 总结”和“备注”。",
+  header: `记录列表，每行格式：序号|标题|类型|现有标签|对话（按时间先后，问：… 答：…）|AI 总结|备注前${TriageUi.INTRO_CHARS}字（没有的字段留空）：`,
   line: readingAiLine
 };
 // The user's instruction sits between these two lines; the system prompt names them.

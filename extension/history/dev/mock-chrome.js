@@ -50,6 +50,7 @@
     }
   };
   const clone = (v) => (v === undefined ? v : structuredClone(v));
+  const syncStore = {};
   // ?demo swaps in the README screenshot data: B站-style videos, one side panel conversation, triage summaries and notes.
   if (/[?&]demo\b/.test(location.search)) {
     for (const k of Object.keys(store)) delete store[k];
@@ -125,6 +126,17 @@
             store[k] = clone(v);
           }
           setTimeout(() => listeners.forEach((fn) => fn(changes, "local")), 0);
+        },
+        async remove(keys) {
+          for (const k of [].concat(keys)) delete store[k];
+        }
+      },
+      sync: {
+        async get(keys) {
+          return Object.fromEntries([].concat(keys).filter((k) => k in syncStore).map((k) => [k, clone(syncStore[k])]));
+        },
+        async set(items) {
+          Object.assign(syncStore, clone(items));
         }
       },
       onChanged: { addListener: (fn) => listeners.push(fn) }

@@ -139,8 +139,8 @@
   // → saved?, running(), proposal(), run({ instruction, scope, allowRemove }) (sets running before its first await),
   // stop(), stopping() (stop was pressed and the batch in flight still runs), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
   // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none),
-  // allTags?() (every tag when tags() shows one per name; tags() otherwise), applied?() (what 应用 leaves, for a mode without
-  // 「AI 刚打的」 and U; the 分拣台's words otherwise) }.
+  // allTags?() (every tag when tags() shows one per name; tags() otherwise), check? (how to put a wrong one right, for a page
+  // without T: 摘读记录) }.
   // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
   const allTags = (a) => (a.allTags || a.tags)();
   const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, allTags(a)));
@@ -254,9 +254,8 @@
     </div>`;
       })
       .join("");
-    const applied = a.applied?.();
-    $("aiReviewHint").textContent = applied || `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${UI.AI_RECENT_CHECK}。`;
-    $("aiRecentMeta").innerHTML = applied ? "" : `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
+    $("aiReviewHint").textContent = `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${a.check || UI.AI_RECENT_CHECK}。`;
+    $("aiRecentMeta").innerHTML = `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
     renderTally(p);
   }
   function renderTally(p) {

@@ -448,7 +448,7 @@ const fav = {
 async function undo() {
   const steps = followMode() ? S.modeUndo : S.undo;
   const top = steps.at(-1);
-  if (!top) return toast("没有可撤销的操作");
+  if (!top) return toast(MdgErrors.TEXT.noUndo);
   // A step that writes to Bilibili waits for a running batch.
   const blocked = top.blocked?.();
   if (blocked) return toast(blocked, true);

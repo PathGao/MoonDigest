@@ -175,7 +175,16 @@ function openPicker(groups, anchor = "") {
       return fullReason();
     },
     anchor,
-    onClose: (changes) => changes.length && saveMarks((m) => editItems(m, Object.fromEntries(changes.map((c) => [c.key, refs[c.key]])), (item, key) => ({ ...item, tags: TagPicker.applyChange(item.tags, changes.find((c) => c.key === key)) })))
+    async onClose(changes) {
+      if (!changes.length) return;
+      const changed = Object.fromEntries(changes.map((c) => [c.key, refs[c.key]]));
+      let before = {};
+      const saved = await saveMarks((m) => {
+        before = tagsBefore(m, Object.keys(changed));
+        return editItems(m, changed, (item, key) => ({ ...item, tags: TagPicker.applyChange(item.tags, changes.find((c) => c.key === key)) }));
+      });
+      if (saved) pushTagUndo(before, changed, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "记录") : null });
+    }
   });
 }
 
@@ -197,6 +206,8 @@ const manageTags = {
     const [title, body] = UI.deleteTagAsk(t, tagCount(t.id), "记录");
     if (!confirm(`${title}\n${body.replace(/<[^>]+>/g, "")}`)) return;
     tagFilter.delete(t.id);
+    // As the 分拣台: deleting a tag drops the tag steps, which cannot bring it back.
+    undoSteps.length = 0;
     await saveMarks((m) => {
       const carrying = Object.fromEntries(Object.entries(m.items).filter(([, item]) => item.tags?.includes(t.id)).map(([key, item]) => [key, item.ref]));
       return editItems({ ...m, tags: m.tags.filter((x) => x.id !== t.id) }, carrying, (item) => ({ ...item, tags: item.tags.filter((id) => id !== t.id) }));
@@ -205,12 +216,42 @@ const manageTags = {
 };
 
 // ---------- ✦ AI 打标签 (tag-dialogs.js), as 关注's: the proposal waits in memory until 应用 writes it in one marks write ----------
-// ponytail: the settings are NUM_SETTINGS' defaults (batch size, interval, new-tag cap) with 去掉已有标签 off each time;
-// no 「AI 刚打的」, no U, and the proposal is lost on reload. Settings of its own if a list outgrows one batch.
-const AI_HISTORY = MdgLimits.KEYS.readingAiHistory;
-const AI = { excluded: new Set(), history: [], proposal: null, run: null }; // run: { stopping } while a run goes
-const AI_BATCH = UI.numSetting("aiBatch");
-const AI_GAP_MS = UI.numSetting("interval") * 1000;
+const { readingAiHistory: AI_HISTORY, readingAiSettings: AI_SETTINGS, readingAiProposal: AI_PROPOSAL, readingAiRecent: AI_RECENT } = MdgLimits.KEYS;
+const { normAi, followAiSettings, withAllowRemove } = FollowCore;
+// run: { stopping } while a run goes; recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed.
+const AI = { excluded: new Set(), history: [], proposal: null, run: null, settings: normAi(), recent: null };
+let recentFilter = false;
+// The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's).
+function setAiProposal(p) {
+  AI.proposal = p;
+  (p ? chrome.storage.local.set({ [AI_PROPOSAL]: p }) : chrome.storage.local.remove(AI_PROPOSAL)).catch(() => {});
+}
+async function clearRecent() {
+  AI.recent = null;
+  recentFilter = false;
+  await chrome.storage.local.remove(AI_RECENT).catch(() => {});
+  render();
+}
+// 摘读记录设置 (AI_SETTINGS), as 关注's follow_ai_settings: seeded from the 收藏夹 values on first use and stored then,
+// independent of them afterwards.
+async function aiSettings() {
+  const own = (await chrome.storage.sync.get(AI_SETTINGS))[AI_SETTINGS];
+  const triage = own ? null : await chrome.runtime.sendMessage({ type: "triage-settings-get" }).catch(() => null);
+  const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
+  // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
+  if (seed) await saveAiSettings(seed);
+  return (AI.settings = value);
+}
+async function saveAiSettings(next) {
+  try {
+    await chrome.storage.sync.set({ [AI_SETTINGS]: next });
+  } catch (e) {
+    setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
+    return false;
+  }
+  AI.settings = next;
+  return true;
+}
 // Entries by record (a video's parts are one record), each record's entries in list order.
 function recordsOf(groups) {
   const out = new Map();
@@ -219,25 +260,41 @@ function recordsOf(groups) {
 }
 // 选中 counts the selected records the search and filters hide too, as the bulk buttons do.
 const aiRecords = (scope) => recordsOf(visibleGroups().filter((g) => scope !== "selected" || selected.has(g.key)));
-// What the AI reads of a record (its line in triage-bg.js readingAiLine): the 分拣台's one-liner is P1's.
+// A record's 问/答 within budget characters: answers are cut, all to the same length, before any question is; questions
+// past the budget are dropped.
+function aiExcerpt(turns, budget = UI.READING_AI_CHARS) {
+  const flat = (s) => s.replace(/\s+/g, " ").trim();
+  const qs = turns.map((t) => flat(t.prompt));
+  const as = turns.map((t) => flat(t.answer));
+  const left = budget - qs.reduce((n, q) => n + q.length, 0);
+  if (left <= 0) {
+    const out = [];
+    let room = budget;
+    for (const q of qs) {
+      if (room <= 0) break;
+      out.push({ q: q.slice(0, room), a: "" });
+      room -= q.length;
+    }
+    return out;
+  }
+  let cap = Math.max(0, ...as.map((a) => a.length));
+  while (as.reduce((n, a) => n + Math.min(a.length, cap), 0) > left) cap--;
+  return qs.map((q, i) => ({ q, a: as[i].slice(0, cap) }));
+}
+// What the AI reads of a record (its line in triage-bg.js readingAiLine): every conversation's 问/答, oldest first; a
+// record without one sends the 分拣台's one-liner (P1's) and the 备注 instead.
 function aiItem(key, parts, excluded) {
   const g = parts[0];
-  return {
-    id: key,
-    title: g.title,
-    site: siteOf(g),
-    oneLiner: parts.find((x) => x.analysis)?.analysis.oneLiner || "",
-    note: g.note?.text || "",
-    questions: parts.flatMap((x) => x.convs).flatMap((c) => MdgNote.buildConversationTurns(c.messages).map((t) => t.prompt)).slice(0, 3),
-    currentTags: tagsOf(g).map((t) => t.name).filter((name) => !excluded.has(name))
-  };
+  const turns = parts.flatMap((x) => x.convs).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).flatMap((c) => MdgNote.buildConversationTurns(c.messages));
+  const item = { id: key, title: g.title, site: siteOf(g), currentTags: tagsOf(g).map((t) => t.name).filter((name) => !excluded.has(name)) };
+  return turns.length ? { ...item, turns: aiExcerpt(turns) } : { ...item, oneLiner: parts.find((x) => x.analysis)?.analysis.oneLiner || "", note: g.note?.text || "" };
 }
-const aiRoom = () => Math.min(UI.numSetting("newTagMax"), Math.max(0, MdgLimits.READING_TAGS - marks.tags.length));
+const aiRoom = () => Math.min(AI.settings.newTagMax, Math.max(0, MdgLimits.READING_TAGS - marks.tags.length));
 // Records that exist now (live), with what their marks keep (refOf).
 const aiLive = () => new Map(groupByVideo(conversations).filter(readingKey).map((g) => [readingKey(g), refOf(g)]));
 // A proposal naming a deleted tag no longer fits: dropped, not applied.
 function dropStaleProposal() {
-  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) AI.proposal = null;
+  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) setAiProposal(null);
 }
 function aiProviderId() {
   try {
@@ -246,10 +303,11 @@ function aiProviderId() {
     return "";
   }
 }
+const RECENT_CHECK = "在记录上逐个看，不对的点「+ 标签」改";
 const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text));
 const aiTags = {
   who: "记录",
-  sees: "标题、是视频还是网页、分拣台的 AI 总结、备注和你在 AI 对话里的前 3 个提问",
+  sees: `标题、是视频还是网页、现有标签和你与 AI 的对话（问和答，每条记录最多 ${UI.READING_AI_CHARS} 字）；没有对话的记录看分拣台的 AI 总结和备注`,
   example: "按主题分成 编程、设计、生活，每条只打一个",
   excluded: AI.excluded,
   manage: manageTags,
@@ -260,13 +318,15 @@ const aiTags = {
   ],
   scopeText(scope) {
     const n = aiRecords(scope).size;
-    return n ? `${n} 个记录${UI.batchesText(Math.ceil(n / AI_BATCH))}` : "作用范围里没有记录";
+    return n ? `${n} 个记录${UI.batchesText(Math.ceil(n / AI.settings.batchSize))}` : "作用范围里没有记录";
   },
   room: aiRoom,
-  roomHint: () => UI.aiRoomHint({ tags: marks.tags, excluded: AI.excluded, room: aiRoom(), full: `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个` }),
+  roomHint: () => UI.aiRoomHint({ tags: marks.tags, excluded: AI.excluded, room: aiRoom(), full: `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个` }) + "<br>每批数量、间隔和新建上限在「摘读记录设置」里改。",
   blocked: () => "",
   history: () => AI.history,
-  allowRemove: () => false,
+  allowRemove: () => AI.settings.allowRemove,
+  // As 关注: the switch is a setting, kept for the next run.
+  setAllowRemove: async (on) => saveAiSettings(withAllowRemove(await aiSettings(), on)),
   running: () => Boolean(AI.run),
   proposal: () => AI.proposal,
   run: runAi,
@@ -275,16 +335,18 @@ const aiTags = {
   },
   stopping: () => Boolean(AI.run?.stopping),
   discard() {
-    AI.proposal = null;
+    setAiProposal(null);
+    renderFilters(groupByVideo(conversations));
   },
   apply: applyAi,
   map: () => Object.fromEntries(Object.entries(marks.items).map(([key, item]) => [key, item.tags || []])),
   live: aiLive,
   tagName: (id) => tagOf(id)?.name,
-  applied: () => "应用后标签直接打在这些记录上，不能撤销；不对的在记录上点「+ 标签」改。"
+  check: RECENT_CHECK
 };
 async function openAi() {
   if (!AI.run) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
+  await aiSettings();
   TagDialogs.ai.open(aiTags);
 }
 
@@ -295,20 +357,22 @@ async function runAi({ instruction, scope, allowRemove }) {
   const records = aiRecords(scope);
   if (AI.run || !records.size) return;
   const run = (AI.run = { stopping: false });
+  renderFilters(groupByVideo(conversations));
+  const cfg = await aiSettings();
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
   chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
   const excluded = new Set(marks.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = marks.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const items = [...records].map(([key, parts]) => aiItem(key, parts, excluded));
   const opts = { tags: marks.tags, map: aiTags.map(), maxNewTags: aiRoom(), excluded, scope: new Set(records.keys()) };
-  const total = Math.ceil(items.length / AI_BATCH);
+  const total = Math.ceil(items.length / cfg.batchSize);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
   for (let i = 0; i < total && !run.stopping; i++) {
-    for (let t = 0; i && t < AI_GAP_MS && !run.stopping; t += 200) await new Promise((r) => setTimeout(r, 200));
+    for (let t = 0; i && t < cfg.intervalSec * 1000 && !run.stopping; t += 200) await new Promise((r) => setTimeout(r, 200));
     if (run.stopping) break;
     aiProgress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * AI_BATCH, (i + 1) * AI_BATCH), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
+    const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * cfg.batchSize, (i + 1) * cfg.batchSize), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
     const r = await chrome.runtime.sendMessage(request).catch((error) => ({ ok: false, error: error.message }));
     if (r?.ok) {
       answered++;
@@ -326,11 +390,12 @@ async function runAi({ instruction, scope, allowRemove }) {
     answered = 0;
     p.errors.push(UI.AI_TAG_GONE);
   }
-  AI.proposal = answered ? p : null;
+  setAiProposal(answered ? p : null);
   AI.run = null;
+  renderFilters(groupByVideo(conversations));
   aiProgress(answered ? "" : p.errors.join("；"));
   if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
-  else if (answered) setStatus("AI 打标签已完成，点「✦ AI 打标签」确认建议");
+  else if (answered) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
   else setStatus(UI.aiTagsFailed(p.errors.at(-1)), true);
 }
 
@@ -339,15 +404,17 @@ async function runAi({ instruction, scope, allowRemove }) {
 async function applyAi() {
   const p = AI.proposal;
   if (!p) return;
-  AI.proposal = null;
+  setAiProposal(null);
   const live = aiLive();
   let changes = [];
-  let created = 0;
+  let created = [];
   let full = 0;
+  let before = {};
   const saved = await saveMarks((m) => {
     const tags = [...m.tags];
     const idFor = {};
-    created = full = 0;
+    created = [];
+    full = 0;
     for (const t of p.newTags) {
       const name = MdgTagCore.cleanTagName(t.name);
       if (!t.checked || !name) continue;
@@ -355,7 +422,7 @@ async function applyAi() {
       if (!tag && tags.length < MdgLimits.READING_TAGS) {
         tag = { id: MdgTagCore.newTagId("rt"), name, color: MdgTagCore.nextTagColor(tags) };
         tags.push(tag);
-        created++;
+        created.push(tag.id);
       }
       if (tag) idFor[t.key] = tag.id;
       else full++;
@@ -363,11 +430,46 @@ async function applyAi() {
     const map = Object.fromEntries(Object.entries(m.items).map(([key, item]) => [key, item.tags || []]));
     changes = UI.aiChanges(p, map, live, (key) => idFor[key]);
     const after = new Map(changes.map(([key, , ids]) => [key, ids.filter((id) => tags.some((t) => t.id === id))]));
+    before = tagsBefore(m, changes.map(([key]) => key));
     return editItems({ ...m, tags }, Object.fromEntries(changes.map(([key]) => [key, live.get(key)])), (item, key) => ({ ...item, tags: after.get(key) }));
   });
-  if (!saved) return void (AI.proposal = p);
-  const made = created ? `，新建 ${created} 个标签` : "";
-  setStatus(`${changes.length ? `AI 建议已应用到 ${changes.length} 个记录` : "没有记录的标签要改"}${made}${full ? `；${full} 个新标签没有建：${fullReason()}` : ""}`);
+  if (!saved) return setAiProposal(p);
+  const n = changes.length;
+  // This batch replaces the last one; the list shows it to look over.
+  recentFilter = n > 0;
+  if (n) {
+    AI.recent = { at: Date.now(), keys: changes.map(([key]) => key) };
+    await chrome.storage.local.set({ [AI_RECENT]: AI.recent }).catch(() => {});
+  }
+  if (n || created.length) pushTagUndo(before, Object.fromEntries(changes.map(([key]) => [key, live.get(key)])), `AI 打标签（${n} 个记录）`, { ask: n > 1 ? UI.undoAsk("ai", n, "记录") : null, created, recentAt: n ? AI.recent.at : 0 });
+  render();
+  setStatus(`${UI.aiApplied(n, "记录", created.length)}${full ? `；${full} 个新标签没有建：${fullReason()}` : ""}`);
+}
+
+// ---------- U 撤销, as the 分拣台's tag steps: one per tag save (the tag picker, AI 打标签's 应用), kept on this page ----------
+// A step puts its records' tags back as they were (tags deleted since stay off) and deletes the tags it created that no
+// record carries any more, in one marks write.
+const undoSteps = [];
+// The tags of keys in the marks m, before a write changes them.
+const tagsBefore = (m, keys) => Object.fromEntries(keys.map((key) => [key, [...(m.items[key]?.tags || [])]]));
+function pushTagUndo(before, refs, label, { ask = null, created = [], recentAt = 0 } = {}) {
+  undoSteps.push({ before, refs, label, ask, created, recentAt });
+  if (undoSteps.length > MdgLimits.TRIAGE_UNDO_STEPS) undoSteps.shift();
+}
+async function undo() {
+  const top = undoSteps.at(-1);
+  if (!top) return setStatus(MdgErrors.TEXT.noUndo);
+  if (top.ask && !confirm(`${top.ask[0]}\n${top.ask[1].replace(/<[^>]+>/g, "")}`)) return;
+  undoSteps.pop();
+  const saved = await saveMarks((m) => {
+    const live = new Set(m.tags.map((t) => t.id));
+    const out = editItems(m, top.refs, (item, key) => ({ ...item, tags: top.before[key].filter((id) => live.has(id)) }));
+    const used = new Set(Object.values(out.items).flatMap((item) => item.tags || []));
+    return { ...out, tags: out.tags.filter((t) => !top.created.includes(t.id) || used.has(t.id)) };
+  });
+  if (!saved) return void undoSteps.push(top);
+  if (top.recentAt && AI.recent?.at === top.recentAt) await clearRecent();
+  setStatus(`已撤销：${top.label}`);
 }
 
 function renderTags(g) {
@@ -377,18 +479,25 @@ function renderTags(g) {
   return own.length || triage.length || plus ? `<div class="entry-tags">${[...own, ...triage].join("")}${plus}</div>` : "";
 }
 
+// One element, so it can move as it is.
+const SETTINGS_BTN = '<button type="button" class="quiet" data-f="settings" aria-label="摘读记录设置" title="摘读记录设置">⚙</button>';
 function renderFilters(groups) {
   const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset.f;
   const stars = groups.filter((g) => g.mark?.star).length;
   const chips = marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: groups.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" }));
-  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button><button type="button" class="quiet" data-f="ai">${UI.AI_SPARK}AI 打标签</button>`;
+  const recentKeys = new Set(AI.recent?.keys);
+  const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: groups.filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
+  // 「选中的 N 个」 counts records, as the dialog's 选中 does.
+  const [ai, state] = UI.aiTagsLabel({ running: Boolean(AI.run), pending: Boolean(AI.proposal), picked: aiRecords("selected").size || recordsOf(groups.filter((g) => selected.has(g.key))).size });
+  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${recent}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button><button type="button" class="quiet" data-f="ai" aria-label="${ai} (I)">${UI.AI_SPARK}${ai}${state}</button>${SETTINGS_BTN}`;
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
 function visibleGroups() {
   const query = els.search.value.trim().toLowerCase();
   // 星标 and the tag chips narrow the list; several tags are ANDed, as on the 分拣台.
-  const groups = groupByVideo(conversations).filter((g) => touched.has(readingKey(g)) || ((!starFilter || g.mark?.star) && [...tagFilter].every((id) => g.mark?.tags?.includes(id))));
+  const recent = new Set(recentFilter ? AI.recent?.keys : []);
+  const groups = groupByVideo(conversations).filter((g) => (!recentFilter || recent.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!starFilter || g.mark?.star) && [...tagFilter].every((id) => g.mark?.tags?.includes(id)))));
   if (!query) return groups;
   return groups.filter((g) =>
     [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...[...tagsOf(g), ...triageTagsOf(g)].map((t) => t.name), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
@@ -583,6 +692,10 @@ async function load() {
   triageTagById = new Map((all[TRIAGE_TAGS] || []).map((t) => [t.id, t]));
   triageVideoTags = all[TRIAGE_VIDEO_TAGS] || {};
   for (const id of [...tagFilter]) if (!tagOf(id)) tagFilter.delete(id);
+  AI.recent = all[AI_RECENT] || null;
+  if (!AI.recent?.keys?.length) recentFilter = false;
+  // The proposal in memory (maybe edited in the review) wins over the stored one.
+  if (!AI.proposal && !AI.run) AI.proposal = all[AI_PROPOSAL] || null;
   dropStaleProposal();
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
@@ -682,6 +795,7 @@ els.list.addEventListener("click", (event) => {
   if (act === "pick") {
     target.checked ? selected.add(key) : selected.delete(key);
     syncBulk();
+    renderFilters(groupByVideo(conversations)); // 「✦ AI 打标签选中的 N 个」
   } else if (act === "copy" && group) {
     navigator.clipboard.writeText(buildNote(group).content).then(
       () => setStatus(MdgErrors.TEXT.copied),
@@ -741,7 +855,10 @@ els.filters.addEventListener("click", (event) => {
   const f = event.target.closest("[data-f]")?.dataset.f;
   if (f === "manage") return TagDialogs.manage.open(manageTags);
   if (f === "ai") return void openAi();
-  if (f === "star") starFilter = !starFilter;
+  if (f === "settings") return void openSettings();
+  if (f === "recent-done") return void clearRecent();
+  if (f === "recent") recentFilter = !recentFilter;
+  else if (f === "star") starFilter = !starFilter;
   else if (f?.startsWith("tag:")) {
     const id = f.slice(4);
     tagFilter.has(id) ? tagFilter.delete(id) : tagFilter.add(id);
@@ -749,6 +866,32 @@ els.filters.addEventListener("click", (event) => {
   render();
 });
 els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
+// I and U as on the 分拣台: not while typing or with a dialog open.
+document.addEventListener("keydown", (e) => {
+  if (MdgTyping.composing(e) || MdgTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
+  const run = { i: openAi, u: undo }[e.key.toLowerCase()];
+  if (!run) return;
+  e.preventDefault();
+  void run();
+});
+const settingsDialog = $("readingSettingsDialog");
+UI.fillSetRows(settingsDialog);
+UI.clampNumbers(settingsDialog);
+settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => chrome.runtime.openOptionsPage());
+async function openSettings() {
+  const s = await aiSettings();
+  $("rsBatchInput").value = s.batchSize;
+  $("rsIntervalInput").value = s.intervalSec;
+  $("rsNewMaxInput").value = s.newTagMax;
+  $("rsRemoveInput").checked = s.allowRemove;
+  settingsDialog.returnValue = "";
+  settingsDialog.showModal();
+}
+settingsDialog.addEventListener("close", async () => {
+  if (settingsDialog.returnValue !== "save") return;
+  const next = normAi({ batchSize: $("rsBatchInput").value, intervalSec: $("rsIntervalInput").value, newTagMax: $("rsNewMaxInput").value, allowRemove: $("rsRemoveInput").checked });
+  if (await saveAiSettings(next)) setStatus(MdgErrors.TEXT.settingsSaved);
+});
 // AI conversations only: triage analyses and notes are other features' data and stay. A starred record's are kept too
 // (星标 keeps a record with its conversations); its own 删除 AI 对话 still deletes them.
 const isStarredConv = (c) => Boolean(marks.items[MdgLimits.readingKeyOf(c.contextKey)]?.star);

@@ -117,8 +117,12 @@ button.star:hover { background: none; color: var(--star); }
 button.star[aria-pressed="true"] { color: var(--star); }
 .filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-block: 0 var(--space-2); }
 .filterbar:empty { display: none; }
-.filterbar .star-filter { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.filterbar .star-filter[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+.filterbar .star-filter, .filterbar .ai-recent > button { height: 22px; padding: 0 8px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.filterbar .star-filter[aria-pressed="true"], .filterbar .ai-recent > button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+/* 「✦ AI 刚打的」 and its × (shared.js aiRecentChip): one pill in two halves. */
+.filterbar .ai-recent { display: inline-flex; }
+.filterbar .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+.filterbar .ai-recent > .ai-recent-x { padding: 0 8px 0 6px; border-left: 0; border-radius: 0 var(--radius-pill) var(--radius-pill) 0; color: var(--muted); }
 .filterbar .star-filter.zero:not([aria-pressed="true"]) { opacity: 0.5; }
 .filterbar .quiet { height: 22px; margin-left: var(--space-2); font-size: var(--fs-xs); }
 .entry-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: var(--space-1); }

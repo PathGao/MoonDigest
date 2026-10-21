@@ -119,7 +119,7 @@
             </div>
           </section>
           <section class="set-group">
-            <h3>请求和 AI 参数</h3>
+            <h3 data-text="aiParams">请求和 AI 参数</h3>
             <p class="dialog-hint">一般不用改。AI 平台在设置页，判断标准点「判断标准」按钮改。</p>
             <div class="set-card">
               <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" data-num="interval" step="1" /></div>
@@ -137,7 +137,7 @@
           <button id="openOptionsBtn" type="button" class="link" aria-label="打开设置页" data-text="openSettings">打开设置页</button>
           <span class="spacer"></span>
           <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
-          <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
+          <button value="save" type="submit" class="primary" aria-label="保存设置" data-text="saveSettings">保存</button>
         </div>
       </form>
     </dialog>
@@ -164,8 +164,8 @@
               </div>
             </section>
             <section class="set-group">
-              <h3>请求和 AI 参数</h3>
-              <p class="dialog-hint">一般不用改。AI 平台在设置页。</p>
+              <h3 data-text="aiParams">请求和 AI 参数</h3>
+              <p class="dialog-hint" data-text="aiParamsHint">一般不用改。AI 平台在设置页。</p>
               <div class="set-card">
                 <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" data-num="interval" step="1" /></div>
                 <div class="set-row" data-set-row="aiBatch"><input id="fwBatchInput" type="number" data-num="aiBatch" step="1" /></div>
@@ -178,7 +178,7 @@
           <button type="button" class="link" data-open-options aria-label="打开设置页" data-text="openSettings">打开设置页</button>
           <span class="spacer"></span>
           <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
-          <button value="save" type="submit" class="primary" aria-label="保存设置">保存</button>
+          <button value="save" type="submit" class="primary" aria-label="保存设置" data-text="saveSettings">保存</button>
         </div>
       </form>
     </dialog>

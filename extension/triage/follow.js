@@ -1188,7 +1188,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const { prev } = await setTagMap((map) => changes.reduce((m, c) => withTags(m, [c.key], c.add, c.remove), map));
     const before = tagsOf(prev, changes.map((c) => c.key));
-    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });
+    pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });
   }
   if (F.mode !== "follow") return renderViewerUp();
   render();

@@ -197,11 +197,11 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     let sent;
     t.triageAiSettings = async () => ({ triageThinking: false });
     t.triageChat = async (messages, maxTokens, thinking, providerId) => ((sent = { messages, providerId }), { content: '{"new_tags":["编程"],"items":[{"i":1,"add":["编程"]},{"i":2,"add":["读过"],"remove":["旧"]}],"note":"好"}' });
-    const video = { id: "video:bilibili:BV1a|", title: "讲|Transformer", site: "B站", oneLiner: "注意力机制", note: "值得\n再看", questions: ["第一问", "x".repeat(80)], currentTags: [] };
-    const page = { id: "page:https://example.com/post", title: "一篇文章", site: "网页", questions: [], currentTags: ["旧"] };
+    const video = { id: "video:bilibili:BV1a|", title: "讲|Transformer", site: "B站", turns: [{ q: "第一问", a: "答|一" }, { q: "第二问", a: "" }], currentTags: [] };
+    const page = { id: "page:https://example.com/post", title: "一篇文章", site: "网页", oneLiner: "注意力机制", note: "值得\n再看", currentTags: ["旧"] };
     const r = plain(await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-reading-ai-tag"]({ instruction: "按主题分", items: [video, page], tags: [{ name: "读过" }, { name: "旧" }], maxNewTags: 5, allowRemove: true, aiProviderId: "p" }));
     const user = sent.messages[1].content;
-    assert.ok(user.includes(`1|讲 Transformer|B站|注意力机制|值得 再看|第一问；${"x".repeat(60)}|\n2|一篇文章|网页||||旧`), user);
+    assert.ok(user.includes("1|讲 Transformer|B站||问：第一问 答：答 一 问：第二问||\n2|一篇文章|网页|旧||注意力机制|值得 再看"), user);
     assert.ok(sent.messages[0].content.includes("摘读记录整理助手") && sent.messages[0].content.includes("remove 只能填该记录") && sent.providerId === "p", sent.messages[0].content);
     assert.deepStrictEqual(r, { newTags: ["编程"], assignments: { [video.id]: { add: ["编程"], remove: [] }, [page.id]: { add: ["读过"], remove: ["旧"] } }, note: "好" });
     await assert.rejects(vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-reading-ai-tag"]({ instruction: "x", items: [{ title: "没有 id" }], tags: [] }), /缺少 items/);
