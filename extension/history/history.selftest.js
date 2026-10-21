@@ -487,6 +487,12 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await on(videoKey, "star");
     assert.strictEqual(store[MARKS].items[videoKey], undefined);
     assert.ok(entry(videoKey).includes("☆") && entry(videoKey).includes("星标视频"), entry(videoKey));
+    // Tagged again after that, it stays unstarred.
+    await on(videoKey, "tags");
+    const again = await picker.create("再看");
+    await picker.onClose([{ key: videoKey, add: [again.id], remove: [] }]);
+    await wait(20);
+    assert.deepStrictEqual(plain([store[MARKS].items[videoKey].star, store[MARKS].items[videoKey].tags]), [0, [again.id]]);
     pick(videoKey, false);
     pick(pageKey, false);
   }

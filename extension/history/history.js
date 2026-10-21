@@ -129,7 +129,7 @@ function editItems(m, refs, change) {
     touched.add(key);
     if (item.star || item.tags.length) items[key] = { ...item, ref, at: item.at || Date.now(), updatedAt: Date.now() };
     else {
-      if (items[key]) unmarked.set(key, { ...items[key], ref });
+      if (items[key]) unmarked.set(key, { ...items[key], ...item, ref });
       delete items[key];
     }
   }
