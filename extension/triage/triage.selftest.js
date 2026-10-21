@@ -726,7 +726,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "triage-zip-"));
     const zip = path.join(dir, "干货.zip");
-    fs.writeFileSync(zip, t.zipStored(files));
+    fs.writeFileSync(zip, t.MdgDownload.zipStored(files));
     // Info-ZIP's unzip checks the archive when it is on PATH (not on Windows by default); the hand read below always runs.
     const unzip = (args) => execFileSync("unzip", args, { encoding: "utf8" });
     let hasUnzip = true;

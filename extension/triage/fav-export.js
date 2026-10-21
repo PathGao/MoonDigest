@@ -107,15 +107,9 @@ function indexMarkdown(written, link, title) {
 }
 
 // The zip's files: the index named after the folder, then each note under its vault filename (a repeat gets " (2)").
-// Repeats are found ignoring case: macOS and Windows unzip 「A.md」 and 「a.md」 onto one file.
 function zipNotes(base, written, title) {
   const used = new Set([`${base}.md`.toLowerCase()]);
-  const notes = written.map((w) => {
-    let path = w.filename;
-    for (let i = 2; used.has(path.toLowerCase()); i++) path = w.filename.replace(/\.md$/, ` (${i}).md`);
-    used.add(path.toLowerCase());
-    return { ...w, path };
-  });
+  const notes = written.map((w) => ({ ...w, path: MdgDownload.uniqueName(used, w.filename) }));
   return [{ name: `${base}.md`, text: indexMarkdown(notes, mdLink, title) }, ...notes.map((w) => ({ name: w.path, text: w.markdown }))];
 }
 
@@ -196,7 +190,7 @@ async function runWrite(md = false) {
   if (md && written.length) {
     const base = MdgCommon.fileName(title, "收藏夹");
     indexPath = `${base}.zip`;
-    MdgDownload.text(indexPath, zipStored(zipNotes(base, written, title)), "application/zip");
+    MdgDownload.text(indexPath, MdgDownload.zipStored(zipNotes(base, written, title)), "application/zip");
   }
   const skipped = written.filter((w) => w.skipped).length;
   const aiUpdated = written.filter((w) => w.aiUpdated).length;
