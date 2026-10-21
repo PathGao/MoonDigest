@@ -85,8 +85,7 @@
         };
       })
       .filter(Boolean)
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, MdgLimits.AI_CONVERSATIONS);
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }
 
   function resolveConversationStorageKey(rawKey, contextRef, contextUrl = "") {

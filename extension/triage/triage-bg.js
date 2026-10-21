@@ -810,9 +810,9 @@ async function triageBuildNote(bvid, settings) {
   // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
   const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };
   const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
-  const { analysis, note, userTags } = MdgNote.triageExtras(stored, extrasRef);
+  const { analysis, note, userTags, starred } = MdgNote.triageExtras(stored, extrasRef);
   // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
-  noteMeta.userTags = userTags;
+  Object.assign(noteMeta, { userTags, starred });
   noteMeta.aiTurns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
   const markdown = MdgNote.withTriageSummary(MdgNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
   // The computed path for this video's note (obsidian.js prefers a recorded one); the cover goes into the vault there

@@ -294,7 +294,9 @@
     return target ? `source: "[[${escapeYaml(target)}]]"` : "";
   }
 
-  function buildAiNoteFrontmatter({ context, filename, sourcePath }) {
+  // extras: triageExtras' userTags and starred (摘读记录's tags and 星标 go into the AI 笔记 too).
+  function buildAiNoteFrontmatter({ context, filename, sourcePath, extras }) {
+    const tags = noteTags(extras, {});
     return [
       "---",
       `title: "${escapeYaml(filename.replace(/\.md$/i, ""))}"`,
@@ -303,14 +305,15 @@
       `url: "${escapeYaml(MdgSites.videoUrl(context || {}))}"`,
       context?.author ? `author: "${escapeYaml(context.author)}"` : "",
       `created: "${localDate()}"`,
-      `tags: [ai_note]`,
+      `tags: ${tags.length ? yamlList(["ai_note", ...tags]) : "[ai_note]"}`,
+      extras?.starred ? "starred: true" : "",
       "---"
     ].filter(Boolean);
   }
 
   // A whole conversation; turns from buildConversationTurns.
-  function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "" }) {
-    const lines = [...buildAiNoteFrontmatter({ context, filename, sourcePath }), "", sourceBodyLine(sourcePath, aiSourceTitle(context))];
+  function buildAiConversationMarkdown({ context, turns, filename, sourcePath = "", extras }) {
+    const lines = [...buildAiNoteFrontmatter({ context, filename, sourcePath, extras }), "", sourceBodyLine(sourcePath, aiSourceTitle(context))];
     turns.forEach((turn) => {
       lines.push("", `## ${sanitizeMarkdownHeadingText(turn.prompt)}`, "", turn.answer);
     });
@@ -336,28 +339,37 @@
 
   // The 分拣台 data a video's note carries, read the same way by every note writer: the AI 总结 (per bvid; it
   // summarizes P1, so B站 P1 only), 备注 (per video id, any site) and the 分拣 tags (B站, every part).
-  // triageExtrasKeys names the storage keys to read; triageExtras picks from what was read.
+  // triageExtrasKeys names the storage keys to read; triageExtras picks from what was read. 摘读记录's tags join the 分拣
+  // tags and its 星标 is starred, for videos and web pages (url) alike.
   const isBiliP1 = ({ site, pageIndex }) => site === "bilibili" && !(Number(pageIndex) > 1);
-  function triageExtrasKeys({ site, videoId, pageIndex }) {
+  // A record's key in 摘读记录's marks: a video's, every part alike (no cid), or a web page's address.
+  const readingKey = ({ site, videoId, url } = {}) => MdgLimits.readingKeyOf(MdgSites.buildContextKey({ site, videoId, url }));
+  function triageExtrasKeys({ site, videoId, pageIndex, url }) {
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis, readingMarks } = MdgLimits.KEYS;
+    const marks = readingKey({ site, videoId, url }) ? [readingMarks] : [];
     if (!videoId) {
-      return [];
+      return marks;
     }
-    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = MdgLimits.KEYS;
     return [
       triageNotes,
       ...(site === "bilibili" ? [triageTags, triageVideoTags] : []),
-      ...(isBiliP1({ site, pageIndex }) ? [triageAnalysis(videoId)] : [])
+      ...(isBiliP1({ site, pageIndex }) ? [triageAnalysis(videoId)] : []),
+      ...marks
     ];
   }
-  function triageExtras(stored, { site, videoId, pageIndex }) {
-    const { triageNotes, triageTags, triageVideoTags, triageAnalysis } = MdgLimits.KEYS;
+  function triageExtras(stored, { site, videoId, pageIndex, url }) {
+    const { triageNotes, triageTags, triageVideoTags, triageAnalysis, readingMarks } = MdgLimits.KEYS;
     const all = stored || {};
     const names = new Map((all[triageTags] || []).map((tag) => [tag.id, tag.name]));
     const tagIds = site === "bilibili" ? all[triageVideoTags]?.[videoId] || [] : [];
+    const marks = all[readingMarks];
+    const mark = marks?.items?.[readingKey({ site, videoId, url })];
+    const markNames = new Map((marks?.tags || []).map((tag) => [tag.id, tag.name]));
     return {
       analysis: (isBiliP1({ site, pageIndex }) && all[triageAnalysis(videoId)]) || null,
       note: String(all[triageNotes]?.[videoId]?.text || ""),
-      userTags: [...new Set(tagIds.map((id) => names.get(id)).filter(Boolean))]
+      userTags: [...new Set([...tagIds.map((id) => names.get(id)), ...(mark?.tags || []).map((id) => markNames.get(id))].filter(Boolean))],
+      starred: Boolean(mark?.star)
     };
   }
 
@@ -416,6 +428,7 @@
     };
 
     const lines = enabled.map((field) => fieldLines[field]).filter(Boolean);
+    if (meta.starred) lines.push("starred: true");
     lines.push(...fixedPropertyLines);
     if (lines.length === 0) {
       return "";
@@ -1082,12 +1095,12 @@
       host = new URL(url).hostname;
     } catch {}
     const quoted = (key, value) => (value ? `${key}: "${escapeYaml(value)}"` : "");
-    const tags = noteTags({}, settings);
+    const tags = noteTags({ userTags: page?.userTags }, settings);
     // The user's 自定属性, by the video note's function. {{site}} is 网页 as in the folder template (one variable, one
     // value everywhere; the host is the built-in site field), {{upload_date}} the published date.
     const meta = { title: page?.title, site: "网页", author: page?.author, uploadDate: page?.published };
     const own = getFixedFrontmatterPropertyLines(settings, buildFrontmatterTemplateContext(meta, url, created, tags.join(", "), yamlList(tags)));
-    const front = ["---", quoted("title", page?.title), quoted("url", url), quoted("site", host), quoted("author", page?.author), quoted("published", page?.published), quoted("created", created), `tags: ${yamlList(tags)}`, ...own, "---"];
+    const front = ["---", quoted("title", page?.title), quoted("url", url), quoted("site", host), quoted("author", page?.author), quoted("published", page?.published), quoted("created", created), `tags: ${yamlList(tags)}`, page?.starred ? "starred: true" : "", ...own, "---"];
     const markdown = `${front.filter(Boolean).join("\n")}\n\n${String(page?.pageMarkdown || "").trim()}`;
     const ai = MdgSettings.normalizeSwitches(settings).includeAiChatInNote ? buildAiSection(turns) : "";
     return `${ai ? `${markdown}\n\n${ai}` : markdown}\n`;
@@ -1123,6 +1136,7 @@
     withTriageSummary,
     triageExtras,
     triageExtrasKeys,
+    readingKey,
     buildNoteFilename,
     resolveFolderTemplate,
     videoNotePath,

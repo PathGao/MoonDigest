@@ -176,7 +176,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   // A web page's key too (page:<url>), so its note is remembered like a video's.
   let key = MdgSites.buildContextKey(ref);
   const { aiConversations } = MdgLimits.KEYS;
-  const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
+  const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex, url: ref.url };
   const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
   const turns = MdgNote.buildConversationTurns(conversation ? conversation.messages : MdgNote.pickConversation(stored[aiConversations], ref)?.messages);
   const aiOn = settings.includeAiChatInNote;
@@ -187,10 +187,11 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 
   // The conversation as its own note, linking the video note (sourcePath) when there is one.
   const standalone = (why, sourcePath) => {
-    const { analysis, note } = MdgNote.triageExtras(stored, extrasRef);
+    const extras = MdgNote.triageExtras(stored, extrasRef);
+    const { analysis, note } = extras;
     if (!turns.length && !analysis && !note.trim()) throw new Error("没有可写入 Obsidian 的内容");
     const filename = MdgNote.buildAiConversationFilename(ref);
-    const markdown = MdgNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath });
+    const markdown = MdgNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath, extras });
     return { path: MdgNote.conversationNotePath(ref, settings), why, body: async () => ({ markdown: MdgNote.withTriageSummary(markdown, analysis, note) }) };
   };
   let target;

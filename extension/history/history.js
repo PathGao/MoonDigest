@@ -3,16 +3,27 @@ if (!globalThis.chrome?.runtime?.id) await import("./dev/mock-chrome.js");
 const OWN_TAB = await chrome.tabs.getCurrent();
 
 const KEY = MdgLimits.KEYS.aiConversations;
-const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT } = MdgLimits.KEYS;
+const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT, readingMarks: MARKS_KEY, triageTags: TRIAGE_TAGS, triageVideoTags: TRIAGE_VIDEO_TAGS } = MdgLimits.KEYS;
 const $ = (id) => document.getElementById(id);
 const { setReason } = MdgErrors;
-const els = { list: $("list"), search: $("search"), count: $("count"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
+const els = { list: $("list"), search: $("search"), count: $("count"), filters: $("filters"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkTags: $("bulkTags"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
 let notes = {}; // video id (bvid / YouTube videoId) → { text, updatedAt }, non-empty only
 let triageTitles = {}; // bvid → title from the triage folder snapshots
 let obsidianEnabled = false;
+let stored = {}; // all of local storage as last read: MdgNote.triageExtras reads a record's tags and 星标 from it
+let marks = { tags: [], items: {} }; // 星标 and tags by record key (MdgNote.readingKey)
+let triageTagById = new Map(); // the 分拣台's tags, shown read-only on B站 videos
+let triageVideoTags = {}; // bvid → 分拣台 tag ids
+// Records unmarked here that have nothing else left: kept on the list until the page reloads, so a row does not
+// vanish under the cursor (record key → its last mark).
+const unmarked = new Map();
+// Records whose marks changed here: the 星标 and tag filters keep showing them until the page reloads, for the same reason.
+const touched = new Set();
+let starFilter = false;
+const tagFilter = new Set();
 const selected = new Set();
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
 const unfolded = new Set(); // entry keys whose one-line AI summary is shown in full
@@ -26,6 +37,7 @@ document.addEventListener("pointerdown", () => (pressing = true), true);
 for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, () => (pressing = false), true);
 
 const esc = MdgErrors.escapeHtml;
+const UI = TriageUi;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 // One entry per video or web page: the side panel's contextKey (MdgSites.buildContextKey) ties a conversation to it.
@@ -58,22 +70,160 @@ function groupByVideo(items) {
     if (host) host.analysis = analysis;
     else if (analysis || !parts.length) groups.push({ key, convs: [], context, title: context.title, updatedAt: Math.max(analysis?.analyzedAt || 0, note?.updatedAt || 0), analysis, note });
   }
+  // Marks are per record, every part alike, as 备注 are; a marked record with nothing else left is its own entry, from
+  // the title and address kept when it was marked.
+  for (const key of new Set([...unmarked.keys(), ...Object.keys(marks.items)])) {
+    const mark = marks.items[key] || unmarked.get(key);
+    const parts = groups.filter((g) => readingKey(g) === key);
+    for (const g of parts) g.mark = marks.items[key];
+    if (parts.length) continue;
+    const context = { ...MdgSites.contextRef(mark.ref), isVideoContext: Boolean(mark.ref?.videoId) };
+    const title = context.title || triageTitles[context.videoId] || context.videoId || context.url;
+    // By when it was first marked: a 星标 click does not move it to the top.
+    groups.push({ key, convs: [], context, title, updatedAt: mark.at || mark.updatedAt || 0, mark: marks.items[key] });
+  }
   return groups.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order.
+const readingKey = (g) => MdgNote.readingKey(g.context);
+
+// 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order, its tags and 星标.
 function buildNote(group) {
   const turns = group.convs.flatMap((conv) => MdgNote.buildConversationTurns(conv.messages));
   const filename = MdgNote.buildAiConversationFilename(group.context);
-  return { filename, content: MdgNote.withTriageSummary(MdgNote.buildAiConversationMarkdown({ context: group.context, turns, filename }), group.analysis, group.note?.text) };
+  const extras = MdgNote.triageExtras(stored, group.context);
+  return { filename, content: MdgNote.withTriageSummary(MdgNote.buildAiConversationMarkdown({ context: group.context, turns, filename, extras }), group.analysis, group.note?.text) };
+}
+
+// ---------- 星标 and tags ----------
+const tagOf = (id) => marks.tags.find((t) => t.id === id);
+const tagsOf = (g) => (g.mark?.tags || []).map(tagOf).filter(Boolean);
+// The 分拣台's tags of a B站 video, one per name (each 收藏夹 has its own tags).
+function triageTagsOf(g) {
+  if (g.context.site !== "bilibili") return [];
+  const tags = (triageVideoTags[g.context.videoId] || []).map((id) => triageTagById.get(id)).filter(Boolean);
+  return tags.filter((t, i) => tags.findIndex((x) => x.name === t.name) === i);
+}
+const fullReason = () => (marks.tags.length >= MdgLimits.READING_TAGS ? `已经有 ${marks.tags.length} 个标签了，先在「${UI.tagManage}」里删掉不用的` : "");
+// What a mark keeps of its record, refreshed at each write: enough to list it after its conversations are gone.
+const refOf = (g) => ({ site: g.context.site || "", videoId: g.context.videoId || "", url: g.context.url || "", title: g.title === g.context.videoId ? "" : g.title });
+
+// Every write goes through MdgLimits.updateReadingMarks; the list is drawn from what was written.
+async function saveMarks(edit) {
+  try {
+    marks = await MdgLimits.updateReadingMarks(edit);
+    stored[MARKS_KEY] = marks;
+    return true;
+  } catch (error) {
+    setStatus(`保存失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+    return false;
+  } finally {
+    render();
+  }
+}
+// Changes the marks of records (refs: record key → ref); a record left with no 星标 and no tag is dropped from storage.
+function editItems(m, refs, change) {
+  const items = { ...m.items };
+  for (const [key, ref] of Object.entries(refs)) {
+    const item = change({ star: 0, tags: [], ...(items[key] || unmarked.get(key)) }, key);
+    touched.add(key);
+    if (item.star || item.tags.length) items[key] = { ...item, ref, at: item.at || Date.now(), updatedAt: Date.now() };
+    else {
+      if (items[key]) unmarked.set(key, { ...items[key], ref });
+      delete items[key];
+    }
+  }
+  return { ...m, items };
+}
+const toggleStar = (g) => {
+  const on = !g.mark?.star;
+  return saveMarks((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
+};
+
+// A tag by name: the one that has it, or a new one while there is room; null (and why, in red) otherwise.
+async function createTag(value) {
+  const name = MdgTagCore.cleanTagName(value);
+  let tag = null;
+  const why = UI.tagNameError(name, []) || (!marks.tags.some((t) => t.name === name) && fullReason());
+  if (why) return setStatus(why, true), null;
+  await saveMarks((m) => {
+    tag = m.tags.find((t) => t.name === name);
+    if (tag || m.tags.length >= MdgLimits.READING_TAGS) return m;
+    tag = { id: MdgTagCore.newTagId("rt"), name, color: MdgTagCore.nextTagColor(m.tags) };
+    return { ...m, tags: [...m.tags, tag] };
+  });
+  return tag;
+}
+
+// The shared picker (tag-picker.js) for one record (under its 「+ 标签」) or the selected ones (a modal). Closing saves.
+function openPicker(groups, anchor = "") {
+  const refs = Object.fromEntries(groups.map((g) => [readingKey(g), refOf(g)]).filter(([key]) => key));
+  const targets = Object.keys(refs);
+  if (!targets.length) return;
+  TagPicker.open({
+    title: UI.pickTitle(groups.length, groups[0].title, ""),
+    targets,
+    idsOf: (key) => (marks.items[key]?.tags || []).filter(tagOf),
+    tags: () => marks.tags,
+    get canCreate() {
+      return !fullReason();
+    },
+    create: createTag,
+    get empty() {
+      return fullReason();
+    },
+    anchor,
+    onClose: (changes) => changes.length && saveMarks((m) => editItems(m, Object.fromEntries(changes.map((c) => [c.key, refs[c.key]])), (item, key) => ({ ...item, tags: TagPicker.applyChange(item.tags, changes.find((c) => c.key === key)) })))
+  });
+}
+
+// 标签管理 (tag-dialogs.js): one list for every record, videos and web pages alike.
+const tagCount = (id) => Object.values(marks.items).filter((item) => item.tags?.includes(id)).length;
+const manageTags = {
+  who: "记录",
+  hint: () => `摘读记录的标签，视频和网页共用，最多 ${MdgLimits.READING_TAGS} 个。`,
+  tags: () => marks.tags,
+  count: tagCount,
+  addReason: (value) => fullReason() || UI.tagNameError(MdgTagCore.cleanTagName(value), marks.tags),
+  add: createTag,
+  edit(t, field, value) {
+    const { tag, why } = UI.editedTag(t, field, value, marks.tags.filter((x) => x.id !== t.id));
+    if (why) setStatus(why, true);
+    return Boolean(tag) && saveMarks((m) => ({ ...m, tags: m.tags.map((x) => (x.id === t.id ? tag : x)) }));
+  },
+  async remove(t) {
+    const [title, body] = UI.deleteTagAsk(t, tagCount(t.id), "记录");
+    if (!confirm(`${title}\n${body.replace(/<[^>]+>/g, "")}`)) return;
+    tagFilter.delete(t.id);
+    await saveMarks((m) => {
+      const carrying = Object.fromEntries(Object.entries(m.items).filter(([, item]) => item.tags?.includes(t.id)).map(([key, item]) => [key, item.ref]));
+      return editItems({ ...m, tags: m.tags.filter((x) => x.id !== t.id) }, carrying, (item) => ({ ...item, tags: item.tags.filter((id) => id !== t.id) }));
+    });
+  }
+};
+
+function renderTags(g) {
+  const own = tagsOf(g).map((t) => `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`);
+  const triage = triageTagsOf(g).map((t) => `<span class="chip triage-tag" style="--c:${esc(t.color)}" title="分拣台的标签，在分拣台里改">${esc(t.name)}</span>`);
+  const plus = readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, ""), false) : "";
+  return own.length || triage.length || plus ? `<div class="entry-tags">${[...own, ...triage].join("")}${plus}</div>` : "";
+}
+
+function renderFilters(groups) {
+  const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset.f;
+  const stars = groups.filter((g) => g.mark?.star).length;
+  const chips = marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: groups.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" }));
+  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button>`;
+  if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
 function visibleGroups() {
   const query = els.search.value.trim().toLowerCase();
-  const groups = groupByVideo(conversations);
+  // 星标 and the tag chips narrow the list; several tags are ANDed, as on the 分拣台.
+  const groups = groupByVideo(conversations).filter((g) => touched.has(readingKey(g)) || ((!starFilter || g.mark?.star) && [...tagFilter].every((id) => g.mark?.tags?.includes(id))));
   if (!query) return groups;
   return groups.filter((g) =>
-    [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
+    [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...[...tagsOf(g), ...triageTagsOf(g)].map((t) => t.name), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
   );
 }
 
@@ -159,7 +309,7 @@ function render() {
   // Records of web pages are not videos: counted on their own.
   const videos = allGroups.filter((g) => g.context.videoId).length;
   const pages = allGroups.length - videos;
-  els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${conversations.length}/${MdgLimits.AI_CONVERSATIONS}`;
+  els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${conversations.filter((c) => !isStarredConv(c)).length}/${MdgLimits.AI_CONVERSATIONS}${conversations.some(isStarredConv) ? `，星标 ${conversations.filter(isStarredConv).length} 段不计` : ""}`;
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
   for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.
@@ -182,11 +332,14 @@ function render() {
         const label = untitled ? "未获取标题" : g.title;
         // Only web links: a saved context URL is shown as a link, never as a javascript: or other scheme.
         const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
-        const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : `仅${[g.analysis && "分拣台 AI 总结", g.note && "备注"].filter(Boolean).join("和")}，没有 AI 对话`;
+        const only = [g.analysis && "分拣台 AI 总结", g.note && "备注", g.mark?.star && "星标", g.mark?.tags?.length && "标签"].filter(Boolean);
+        const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : only.length ? `仅${only.length > 1 ? `${only.slice(0, -1).join("、")}和${only.at(-1)}` : only[0]}，没有 AI 对话` : "没有 AI 对话";
+        const starred = Boolean(g.mark?.star);
+        const star = readingKey(g) ? `<button type="button" class="star" data-act="star" aria-pressed="${starred}" aria-label="${starred ? "取消星标" : "加星标"}" title="${starred ? "取消星标" : "加星标"}">${starred ? "★" : "☆"}</button>` : "";
         return `<article class="entry" data-key="${esc(g.key)}">
           <input type="checkbox" name="selectedConversation" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           <div class="entry-head">
-            ${title}
+            <div class="entry-line">${star}${title}</div>
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
@@ -198,6 +351,7 @@ function render() {
           </div>
           <div class="entry-body">
             ${g.analysis ? renderSummary(g) : ""}
+            ${renderTags(g)}
             ${renderNote(g)}
             ${g.convs.length ? `<details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
@@ -215,6 +369,7 @@ function render() {
   const again = anchor && entryOf(anchor.key);
   if (again) window.scrollBy(0, again.getBoundingClientRect().top - anchor.offset);
   else window.scrollTo(0, scrollY);
+  renderFilters(allGroups);
   syncBulk(groups);
 }
 
@@ -232,6 +387,7 @@ function syncBulk(groups = visibleGroups()) {
   const n = shown.length || selected.size;
   const none = !selected.size ? "先勾选记录" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
   els.bulkMd.textContent = n ? `下载选中的 ${n} 个 .md` : "下载选中的 .md";
+  setReason(els.bulkTags, none);
   // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
   els.bulkDelete.textContent = del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话";
@@ -239,7 +395,7 @@ function syncBulk(groups = visibleGroups()) {
   // Only AI conversations are deleted here. A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only),
   // so the reason names no other place.
   setReason(els.bulkDelete, none || (del ? "" : "选中的记录没有 AI 对话"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "");
-  setReason(els.clearAll, conversations.length ? "" : "还没有 AI 对话");
+  setReason(els.clearAll, !conversations.length ? "还没有 AI 对话" : conversations.every(isStarredConv) ? "只剩加了星标的记录的 AI 对话" : "");
 }
 
 // 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
@@ -254,6 +410,11 @@ function setStatus(text, error = false) {
 async function load() {
   // ponytail: reads all of storage (subtitle caches included) to find the triage keys; getKeys() first if that gets slow.
   const all = await chrome.storage.local.get(null);
+  stored = all;
+  marks = { tags: all[MARKS_KEY]?.tags || [], items: all[MARKS_KEY]?.items || {} };
+  triageTagById = new Map((all[TRIAGE_TAGS] || []).map((t) => [t.id, t]));
+  triageVideoTags = all[TRIAGE_VIDEO_TAGS] || {};
+  for (const id of [...tagFilter]) if (!tagOf(id)) tagFilter.delete(id);
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
   notes = Object.fromEntries(Object.entries(all[NOTES_KEY] || {}).filter(([, n]) => String(n?.text || "").trim()));
@@ -368,6 +529,8 @@ els.list.addEventListener("click", (event) => {
     editing = { id: noteIdOf(group), draft: group.note?.text || "" };
     render();
   }
+  else if (act === "star" && group) void toggleStar(group);
+  else if (act === "tags" && group) openPicker([group], `.entry[data-key="${CSS.escape(key)}"] .tag-plus`);
   else if (act === "ask" && group && isWebPage(group)) askAboutPage(group);
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
@@ -404,16 +567,30 @@ els.selectAll.addEventListener("change", () => {
   render();
 });
 els.bulkMd.addEventListener("click", () => downloadGroups(visibleGroups().filter((g) => selected.has(g.key))));
+els.bulkTags.addEventListener("click", () => openPicker(visibleGroups().filter((g) => selected.has(g.key))));
+els.filters.addEventListener("click", (event) => {
+  const f = event.target.closest("[data-f]")?.dataset.f;
+  if (f === "manage") return TagDialogs.manage.open(manageTags);
+  if (f === "star") starFilter = !starFilter;
+  else if (f?.startsWith("tag:")) {
+    const id = f.slice(4);
+    tagFilter.has(id) ? tagFilter.delete(id) : tagFilter.add(id);
+  } else return;
+  render();
+});
 els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
-// AI conversations only: triage analyses and notes are other features' data and stay.
+// AI conversations only: triage analyses and notes are other features' data and stay. A starred record's are kept too
+// (星标 keeps a record with its conversations); its own 删除 AI 对话 still deletes them.
+const isStarredConv = (c) => Boolean(marks.items[MdgLimits.readingKeyOf(c.contextKey)]?.star);
 els.clearAll.addEventListener("click", async () => {
-  if (!confirm("清空全部 AI 对话？删除后不能恢复。")) return;
+  const kept = conversations.filter(isStarredConv).length;
+  if (!confirm(`清空全部 AI 对话？${kept ? `加了星标的记录的 ${kept} 段不删。` : ""}删除后不能恢复。`)) return;
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
-  await removeConversations(() => false, "已清空全部 AI 对话");
+  await removeConversations(isStarredConv, kept ? "已清空没有星标的 AI 对话" : "已清空全部 AI 对话");
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   // Triage analyses arrive in bursts; one reload per burst.
-  if (area === "local" && Object.keys(changes).some((k) => k === KEY || k === NOTES_KEY || k.startsWith(ANALYSIS) || k.startsWith(SNAPSHOT))) {
+  if (area === "local" && Object.keys(changes).some((k) => [KEY, NOTES_KEY, MARKS_KEY, TRIAGE_TAGS, TRIAGE_VIDEO_TAGS].includes(k) || k.startsWith(ANALYSIS) || k.startsWith(SNAPSHOT))) {
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => (editing ? (reloadPending = true) : load()), 300);
   }

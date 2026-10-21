@@ -37,6 +37,7 @@
   --danger-bg: #f9eef0;
   --danger-border: #e9bfc8;
   --warn: #a04b1a;
+  --star: #d4a72c;
   --warn-bg: #f8f1e7;
   --warn-border: #e7d0af;
   --info-bg: #f6f7f8;
@@ -108,6 +109,7 @@
     --danger-bg: #3a2329;
     --danger-border: #6a3a47;
     --warn: #fab387;
+    --star: #e3b341;
     --warn-bg: #3a2e24;
     --warn-border: #6b5440;
     --info-bg: #1d1e20;

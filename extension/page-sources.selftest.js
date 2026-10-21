@@ -49,7 +49,7 @@ const shipped = [...new Set(runtimes.filter((r) => !r.dev).flatMap((r) => r.file
 const bothModes = ["triage/tag-picker.js", "triage/tag-dialogs.js", "triage/runs.js", "triage/writes.js"];
 const follow = scripts("triage/triage.html").filter((f) => /^follow/.test(path.basename(f)));
 const favorites = own("triage/triage.html").filter((f) => !follow.includes(f) && !bothModes.includes(f));
-const triage = [...new Set([...own("triage/triage.html"), ...follow])];
+const triage = [...new Set([...own("triage/triage.html"), ...follow, ...bothModes])];
 // Every shipped runtime's own scripts and 分拣台's: the code of the pages, the worker and the content scripts, without
 // the libraries.
 const pageCode = [...new Set([...runtimes.filter((r) => !r.dev).flatMap((r) => own(r.where)), ...triage])];
@@ -67,6 +67,6 @@ if (require.main === module) {
   assert.deepStrictEqual(own("content.js"), ["content.js"], "both content.js entries are one runtime");
   assert.ok(own("background.js").includes("triage/follow-bg.js") && !own("background.js").includes("triage/shared.js"));
   assert.ok(favorites.includes("triage/fav-page.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
-  assert.ok(bothModes.every((f) => own("triage/triage.html").includes(f)), "bothModes names files the page loads");
+  assert.ok(bothModes.every((f) => scripts("triage/triage.html").includes(f)), "bothModes names files the page loads");
   console.log("page-sources selftest ok");
 }

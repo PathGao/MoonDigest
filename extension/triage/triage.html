@@ -252,9 +252,9 @@
     </dialog>
 
     <!-- Both modes' tag picker (tag-picker.js): a modal, or a popover under 「+ 标签」 (.tp-pop). -->
-    <dialog id="tagPicker" aria-label="打标签">
+    <dialog id="tagPicker" aria-labelledby="tagPickerTitle">
       <form method="dialog">
-        <h2 class="tp-title">打标签</h2>
+        <h2 id="tagPickerTitle" class="tp-title"></h2>
         <p class="tp-note dialog-meta"></p>
         <input id="tagPickerInput" name="tagQuery" class="tp-input" type="text" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
         <ul class="picker-list" role="listbox" aria-label="标签"></ul>

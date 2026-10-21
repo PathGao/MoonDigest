@@ -11,18 +11,46 @@
     <header class="topbar">
       <strong class="brand" data-text="history">摘读记录</strong>
       <span id="count" class="count"></span>
-      <input id="search" type="search" placeholder="搜索标题、AI 总结、备注或对话内容" aria-label="搜索标题、AI 总结、备注或对话内容" />
+      <input id="search" type="search" placeholder="搜索标题、标签、AI 总结、备注或对话内容" aria-label="搜索标题、标签、AI 总结、备注或对话内容" />
     </header>
     <div class="bulkbar">
       <label><input id="selectAll" type="checkbox" /> <span id="selectAllLabel" data-text="selectAll">全选</span></label>
       <button id="bulkMd" type="button" disabled>下载选中的 .md</button>
+      <button id="bulkTags" type="button" disabled>打标签</button>
       <span id="status" class="status" role="status"></span>
       <span class="destructive">
         <button id="bulkDelete" type="button" class="danger" disabled>删除选中的 AI 对话</button>
         <button id="clearAll" type="button" class="danger" disabled>清空全部 AI 对话</button>
       </span>
     </div>
+    <div id="filters" class="filterbar" role="group" aria-label="筛选"></div>
     <main id="list" class="list"><p class="empty" data-text="loading">正在加载…</p></main>
+
+    <!-- The 分拣台's tag picker and 标签管理, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their words
+         when they open. tag-dialogs.js also needs #aiTagDialog; 摘读记录 has no AI 打标签, so it stays empty. -->
+    <dialog id="tagPicker" aria-labelledby="tagPickerTitle">
+      <form method="dialog">
+        <h2 id="tagPickerTitle" class="tp-title"></h2>
+        <p class="tp-note dialog-meta"></p>
+        <input id="tagPickerInput" name="tagQuery" class="tp-input" type="text" autocomplete="off" />
+        <ul class="picker-list" role="listbox" aria-label="标签"></ul>
+        <p class="dialog-meta tp-keys"></p>
+        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
+      </form>
+    </dialog>
+    <dialog id="tagManageDialog" class="wide" aria-labelledby="tagManageTitle">
+      <form method="dialog">
+        <h2 id="tagManageTitle"></h2>
+        <p id="tagManageHint" class="dialog-hint"></p>
+        <div id="tagsRows" class="tag-rows"></div>
+        <div class="tag-add">
+          <input id="newTagInput" type="text" autocomplete="off" />
+          <button id="addTagBtn" type="button"></button>
+        </div>
+        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
+      </form>
+    </dialog>
+    <dialog id="aiTagDialog"></dialog>
 
     <script src="../common.js"></script>
     <script src="../errors.js"></script>
@@ -33,6 +61,9 @@
     <script src="../tag-core.js"></script>
     <script src="../note.js"></script>
     <script src="../download.js"></script>
+    <script src="../triage/shared.js"></script>
+    <script src="../triage/tag-picker.js"></script>
+    <script src="../triage/tag-dialogs.js"></script>
     <script type="module" src="./history.js"></script>
   </body>
 </html>

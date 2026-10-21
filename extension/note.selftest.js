@@ -292,6 +292,8 @@ assert.strictEqual(N.buildNoteFilename(cases.biliSingle.meta, { includeDateInFil
 assert.strictEqual(N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes('\nurl: "'), false, "no ref means no url");
 // 分拣台 tags join the fixed ones; characters Obsidian tags cannot hold become _, and repeats go.
 assert.ok(N.buildMarkdown({ ...cases.biliSingle.meta, userTags: ["入门 教程", "视频", "C++"] }, body, baseSettings, null, CREATED).includes('\ntags: ["clippings", "视频", "入门_教程", "C_"]\n'));
+assert.ok(N.buildMarkdown({ ...cases.biliSingle.meta, starred: true }, body, baseSettings, null, CREATED).includes('\nstarred: true\n'));
+assert.ok(!N.buildMarkdown(cases.biliSingle.meta, body, baseSettings, null, CREATED).includes("starred"));
 {
   const c = cases.noSubtitle;
   const md = N.buildMarkdown({ ...c.meta, subtitleFailure: "网络断了" }, c.body, c.settings, refOf(c.meta), CREATED);
@@ -407,6 +409,8 @@ assert.strictEqual(
   `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${ctx.MdgCommon.localDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频］标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
 );
 assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：当前视频"), "no source path → no dangling link");
+// 摘读记录's tags (cleaned as note tags) and 星标 go into the AI 笔记 after ai_note.
+assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md", extras: { userTags: ["学 习"], starred: true } }).includes('\ntags: ["ai_note", "学_习"]\nstarred: true\n---'));
 // Triage summary block (triage notes and history-page notes)
 const front = "---\ntitle: \"x\"\n---\n\n![cover](u)\n\n## 简介\n\nhi";
 const done = { status: "done", oneLiner: "一句话", points: ["a", "b"], verdict: "keep", reason: "有用" };
@@ -431,13 +435,23 @@ assert.strictEqual(N.withTriageSummary(front, undefined, "  "), front);
     triage_video_tags: { BVa: ["t1", "t2", "t3", "gone"], yt1: ["t3"] }
   };
   const plain = (v) => JSON.parse(JSON.stringify(v));
-  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 1 })), { analysis: { status: "done" }, note: "备注", userTags: ["甲", "乙"] });
-  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 2 })), { analysis: null, note: "备注", userTags: ["甲", "乙"] });
-  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "youtube", videoId: "yt1" })), { analysis: null, note: "yt 备注", userTags: [] });
-  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa" })), ["triage_notes", "triage_tags", "triage_video_tags", "triage_analysis_BVa"]);
-  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa", pageIndex: 2 })), ["triage_notes", "triage_tags", "triage_video_tags"]);
-  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "youtube", videoId: "yt1" })), ["triage_notes"]);
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 1 })), { analysis: { status: "done" }, note: "备注", userTags: ["甲", "乙"], starred: false });
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "bilibili", videoId: "BVa", pageIndex: 2 })), { analysis: null, note: "备注", userTags: ["甲", "乙"], starred: false });
+  assert.deepStrictEqual(plain(N.triageExtras(stored, { site: "youtube", videoId: "yt1" })), { analysis: null, note: "yt 备注", userTags: [], starred: false });
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa" })), ["triage_notes", "triage_tags", "triage_video_tags", "triage_analysis_BVa", "mdg_reading_marks_v1"]);
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "BVa", pageIndex: 2 })), ["triage_notes", "triage_tags", "triage_video_tags", "mdg_reading_marks_v1"]);
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "youtube", videoId: "yt1" })), ["triage_notes", "mdg_reading_marks_v1"]);
   assert.deepStrictEqual(plain(N.triageExtrasKeys({ site: "bilibili", videoId: "" })), []);
+  // 摘读记录's marks: a video's tags join the 分拣 tags on every part (one record key, no cid); a web page's by its
+  // address without the #fragment, with no 分拣台 data.
+  const marks = {
+    tags: [{ id: "r1", name: "乙" }, { id: "r2", name: "读" }],
+    items: { [N.readingKey({ site: "bilibili", videoId: "BVa" })]: { star: 1, tags: ["r1", "r2", "gone"] }, "page:https://a.com/p": { star: 0, tags: ["r2"] } }
+  };
+  const withMarks = { ...stored, mdg_reading_marks_v1: marks };
+  assert.deepStrictEqual(plain(N.triageExtras(withMarks, { site: "bilibili", videoId: "BVa", pageIndex: 2 })), { analysis: null, note: "备注", userTags: ["甲", "乙", "读"], starred: true });
+  assert.deepStrictEqual(plain(N.triageExtras(withMarks, { url: "https://a.com/p#s" })), { analysis: null, note: "", userTags: ["读"], starred: false });
+  assert.deepStrictEqual(plain(N.triageExtrasKeys({ url: "https://a.com/p" })), ["mdg_reading_marks_v1"]);
 }
 assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "unsure", reason: "核心" }), "AI 判断：拿不准，核心");
 // A verdict left from the old custom tiers reads 拿不准, as MdgTagCore.verdictOf says on 分拣台 and B站 pages.
@@ -531,6 +545,7 @@ assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(PS.text(PS.own("popup.html")))
   assert.ok(withOwn.startsWith('---\ntitle: "一篇\\"文章\\""') && withOwn.includes('tags: []\n来源: "网页"\n评分: 4\n---\n'), withOwn);
   // Turned off, no AI 问答; 只更新 AI 问答 (upsertAiSection) replaces only the marked block of one that has it.
   assert.ok(!N.buildPageNote(page, { includeAiChatInNote: false }, turns, CREATED).includes(N.AI_SECTION_START));
+  assert.ok(N.buildPageNote({ ...page, userTags: ["读"], starred: true }, { tags: "clippings" }, [], CREATED).includes('\ntags: ["clippings", "读"]\nstarred: true\n'));
   assert.ok(N.upsertAiSection(note, N.buildAiSection(N.buildConversationTurns([{ role: "user", content: "新" }, { role: "assistant", content: "新答" }]))).includes("正文\n\n<!-- moondigest:ai-start -->\n## AI 问答\n\n### 问：新"));
   assert.strictEqual(N.videoNotePath(page, { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: false }), "MoonDigest/网页/一篇_文章_.md");
   assert.strictEqual(N.buildNoteFilename(page, { includeDateInFilename: true }, CREATED), `${CREATED}-一篇_文章_.md`, "文件名带日期 applies to pages too");
