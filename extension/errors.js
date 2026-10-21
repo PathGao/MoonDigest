@@ -47,30 +47,30 @@
     aiEmpty: "AI 平台没有返回回答",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local REST API 写入失败",
-    // Any failed write to Obsidian, on every entry (popup, video page, side panel, 视频记录, 分拣台); 「：原因」 follows.
+    // Any failed write to Obsidian, on every entry (popup, video page, side panel, 摘读记录, 分拣台); 「：原因」 follows.
     obsidianFailed: "写入 Obsidian 失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
-    // Asking Chrome or the background to open the side panel failed (popup, video page, 视频记录, 分拣台); 「：原因」 follows.
+    // Asking Chrome or the background to open the side panel failed (popup, video page, 摘读记录, 分拣台); 「：原因」 follows.
     sidepanelOpenFailed: "打开侧边栏失败",
-    // 继续问 on a 视频记录 record that is not a video.
-    notVideo: "不是视频，不能问",
+    // 继续问 on a 摘读记录 record that is neither a video nor a web page (a chrome:// or extension page).
+    notVideo: "这个页面不能读取，不能继续问",
     // The side panel's 停止 ended the reply (the background's port message, the panel's own stop).
     aiStopped: "已停止生成",
     // chrome.tabs found no active tab (popup, side panel, background).
     noTab: "找不到当前标签页",
-    // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 视频记录).
+    // Every selection is hidden by a search or filter: the buttons that act on it are disabled with this (分拣台, 摘读记录).
     hiddenAll: "选中的都被筛选隐藏了",
     // B站's 62004 (the video is under review), on every read.
     biliReviewing: "视频审核中，过后再试",
     // A reply or a caught error that came without words.
     unknown: "未知错误",
-    // A write to Obsidian in flight: the status line (popup, video page, side panel, 视频记录, 分拣台's 导出) and the
+    // A write to Obsidian in flight: the status line (popup, video page, side panel, 摘读记录, 分拣台's 导出) and the
     // button's own short form.
     obsidianWriting: "正在写入 Obsidian…",
     writing: "写入中…",
     copied: "已复制 Markdown",
-    // A copy to the clipboard failed (popup, side panel, 视频记录, 分拣台); 「：原因」 follows, noClipboard without one.
+    // A copy to the clipboard failed (popup, side panel, 摘读记录, 分拣台); 「：原因」 follows, noClipboard without one.
     copyFailed: "复制失败",
     noClipboard: "无法访问剪贴板",
     // The side panel while the video page reads the subtitle for it.
@@ -83,16 +83,16 @@
     // The page's copy of the extension does not answer or plays the wrong video (popup, 专注模式, YouTube's player);
     // alone or after 「原因，」.
     reloadRetry: "请刷新网页后重试",
-    // 视频记录 and the settings page's AI platform row; followed by 「：原因」.
+    // 摘读记录 and the settings page's AI platform row; followed by 「：原因」.
     deleteFailed: "删除失败",
-    // Waiting for the first data: 视频记录's list, the side panel's chip.
+    // Waiting for the first data: 摘读记录's list, the side panel's chip.
     loading: "正在加载…",
-    // A known video without a title (视频记录, the side panel's conversations). 未知视频 is only the side panel's chip
+    // A known video without a title (摘读记录, the side panel's conversations). 未知视频 is only the side panel's chip
     // with no video at all (DESIGN 术语表).
     untitledVideo: "无标题视频",
-    // The 备注 box (side panel, 视频记录, 分拣台).
+    // The 备注 box (side panel, 摘读记录, 分拣台).
     notePlaceholder: "一句话备注，回车保存",
-    // 全选 and 清理 with nothing listed (收藏夹, 视频记录); 关注 says 这里没有列出 UP 主.
+    // 全选 and 清理 with nothing listed (收藏夹, 摘读记录); 关注 says 这里没有列出 UP 主.
     noVideosListed: "这里没有列出视频",
     sidepanelOpening: "正在打开侧边栏…",
     // The popup or the side panel did not start; followed by 「：原因」.
@@ -113,7 +113,7 @@
     toSettings: "去设置",
     retry: "重试",
     refresh: "刷新",
-    history: "视频记录",
+    history: "摘读记录",
     // A video's decision on a B站 page's mark and on the 分拣台's card.
     kept: "已保留",
     unfaved: "已取消收藏",
@@ -139,13 +139,13 @@
     notePlaceholderSections: "正文附加段落",
     // B站's own list: a B站 page's row and 分拣台's folder.
     watchLater: "稍后再看",
-    // B站 pages' columns, 视频记录 and the 收藏夹 CSV.
+    // B站 pages' columns, 摘读记录 and the 收藏夹 CSV.
     aiVerdict: "AI 判断",
     videoTags: "视频标签",
     // Note properties: 专注模式's info line, the settings page, the popup's 详情.
     uploadDate: "发布日期",
     exportDate: "导出日期",
-    // Opens the 备注 box (side panel, 视频记录, 分拣台).
+    // Opens the 备注 box (side panel, 摘读记录, 分拣台).
     noteAdd: "✎ 备注",
     // The settings page's custom AI platform, and the name a platform stored without one gets (background.js).
     customAi: "自定义",

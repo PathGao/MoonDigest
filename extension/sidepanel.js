@@ -18,8 +18,9 @@ const {
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = MdgLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
-const NON_VIDEO_CONTEXT_MESSAGE = MdgErrors.TEXT.notVideoPage;
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
+const PAGE_INTRO = "AI 会读这篇网页的正文，回答你的问题。";
+const PAGE_GRANT_TEXT = "读取网页正文要先允许一次，之后所有网页都能直接读";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
@@ -193,7 +194,7 @@ function bindEvents() {
   });
   els.presetBtn.addEventListener("click", togglePresetPopover);
   els.historyBtn.addEventListener("click", toggleHistoryPopover);
-  // Focuses an open 视频记录 tab instead of a second one, as the popup and the settings page do.
+  // Focuses an open 摘读记录 tab instead of a second one, as the popup and the settings page do.
   document.querySelector(".sp-history-manage")?.addEventListener("click", async (event) => {
     event.preventDefault();
     const r = await sendRuntimeMessage({ type: "history-open" }).catch(() => null);
@@ -261,6 +262,9 @@ function bindEvents() {
           changes.aiSystemPrompt ||
           changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
+          changes.webAiSystemPrompt ||
+          changes.webAiSummaryPrompt ||
+          changes.webAiPresetPrompts ||
           changes.obsidianEnabled)) ||
       (areaName === "local" && changes[MdgLimits.KEYS.aiApiKeys])
     ) {
@@ -288,10 +292,44 @@ function autosizeInput() {
   els.input.style.height = `${els.input.scrollHeight}px`;
 }
 
-// Why the shown conversation cannot be asked in at all: a web page, or a video that is gone.
+// Why the shown conversation cannot be asked in at all: a web page not read, or a video that is gone.
 function readOnlyReason() {
-  return state.view().nonVideo ? MdgErrors.TEXT.notVideoPage : contextFailure()?.gone ? VIDEO_GONE : "";
+  const { nonVideo, context } = state.view();
+  return nonVideo ? pageReason(context) : contextFailure()?.gone ? VIDEO_GONE : "";
 }
+
+// Why a web page cannot be asked about, by background.js readWebPage's pageAccess; "" once its main text is read. A page
+// conversation shown without its page in the tab (opened from the list, the tab moved on) has no pageAccess.
+function pageReason(context) {
+  switch (context?.pageAccess) {
+    case "ready":
+      return "";
+    case "needPermission":
+      return PAGE_GRANT_TEXT;
+    case "unsupported":
+      return "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页";
+    case "failed":
+      return `读取网页失败：${context.pageError}`;
+    default:
+      return "打开这个网页后才能继续问";
+  }
+}
+
+// 允许读取网页: every http(s) site at once (optional host permissions, like the AI platform's address), asked for inside
+// the click (permissions.request needs the user gesture, so nothing is awaited before it). Granted, the page is read at
+// once, and an AI 总结 the popup filled meanwhile goes (the autoSend effect); refused, it never goes.
+function grantPageAccess() {
+  const asked = chrome.permissions.request({ origins: ["http://*/*", "https://*/*"] }).catch(() => false);
+  void asked.then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
+}
+
+// The AI texts come in two sets the user edits (DESIGN): the web* keys on a web page, the original keys on a video.
+const isPage = (context) => context?.isVideoContext === false;
+const summaryPrompt = (context) => (isPage(context) ? aiPrefs.webAiSummaryPrompt : aiPrefs.playerAiQuickPrompt);
+const systemPromptFor = (context) => (isPage(context) ? aiPrefs.webAiSystemPrompt : aiPrefs.aiSystemPrompt);
+// The 快捷追问 list of the shown context's kind, and the setting it is saved under.
+const presetKey = () => (isPage(state.view().context) ? "webAiPresetPrompts" : "aiPresetPrompts");
+const presetPrompts = () => aiPrefs[presetKey()] || [];
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   const blocked = isStreaming ? "" : readOnlyReason();
@@ -331,8 +369,8 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   renderFollowups();
 }
 
-function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
-  return { aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts: [...aiPresetPrompts] };
+function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts, webAiSystemPrompt, webAiSummaryPrompt, webAiPresetPrompts }) {
+  return { aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts: [...aiPresetPrompts], webAiSystemPrompt, webAiSummaryPrompt, webAiPresetPrompts: [...(webAiPresetPrompts || [])] };
 }
 
 function renderModelSelect(preferredProviderId = "") {
@@ -432,10 +470,10 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
 
-  // A reference (分拣台, 视频记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
+  // A reference (分拣台, 摘读记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
   if (!request.contextRef) await loadContextState({ silent: true });
   else if (request.frameId) viewerFrame = { tabId: request.tabId, frameId: request.frameId, videoId: String(request.contextRef.videoId || "") };
-  await act({ type: "SUMMARY", prompt: request.prompt, ref: request.contextRef });
+  await act({ type: "SUMMARY", prompt: !request.contextRef && isPage(state.view().live.context) ? aiPrefs.webAiSummaryPrompt : request.prompt, ref: request.contextRef });
   return true;
 }
 
@@ -489,6 +527,10 @@ async function runEffect(effect) {
     }
     case "fill":
       return fillPrompt(effect.prompt);
+    case "autoSend":
+      // Only the prompt as it was filled: an edit since makes it the user's to send.
+      if (els.input.value.trim() === effect.prompt.trim()) void sendMessage();
+      return;
     case "focus":
       autosizeInput();
       return els.input?.focus?.();
@@ -612,6 +654,10 @@ async function saveNote() {
 function updateContextChip() {
   void renderNote();
   renderFollowups();
+  // A page read since (允许读取网页, the tab back on the page, 继续问 from 摘读记录 opening it) unlocks sending in a
+  // conversation that stays, and takes down the 打开这个网页后才能继续问 drawn under it.
+  if (!activeStream) setStreamingUiState(false);
+  if (state.view().nonVideo && state.view().messages.length && !readOnlyReason()) removeCenteredState();
   const { context, mismatch } = state.view();
   if (!context) {
     setContextChipText("读取失败");
@@ -621,8 +667,10 @@ function updateContextChip() {
     return;
   }
 
-  const shortTitle = context.title || (context.pending ? MdgErrors.TEXT.loading : context.url ? MdgErrors.TEXT.untitledVideo : "未知视频");
-  setContextChipText(shortTitle, context.isVideoContext === false ? "" : context.author);
+  // A web page without a title (chrome://newtab, a URL Chrome hides) is no video: 这个页面, never the video words.
+  const untitled = context.isVideoContext === false ? "这个页面" : context.url ? MdgErrors.TEXT.untitledVideo : "未知视频";
+  const shortTitle = context.title || (context.pending ? MdgErrors.TEXT.loading : untitled);
+  setContextChipText(shortTitle, context.isVideoContext === false ? context.siteName : context.author);
   els.contextChip.classList.toggle("is-mismatch", mismatch);
   els.contextChip.title = context.url
     ? `${context.title || ""}${mismatch ? "\n当前页不是这段对话绑定的视频" : ""}${context.isVideoContext === false ? "" : "\n点击跳转目标视频"}`
@@ -675,11 +723,8 @@ function renderInitialState() {
     resetConversationView(contextErrorHtml(), { retry: true });
     return;
   }
-  if (context.isVideoContext === false) {
-    resetConversationView(NON_VIDEO_CONTEXT_MESSAGE);
-    return;
-  }
-  resetConversationView("");
+  const blocked = context.isVideoContext === false ? pageReason(context) : "";
+  resetConversationView(escapeHtml(blocked), { grant: context.pageAccess === "needPermission" });
 }
 
 // Why the tab's context could not be read (B站 限流, the extension reloaded…), as the read said.
@@ -690,11 +735,12 @@ function contextErrorHtml() {
 // The empty state drawn ([stateHtml, retry]); "" once anything else is drawn into the messages.
 let emptyStateShown = "";
 
-// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own).
+// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own). grant: web pages
+// cannot be read yet: 允许读取网页 asks for them.
 // The same empty state again (a tab event, the panel shown again) is not torn down: only its suggestions update.
-function resetConversationView(stateHtml = "", { retry = false } = {}) {
+function resetConversationView(stateHtml = "", { retry = false, grant = false } = {}) {
   updateSidepanelLayoutState();
-  const shown = JSON.stringify([stateHtml, retry]);
+  const shown = JSON.stringify([stateHtml, retry, grant]);
   if (suggestionsNode?.isConnected && emptyStateShown === shown) {
     renderSuggestions();
     renderPresetPrompts();
@@ -715,6 +761,14 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
       button.addEventListener("click", () => void refreshContextManually());
       stateNode.append(document.createElement("br"), button);
     }
+    if (grant) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sp-chip sp-grant-btn";
+      button.textContent = "允许读取网页";
+      button.addEventListener("click", grantPageAccess);
+      stateNode.append(document.createElement("br"), button);
+    }
     els.messages.appendChild(stateNode);
   }
   suggestionsNode = document.createElement("div");
@@ -731,6 +785,9 @@ function resetConversationView(stateHtml = "", { retry = false } = {}) {
 // What the AI will read: the intro says so when there are no subtitles (background.js tells the AI the same).
 function introText() {
   const context = state.view().context;
+  if (context?.isVideoContext === false) {
+    return PAGE_INTRO;
+  }
   if (String(context?.subtitleMarkdown || "").trim()) {
     return EMPTY_INTRO;
   }
@@ -749,9 +806,9 @@ function suggestionsContent() {
     return { html: `<p class="sp-empty-intro">${escapeHtml(providersError)}</p>` };
   }
   if (!providers.length) {
-    return { html: `<p class="sp-empty-intro">${EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn" data-act="settings">去设置页添加平台</button>` };
+    return { html: `<p class="sp-empty-intro">${context?.isVideoContext === false ? PAGE_INTRO : EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn" data-act="settings">去设置页添加平台</button>` };
   }
-  if (!context || context.isVideoContext === false) {
+  if (!context || (context.isVideoContext === false && pageReason(context))) {
     return { html: "" };
   }
   // A followed video's placeholder: no summary to offer until its subtitles arrive (sending still waits for them).
@@ -759,11 +816,11 @@ function suggestionsContent() {
     return { html: `<p class="sp-empty-intro" aria-busy="true">${MdgErrors.TEXT.subtitleReading}</p>` };
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
-  const prompt = aiPrefs.playerAiQuickPrompt;
+  const prompt = summaryPrompt(context);
   const ref = buildConversationContextRef(context);
   return {
     html: `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
-    summary: { prompt, video: `${ref.site}:${ref.videoId}:${ref.pageIndex}` }
+    summary: { prompt, video: ref.videoId ? `${ref.site}:${ref.videoId}:${ref.pageIndex}` : ref.url }
   };
 }
 
@@ -850,7 +907,7 @@ function renderFollowups() {
   if (!els.followups) {
     return;
   }
-  const prompts = aiPrefs.aiPresetPrompts || [];
+  const prompts = presetPrompts();
   const reason = followupBlockReason();
   const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
@@ -916,7 +973,7 @@ function renderPresetPrompts() {
     return;
   }
   syncPresetAdd();
-  const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
+  const prompts = presetPrompts();
   if (!prompts.length) {
     els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
     return;
@@ -1019,7 +1076,7 @@ async function hydrateConversationPageMetadata() {
   await saveConversations();
 }
 
-// Merged by entry into a fresh read (SidepanelState.mergeSaved), so a conversation 视频记录 deleted is not written back.
+// Merged by entry into a fresh read (SidepanelState.mergeSaved), so a conversation 摘读记录 deleted is not written back.
 // A failed write leaves the created and deleted ids for the next save.
 async function saveConversations() {
   let written = null;
@@ -1185,6 +1242,7 @@ function renderPreviousVideoBar() {
     return;
   }
   const title = conversation.contextTitle || conversation.title || MdgErrors.TEXT.untitledVideo;
+  const kind = conversation.isVideoContext === false ? "网页" : "视频";
   const messagesHtml = previousVideoExpanded
     ? conversation.messages
         .map((message) =>
@@ -1197,7 +1255,7 @@ function renderPreviousVideoBar() {
   bar.innerHTML = `
     <div class="sp-prev-head">
       <button type="button" class="sp-prev-toggle" data-action="toggle" aria-expanded="${previousVideoExpanded}" title="${escapeHtml(title)}">
-        <span class="sp-prev-label">上一个视频：</span>
+        <span class="sp-prev-label">上一个${kind}：</span>
         <span class="sp-prev-title">${escapeHtml(title)}</span>
         <span class="sp-prev-count">· ${conversation.messages.length} 条消息</span>
         <svg class="sp-prev-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
@@ -1209,7 +1267,7 @@ function renderPreviousVideoBar() {
       <div class="sp-prev-messages">${messagesHtml}</div>
       <div class="sp-prev-actions">
         <button type="button" class="sp-prev-action" data-action="resume">回到这个对话</button>
-        <button type="button" class="sp-prev-action" data-action="open">打开视频</button>
+        <button type="button" class="sp-prev-action" data-action="open">打开${kind}</button>
       </div>
     </div>` : ""}
   `;
@@ -1251,8 +1309,8 @@ function presetAddReason() {
   if (settingsReadFailed) return PRESETS_UNREAD;
   const text = String(els.presetInput.value || "").trim();
   if (!text) return "先输入快捷追问";
-  if ((aiPrefs.aiPresetPrompts || []).includes(text)) return "已有这条快捷追问";
-  const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
+  if (presetPrompts().includes(text)) return "已有这条快捷追问";
+  const full = presetPrompts().length >= MdgSettings.MAX_PRESET_PROMPTS;
   return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
 }
 function syncPresetAdd() {
@@ -1286,26 +1344,29 @@ async function removePresetPrompt(prompt) {
 // prompt it was drawn for, and the first removal stays.
 let presetWrites = Promise.resolve();
 function editPresetPrompts(change) {
-  const run = presetWrites.then(() => persistAiPresetPrompts(change(aiPrefs.aiPresetPrompts || [])));
+  const run = presetWrites.then(() => {
+    const key = presetKey();
+    return persistAiPresetPrompts(key, change(aiPrefs[key] || []));
+  });
   presetWrites = run.catch(() => false);
   return run;
 }
 
 // save-settings keeps the keys it is not sent. The list changes only once it is saved; a refusal (the sync storage
 // full, say) leaves it and the typed text as they were and says why. False then.
-async function persistAiPresetPrompts(prompts) {
-  const resp = await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: prompts } }).catch((error) => ({ ok: false, error: error.message }));
+async function persistAiPresetPrompts(key, prompts) {
+  const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [key]: prompts } }).catch((error) => ({ ok: false, error: error.message }));
   if (!resp?.ok) {
     showConversationContextNotice(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, NOTICE_LONG_MS, { error: true });
     return false;
   }
-  aiPrefs.aiPresetPrompts = prompts;
+  aiPrefs[key] = prompts;
   return true;
 }
 
 function updateSidepanelLayoutState() {
   const { context, messages, pinned } = state.view();
-  const useCompactInput = Boolean(context && context.isVideoContext === false && !messages.length && !pinned);
+  const useCompactInput = Boolean(context && context.isVideoContext === false && pageReason(context) && !messages.length && !pinned);
   document.body.classList.toggle("sp-non-video-context", useCompactInput);
   if (!activeStream) {
     setStreamingUiState(false);
@@ -1384,7 +1445,7 @@ function renderConversationMessages() {
     els.messages.appendChild(node);
     appendReplyEnd(node, { ...unanswered, raw: "", saved: false });
   }
-  const failed = nonVideo ? NON_VIDEO_CONTEXT_MESSAGE : contextFailure()?.text;
+  const failed = nonVideo ? pageReason(state.view().context) : contextFailure()?.text;
   if (failed) {
     showConversationContextError(failed);
   }
@@ -1482,7 +1543,7 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   if (!result) {
     return false;
   }
-  // Deleted or hidden on B站 (as the 分拣台 and 视频记录 tell it): no retry will bring it back. Else a send tries again.
+  // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back. Else a send tries again.
   const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
   const text = gone ? VIDEO_GONE : `读取原视频失败：${MdgErrors.text(response)}`;
   lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone };
@@ -1581,13 +1642,14 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   // Nor when the tab left the video while the context loaded, or a saved video no longer resolves to one.
   const here = hasContext && !activeStream && state.view().epoch === epoch;
   const context = state.view().context;
-  if (!here || !context.isVideoContext) {
+  const blocked = here && context.isVideoContext === false ? pageReason(context) : "";
+  if (!here || blocked) {
     question.remove();
     reply.remove();
     if (turnAnchor?.node === question) turnAnchor = null;
     for (const node of hidden) node.hidden = false;
     unsent();
-    if (here) showConversationContextError(NON_VIDEO_CONTEXT_MESSAGE);
+    if (blocked) showConversationContextError(blocked);
     if (redrawAfterStream && state.view().epoch === epoch) {
       redrawAfterStream = false;
       renderConversationMessages();
@@ -1646,7 +1708,7 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
     providerId,
     context: {
       ...context,
-      aiSystemPrompt: aiPrefs.aiSystemPrompt
+      aiSystemPrompt: systemPromptFor(context)
     },
     prompt: text,
     history: state.view().messages
@@ -1856,7 +1918,8 @@ function renderAssistantMessage(node, raw) {
   const content = document.createElement("div");
   content.className = "sp-msg-assistant-body";
   content.innerHTML = renderMarkdown(cleanedRaw);
-  linkifyAssistantTimestamps(content);
+  // A web page has no time to jump to.
+  if (!state.view().nonVideo) linkifyAssistantTimestamps(content);
   node.appendChild(content);
 
   const actions = document.createElement("div");
@@ -1879,7 +1942,7 @@ function renderAssistantMessage(node, raw) {
 }
 
 // The conversation as its own note, for copy and download (obsidian.js builds the one it writes the same way).
-// Like the 视频记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
+// Like the 摘读记录 page's export, the triage summary (bilibili P1 only) and the video's note lead it.
 async function buildCurrentConversationNote() {
   const { messages, resolved, context: shown, pinned } = state.view();
   const turns = buildConversationTurns(messages);
@@ -1887,6 +1950,8 @@ async function buildCurrentConversationNote() {
     return null;
   }
   const context = resolved || shown || pinned?.contextRef || {};
+  const page = await pageNote(context, turns);
+  if (page) return { context, ...page };
   const filename = buildAiConversationFilename(context);
   const noteId = noteVideoId(context);
   const ref = buildConversationContextRef(context);
@@ -2014,7 +2079,8 @@ async function saveCurrentConversationToObsidian() {
   showConversationContextNotice(MdgErrors.TEXT.obsidianWriting);
   try {
     const ref = buildConversationContextRef(context);
-    const request = { type: "write-video-note", ref, conversation: { messages }, page: await openPageNote(ref) };
+    const page = await pageNote(context, buildConversationTurns(messages));
+    const request = { type: "write-video-note", ref, conversation: { messages }, page: page ? { markdown: page.content } : await openPageNote(ref) };
     let resp = await sendRuntimeMessage(request);
     if (resp?.ok && resp.ask) {
       const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
@@ -2040,6 +2106,15 @@ async function saveCurrentConversationToObsidian() {
     obsidianWriting = false;
     syncExportButtons();
   }
+}
+
+// A web page read in this conversation (pageAccess ready): its note, the one 写入 Obsidian writes. null for a video or
+// a page without its main text, which get the conversation's own note.
+async function pageNote(context, turns) {
+  if (context?.isVideoContext !== false || context.pageAccess !== "ready") return null;
+  const resp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
+  const settings = resp?.ok && resp.settings ? resp.settings : MdgSettings.DEFAULTS;
+  return { filename: MdgNote.buildNoteFilename(context, settings), content: MdgNote.buildPageNote(context, settings, turns) };
 }
 
 // The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.

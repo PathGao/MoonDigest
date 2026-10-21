@@ -28,7 +28,7 @@ for (const type of ["pointerup", "pointercancel"]) document.addEventListener(typ
 const esc = MdgErrors.escapeHtml;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-// One entry per video: the side panel's contextKey (site|videoId|cid) is how it ties a conversation to a video.
+// One entry per video or web page: the side panel's contextKey (MdgSites.buildContextKey) ties a conversation to it.
 function groupByVideo(items) {
   const byKey = new Map();
   for (const item of items) {
@@ -86,6 +86,29 @@ function renderSummary(g) {
   const head = verdict ? `<b>${MdgErrors.LABEL.aiVerdict}</b> ${esc(verdict.slice(MdgNote.VERDICT_LINE.length))}` : "";
   const open = unfolded.has(g.key);
   return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
+}
+
+// A web page's record (not a video, with an http(s) address): 继续问 goes on in the page's own tab.
+const isWebPage = (g) => !g.context.videoId && /^https?:\/\//i.test(g.context.url || "");
+
+// 继续问 on a web page: the side panel reads the page from its tab, so it opens on this window inside the click
+// (sidePanel.open needs the gesture), then the page's tab in this window is focused, or opened, and the panel asked for
+// the conversation as a video's is (askSidepanel).
+function askAboutPage(group) {
+  const opening = chrome.sidePanel.open({ windowId: OWN_TAB?.windowId });
+  setStatus(MdgErrors.TEXT.sidepanelOpening);
+  void (async () => {
+    try {
+      await opening;
+      const key = MdgSites.buildContextKey({ url: group.context.url });
+      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => t.url && MdgSites.buildContextKey({ url: t.url }) === key);
+      const tab = found ? await chrome.tabs.update(found.id, { active: true }) : await chrome.tabs.create({ url: group.context.url, windowId: OWN_TAB?.windowId });
+      await MdgLimits.askSidepanel({ tabId: tab.id, contextRef: group.context });
+      setStatus("");
+    } catch (error) {
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${error.message}`, true);
+    }
+  })();
 }
 
 // The 备注 belongs to the video: every part's entry shows and edits the same one, like grouping joins it.
@@ -167,7 +190,7 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask"${g.context.videoId ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button>
             <button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>`}
@@ -180,7 +203,7 @@ function render() {
           </div>
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频记在这里。"}</p>`;
+    : `<p class="empty">${allGroups.length ? "没有匹配的视频或网页" : "还没有摘读记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。"}</p>`;
   rendering = false;
   // 继续问 on a record that is not a video: off with why, the page's one way (setReason).
   for (const b of els.list.querySelectorAll("[data-no-video]")) setReason(b, MdgErrors.TEXT.notVideo);
@@ -282,7 +305,7 @@ function downloadGroups(groups) {
     MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    MdgDownload.text(`MoonDigest视频记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
+    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }
@@ -345,6 +368,7 @@ els.list.addEventListener("click", (event) => {
     editing = { id: noteIdOf(group), draft: group.note?.text || "" };
     render();
   }
+  else if (act === "ask" && group && isWebPage(group)) askAboutPage(group);
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });

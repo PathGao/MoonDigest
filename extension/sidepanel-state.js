@@ -5,30 +5,10 @@
 (() => {
   // ---- contexts and saved conversations ----
 
+  // A video part's key or a web page's (MdgSites.buildContextKey). Conversations saved with the older url: keys get the
+  // page key when they are read (resolveConversationStorageKey).
   function buildContextKey(payload) {
-    if (!payload) {
-      return "";
-    }
-    const videoKey = MdgSites.buildContextKey(buildConversationContextRef(payload) || {});
-    if (videoKey) {
-      return videoKey;
-    }
-    const normalizedUrl = normalizeContextUrlForKey(payload.url);
-    return normalizedUrl ? `url:${normalizedUrl}` : "";
-  }
-
-  function normalizeContextUrlForKey(value) {
-    const text = String(value || "").trim();
-    if (!text) {
-      return "";
-    }
-    try {
-      const parsed = new URL(text);
-      parsed.hash = "";
-      return `${parsed.origin}${parsed.pathname}`;
-    } catch {
-      return text;
-    }
+    return payload ? MdgSites.buildContextKey(buildConversationContextRef(payload)) : "";
   }
 
   const buildConversationContextRef = (context) => (context && typeof context === "object" ? MdgSites.contextRef(context) : null);
@@ -167,6 +147,9 @@
 
   // ---- following the tab (跟随播放) ----
 
+  // Where a tab without a URL (Chrome hides it before the grant) is, for leaving a page's conversation.
+  const UNREADABLE = "about:blank#unreadable";
+
   // What a context load does with the tab's video.
   // state: shownUrl (the shown conversation's video), hasMessages, bound (a saved context or a reply in flight holds
   // the conversation), lastVideoUrl (the tab's video when a load last took or watched it), hasContext (a context was
@@ -210,7 +193,7 @@
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
-      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null },
+      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null, autoSend: null },
       streaming: null,
       previousId: "",
       saved: [],
@@ -297,7 +280,7 @@
     if (!conversation?.id || conversation.id !== s.conv.id) {
       effects.push({ type: "draft" });
     }
-    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null };
+    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null, autoSend: null };
     if (conversation) {
       s.conv.id = conversation.id;
       s.conv.pinned = {
@@ -382,7 +365,7 @@
 
   // This page's saved list merged by entry into a stored one (a save writes it; a change another page stored is read
   // through it). Each stored entry stays in its newer version (this page's on a tie), except the ones deleted here; one
-  // only this page has stays only when it was created here, since another page (视频记录, another window's panel)
+  // only this page has stays only when it was created here, since another page (摘读记录, another window's panel)
   // deleted the rest. created / deleted: the ids this page made or deleted and has not written yet (s.unsaved).
   function mergeSaved(stored, local, { created = new Set(), deleted = new Set() } = {}) {
     const mine = new Map(normalizeConversations(local).map((c) => [c.id, c]));
@@ -447,7 +430,7 @@
   }
 
   // AI 总结 (popup, player ✦, 专注模式, 分拣台's viewer) on a video that already has a conversation opens its latest
-  // one; only a video without one gets the summary prompt. A reference (分拣台, 视频记录) names a video that is not the
+  // one; only a video without one gets the summary prompt. A reference (分拣台, 摘读记录) names a video that is not the
   // tab's: its conversation, or a new one bound to it, so the prompt never lands on the tab's own page.
   function summary(s, { prompt, ref }) {
     if (ref) {
@@ -464,7 +447,21 @@
       return open(s, latest.id);
     }
     const text = String(prompt || "").trim();
-    return text ? [...startNew(s), { type: "fill", prompt: text }] : [{ type: "focus" }];
+    if (!text) return [{ type: "focus" }];
+    const effects = [...startNew(s), { type: "fill", prompt: text }];
+    // A web page not granted yet: the prompt goes by itself once the page is read (pageRead), in this conversation and
+    // on this page only; another conversation (setConv) or a refused grant drops it.
+    const live = s.live.context;
+    if (live?.isVideoContext === false && live.pageAccess === "needPermission" && s.live.key) s.conv.autoSend = { prompt: text, key: s.live.key };
+    return effects;
+  }
+
+  // The page AI 总结 waited for is read: send its prompt (the page checks the input still holds it).
+  function pageRead(s, payload, key) {
+    const pending = s.conv.autoSend;
+    if (!pending || pending.key !== key || payload.pageAccess !== "ready" || s.conv.messages.length) return [];
+    s.conv.autoSend = null;
+    return [{ type: "autoSend", prompt: pending.prompt }];
   }
 
   function dispatch(s, event) {
@@ -504,8 +501,12 @@
         const before = snapshot(s);
         const keyChanged = contextKeyChanges(s, payload);
         const fillsShown = Boolean(shown(s)?.pending && key === shownKey(s));
+        // Leaving a web page's conversation folds it into the bar whatever the tab shows next, also a page that cannot be
+        // read (chrome://, an extension page, one whose URL Chrome hides before the grant).
+        const leavesPage = before.bound && shown(s)?.isVideoContext === false;
         s.live = { ...s.live, context: payload, key, error: "" };
-        const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? partUrl(payload) : "";
+        // A web page is followed like a video; a page that can never be read is not, except to leave a page's conversation.
+        const toUrl = key && (payload.pageAccess !== "unsupported" || leavesPage) ? partUrl(payload) : leavesPage ? UNREADABLE : "";
         const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged, fillsShown });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {
@@ -515,8 +516,11 @@
           if (s.conv.pinned && !s.conv.resolved && fitsLive(s)) s.conv.resolved = { ...payload };
           return [];
         }
-        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload, key)] : [];
+        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload, key)] : pageRead(s, payload, key);
       }
+      case "GRANT_DENIED":
+        s.conv.autoSend = null;
+        return [];
       // A conversation's own context loaded (payload) or failed; a load started for an earlier conversation is ignored.
       case "CONTEXT_RESOLVED": {
         if (event.epoch !== s.conv.epoch || !s.conv.pinned) {

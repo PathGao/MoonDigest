@@ -286,6 +286,34 @@ process.on("exit", (code) => {
   assert.match(trimmedRequest.notices.at(-1), /最早的 4 条消息没有发送/);
   assert.strictEqual(ctx.buildAiMessages({ context: { subtitleMarkdown: "字幕" }, userPrompt: "q", history: turn(1) }).notices.length, 0);
 
+  // A web page (isVideoContext false): a reading assistant over its main text, never the subtitle wording; a long body is
+  // sampled like a long subtitle and the user is told 正文过长.
+  const pageCtx = { isVideoContext: false, title: "文章", author: "作者", published: "2026-01-02", siteName: "example.com", pageMarkdown: "## 一节\n\n正文内容", pageAccess: "ready" };
+  const pageAsk = ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: "自定义要求" });
+  const pageSystem = pageAsk.messages[0].content;
+  assert.match(pageSystem, /^你是一个阅读助手。当前用户正在读一个网页，标题：「文章」/);
+  assert.match(pageSystem, /作者：作者 \| 发布日期：2026-01-02 \| 网站：example\.com/);
+  assert.match(pageSystem, /以下是网页正文（Markdown）：\n\n## 一节\n\n正文内容/);
+  assert.match(pageSystem, /以下是额外系统要求：\n自定义要求/);
+  assert.doesNotMatch(pageSystem, /字幕|评论|视频/);
+  assert.deepStrictEqual([...pageAsk.notices], []);
+  // The system prompt goes as the side panel sent it (the set of the context's kind), never swapped here.
+  const { webAiSystemPrompt, aiSystemPrompt } = ctx.MdgSettings.DEFAULTS;
+  const pageDefault = ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: webAiSystemPrompt }).messages[0].content;
+  assert.ok(pageDefault.endsWith(`以下是额外系统要求：\n${webAiSystemPrompt}`), pageDefault);
+  assert.doesNotMatch(webAiSystemPrompt, /字幕|视频|时间戳/, "the web default is written for pages");
+  assert.ok(ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt), "no swap: what was sent is used");
+  assert.ok(ctx.buildAiMessages({ context: { isVideoContext: true, subtitleMarkdown: "字幕" }, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt));
+  // The web set is normalized like the video set: trimmed, 快捷追问 deduplicated and capped, missing ones defaulted.
+  const norm = ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiSystemPrompt: "  规则  ", webAiSummaryPrompt: " 总结 ", webAiPresetPrompts: ["a", "a", " ", ...Array.from({ length: 20 }, (_, i) => `q${i}`)] });
+  assert.deepStrictEqual([norm.webAiSystemPrompt, norm.webAiSummaryPrompt, norm.webAiPresetPrompts.length, norm.webAiPresetPrompts[0]], ["规则", "总结", ctx.MdgSettings.MAX_PRESET_PROMPTS, "a"]);
+  assert.deepStrictEqual([...ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiPresetPrompts: "x" }).webAiPresetPrompts], []);
+  assert.throws(() => ctx.checkSyncItems({ webAiSystemPrompt: "字".repeat(3000) }), /网页的系统提示词太长/);
+  const longPage = ctx.buildAiMessages({ context: { ...pageCtx, pageMarkdown: Array.from({ length: 4000 }, (_, i) => `第 ${i} 行 ${"字".repeat(40)}`).join("\n") }, userPrompt: "q" });
+  assert.ok(longPage.messages[0].content.length < 62000);
+  assert.match(longPage.messages[0].content, /全文过长，均匀抽取了约 1\/\d+ 的行/);
+  assert.deepStrictEqual([...longPage.notices].map((n) => n.replace(/\d+$/, "N")), ["正文过长，只发送了均匀抽取的约 1/N"]);
+
   // An error object inside a 200 stream ends the reply with that error instead of a silent "done".
   ctx.fetch = streamingFetch([
     { after: 5, chunk: sse({ content: "半" }) },
@@ -405,6 +433,57 @@ process.on("exit", (code) => {
     };
     await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
     [ctx.chrome, ctx.injectReaderContent] = was;
+  }
+
+  // A web page (readWebPage): its one pageAccess state, the main text read on demand, the bundle injected once.
+  {
+    const was = ctx.chrome;
+    let granted = false;
+    let loaded = false;
+    let page = { title: "文章", author: "作者", published: "2026-01-02", site: "", wordCount: 3, content: "正文" };
+    let refuse = false;
+    const calls = [];
+    ctx.chrome = {
+      tabs: { get: async (id) => ({ id, url: tabUrl, title: "标签标题" }) },
+      permissions: { contains: async ({ origins }) => (calls.push(origins[0]), granted) },
+      scripting: {
+        executeScript: async ({ target, files, func, args }) => {
+          if (refuse) throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+          if (files) return calls.push(...files), (loaded = true), [];
+          calls.push(`parse ${args[0]}`);
+          return [{ result: loaded && typeof func === "function" ? page : null }];
+        }
+      }
+    };
+    let tabUrl = "chrome-extension://other/page.html";
+    const read = async () => JSON.parse(JSON.stringify(await ctx.getAiSidepanelState(1)));
+    let got = await read();
+    assert.deepStrictEqual([got.isVideoContext, got.pageAccess, calls], [false, "unsupported", []], "not http(s): nothing is asked");
+    // Chrome hides the URL of a site the extension cannot read yet (and of chrome:// pages).
+    tabUrl = undefined;
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.url, calls.splice(0)], ["needPermission", "", ["http://*/*"]]);
+    // B2: with web pages granted, a URL still hidden is a chrome:// page: not readable, and no grant offered.
+    granted = true;
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, calls.splice(0)], ["unsupported", ["http://*/*"]]);
+    granted = false;
+    tabUrl = "https://example.com/a?x=1#part";
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.url, got.title, calls.splice(0)], ["needPermission", "https://example.com/a?x=1", "标签标题", ["https://example.com/*"]]);
+    granted = true;
+    got = await read();
+    assert.deepStrictEqual(calls.splice(0), ["https://example.com/*", "parse 200000", "vendor/defuddle.js", "parse 200000"], "injected once it is missing");
+    assert.deepStrictEqual([got.pageAccess, got.title, got.author, got.published, got.siteName, got.pageMarkdown], ["ready", "文章", "作者", "2026-01-02", "example.com", "正文"]);
+    got = await read();
+    assert.deepStrictEqual(calls.splice(0), ["https://example.com/*", "parse 200000"], "the bundle stays loaded");
+    page = { ...page, content: "  " };
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.pageError, got.pageMarkdown], ["failed", "没有找到正文", undefined]);
+    refuse = true;
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.pageError], ["failed", "浏览器不允许读取这个页面"], "Chrome's English stays out");
+    ctx.chrome = was;
   }
 
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
@@ -679,14 +758,14 @@ process.on("exit", (code) => {
     ictx.getMergedSettings = async () => ({ enablePlayerAiQuickAction: false, playerAiQuickPrompt: "" });
     const quick = (source) => new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "player-ai-quick-action", ...(source && { source }) }, { tab: { id: 7 } }, resolve)));
     assert.deepStrictEqual([(await quick()).error, (await quick("reader")).ok, (await quick("popup")).ok], ["✦ AI 总结按钮未开启", true, true]);
-    // 视频记录 opens through the same one-tab rule as 分拣台.
+    // 摘读记录 opens through the same one-tab rule as 分拣台.
     const opened = [];
     ictx.focusOrOpenPage = async (page) => opened.push(page);
     ictx.chrome.runtime.getURL = (p) => `chrome-extension://x/${p}`;
     assert.ok((await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "history-open" }, {}, resolve)))).ok);
     assert.deepStrictEqual(opened, ["chrome-extension://x/history/history.html"]);
     for (const f of PS.pageCode) assert.ok(!/forceRefresh|message\.force\b|"popup-refresh", force\b/.test(PS.read(f)), `${f}: the refresh flag is named refresh`);
-    for (const f of ["popup.js", "sidepanel.js", "options.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes('"history-open"'), `${f} opens 视频记录 by history-open`);
+    for (const f of ["popup.js", "sidepanel.js", "options.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes('"history-open"'), `${f} opens 摘读记录 by history-open`);
   }
 
   finished = true;

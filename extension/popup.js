@@ -24,6 +24,7 @@ const el = {
 };
 
 const NOT_VIDEO_PAGE = MdgErrors.TEXT.notVideoPage;
+const WEB_PAGE_STATUS = "网页：AI 总结在侧边栏读正文";
 let latestPayload = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
@@ -55,10 +56,20 @@ async function init() {
       localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
     } catch {}
   });
-  // A web page has nothing to read: say so instead of a failed fetch.
+  // Not a video page: nothing to read here, said instead of a failed fetch.
   if (!onVideoPage) {
     syncTools(null, false);
     setDisabledReason(el.refreshBtn, NOT_VIDEO_PAGE);
+    // An ordinary web page (its URL shows before the grant because the icon was clicked: activeTab): AI 总结 opens the
+    // side panel, which reads it; the video's tools are hidden (popup.css .web-page), the page note is the side panel's.
+    if (/^https?:\/\//i.test(tab?.url || "")) {
+      document.body.classList.add("web-page");
+      setDisabledReason(el.summaryBtn, "");
+      setText(el.videoTitle, tab.title || tab.url);
+      setText(el.videoMeta, new URL(tab.url).hostname);
+      setStatus(WEB_PAGE_STATUS);
+      return;
+    }
     setStatus(NOT_VIDEO_PAGE);
     return;
   }
@@ -129,7 +140,7 @@ function bindEvents() {
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
-    // A web page has this and AI 总结 disabled (syncTools), so the tab is a video page here.
+    // A web page has this disabled (syncTools), so the tab is a video page here.
     const tab = await getActiveTab();
     setStatus("正在打开专注模式…", false, true);
     setBusy(el.readingViewBtn, true, "打开中…");
@@ -292,7 +303,7 @@ function syncTools(payload, onVideoPage = true) {
   const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");
   setDisabledReason(el.readingViewBtn, pageReason);
-  // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).
+  // No AI platform still leaves it usable (the side panel offers 去设置); init enables it on an http(s) web page.
   setDisabledReason(el.summaryBtn, pageReason);
   setDisabledReason(el.copyBtn, contentReason);
   setDisabledReason(el.mdBtn, contentReason);

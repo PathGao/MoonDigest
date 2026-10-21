@@ -1,5 +1,5 @@
 // Extension-page helpers (need document): saving text as a file, and the 该笔记已存在 dialog of the side panel and
-// 视频记录 (the video page draws its own copy: content.js confirmOverwriteNote).
+// 摘读记录 (the video page draws its own copy: content.js confirmOverwriteNote).
 (() => {
   if (globalThis.MdgDownload) {
     return;

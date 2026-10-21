@@ -305,9 +305,9 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     const log = [];
     const page = vm.createContext({
       MdgErrors: ctx.MdgErrors, TriageUi: { clampNumber() {} },
-      elements: { saveBtn: {}, seenThreshold: {}, aiPresetPrompts: {} },
+      elements: { saveBtn: {}, seenThreshold: {}, aiPresetPrompts: {}, webAiPresetPrompts: {} },
       savedForm: { payload: { folder: "旧" }, providers: ["旧平台"] }, obsidianTest: null,
-      clearInputErrors() {}, collectFormPayload: () => ({ aiPresetPrompts: [] }), validateSettings: () => ({ ok: true }),
+      clearInputErrors() {}, collectFormPayload: () => ({ aiPresetPrompts: [], webAiPresetPrompts: [] }), validateSettings: () => ({ ok: true }),
       collectAiProviders: () => [], validateAiProviders: () => ({ ok: true }), hostPermissionUrls: () => [], requestHostPermissions: async () => [],
       setBusy() {}, setStatus: (text, isError) => log.push([text, isError]), renderFixedPropertyRows() {}, renderNoteSectionRows() {},
       readFormState: () => ({ payload: { folder: "新" }, providers: ["新平台"] }),

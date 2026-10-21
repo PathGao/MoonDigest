@@ -377,7 +377,7 @@ let toastTimer = 0;
 let noteTimer = 0;
 const notePending = new Set(); // bvids whose note waits for noteTimer
 // Each pending note goes through MdgLimits.saveVideoNote (fresh read, this one entry, write), so notes the side panel
-// or 视频记录 saved meanwhile are kept; storeSet marks the write as this page's own echo.
+// or 摘读记录 saved meanwhile are kept; storeSet marks the write as this page's own echo.
 async function flushNotes() {
   clearTimeout(noteTimer);
   noteTimer = 0;

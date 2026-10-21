@@ -411,3 +411,13 @@ body {
   height: 14px;
   color: var(--faint);
 }
+
+/* An ordinary web page: only AI 总结 applies (the side panel reads the page); the video's cover and tools are not shown. */
+.web-page .cover,
+.web-page #refreshBtn,
+.web-page .subrow,
+.web-page #preview,
+.web-page .tools,
+.web-page .details {
+  display: none;
+}

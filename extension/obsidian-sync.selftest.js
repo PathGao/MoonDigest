@@ -208,6 +208,24 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
   assert.ok(!PS.text(PS.own("sidepanel.html")).includes("已不存在"), "the side panel words a sync result itself");
 
+  // A web page read in the side panel: its note (MdgNote.buildPageNote) goes under {{site}} = 网页 and is remembered by the
+  // page key, so auto-sync keeps its AI 问答 current. Without its body (opened from 摘读记录) the conversation is its own
+  // note, linking the page's.
+  {
+    const webRef = { url: "https://example.com/post", title: "一篇文章", author: "作者", isVideoContext: false };
+    const pageKey = "page:https://example.com/post";
+    const markdown = N.buildPageNote({ ...webRef, pageMarkdown: "正文第一段" }, sync, N.buildConversationTurns(conversation("网").messages));
+    resp = await write({ ref: webRef, conversation: conversation("网"), page: { markdown } });
+    assert.deepStrictEqual([resp.path, resp.kind, local[PATHS][pageKey]?.path], ["N/网页/一篇文章.md", "full", "N/网页/一篇文章.md"]);
+    assert.ok(vault.get("N/网页/一篇文章.md").includes("正文第一段") && vault.get("N/网页/一篇文章.md").includes("### 问：网"));
+    resp = await send({ type: "sync-video-note-ai", ref: webRef, conversation: conversation("又问") });
+    assert.deepStrictEqual([resp.path, resp.updated], ["N/网页/一篇文章.md", true]);
+    assert.ok(vault.get("N/网页/一篇文章.md").includes("### 问：又问") && vault.get("N/网页/一篇文章.md").includes("正文第一段"));
+    resp = await write({ ref: webRef, conversation: conversation("历史") });
+    assert.deepStrictEqual([resp.path, resp.kind], ["N/网页/【AI笔记】一篇文章.md", "conversation"]);
+    assert.ok(vault.get(resp.path).includes('source: "[[N/网页/一篇文章]]"'), vault.get(resp.path));
+  }
+
   // A26: 测试连接 passes only when the address answers the Local REST API's JSON, which names its service (F4).
   assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: true, service: "Obsidian Local REST API" });
   for (notApi of [true, "json"]) assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: false, error: E.obsidianNotApi, code: "OBSIDIAN" }, notApi);

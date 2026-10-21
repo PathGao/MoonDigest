@@ -161,7 +161,7 @@ async function linkCoverInVault(vault, filepath, content, cover) {
   }
 }
 
-// write-video-note: the one write of a video's note, from the video page, the side panel, 视频记录 and 逐个视频笔记.
+// write-video-note: the one write of a video's note, from the video page, the side panel, 摘读记录 and 逐个视频笔记.
 // ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
 // latest saved conversation. page: { markdown, cover, warning } from the open video page (warning: its
 // MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
@@ -172,7 +172,8 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   const settings = await getMergedSettings();
   const vault = obsidianConfig(settings);
   const ref = MdgSites.contextRef(input);
-  let key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
+  // A web page's key too (page:<url>), so its note is remembered like a video's.
+  let key = MdgSites.buildContextKey(ref);
   const { aiConversations } = MdgLimits.KEYS;
   const extrasRef = { site: ref.site, videoId: key ? ref.videoId : "", pageIndex: ref.pageIndex };
   const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
@@ -193,8 +194,9 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
   };
   let target;
   let built = null;
-  if (!key) {
-    target = standalone("", "");
+  if (!key || (!ref.isVideoContext && !page?.markdown)) {
+    // A web page without its body (the tab closed, opened from 摘读记录): the conversation alone, linking the page's note.
+    target = standalone("", paths[key]?.path || "");
   } else if (conversation && turns.length && !aiOn) {
     // 「附带 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
     target = standalone(OWN_NOTE, computedPath());
@@ -261,7 +263,7 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
 // what the side panel shows (the note updated, or gone and left alone).
 async function syncVideoNoteAi({ ref: input, conversation }) {
   const ref = MdgSites.contextRef(input);
-  const key = ref.isVideoContext ? MdgSites.buildContextKey(ref) : "";
+  const key = MdgSites.buildContextKey(ref);
   const path = key ? (await notePaths())[key]?.path : "";
   const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(conversation?.messages));
   if (!path || !section) return { path: "" };

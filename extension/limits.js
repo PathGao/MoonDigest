@@ -37,7 +37,7 @@
     aiConversations: "mdg_ai_conversations_v1",
     // videoKey → { path, lastSyncedAt, pageIndex? } for notes the user saved; auto-sync only touches these.
     obsidianNotePaths: "mdg_obsidian_note_paths_v1",
-    // The side panel's request slot: the player button, popup, 分拣台 and 视频记录 ask it to open a video's AI chat.
+    // The side panel's request slot: the player button, popup, 分拣台 and 摘读记录 ask it to open a video's AI chat.
     playerAiQuickAction: "mdg_player_ai_quick_action_v1",
     triageAnalysisPrefix: ANALYSIS,
     triageAnalysis: (bvid) => `${ANALYSIS}${bvid}`,
@@ -50,7 +50,7 @@
     triageDecisionsPrefix: DECISIONS,
     triageDecisions: (mediaId) => `${DECISIONS}${mediaId}`,
     triageKept: "triage_kept",
-    // { [bvid]: { text, updatedAt } }: the side panel, 分拣台, 视频记录 and note export share it.
+    // { [bvid]: { text, updatedAt } }: the side panel, 分拣台, 摘读记录 and note export share it.
     triageNotes: "triage_notes",
     triageTags: "triage_tags",
     triageVideoTags: "triage_video_tags",
@@ -115,7 +115,7 @@
     }
   }
 
-  // One 视频备注 saved by read-modify-write (the side panel, 视频记录 and 分拣台): a fresh read, only this entry changed,
+  // One 视频备注 saved by read-modify-write (the side panel, 摘读记录 and 分拣台): a fresh read, only this entry changed,
   // written back, so a note another page saved meanwhile is kept. Blank text deletes it; the stored text writes nothing.
   // set writes the whole map (the 分拣台 passes its own, to know the echo). Resolves true when it wrote.
   // Saves run one at a time, or two would read the same map and the later write drop the other's note: in this page by
@@ -138,7 +138,7 @@
   }
 
   // The AI conversation list (KEYS.aiConversations) changed by read-modify-write, one change at a time across pages like
-  // saveVideoNote: the side panel and 视频记录 both write it, and a whole list written from an older read would bring back
+  // saveVideoNote: the side panel and 摘读记录 both write it, and a whole list written from an older read would bring back
   // what the other deleted. edit(stored list) returns the list to write.
   let conversationQueue = Promise.resolve();
   function updateConversations(edit) {
@@ -152,7 +152,7 @@
   }
 
   // Asks the side panel to open a video's AI chat (KEYS.playerAiQuickAction): the one shape every sender writes (the
-  // player ✦ and popup via the background, 分拣台 and 视频记录). The side panel drops a request older than 15 s by createdAt.
+  // player ✦ and popup via the background, 分拣台 and 摘读记录). The side panel drops a request older than 15 s by createdAt.
   function askSidepanel({ tabId, prompt = "", contextRef = null, frameId = 0 }) {
     const createdAt = Date.now();
     const request = { id: `ai-${createdAt}-${Math.random().toString(36).slice(2, 8)}`, tabId: Number(tabId) || 0, prompt, createdAt };
@@ -224,7 +224,7 @@
       {
         label: "AI 对话",
         usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段`,
-        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「视频记录」页按视频查看、下载或删除。`
+        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的。在「摘读记录」页按视频和网页查看、下载或删除。`
       },
       {
         label: "AI 每次请求读的字幕",
@@ -254,7 +254,7 @@
       {
         label: "备注",
         usage: `${count(usage.triageNotes)} 条`,
-        rule: "不自动删。在侧边栏、分拣台或视频记录页里修改。"
+        rule: "不自动删。在侧边栏、分拣台或摘读记录页里修改。"
       },
       {
         label: MdgErrors.LABEL.seen,

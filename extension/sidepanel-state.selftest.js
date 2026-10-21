@@ -15,6 +15,8 @@ const types = (effects) => [...effects].map((e) => e.type);
 const v = (id) => `https://www.bilibili.com/video/${id}/`;
 const video = (id, extra) => ({ url: v(id), title: `t-${id}`, site: "bilibili", videoId: id, cid: `c-${id}`, isVideoContext: true, subtitleMarkdown: "s", ...extra });
 const web = { url: "https://example.com/a", title: "web", isVideoContext: false };
+// A page that can never be read (chrome://, an extension page): not followed.
+const blank = { url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" };
 const saved = (id, ctxt, messages = [{ role: "user", content: `q-${id}` }, { role: "assistant", content: `a-${id}` }], updatedAt = 1) => ({
   id,
   title: ctxt.title,
@@ -192,7 +194,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   // An ended reply with an answer saves the conversation with the context it was asked in, even after the tab moved.
   const f = panel();
   f.ask("q");
-  f.load(web, { follow: true });
+  f.load(blank, { follow: true });
   assert.strictEqual(f.view().context.url, v("BV1aa"), "a reply in flight keeps its context");
   assert.deepStrictEqual(types(f.dispatch({ type: "STREAM_ENDED", raw: "a" })), ["save", "autoSync"]);
   assert.deepStrictEqual([f.view().pinned.contextUrl, f.view().context.url, f.view().messages.length], [v("BV1aa"), v("BV1aa"), 2]);
@@ -262,7 +264,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([r.view().id, r.view().context.subtitleMarkdown], ["b", "s"]);
 }
 {
-  // AI 总结 with a reference (分拣台, 视频记录): a saved conversation for that video opens and nothing fills; else a new
+  // AI 总结 with a reference (分拣台, 摘读记录): a saved conversation for that video opens and nothing fills; else a new
   // conversation bound to the video, pending until it resolves, gets the prompt after the resolve.
   const ref = S.buildConversationContextRef(video("BV1zz"));
   const p = panel({ tab: { url: "chrome-extension://x/triage/triage.html", title: "分拣台", isVideoContext: false } });
@@ -425,7 +427,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
 
 {
   // C329: a save merges by entry into the stored list. Kept: each entry's newer version, what this page created; gone:
-  // what this page deleted, and what only this page still has because another page (视频记录) deleted it.
+  // what this page deleted, and what only this page still has because another page (摘读记录) deleted it.
   const c = (id, updatedAt) => ({ ...saved(id, video(`BV1${id}`)), updatedAt });
   const ids = (list) => [...list].map((x) => `${x.id}@${x.updatedAt}`).sort();
   const merged = S.mergeSaved([c("a", 1), c("b", 1), c("o", 5)], [c("a", 2), c("b", 1), c("o", 3), c("x", 1), c("n", 1)], { created: new Set(["n"]), deleted: new Set(["b"]) });
@@ -441,7 +443,86 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([[...p.view().unsaved.created], [...p.view().unsaved.deleted]], [[mine], ["b"]]);
   p.dispatch({ type: "SAVED_WRITTEN", created: new Set([mine]), deleted: new Set(["b"]) });
   p.dispatch({ type: "SAVED_CHANGED", list: [c("a", 1)] });
-  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 视频记录: gone here too");
+  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 摘读记录: gone here too");
+}
+
+// AI 总结 from the popup on a page not granted yet: filled now, sent once the same page is read in the same conversation.
+{
+  const page = (extra) => ({ url: "https://example.com/post", title: "文章", isVideoContext: false, ...extra });
+  const waiting = page({ pageAccess: "needPermission" });
+  const ready = page({ pageAccess: "ready", pageMarkdown: "正文" });
+  const PROMPT = "整理这篇网页";
+  const start = () => {
+    const p = panel({ tab: waiting });
+    assert.deepStrictEqual(types(p.dispatch({ type: "SUMMARY", prompt: PROMPT })).filter((t) => t === "fill"), ["fill"]);
+    return p;
+  };
+  const sent = (effects) => [...effects].filter((e) => e.type === "autoSend").map((e) => e.prompt);
+  // Granted: the page read again is ready, and the prompt goes, once.
+  const p = start();
+  assert.deepStrictEqual(sent(p.load(ready)), [PROMPT], "sent after the grant");
+  assert.deepStrictEqual(sent(p.load(ready)), [], "only once");
+  // Refused: never sent, also if the page becomes readable later.
+  const q = start();
+  q.dispatch({ type: "GRANT_DENIED" });
+  assert.deepStrictEqual(sent(q.load(ready)), [], "the grant was refused");
+  // Another conversation shown since the fill.
+  const r = start();
+  r.dispatch({ type: "NEW" });
+  assert.deepStrictEqual(sent(r.load(ready)), [], "another conversation");
+  // The tab moved to another page and back.
+  const u = start();
+  u.load(page({ url: "https://example.com/other", pageAccess: "needPermission" }), { follow: true });
+  assert.deepStrictEqual(sent(u.load(ready, { follow: true })), [], "another page in between");
+  // A video or a page already readable never waits.
+  const w = panel({ tab: ready });
+  w.dispatch({ type: "SUMMARY", prompt: PROMPT });
+  assert.deepStrictEqual(sent(w.load(ready)), [], "already readable: the user sends");
+}
+
+// The bar (上一个视频 / 上一个网页): leaving a page's conversation folds it, whatever the tab shows next; it stays while the
+// tab moves through pages without a conversation, readable or not, and changes only when another chatted one is left.
+{
+  const page = (id, extra) => ({ url: `https://example.com/${id}`, title: id, isVideoContext: false, pageAccess: "ready", pageMarkdown: "正文", ...extra });
+  const p = panel({ tab: page("A") });
+  p.ask("问A", "答A");
+  const a = p.view().id;
+  p.load(page("B"), { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().messages.length, p.view().context.url], [a, 0, "https://example.com/B"], "B: A folded");
+  p.load(blank, { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().context.url], [a, "chrome://newtab/"], "newtab: still A");
+  p.load(page("C", { pageAccess: "failed", pageError: "没有找到正文", pageMarkdown: undefined }), { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().context.pageAccess], [a, "failed"], "C failed: still A");
+  p.load(page("D"), { follow: true });
+  p.ask("问D", "答D");
+  const d = p.view().id;
+  assert.strictEqual(p.view().previousId, a, "D chatting: still A");
+  p.load({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }, { follow: true });
+  assert.deepStrictEqual([p.view().previousId, p.view().messages.length, p.view().context.pageAccess], [d, 0, "needPermission"], "leaving D (to a page before the grant): D folded");
+  // The same unreadable tab read again (focus, visibility) changes nothing.
+  assert.deepStrictEqual(types(p.load({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }, { follow: true })).filter((t) => t === "followed"), []);
+  // Straight from a chatted page to a tab that cannot be read: blocked state shown, the page's conversation in the bar.
+  const q = panel({ tab: page("E") });
+  q.ask("问E", "答E");
+  const e = q.view().id;
+  q.load(blank, { follow: true });
+  assert.deepStrictEqual([q.view().previousId, q.view().messages.length, q.view().context.url], [e, 0, "chrome://newtab/"]);
+  // Videos are as before: a chatted video stays shown on a page that cannot be read.
+  const r = panel();
+  r.ask("问", "答");
+  r.load(blank, { follow: true });
+  assert.deepStrictEqual([r.view().previousId, r.view().messages.length], ["", 2], "a video's conversation is kept");
+}
+
+// B3: 继续问 from 摘读记录 on a page: the conversation opens by reference (a placeholder without pageAccess, so it is only
+// read), and the page's own tab read as ready resolves it, so nothing blocks it any more.
+{
+  const page = { url: "https://example.com/post", title: "文章", isVideoContext: false };
+  const p = panel({ tab: blank, list: [saved("pg", page)] });
+  p.dispatch({ type: "SUMMARY", prompt: "", ref: S.buildConversationContextRef(page) });
+  assert.deepStrictEqual([p.view().id, p.view().context.pageAccess], ["pg", undefined], "opened, its page not read yet");
+  p.load({ ...page, pageAccess: "ready", pageMarkdown: "正文" }, { follow: true });
+  assert.deepStrictEqual([p.view().id, p.view().context.pageAccess, p.view().context.pageMarkdown, p.view().previousId], ["pg", "ready", "正文", ""]);
 }
 
 console.log("sidepanel-state selftest: all passed");

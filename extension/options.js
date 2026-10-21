@@ -62,6 +62,9 @@ const elements = {
   addAiProviderBtn: document.getElementById("addAiProviderBtn"),
   aiSystemPrompt: document.getElementById("aiSystemPrompt"),
   aiPresetPrompts: document.getElementById("aiPresetPrompts"),
+  webAiSystemPrompt: document.getElementById("webAiSystemPrompt"),
+  webAiSummaryPrompt: document.getElementById("webAiSummaryPrompt"),
+  webAiPresetPrompts: document.getElementById("webAiPresetPrompts"),
   saveBar: document.getElementById("saveBar"),
   unsavedHint: document.getElementById("unsavedHint"),
   saveBtn: document.getElementById("saveBtn"),
@@ -131,17 +134,20 @@ function init() {
   TriageUi.fillNumHints(document);
   // 观看进度's caps, as the 数据与存储 table states them (limits.js).
   for (const node of document.querySelectorAll("[data-seen-limits]")) node.textContent = MdgLimits.SEEN_LIMITS_TEXT;
-  // Same for 追问: blank, repeated and lines past MAX_PRESET_PROMPTS are dropped from the box, not only from what is saved.
-  elements.aiPresetPrompts.addEventListener("change", () => (elements.aiPresetPrompts.value = readFormPayload().aiPresetPrompts.join("\n")));
-  // The side panel edits 追问 too. Follow it unless the box has an unsaved edit, so the next save does not put the old list back.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    const next = changes.aiPresetPrompts?.newValue;
-    if (area !== "sync" || !Array.isArray(next) || !savedForm) return;
-    if (JSON.stringify(readFormPayload().aiPresetPrompts) !== JSON.stringify(savedForm.payload.aiPresetPrompts)) return;
-    elements.aiPresetPrompts.value = next.join("\n");
-    savedForm.payload.aiPresetPrompts = readFormPayload().aiPresetPrompts;
-    syncUnsaved();
-  });
+  // Both 追问 sets (video, web page): blank, repeated and lines past MAX_PRESET_PROMPTS are dropped from the box, not only
+  // from what is saved. The side panel edits them too: a box follows it unless it has an unsaved edit, so the next save
+  // does not put the old list back.
+  for (const key of ["aiPresetPrompts", "webAiPresetPrompts"]) {
+    elements[key].addEventListener("change", () => (elements[key].value = readFormPayload()[key].join("\n")));
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const next = changes[key]?.newValue;
+      if (area !== "sync" || !Array.isArray(next) || !savedForm) return;
+      if (JSON.stringify(readFormPayload()[key]) !== JSON.stringify(savedForm.payload[key])) return;
+      elements[key].value = next.join("\n");
+      savedForm.payload[key] = readFormPayload()[key];
+      syncUnsaved();
+    });
+  }
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => {
     addFixedPropertyRow();
@@ -165,7 +171,7 @@ function init() {
   document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
   for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
-  // Focuses an open triage or 视频记录 tab instead of a second one.
+  // Focuses an open triage or 摘读记录 tab instead of a second one.
   for (const [page, type] of [[MdgCommon.PAGES.triage, "triage-open"], [MdgCommon.PAGES.history, "history-open"]]) {
     document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
       event.preventDefault();
@@ -323,6 +329,9 @@ async function loadSettings() {
   renderNoteSectionRows(settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
+  elements.webAiSystemPrompt.value = settings.webAiSystemPrompt || "";
+  elements.webAiSummaryPrompt.value = String(settings.webAiSummaryPrompt || "");
+  elements.webAiPresetPrompts.value = (Array.isArray(settings.webAiPresetPrompts) ? settings.webAiPresetPrompts : []).join("\n");
 
   renderAiProviders(providers);
   renderHostPermissionBanner(hostPermissionUrls(settings, providers));
@@ -429,6 +438,7 @@ async function saveSettings() {
     // The box shows what was saved: 150 is stored and shown as 100; an emptied box stays empty under 「默认 N」.
     TriageUi.clampNumber(elements.seenThreshold);
     elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
+    elements.webAiPresetPrompts.value = payload.webAiPresetPrompts.join("\n");
     // The settings are saved whatever the AI platforms' save does: a failure there leaves only the platforms unsaved.
     savedForm.payload = readFormState().payload;
     // A test of other values says nothing about the ones just saved.
@@ -625,7 +635,10 @@ function readFormPayload() {
     fixedFrontmatterProperties: MdgSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
     notePlaceholderSections: MdgSettings.normalizeNotePlaceholderSections(collectNoteSectionRows()),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n"))
+    aiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n")),
+    webAiSystemPrompt: String(elements.webAiSystemPrompt?.value || "").trim(),
+    webAiSummaryPrompt: MdgSettings.normalizePlayerAiQuickPrompt(elements.webAiSummaryPrompt.value),
+    webAiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.webAiPresetPrompts.value.split("\n"))
   };
 }
 

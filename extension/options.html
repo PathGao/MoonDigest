@@ -95,7 +95,7 @@
           <details class="adv">
             <summary>属性和附加段落</summary>
             <div class="row wide">
-              <div class="lab"><span class="name">自带属性（frontmatter）</span><p class="hint">每个视频自动填。勾选的写进笔记开头。</p></div>
+              <div class="lab"><span class="name">自带属性（frontmatter）</span><p class="hint">仅视频笔记：每个视频自动填，勾选的写进笔记开头。网页笔记固定写 <code>title</code> <code>url</code> <code>site</code> <code>author</code> <code>published</code> <code>created</code> <code>tags</code>。</p></div>
               <table class="data">
                 <tbody>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="title" /> <span class="mono">title</span></label></td><td class="rule">视频标题</td></tr>
@@ -116,7 +116,7 @@
               </table>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name" data-text="fixedFrontmatterProperties">自定属性</span><p class="hint">名字和值你自己定，每篇都带，如 <code>类型: 视频</code>。值里可用上表的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
+              <div class="lab"><span class="name" data-text="fixedFrontmatterProperties">自定属性</span><p class="hint">名字和值你自己定，视频和网页笔记每篇都带，如 <code>类型: 视频</code>。值里可用上表的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
               <div class="ctl">
                 <div id="fixedPropertiesList" class="fixed-properties-list"></div>
                 <p id="fixedPropertiesEmpty" class="empty">还没有自定属性</p>
@@ -124,7 +124,7 @@
               </div>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name" data-text="notePlaceholderSections">正文附加段落</span><p class="hint">在正文里加一个空标题，如「## 我的想法」，留给自己写。可放在简介、章节或字幕前，最多 <span data-hint-num="noteSections"></span> 段。</p></div>
+              <div class="lab"><span class="name" data-text="notePlaceholderSections">正文附加段落</span><p class="hint">仅视频笔记：在正文里加一个空标题，如「## 我的想法」，留给自己写。可放在简介、章节或字幕前，最多 <span data-hint-num="noteSections"></span> 段。</p></div>
               <div class="ctl">
                 <div id="noteSectionsList" class="note-sections-list"></div>
                 <p id="noteSectionsEmpty" class="empty">还没有附加段落</p>
@@ -151,6 +151,7 @@
           </div>
           <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 总结按钮和快捷追问。</p>
           <div id="aiPromptRows">
+            <div class="sub">视频</div>
             <div class="row wide">
               <div class="lab"><label class="name" for="aiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
               <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
@@ -166,6 +167,19 @@
             <div class="row wide">
               <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
               <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
+            </div>
+            <div class="sub">网页</div>
+            <div class="row wide">
+              <div class="lab"><label class="name" for="webAiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">在普通网页上回答时遵守的规则。视频用上面那一份。</p></div>
+              <div class="ctl"><textarea id="webAiSystemPrompt" rows="6" placeholder="例如：用中文回答；尽量简洁；引用原文时说明出处。"></textarea></div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><label class="name" for="webAiSummaryPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">在网页上点「✦ AI 总结」时填进侧边栏输入框。留空时只打开侧边栏。</p></div>
+              <div class="ctl"><textarea id="webAiSummaryPrompt" rows="2" placeholder="例如：整理这篇网页的内容，输出结构化总结。"></textarea></div>
+            </div>
+            <div class="row wide">
+              <div class="lab"><label class="name" for="webAiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">网页对话里出现的快捷追问。每行一条，条数上限和视频的一样。</p></div>
+              <div class="ctl"><textarea id="webAiPresetPrompts" rows="4"></textarea></div>
             </div>
           </div>
         </div>
@@ -308,7 +322,7 @@
         <div class="sec-head">
           <h2>数据与存储</h2>
           <p>设置随浏览器同步；Key、参与分拣的收藏夹、各收藏夹的判断标准和数据只存本机。</p>
-          <a class="jump" href="./history/history.html" target="_blank">打开视频记录 ↗</a>
+          <a class="jump" href="./history/history.html" target="_blank">打开摘读记录 ↗</a>
         </div>
         <div class="rows">
           <table class="data">

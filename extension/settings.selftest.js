@@ -94,7 +94,7 @@ assert.strictEqual(S.DEFAULTS.seenThreshold, def);
 assert.deepStrictEqual([-5, "", " ", null, undefined, "x", min - 1, min - 0.6, min, 42.6, "42", max + 50].map(S.normalizeSeenThreshold), [def, def, def, def, def, def, def, def, min, 43, 42, max]);
 
 // The default prompts are written only in settings.js (dev mocks may seed their own).
-const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n").find((line) => line.includes("Emoji"))];
+const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n").find((line) => line.includes("Emoji")), S.DEFAULTS.webAiSummaryPrompt, ...S.DEFAULTS.webAiPresetPrompts, S.DEFAULTS.webAiSystemPrompt.split("\n")[0]];
 for (const t of texts) {
   for (const file of sources) assert.ok(!read(file).includes(t), `${file} writes 「${t}」 itself`);
 }

@@ -318,7 +318,7 @@
   }
 
   // The triage page's per-video analysis (triage_analysis_<bvid>) as Markdown; "" until it is done. Its last line starts
-  // with VERDICT_LINE (视频记录 reads it back).
+  // with VERDICT_LINE (摘读记录 reads it back).
   const VERDICT_LINE = "AI 判断：";
   function buildTriageSummary(analysis) {
     if (analysis?.status !== "done") {
@@ -509,7 +509,8 @@
       created: sanitizeFolderTemplateValue(created),
       upload_date: sanitizeFolderTemplateValue(meta?.uploadDate || ""),
       author: sanitizeFolderTemplateValue(meta?.author || ""),
-      site: sanitizeFolderTemplateValue(meta?.site || ""),
+      // A web page has no video site: its notes go under 网页.
+      site: sanitizeFolderTemplateValue(meta?.site || (meta?.isVideoContext === false ? "网页" : "")),
       id: sanitizeFolderTemplateValue(meta?.videoId || ""),
       video_id: sanitizeFolderTemplateValue(meta?.videoId || "")
     };
@@ -1071,6 +1072,26 @@
     };
   }
 
+  // A web page's note (the side panel's page context once read): its own frontmatter, the main text Defuddle read and
+  // the AI 问答 section between the video note's markers, so 只更新 AI 问答 and auto-sync work the same. Its path is
+  // videoNotePath of the page's context ({{site}} is 网页).
+  function buildPageNote(page, settings, turns = [], created = localDate()) {
+    const url = String(page?.url || "").trim();
+    let host = "";
+    try {
+      host = new URL(url).hostname;
+    } catch {}
+    const quoted = (key, value) => (value ? `${key}: "${escapeYaml(value)}"` : "");
+    const tags = noteTags({}, settings);
+    // The user's 自定属性, by the video note's function; {{site}} is the host, {{upload_date}} the published date.
+    const meta = { title: page?.title, site: host, author: page?.author, uploadDate: page?.published };
+    const own = getFixedFrontmatterPropertyLines(settings, buildFrontmatterTemplateContext(meta, url, created, tags.join(", "), yamlList(tags)));
+    const front = ["---", quoted("title", page?.title), quoted("url", url), quoted("site", host), quoted("author", page?.author), quoted("published", page?.published), quoted("created", created), `tags: ${yamlList(tags)}`, ...own, "---"];
+    const markdown = `${front.filter(Boolean).join("\n")}\n\n${String(page?.pageMarkdown || "").trim()}`;
+    const ai = MdgSettings.normalizeSwitches(settings).includeAiChatInNote ? buildAiSection(turns) : "";
+    return `${ai ? `${markdown}\n\n${ai}` : markdown}\n`;
+  }
+
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
   // Obsidian only; the note written or downloaded keeps it.
   const buildAiContext = (meta, body, settings, ref) =>
@@ -1080,6 +1101,7 @@
     buildMarkdown,
     noteTags,
     buildAiContext,
+    buildPageNote,
     noteMetaOf,
     subtitleMismatchWarning,
     noteSubtitleWarning,

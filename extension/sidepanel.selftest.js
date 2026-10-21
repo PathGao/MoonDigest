@@ -317,7 +317,7 @@ const chatOn = (context) => {
   }
 
   {
-    // A video opened from 分拣台 or 视频记录 is loading until its context resolves: the 快捷追问 say why they wait. A
+    // A video opened from 分拣台 or 摘读记录 is loading until its context resolves: the 快捷追问 say why they wait. A
     // failed load ends it, and the error says what happened.
     let pendingAtLoad;
     ctx.hydratePinnedConversationContext = async () => (pendingAtLoad = view().context.pending);
@@ -560,11 +560,61 @@ const chatOn = (context) => {
     assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [true, "正在停止生成"]);
     ctx.setStreamingUiState(false);
     assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [false, ""]);
-    show(web("h14"));
-    ctx.setStreamingUiState(false);
-    assert.deepStrictEqual([view().nonVideo, els.sendBtn.disabled, els.sendBtn.title], [true, true, ctx.MdgErrors.TEXT.notVideoPage]);
+    // A web page by its pageAccess (background.js readWebPage): only a page whose main text was read can be asked about.
+    const sendFor = (payload) => (show(payload), ctx.setStreamingUiState(false), [els.sendBtn.disabled, els.sendBtn.title]);
+    const GRANT = "读取网页正文要先允许一次，之后所有网页都能直接读";
+    assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "needPermission" }), [true, GRANT]);
+    assert.strictEqual(view().nonVideo, true);
     // K2: the quick prompts say the same as 发送.
-    assert.strictEqual(vm.runInContext("providers = [{}]; followupBlockReason()", ctx), ctx.MdgErrors.TEXT.notVideoPage);
+    assert.strictEqual(vm.runInContext("providers = [{}]; followupBlockReason()", ctx), GRANT);
+    // 允许读取网页 granted: the same page read again is ready, and 发送 unlocks.
+    assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "ready", pageMarkdown: "正文" }), [false, ""]);
+    // No URL (Chrome hides it before the grant): the same one-time grant.
+    assert.deepStrictEqual(sendFor({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }), [true, GRANT]);
+    assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "failed", pageError: "没有找到正文" }), [true, "读取网页失败：没有找到正文"]);
+    assert.deepStrictEqual(sendFor({ url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" }), [true, "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页"]);
+    // A page conversation shown without its page (no pageAccess: opened from the list) is only read.
+    assert.deepStrictEqual(sendFor(web("h14")), [true, "打开这个网页后才能继续问"]);
+    // The two sets of AI texts: a page reads the web* keys, a video the original ones, whatever their values.
+    {
+      const prefs = vm.runInContext("aiPrefs", ctx);
+      const was = { ...prefs };
+      Object.assign(prefs, { aiSystemPrompt: "视频规则", playerAiQuickPrompt: "视频总结", aiPresetPrompts: ["视频追问"], webAiSystemPrompt: "网页规则", webAiSummaryPrompt: "网页总结", webAiPresetPrompts: ["网页追问"] });
+      const pick = () => JSON.parse(vm.runInContext("JSON.stringify([presetPrompts(), summaryPrompt(state.view().context), systemPromptFor(state.view().context), presetKey()])", ctx));
+      show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
+      assert.deepStrictEqual(pick(), [["网页追问"], "网页总结", "网页规则", "webAiPresetPrompts"]);
+      show(video);
+      assert.deepStrictEqual(pick(), [["视频追问"], "视频总结", "视频规则", "aiPresetPrompts"]);
+      // Defaults are no exception: the page shows the web defaults, never the video ones.
+      Object.assign(prefs, { aiPresetPrompts: [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts], webAiPresetPrompts: [...ctx.MdgSettings.DEFAULTS.webAiPresetPrompts] });
+      state.dispatch({ type: "NEW" });
+      show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
+      assert.deepStrictEqual(pick()[0], [...ctx.MdgSettings.DEFAULTS.webAiPresetPrompts]);
+      Object.assign(prefs, was);
+      show(video);
+    }
+    // autoSend sends the prompt only while the input still holds it as filled.
+    {
+      const realSendMessage = ctx.sendMessage;
+      const sends = [];
+      ctx.sendMessage = async () => sends.push(els.input.value);
+      els.input.value = "整理这篇网页";
+      await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
+      els.input.value = "整理这篇网页，只要三点";
+      await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
+      assert.deepStrictEqual(sends, ["整理这篇网页"], "an edited prompt is not sent");
+      els.input.value = "";
+      ctx.sendMessage = realSendMessage;
+    }
+    // 复制 Markdown / 下载 .md of a read page: the page note (body + AI 问答), named like a video note.
+    const realSendNote = ctx.sendRuntimeMessage;
+    ctx.sendRuntimeMessage = async () => ({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, includeDateInFilename: false } });
+    const ready = { ...web("note"), title: "文章", pageAccess: "ready", pageMarkdown: "正文段落" };
+    const note = await ctx.pageNote(ready, ctx.MdgNote.buildConversationTurns([{ role: "user", content: "问" }, { role: "assistant", content: "答" }]));
+    assert.strictEqual(note.filename, "文章.md");
+    assert.ok(note.content.includes("正文段落") && note.content.includes(ctx.MdgNote.AI_SECTION_START), note.content);
+    assert.strictEqual(await ctx.pageNote(web("note"), []), null, "no body: the conversation's own note");
+    ctx.sendRuntimeMessage = realSendNote;
     show(video);
     ctx.setStreamingUiState(false);
   }
@@ -761,6 +811,29 @@ const chatOn = (context) => {
     show(video);
     real.updateContextChip();
     assert.deepStrictEqual([onWeb.includes("点击跳转目标视频"), els.contextChip.title.includes("点击跳转目标视频")], [false, true]);
+    // B1: a page without a title (chrome://newtab) is 这个页面, not the video words.
+    state.dispatch({ type: "NEW" });
+    show({ url: "chrome://newtab/", title: "", isVideoContext: false, pageAccess: "unsupported" });
+    real.updateContextChip();
+    assert.strictEqual(els.contextTitle.textContent, "这个页面");
+    show({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" });
+    real.updateContextChip();
+    assert.strictEqual(els.contextTitle.textContent, "这个页面");
+    // B3: a page conversation drawn with 打开这个网页后才能继续问 loses it once its page is read.
+    let cleared = 0;
+    const realRemove = ctx.removeCenteredState;
+    ctx.removeCenteredState = () => cleared++;
+    const pageCtx = { url: "https://example.com/b3", title: "B3", isVideoContext: false };
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "b3", contextKey: "page:https://example.com/b3", contextUrl: pageCtx.url, contextTitle: "B3", contextRef: pageCtx, isVideoContext: false, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }] });
+    state.dispatch({ type: "OPEN", id: "b3" });
+    real.updateContextChip();
+    assert.strictEqual(cleared, 0, "the page is not open: the notice stays");
+    show({ ...pageCtx, pageAccess: "ready", pageMarkdown: "正文" });
+    real.updateContextChip();
+    assert.ok(cleared > 0, "the page is read: the notice goes");
+    ctx.removeCenteredState = realRemove;
+    state.dispatch({ type: "NEW" });
+    show(video);
   }
 
   // C325: the tab moves from P1 to P2 while 分拣台's summary is read: P2 does not get P1's summary.
@@ -974,7 +1047,7 @@ const chatOn = (context) => {
     await assert.rejects(ctx.waitForTabComplete(9), /标签页已关闭/);
   }
 
-  // C329: a save reads the stored list again and changes it by entry: a conversation 视频记录 deleted after this page
+  // C329: a save reads the stored list again and changes it by entry: a conversation 摘读记录 deleted after this page
   // last read the list is not written back; a delete here removes only its own entry.
   {
     const KEY = ctx.MdgLimits.KEYS.aiConversations;
@@ -985,7 +1058,7 @@ const chatOn = (context) => {
     const c = (id) => ({ id, contextUrl: `https://www.bilibili.com/video/BV1${id}`, isVideoContext: true, updatedAt: 1, messages: [{ role: "user", content: "q" }] });
     state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
     state.dispatch({ type: "SAVED_CHANGED", list: [c("k"), c("l"), c("gone")] });
-    store[KEY] = [c("k"), c("l")]; // 视频记录's delete, whose change has not reached this page yet
+    store[KEY] = [c("k"), c("l")]; // 摘读记录's delete, whose change has not reached this page yet
     await ctx.saveConversations();
     assert.deepStrictEqual(store[KEY].map((x) => x.id).sort(), ["k", "l"], "not written back");
     await ctx.act({ type: "DELETED", id: "k" });

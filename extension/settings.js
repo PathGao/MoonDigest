@@ -27,6 +27,17 @@
     "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
   ].join("\n");
 
+  // The web-page set of the three AI texts (2026-10-21, DESIGN): a page has its main text, no subtitles, comments or times.
+  const WEB_PRESET_PROMPTS = Object.freeze(["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
+  const WEB_SYSTEM_PROMPT = [
+    "你是一名专业的阅读助手。",
+    "基于网页正文提炼高价值信息，不要复述原文，不要输出思考过程或 think 标签。",
+    "优先输出：主题与核心观点、关键论据与事实、逻辑链路与重要结论、可执行建议。",
+    "回答应结构化、信息密度高、便于收藏和复习，可适当使用列表和表格。",
+    "忽略导航、广告、评论区和与正文无关的内容。",
+    "正文没有写到的不要猜测或编造；区分文中的事实、数据、推测与作者观点。"
+  ].join("\n");
+
   // 看到多少算看完了 (%): the range and default every reader takes (background, B站 pages, 分拣台, settings page).
   const SEEN_THRESHOLD = Object.freeze({ min: 1, max: 100, def: 80 });
   // A whole-number setting as stored or typed (every page, B站 pages and the background; TriageUi.intIn is this): empty,
@@ -70,8 +81,12 @@
     frontmatterFields: Object.freeze(["title", "url", "site", "video_id", "cid", "author", "author_url", "upload_date", "duration", "cover", "subtitle_lang", "created", "tags"]),
     fixedFrontmatterProperties: Object.freeze([]),
     notePlaceholderSections: Object.freeze([]),
+    // The video set is the original three keys (stored values untouched); web pages read the web* keys.
     aiSystemPrompt: SYSTEM_PROMPT,
-    aiPresetPrompts: PRESET_PROMPTS
+    aiPresetPrompts: PRESET_PROMPTS,
+    webAiSystemPrompt: WEB_SYSTEM_PROMPT,
+    webAiSummaryPrompt: "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
+    webAiPresetPrompts: WEB_PRESET_PROMPTS
   });
   const LOCAL_DEFAULTS = Object.freeze({ obsidianApiKey: "" });
 

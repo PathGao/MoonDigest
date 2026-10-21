@@ -1442,8 +1442,12 @@
     );
   }
 
-  function buildContextKey({ site = "", videoId = "", cid = "" } = {}) {
-    return videoId ? `video:${site}:${videoId}|${cid || ""}` : "";
+  // A video part's key, else a web page's: its URL without the #fragment. Both are stored (saved conversations, the
+  // Obsidian note paths), so neither shape may change.
+  function buildContextKey({ site = "", videoId = "", cid = "", url = "" } = {}) {
+    if (videoId) return `video:${site}:${videoId}|${cid || ""}`;
+    const page = String(url || "").trim().replace(/#.*$/, "");
+    return page ? `page:${page}` : "";
   }
 
   // A video context's identity fields, trimmed (the background's write-video-note and the side panel's saved
