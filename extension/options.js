@@ -115,6 +115,7 @@ function init() {
     }
   });
   elements.saveBtn.addEventListener("click", saveSettings);
+  initPromptTabs();
   document.getElementById("exportSettingsBtn").addEventListener("click", exportSettingsFile);
   const importFile = document.getElementById("importSettingsFile");
   document.getElementById("importSettingsBtn").addEventListener("click", () => importFile.click());
@@ -717,6 +718,31 @@ function validateNoteExtras() {
 // Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
 function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
+}
+
+// The 视频 / 网页 prompt tabs. Arrow keys move between them, as in any tablist.
+function showPromptTab(tab) {
+  for (const t of document.querySelectorAll('.kind-tabs [role="tab"]')) {
+    const on = t === tab;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+  }
+}
+
+function initPromptTabs() {
+  const tabs = [...document.querySelectorAll('.kind-tabs [role="tab"]')];
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => showPromptTab(tab));
+    tab.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      const next = tabs[(i + step + tabs.length) % tabs.length];
+      showPromptTab(next);
+      next.focus();
+    });
+  });
 }
 
 function applyValidationError(validation) {

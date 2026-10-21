@@ -151,35 +151,41 @@
           </div>
           <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 总结按钮和快捷追问。</p>
           <div id="aiPromptRows">
-            <div class="sub">视频</div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="aiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
-              <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
+            <div class="kind-tabs" role="tablist" aria-label="提示词用在">
+              <button type="button" role="tab" id="promptTabVideo" aria-controls="promptVideo" aria-selected="true">视频<span class="kind-note">B站 · YouTube</span></button>
+              <button type="button" role="tab" id="promptTabWeb" aria-controls="promptWeb" aria-selected="false" tabindex="-1">网页<span class="kind-note">其他网站</span></button>
             </div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="playerAiQuickPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">点「✦ AI 总结」时把这句填进侧边栏输入框，由你点发送。留空时只打开侧边栏。</p></div>
-              <div class="ctl"><textarea id="playerAiQuickPrompt" rows="2" placeholder="例如：整理这期视频的内容，输出结构化总结。"></textarea></div>
+            <div id="promptVideo" role="tabpanel" aria-labelledby="promptTabVideo">
+              <div class="row wide">
+                <div class="lab"><label class="name" for="aiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">每次回答都遵守的规则：语言、长短、时间戳格式。总结格式写在「AI 总结要求」里。</p></div>
+                <div class="ctl"><textarea id="aiSystemPrompt" rows="7" placeholder="例如：用中文回答；尽量简洁；引用内容时带时间戳。"></textarea></div>
+              </div>
+              <div class="row wide">
+                <div class="lab"><label class="name" for="playerAiQuickPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">点「✦ AI 总结」时把这句填进侧边栏输入框，由你点发送。留空时只打开侧边栏。</p></div>
+                <div class="ctl"><textarea id="playerAiQuickPrompt" rows="2" placeholder="例如：整理这期视频的内容，输出结构化总结。"></textarea></div>
+              </div>
+              <div class="row">
+                <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在播放器上显示 ✦ AI 总结按钮</label></div>
+                <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
+              </div>
+              <div class="row wide">
+                <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
+                <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
+              </div>
             </div>
-            <div class="row">
-              <div class="lab"><label class="name" for="enablePlayerAiQuickAction">在播放器上显示 ✦ AI 总结按钮</label></div>
-              <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
-            </div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
-              <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
-            </div>
-            <div class="sub">网页</div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="webAiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">在普通网页上回答时遵守的规则。视频用上面那一份。</p></div>
-              <div class="ctl"><textarea id="webAiSystemPrompt" rows="6" placeholder="例如：用中文回答；尽量简洁；引用原文时说明出处。"></textarea></div>
-            </div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="webAiSummaryPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">在网页上点「✦ AI 总结」时填进侧边栏输入框。留空时只打开侧边栏。</p></div>
-              <div class="ctl"><textarea id="webAiSummaryPrompt" rows="2" placeholder="例如：整理这篇网页的内容，输出结构化总结。"></textarea></div>
-            </div>
-            <div class="row wide">
-              <div class="lab"><label class="name" for="webAiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">网页对话里出现的快捷追问。每行一条，条数上限和视频的一样。</p></div>
-              <div class="ctl"><textarea id="webAiPresetPrompts" rows="4"></textarea></div>
+            <div id="promptWeb" role="tabpanel" aria-labelledby="promptTabWeb" hidden>
+              <div class="row wide">
+                <div class="lab"><label class="name" for="webAiSystemPrompt" data-text="aiSystemPrompt">系统提示词</label><p class="hint">在普通网页上回答时遵守的规则。</p></div>
+                <div class="ctl"><textarea id="webAiSystemPrompt" rows="6" placeholder="例如：用中文回答；尽量简洁；引用原文时说明出处。"></textarea></div>
+              </div>
+              <div class="row wide">
+                <div class="lab"><label class="name" for="webAiSummaryPrompt" data-text="playerAiQuickPrompt">AI 总结要求</label><p class="hint">在网页上点「✦ AI 总结」时填进侧边栏输入框。留空时只打开侧边栏。</p></div>
+                <div class="ctl"><textarea id="webAiSummaryPrompt" rows="2" placeholder="例如：整理这篇网页的内容，输出结构化总结。"></textarea></div>
+              </div>
+              <div class="row wide">
+                <div class="lab"><label class="name" for="webAiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">网页对话里出现的快捷追问。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。</p></div>
+                <div class="ctl"><textarea id="webAiPresetPrompts" rows="4"></textarea></div>
+              </div>
             </div>
           </div>
         </div>
