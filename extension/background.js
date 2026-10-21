@@ -210,14 +210,11 @@ async function readWebPage(tab) {
 
 // Defuddle's sync parse (never parseAsync, which may fetch from third parties) in the page's isolated world, where the
 // injected bundle stays loaded for the next read. Only the fields the side panel and the note use come back.
-// It parses a copy of the page: on the live document it rewrites attributes (srcset, noscript images) the user's page
-// keeps. Measured 2026-10-21 on Wikipedia "Markdown" and 阮一峰 周刊 285: the copy gives the same text, word count, title,
-// author and date. ponytail: a page that hides its clutter only through computed styles may read worse on the copy;
-// parse document there if that shows up.
 async function extractWebPage(tabId) {
   const parse = (max) => {
     if (typeof Defuddle !== "function") return null;
-    const r = new Defuddle(document.cloneNode(true), { markdown: true, useAsync: false }).parse();
+    // The live document, as Obsidian Web Clipper does: Defuddle reads its computed styles, and only renames srcSet and promotes noscript lazy images.
+    const r = new Defuddle(document, { markdown: true, useAsync: false }).parse();
     return { title: r.title, author: r.author, published: r.published, site: r.site, description: r.description, wordCount: r.wordCount, content: String(r.content || "").slice(0, max) };
   };
   const run = async () => {
