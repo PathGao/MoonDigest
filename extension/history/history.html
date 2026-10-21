@@ -6,6 +6,7 @@
     <title>MoonDigest · 摘读记录</title>
     <link rel="stylesheet" href="../tokens.css" />
     <link rel="stylesheet" href="./history.css" />
+    <link rel="stylesheet" href="../triage/tags.css" />
   </head>
   <body>
     <header class="topbar">
@@ -26,8 +27,8 @@
     <div id="filters" class="filterbar" role="group" aria-label="筛选"></div>
     <main id="list" class="list"><p class="empty" data-text="loading">正在加载…</p></main>
 
-    <!-- The 分拣台's tag picker and 标签管理, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their words
-         when they open. tag-dialogs.js also needs #aiTagDialog; 摘读记录 has no AI 打标签, so it stays empty. -->
+    <!-- The 分拣台's tag picker, 标签管理 and AI 打标签, as in triage/triage.html; tag-picker.js and tag-dialogs.js write their
+         words when they open, and tag-dialogs.js writes AI 打标签's markup. -->
     <dialog id="tagPicker" aria-labelledby="tagPickerTitle">
       <form method="dialog">
         <h2 id="tagPickerTitle" class="tp-title"></h2>
@@ -50,7 +51,36 @@
         <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
-    <dialog id="aiTagDialog"></dialog>
+    <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle"></dialog>
+    <!-- As 关注设置's AI 打标签 groups (triage.html); UI.fillSetRows writes the rows' names, hints and ranges. -->
+    <dialog id="readingSettingsDialog" aria-label="摘读记录设置">
+      <form method="dialog">
+        <h2>摘读记录设置</h2>
+        <div class="settings-ai">
+          <section class="set-group">
+            <h3>标签</h3>
+            <div class="set-card">
+              <div class="set-row" data-set-row="newTagMax"><input id="rsNewMaxInput" type="number" data-num="newTagMax" step="1" /></div>
+              <div class="set-row" data-set-row="allowRemove"><input id="rsRemoveInput" type="checkbox" class="switch" /></div>
+            </div>
+          </section>
+          <section class="set-group">
+            <h3 data-text="aiParams">请求和 AI 参数</h3>
+            <p class="dialog-hint" data-text="aiParamsHint">一般不用改。AI 平台在设置页。</p>
+            <div class="set-card">
+              <div class="set-row" data-set-row="interval"><input id="rsIntervalInput" type="number" data-num="interval" step="1" /></div>
+              <div class="set-row" data-set-row="aiBatch"><input id="rsBatchInput" type="number" data-num="aiBatch" step="1" /></div>
+            </div>
+          </section>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="link" data-open-options aria-label="打开设置页" data-text="openSettings">打开设置页</button>
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" formnovalidate aria-label="取消">取消</button>
+          <button value="save" type="submit" class="primary" aria-label="保存设置" data-text="saveSettings">保存</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="../common.js"></script>
     <script src="../errors.js"></script>
@@ -62,6 +92,7 @@
     <script src="../note.js"></script>
     <script src="../download.js"></script>
     <script src="../triage/shared.js"></script>
+    <script src="../triage/follow-core.js"></script>
     <script src="../triage/tag-picker.js"></script>
     <script src="../triage/tag-dialogs.js"></script>
     <script type="module" src="./history.js"></script>

@@ -22,7 +22,7 @@ const node = (id) =>
     removeAttribute(k) { delete this.attrs[k]; },
     classList: { toggle() {}, add() {}, remove() {} },
     querySelectorAll: () => [],
-    querySelector: () => null,
+    querySelector: (sel) => (sel === "[data-open-options]" ? node("openOptions") : null),
     contains: () => false,
     focus() {},
     showModal() {},
@@ -36,6 +36,7 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
 const conv = (key, bad) => ({ id: key, contextKey: key, title: bad, contextUrl: `https://example.com/${bad}`, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: bad }, { role: "assistant", content: bad }] });
 // A saved context URL with another scheme is never turned into a link.
 let onChanged = null;
+const sync = {}; // chrome.storage.sync
 const store = { mdg_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
 const ctx = vm.createContext({
   console,
@@ -43,11 +44,11 @@ const ctx = vm.createContext({
   clearTimeout,
   window: { scrollY: 0, scrollTo() {} },
   // No #tagPicker: tag-picker.js loads its pure half, and the test stands in for the picker's open (TagPicker.open below).
-  document: { getElementById: (id) => (id === "tagPicker" ? null : node(id)), addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null },
+  document: { getElementById: (id) => (id === "tagPicker" ? null : node(id)), addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null, querySelector: () => null },
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
-    storage: { local: { get: async () => store, set: async () => {} }, onChanged: { addListener: (f) => (onChanged = f) } }
+    storage: { local: { get: async () => store, set: async () => {}, remove: async (keys) => [].concat(keys).forEach((k) => delete store[k]) }, sync: { get: async () => ({ ...sync }), set: async (o) => Object.assign(sync, o) }, onChanged: { addListener: (f) => (onChanged = f) } }
   }
 });
 ctx.globalThis = ctx;
@@ -122,6 +123,8 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下", undefined]]);
   // A21: a 备注 closed by pressing another entry's button (focusout on pointerdown) redraws only after that press,
   // so the button the click lands on is still the one pressed.
+  // A key pressed on the page (I, U), outside any text field.
+  const press = (key, target = {}) => (L.document.keydown || []).forEach((f) => f({ key, target, preventDefault() {} }));
   const docFire = (t) => (L.document[t] || []).forEach((f) => f({}));
   const noteTarget = { dataset: { act: "note" }, closest: (s) => (s === ".entry" ? { dataset: { key: noteKey } } : noteTarget) };
   L.list.click.forEach((f) => f({ target: noteTarget }));
@@ -459,6 +462,18 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await wait(20);
     assert.deepStrictEqual(plain([store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [[tag.id], [tag.id], "https://example.com/post"]);
     assert.ok(entry(pageKey).includes(">读过</span>"), entry(pageKey));
+    // U: that close is one step; for 2 records it asks first, then puts their tags back in one marks write.
+    asked = "";
+    ctx.confirm = (text) => ((asked = text), false);
+    press("u");
+    await wait(20);
+    assert.ok(asked.startsWith("撤销批量改标签？") && store[MARKS].items[pageKey].tags.length === 1, asked);
+    ctx.confirm = () => true;
+    press("u");
+    await wait(20);
+    assert.deepStrictEqual(plain([store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey]]), [[], null], "the tags as before the close; a record left with nothing is dropped");
+    await picker.onClose(picker.targets.map((key) => ({ key, add: [tag.id], remove: [] })));
+    await wait(20);
     // A record's own 「+ 标签」 opens the picker under it, for that record alone.
     await on(pageKey, "tags");
     assert.deepStrictEqual(plain([picker.targets, picker.anchor]), [[pageKey], `.entry[data-key="${pageKey}"] .tag-plus`]);
@@ -495,6 +510,225 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     assert.deepStrictEqual(plain([store[MARKS].items[videoKey].star, store[MARKS].items[videoKey].tags]), [0, [again.id]]);
     pick(videoKey, false);
     pick(pageKey, false);
+  }
+
+  // ✦ AI 打标签: one request per batch keyed by record (a video's parts are one record, a web page is one), the proposal
+  // applied in one marks write, new tags within READING_TAGS.
+  {
+    const MARKS = ctx.MdgLimits.KEYS.readingMarks;
+    const BV = "BV1star00001";
+    const videoKey = `video:bilibili:${BV}|`;
+    const pageKey = "page:https://example.com/post";
+    const qa = (q) => [{ role: "user", content: q }, { role: "assistant", content: "答" }];
+    const part = (n) => ({ id: `s${n}`, contextKey: `video:bilibili:${BV}|c${n}`, title: "星标视频", contextRef: { site: "bilibili", videoId: BV, cid: `c${n}`, pageIndex: n, title: "星标视频", url: `https://www.bilibili.com/video/${BV}` }, createdAt: n, updatedAt: 10 + n, messages: qa(`第${n}P 讲了什么`) });
+    const web = { id: "w", contextKey: pageKey, title: "一篇文章", contextUrl: "https://example.com/post", contextRef: { title: "一篇文章", url: "https://example.com/post", isVideoContext: false }, createdAt: 1, updatedAt: 1, messages: qa("这篇的结论") };
+    const old = { id: "t1", name: "旧", color: "#111111" };
+    const reset = async (tags = [old]) => {
+      for (const k of Object.keys(store)) delete store[k];
+      Object.assign(store, {
+        mdg_ai_conversations_v1: [part(1), part(2), web],
+        [ctx.MdgLimits.KEYS.triageAnalysis(BV)]: { status: "done", oneLiner: "讲 Transformer", points: [] },
+        [ctx.MdgLimits.KEYS.triageNotes]: { [BV]: { text: "值得再看", updatedAt: 1 } },
+        [MARKS]: { tags, items: {} }
+      });
+      onChanged({ [MARKS]: {} }, "local");
+      await wait(350);
+    };
+    await reset();
+    const plain = (v) => JSON.parse(JSON.stringify(v ?? null));
+    let ad = null;
+    const realOpen = ctx.TagDialogs.ai.open;
+    ctx.TagDialogs.ai.open = (a) => (ad = a);
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
+    await wait(20);
+    assert.ok(els.filters.innerHTML.includes('data-f="ai"') && ad?.who === "记录", "「✦ AI 打标签」 opens the dialog with 摘读记录's adapter");
+    // Scopes: 当前筛选 counts records (the video's two parts once); 选中 counts the selected ones, hidden or not.
+    const scopes = () => plain(ad.scopes().map((s) => [s.value, s.n, s.shown]));
+    assert.deepStrictEqual(scopes(), [["filter", 2, null], ["selected", 0, 0]]);
+    pick(`video:bilibili:${BV}|c1`, true);
+    pick(`video:bilibili:${BV}|c2`, true);
+    assert.deepStrictEqual(scopes(), [["filter", 2, null], ["selected", 1, 1]]);
+    await search("一篇文章");
+    assert.deepStrictEqual(scopes(), [["filter", 1, null], ["selected", 1, 0]], "a hidden selection still counts in n, not in shown");
+    await search("");
+    pick(`video:bilibili:${BV}|c1`, false);
+    pick(`video:bilibili:${BV}|c2`, false);
+    assert.strictEqual(ad.room(), 5, "the new-tag cap's default");
+
+    // A run: one request with both records by key, what the AI reads of each.
+    const sent = [];
+    const answer = { newTags: ["新"], assignments: { [videoKey]: { add: ["新", "旧"], remove: [] }, [pageKey]: { add: ["旧"], remove: [] } }, note: "按主题分" };
+    ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), { ok: true, data: answer });
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    assert.strictEqual(sent.length, 1);
+    const { type, items, tags, maxNewTags } = sent[0];
+    assert.deepStrictEqual([type, tags, maxNewTags], ["triage-reading-ai-tag", [{ name: "旧", rule: "" }], 5]);
+    const byId = Object.fromEntries(items.map((it) => [it.id, it]));
+    assert.deepStrictEqual(Object.keys(byId).sort(), [pageKey, videoKey]);
+    // A record with conversations sends their 问/答, oldest first, not the AI 总结 or 备注.
+    assert.deepStrictEqual(byId[videoKey], { id: videoKey, title: "星标视频", site: "B站", currentTags: [], turns: [{ q: "第1P 讲了什么", a: "答" }, { q: "第2P 讲了什么", a: "答" }] });
+    assert.deepStrictEqual([byId[pageKey].site, byId[pageKey].turns], ["网页", [{ q: "这篇的结论", a: "答" }]]);
+    assert.deepStrictEqual(plain(ad.proposal().rows.map((r) => [r.id, r.add]).sort()), [[pageKey, ["id:t1"]], [videoKey, ["new:新", "id:t1"]]]);
+
+    // 应用: the new tag and both records' tags in one marks write; a page keeps its address.
+    const realSet = ctx.chrome.storage.local.set;
+    let writes = 0;
+    ctx.chrome.storage.local.set = async (o) => ((writes += MARKS in o), Object.assign(store, o));
+    await ad.apply();
+    const made = store[MARKS].tags.find((t) => t.name === "新");
+    assert.ok(made, plain(store[MARKS].tags));
+    assert.deepStrictEqual(plain([writes, [...store[MARKS].items[videoKey].tags].sort(), store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [1, ["t1", made.id].sort(), ["t1"], "https://example.com/post"]);
+    assert.strictEqual(ad.proposal(), null);
+    assert.ok(html.includes(">新</span>"), "the chips show on the records");
+
+    // Room: never past READING_TAGS (50); 应用 creates only what fits.
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, name: `标签${i}`, color: "#222222" }));
+    await reset(many(48));
+    assert.strictEqual(ad.room(), 2);
+    await reset(many(50));
+    assert.strictEqual(ad.room(), 0, "full: the AI may make none");
+    await reset(many(49));
+    assert.strictEqual(ad.room(), 1);
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true, data: { newTags: ["甲", "乙"], assignments: { [videoKey]: { add: ["甲", "乙"], remove: [] } }, note: "" } });
+    await ad.run({ instruction: "分", scope: "filter", allowRemove: false });
+    writes = 0;
+    await ad.apply();
+    assert.deepStrictEqual(plain([writes, store[MARKS].tags.length, store[MARKS].items[videoKey].tags.length]), [1, 50, 1], "one of the two new tags fits");
+    assert.match(els.status.textContent, /1 个新标签没有建/);
+
+    // A tag deleted while the run waits for the AI: the proposal naming it is dropped, not kept for 应用.
+    await reset();
+    ctx.chrome.runtime.sendMessage = async () => {
+      store[MARKS] = { tags: [], items: {} };
+      onChanged({ [MARKS]: {} }, "local");
+      await wait(350);
+      return { ok: true, data: answer };
+    };
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    assert.strictEqual(ad.proposal(), null);
+    assert.ok(els.status.textContent.includes(ctx.TriageUi.AI_TAG_GONE), els.status.textContent);
+
+
+    // 应用 → 「AI 刚打的」 → U. Storage keeps what is written from here on.
+    ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
+    const { readingAiProposal: PROPOSAL, readingAiRecent: RECENT } = ctx.MdgLimits.KEYS;
+    const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
+    const filterClick = async (f) => (L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f } }) } })), await wait(20));
+    await reset();
+    pick(`video:bilibili:${BV}|c1`, true);
+    assert.ok(els.filters.innerHTML.includes(">AI 打标签选中的 1 个</button>"), els.filters.innerHTML);
+    pick(`video:bilibili:${BV}|c1`, false);
+    let release;
+    ctx.chrome.runtime.sendMessage = (msg) => (msg.type === "triage-settings-get" ? Promise.resolve({ ok: false }) : new Promise((r) => (release = () => r({ ok: true, data: answer }))));
+    const running = ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    await wait(20);
+    assert.ok(els.filters.innerHTML.includes(">AI 打标签 · 运行中</button>"), els.filters.innerHTML);
+    release();
+    await running;
+    assert.ok(els.filters.innerHTML.includes(">AI 打标签 · 待确认</button>"), els.filters.innerHTML);
+    assert.deepStrictEqual(plain(store[PROPOSAL]), plain(ad.proposal()), "the proposal is stored for a reload");
+    await ad.apply();
+    assert.strictEqual(store[PROPOSAL], undefined);
+    assert.deepStrictEqual(plain(store[RECENT].keys.sort()), [pageKey, videoKey].sort());
+    assert.ok(/data-f="recent" title="[^"]*在记录上逐个看，不对的点「\+ 标签」改[^"]*" aria-pressed="true">.*AI 刚打的 3/.test(els.filters.innerHTML), els.filters.innerHTML); // entries, as the other chips count
+    // A record the run did not change is not listed under 「AI 刚打的」; its × stops marking them and lists it again.
+    store.mdg_ai_conversations_v1 = [...store.mdg_ai_conversations_v1, { ...web, id: "w2", contextKey: "page:https://example.com/other", contextUrl: "https://example.com/other", contextRef: { ...web.contextRef, url: "https://example.com/other" } }];
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    assert.ok(entry(pageKey) && !entry("page:https://example.com/other"), html);
+    await filterClick("recent-done");
+    assert.ok(entry("page:https://example.com/other") && store[RECENT] === undefined && !els.filters.innerHTML.includes("AI 刚打的"), html);
+    // U on the 应用: asks (2 records), puts both records' tags back, deletes the tag it made.
+    await reset();
+    ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+    await ad.apply();
+    let undoAsked = "";
+    ctx.confirm = (text) => ((undoAsked = text), true);
+    press("u", { closest: () => ({ tagName: "TEXTAREA" }) });
+    await wait(20);
+    assert.ok(!undoAsked && store[MARKS].items[videoKey], "U typed in a text field is text");
+    press("u");
+    await wait(20);
+    assert.ok(undoAsked.startsWith("撤销这次 AI 打标签？"), undoAsked);
+    const tagsNow = Object.values(store[MARKS].items).flatMap((item) => item.tags);
+    assert.deepStrictEqual(plain([store[MARKS].tags.map((t) => t.name), tagsNow, store[RECENT]]), [["旧"], [], null], "tags as before, 新 deleted, 「AI 刚打的」 gone");
+    ctx.confirm = () => true;
+    // A stored proposal comes back on a reload; one naming a deleted tag is dropped there.
+    ad.discard();
+    store[PROPOSAL] = { newTags: [], rows: [{ id: pageKey, add: ["id:t1"], remove: [] }], notes: [], errors: [] };
+    onChanged({ [MARKS]: {} }, "local");
+    await wait(350);
+    assert.deepStrictEqual(plain(ad.proposal().rows), [{ id: pageKey, add: ["id:t1"], remove: [] }]);
+    ad.discard();
+    store[PROPOSAL] = { newTags: [], rows: [{ id: pageKey, add: ["id:gone"], remove: [] }], notes: [], errors: [] };
+    onChanged({ [MARKS]: {} }, "local");
+    await wait(350);
+    assert.deepStrictEqual([ad.proposal(), store[PROPOSAL]], [null, undefined]);
+    // I opens ✦ AI 打标签, not with a dialog open.
+    ad = null;
+    ctx.document.querySelector = (sel) => (sel === "dialog[open]" ? {} : null);
+    press("i");
+    await wait(20);
+    assert.strictEqual(ad, null);
+    ctx.document.querySelector = () => null;
+    press("i");
+    await wait(20);
+    assert.strictEqual(ad?.who, "记录");
+
+    // What the AI reads: answers are cut to the budget before questions; a record without a conversation sends its AI
+    // 总结 and 备注.
+    await reset();
+    const NOTE_BV = "BV1onlynote1";
+    store.mdg_ai_conversations_v1 = [{ ...web, messages: [{ role: "user", content: "问一" }, { role: "assistant", content: "x".repeat(1000) }, { role: "user", content: "问二" }, { role: "assistant", content: "y".repeat(1000) }] }];
+    store[ctx.MdgLimits.KEYS.triageNotes] = { [NOTE_BV]: { text: "只有备注", updatedAt: 1 } };
+    onChanged({ [MARKS]: {} }, "local");
+    await wait(350);
+    sent.length = 0;
+    ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: { newTags: [], assignments: {}, note: "" } });
+    await ad.run({ instruction: "分", scope: "filter", allowRemove: false });
+    const read = Object.fromEntries(sent.find((m) => m.type === "triage-reading-ai-tag").items.map((it) => [it.id, it]));
+    const half = (ctx.TriageUi.READING_AI_CHARS - 4) / 2;
+    assert.deepStrictEqual(read[pageKey].turns, [{ q: "问一", a: "x".repeat(half) }, { q: "问二", a: "y".repeat(half) }]);
+    const noteOnly = Object.values(read).find((it) => it.id.includes(NOTE_BV));
+    assert.deepStrictEqual([noteOnly.note, noteOnly.turns], ["只有备注", undefined], JSON.stringify(read));
+    store.mdg_ai_conversations_v1 = [{ ...web, messages: [{ role: "user", content: "z".repeat(900) }, { role: "assistant", content: "答" }] }];
+    onChanged({ [MARKS]: {} }, "local");
+    await wait(350);
+    sent.length = 0;
+    await ad.run({ instruction: "分", scope: "filter", allowRemove: false });
+    assert.deepStrictEqual(sent.find((m) => m.type === "triage-reading-ai-tag").items.find((it) => it.id === pageKey).turns, [{ q: "z".repeat(ctx.TriageUi.READING_AI_CHARS), a: "" }], "a question past the budget is cut too");
+    ad.discard();
+
+    // 摘读记录设置: the first use copies the 收藏夹's AI 打标签 values into its own sync key; changing them writes only that
+    // key; a run batches and caps by them; 允许 AI 去掉已有标签 is stored with them.
+    await reset();
+    const RS = ctx.MdgLimits.KEYS.readingAiSettings;
+    for (const k of Object.keys(sync)) delete sync[k];
+    const fav = { triageAiBatchSize: 7, triageIntervalSec: 0, triageAiNewTagMax: 3, triageAiRemoveTags: true };
+    sent.length = 0;
+    ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), msg.type === "triage-settings-get" ? { ok: true, data: fav } : { ok: true, data: answer });
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
+    await wait(20);
+    assert.deepStrictEqual(plain(sync), { [RS]: { batchSize: 7, intervalSec: 0, newTagMax: 3, allowRemove: true } }, "seeded from the 收藏夹 values");
+    assert.deepStrictEqual([ad.room(), ad.allowRemove()], [3, true]);
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "settings" } }) } }));
+    await wait(20);
+    assert.deepStrictEqual([els.rsBatchInput.value, els.rsIntervalInput.value, els.rsNewMaxInput.value, els.rsRemoveInput.checked], [7, 0, 3, true], "the dialog shows the stored values");
+    els.rsBatchInput.value = "1";
+    els.rsNewMaxInput.value = "2";
+    els.readingSettingsDialog.returnValue = "save";
+    for (const f of L.readingSettingsDialog.close) await f();
+    assert.deepStrictEqual(plain(sync), { [RS]: { batchSize: 1, intervalSec: 0, newTagMax: 2, allowRemove: true } }, "only 摘读记录's key changes");
+    assert.ok(!sent.some((m) => m.type === "triage-settings-save"), "the 收藏夹's settings are not written");
+    sent.length = 0;
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: true });
+    assert.deepStrictEqual(plain(sent.filter((m) => m.type === "triage-reading-ai-tag").map((m) => [m.items.length, m.maxNewTags])), [[1, 2], [1, 1]], "batches of the stored size, within the stored cap");
+    assert.strictEqual(await ad.setAllowRemove(false), true);
+    assert.deepStrictEqual([sync[RS].allowRemove, ad.allowRemove()], [false, false], "the switch is stored");
+
+    ctx.chrome.storage.local.set = realSet;
+    ctx.TagDialogs.ai.open = realOpen;
   }
 
   // B7: several entries download as one file dated by the local day, not UTC.

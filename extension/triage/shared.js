@@ -289,9 +289,13 @@
   // dialog's 运行 then says HIDDEN_ALL); the dialog opens on 选中, so the button says how many, as 粗看's does.
   // It stays in row 4: the selection bar has no AI 打标签 of its own.
   const TAG_MANAGE = "标签管理";
-  const tagButtons = ({ manageAttrs, aiAttrs, who, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
+  // ✦ AI 打标签's words, [name, state] (both modes and 摘读记录): 「选中的 N 个」 with a selection, else what the run is at.
+  const aiTagsLabel = ({ running = false, pending = false, reason = "", picked = 0 }) => {
     const state = running ? " · 运行中" : pending ? " · 待确认" : "";
-    const ai = `AI 打标签${picked && !state && !aiReason ? `选中的 ${picked} 个` : ""}`;
+    return [`AI 打标签${picked && !state && !reason ? `选中的 ${picked} 个` : ""}`, state];
+  };
+  const tagButtons = ({ manageAttrs, aiAttrs, who, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
+    const [ai, state] = aiTagsLabel({ running, pending, reason: aiReason, picked });
     return `<span class="tags-acts"><button type="button" class="act-btn" ${manageAttrs}${noTags && !manageReason ? ` aria-label="${TAG_MANAGE}（还没有${esc(tagsWord(who))}）"` : ""}${reasonAttrs(manageReason)}>${TAG_MANAGE}${noTags && !manageReason ? WARN_DOT : ""}</button><button type="button" class="act-btn" ${aiAttrs} aria-label="${ai} (I)"${reasonAttrs(aiReason)}>${AI_SPARK}${ai}${esc(state)}</button></span>`;
   };
 
@@ -479,6 +483,8 @@
   // An AI 打标签 run finished with the dialog closed, in the mode and folder it ran in: both ways to its proposal.
   const AI_TAGS_DONE = "AI 打标签已完成，按 I 或点进度胶囊的「查看」确认建议";
   const aiTagsFailed = (error) => `AI 打标签没有成功：${error}`;
+  // A tag deleted during a run: the batches before it still name it, so the proposal is dropped.
+  const AI_TAG_GONE = "运行期间删除了建议用到的标签，请重新运行";
   // 应用's toast: n items changed (the list then shows only them), else created new tags only, else nothing.
   const aiApplied = (n, who, created = 0) =>
     n ? `已应用 AI 建议：${n} 个${sp(who)}，列表只显示这些${UNDO}` : created ? `已新建 ${created} 个标签，没有${sp(who)}的标签要改${UNDO}` : "AI 建议里没有要改的标签";
@@ -499,9 +505,10 @@
   const AI_RECENT_RULES = ["点 ×：不再标出，标签不变", "再让 AI 打一次：换成新的一批"];
   const aiRecentUndo = (who) => `按 U 撤销这次 AI 打标签前会先问你；确认后这批${sp(who)}的标签都回到 AI 打之前，包括你之后又改过的。`;
   // Row 3's 「✦ AI 刚打的」 and its ×, while there are some (n) or it is on; "" otherwise.
-  function aiRecentChip({ attrs, xAttrs, n, on, who }) {
+  // check: how to put one right where there is no T (摘读记录).
+  function aiRecentChip({ attrs, xAttrs, n, on, who, check = AI_RECENT_CHECK }) {
     if (!n && !on) return "";
-    const tip = `最近一次 AI 打标签改动的${sp(who)}，${AI_RECENT_CHECK}。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
+    const tip = `最近一次 AI 打标签改动的${sp(who)}，${check}。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
     return stateGroup(AI_RECENT, filterBtn(`${attrs} title="${esc(tip)}"`, AI_RECENT, n, on, AI_SPARK) + AI_RECENT_X(xAttrs), " ai-recent");
   }
   // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
@@ -542,6 +549,8 @@
   // video has no subtitle (fewer than a note's MdgLimits.HOT_COMMENTS: the AI only needs the gist).
   const INTRO_CHARS = 255;
   const DEEP_COMMENTS = 10;
+  // 摘读记录's ✦ AI 打标签 sends each record's conversation cut to this many characters, questions kept before answers.
+  const READING_AI_CHARS = 800;
   // Fixed numbers the hints quote, through [data-hint-num="key"] spans that fillNumHints fills (options.html, triage.html).
   const hintNums = () => ({
     titlesPerRequest: TITLES_PER_REQUEST,
@@ -825,5 +834,5 @@
     };
   }
 
-  globalThis.TriageUi = { https, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
+  globalThis.TriageUi = { https, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, aiTagsLabel, READING_AI_CHARS, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, AI_TAG_GONE, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
 })();

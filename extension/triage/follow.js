@@ -1188,7 +1188,7 @@ async function pickClosed(changes) {
   if (changes.length) {
     const { prev } = await setTagMap((map) => changes.reduce((m, c) => withTags(m, [c.key], c.add, c.remove), map));
     const before = tagsOf(prev, changes.map((c) => c.key));
-    pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });
+    pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });
   }
   if (F.mode !== "follow") return renderViewerUp();
   render();
@@ -1349,7 +1349,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   // A tag deleted during the run is still named by the batches before it: dropped as a stored one is (derive), as 收藏夹's.
   if (proposal && !UI.aiProposalOk(proposal, tagOf)) {
     proposal = null;
-    errors.push("运行期间删除了建议用到的标签，请重新运行");
+    errors.push(UI.AI_TAG_GONE);
     progress(errors.at(-1));
   }
   setAiProposal(proposal);

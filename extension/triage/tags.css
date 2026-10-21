@@ -1,0 +1,125 @@
+/* Tags on the 分拣台 and 摘读记录: chips, the tag picker (tag-picker.js), 标签管理 and ✦ AI 打标签 (tag-dialogs.js), and the
+   dialog they sit in. Both pages link it before their own stylesheet. The dialog rules leave out download.js's
+   「该笔记已存在」 (tokens.css styles it); :where keeps them as specific as a plain `dialog`. */
+.spacer { flex: 1; }
+.muted { color: var(--muted); font-size: var(--fs-xs); }
+.fail-text { color: var(--danger); font-size: var(--fs-xs); }
+.dot { --c: var(--border-strong); width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+
+.chip {
+  --c: var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--c);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.chip.on { background: color-mix(in srgb, var(--c) 20%, transparent); }
+.chip.zero:not(.on) { opacity: 0.5; }
+.chip .chip-n { margin-left: 4px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+/* dialogs */
+dialog:where(:not(.mdg-overwrite)) {
+  width: min(480px, calc(100% - 32px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  padding: 16px;
+}
+dialog:where(:not(.mdg-overwrite)) { max-height: calc(100vh - 32px); overflow-y: auto; }
+.toggle { display: flex; align-items: center; gap: 6px; color: var(--text) !important; font-size: var(--fs-sm) !important; }
+dialog:where(:not(.mdg-overwrite))::backdrop { background: var(--backdrop); }
+dialog:where(:not(.mdg-overwrite)) h2 { margin: 0 0 10px; font-size: var(--fs-lg); }
+dialog:where(:not(.mdg-overwrite)) h3 { margin: 8px 0 0; font-size: var(--fs-sm); font-weight: 600; }
+dialog:where(:not(.mdg-overwrite)) form { display: flex; flex-direction: column; gap: 6px; }
+dialog:where(:not(.mdg-overwrite)) label { font-size: var(--fs-xs); color: var(--muted); }
+/* The 分拣台's fields (triage.css), for 摘读记录's dialogs. */
+dialog:where(:not(.mdg-overwrite)) :where(select, input, textarea) { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--field-bg); padding: 4px 8px; font: inherit; color: inherit; }
+dialog:where(:not(.mdg-overwrite)) textarea { resize: vertical; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 10px; }
+/* Two text levels in dialogs: .dialog-hint explains, .dialog-meta reports (counts, progress, key tips). */
+.dialog-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-2); line-height: 1.5; }
+.dialog-meta { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+.dialog-hint.warn { color: var(--warn); }
+/* Status lines fill in later; empty ones must not add the form's gap. */
+dialog:where(:not(.mdg-overwrite)) :is(p, div):empty { display: none; }
+
+/* The tag picker */
+.picker-list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
+.picker-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.picker-opt.active { background: var(--secondary-bg); }
+.picker-opt .check { width: 14px; color: var(--text); font-weight: 700; }
+.picker-opt .muted, .picker-opt .n { margin-left: auto; }
+.picker-opt .n { color: var(--faint); font: 11px ui-monospace, Menlo, monospace; }
+.picker-opt .muted + .n { margin-left: 6px; }
+.picker-opt.tp-new { color: var(--link); }
+/* The picker as a popover under 「+ 标签」 (tag-picker.js): small, list first, filter and 完成 under it. */
+#tagPicker.tp-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 312px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: var(--lift); font-size: var(--fs-sm); }
+.tp-pop form { gap: 4px; }
+.tp-pop h2 { margin: 0 6px; overflow: hidden; font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.tp-pop .tp-note { margin: 0 6px 2px; color: var(--faint); font-size: 11px; }
+.tp-pop .picker-list { order: 1; margin: 0; max-height: 240px; }
+.tp-pop .picker-opt:hover { background: var(--secondary-bg); }
+.tp-pop .tp-input { order: 2; height: 28px; }
+.tp-pop .tp-keys { order: 3; margin: 2px 6px 0; color: var(--faint); font-size: 11px; }
+.tp-pop .dialog-actions { order: 4; }
+.tp-pop .dialog-actions button { height: 26px; font-size: var(--fs-sm); }
+/* 「+ 标签 T」 (shared.js tagPlusBtn) on cards and the viewer line: quiet, a dashed outline on hover; T is a faint letter
+   after the word, as the card keys. button. to win over tokens.css button.quiet. */
+button.tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); font-size: var(--fs-xs); text-decoration: none; }
+button.tag-plus:hover { border-color: var(--border-strong); color: var(--text); background: none; }
+
+/* 标签管理 and AI 打标签 (tag-dialogs.js) */
+dialog.wide { width: min(620px, calc(100% - 32px)); }
+.tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.tag-row { display: grid; grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) 5.5em auto; align-items: center; gap: 6px; }
+.tag-color { width: 18px; height: 18px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--border-strong); }
+.tag-color:hover { background: var(--c); box-shadow: 0 0 0 2px var(--c); }
+@media (max-width: 760px) {
+  .tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
+  .tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
+}
+.tag-row .muted { text-align: right; font-size: var(--fs-xs); }
+.tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tag-add input { flex: 1; min-width: 120px; }
+.ai-section { display: flex; flex-direction: column; gap: 6px; }
+.ai-section > h3:first-child { margin-top: 0; }
+/* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */
+.ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; align-items: baseline; }
+/* A count or quota line hangs under the field it describes. */
+.ai-grid > .dialog-meta, #aiTagsPreview > .dialog-meta { margin-top: -6px; }
+.ai-grid > label:not(.toggle), .ai-grid .grid-label { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
+.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle, #aiTagsPreview > :not(.grid-label) { grid-column: 2; }
+/* Its label, chips and hint join the grid as if they were the grid's own children. */
+#aiTagsPreview { display: contents; }
+#aiTagsPreview .chips { margin: 0; }
+.chip.tag-use[aria-pressed="false"] { border: 1px dashed var(--border-strong); color: var(--faint); }
+.ai-grid select { width: 100%; max-width: none; }
+.ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chip.add { --c: var(--ok); color: var(--ok); }
+.chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
+#aiReviewSummary { font-weight: 400; }
+#aiNotes p { margin: 0; }
+.ai-tally .chips { margin: 0; }
+.ai-tally b { font-weight: 600; margin-left: 2px; }
+.ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
+.ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
+
+/* Settings rows (收藏夹设置, 关注设置, 摘读记录设置) follow the settings page: name and hint on the left, the control on the right. */
+.settings-ai { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.set-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.set-group h3 { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.set-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 12px; }
+.set-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.set-row + .set-row { border-top: 1px solid var(--border); }
+.set-row > div { flex: 1; min-width: 0; }
+.set-row .name { font-size: var(--fs-sm); color: var(--text); }
+.set-row .hint { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--faint); line-height: 1.5; }
+.set-row input[type="number"] { flex: none; width: 72px; text-align: right; }

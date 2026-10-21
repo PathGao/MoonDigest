@@ -190,6 +190,23 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
 
 
 (async () => {
+  // 摘读记录's AI 打标签 (triage-reading-ai-tag): records by id (a video's and a web page's record key), one line each of
+  // what the page read, the 收藏夹 rules, and assignments keyed by id.
+  {
+    const was = { chat: t.triageChat, settings: t.triageAiSettings };
+    let sent;
+    t.triageAiSettings = async () => ({ triageThinking: false });
+    t.triageChat = async (messages, maxTokens, thinking, providerId) => ((sent = { messages, providerId }), { content: '{"new_tags":["编程"],"items":[{"i":1,"add":["编程"]},{"i":2,"add":["读过"],"remove":["旧"]}],"note":"好"}' });
+    const video = { id: "video:bilibili:BV1a|", title: "讲|Transformer", site: "B站", turns: [{ q: "第一问", a: "答|一" }, { q: "第二问", a: "" }], currentTags: [] };
+    const page = { id: "page:https://example.com/post", title: "一篇文章", site: "网页", oneLiner: "注意力机制", note: "值得\n再看", currentTags: ["旧"] };
+    const r = plain(await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-reading-ai-tag"]({ instruction: "按主题分", items: [video, page], tags: [{ name: "读过" }, { name: "旧" }], maxNewTags: 5, allowRemove: true, aiProviderId: "p" }));
+    const user = sent.messages[1].content;
+    assert.ok(user.includes("1|讲 Transformer|B站||问：第一问 答：答 一 问：第二问||\n2|一篇文章|网页|旧||注意力机制|值得 再看"), user);
+    assert.ok(sent.messages[0].content.includes("摘读记录整理助手") && sent.messages[0].content.includes("remove 只能填该记录") && sent.providerId === "p", sent.messages[0].content);
+    assert.deepStrictEqual(r, { newTags: ["编程"], assignments: { [video.id]: { add: ["编程"], remove: [] }, [page.id]: { add: ["读过"], remove: ["旧"] } }, note: "好" });
+    await assert.rejects(vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-reading-ai-tag"]({ instruction: "x", items: [{ title: "没有 id" }], tags: [] }), /缺少 items/);
+    Object.assign(t, { triageChat: was.chat, triageAiSettings: was.settings });
+  }
   // AI errors get one code each: a 429 that says the balance or quota ran out is AI_QUOTA, not a throttle to wait out;
   // 5xx carries none (that request only). The body never reaches the message.
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];

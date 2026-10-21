@@ -388,7 +388,7 @@ assert.ok(/if \(up \|\| tag\) \{\s*const side = !tag && rows\.has\(up\) && outKi
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
 // 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
-assert.ok(source.includes(`pushTagUndo(before, "标签修改", { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });`), "pickClosed asks for 2+");
+assert.ok(source.includes(`pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });`), "pickClosed asks for 2+");
 
 // B站 writes and U (DESIGN 产品决策 · 改 B站 的操作和撤销): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
 // 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.

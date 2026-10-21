@@ -5,18 +5,17 @@ const vm = require("vm");
 const assert = require("assert");
 const PS = require("../page-sources.selftest.js");
 
-// The markup: one 标签管理 and one AI 打标签 dialog, each titled after its button, with no switch between them; the
-// modes have no tag dialog of their own.
+// The markup: one 标签管理 and one AI 打标签 dialog (its markup written by tag-dialogs.js, checked below), each titled
+// after its button, with no switch between them; the modes have no tag dialog of their own.
 const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
 const follow = PS.text(PS.follow);
 const dialogHtml = (id) => html.slice(html.indexOf(`<dialog id="${id}"`), html.indexOf("</dialog>", html.indexOf(`<dialog id="${id}"`)));
 assert.ok(/<h2 id="tagManageTitle">标签管理<\/h2>/.test(dialogHtml("tagManageDialog")), "标签管理 is titled 标签管理");
-assert.ok(/<h2 id="aiTagTitle">AI 打标签<\/h2>/.test(dialogHtml("aiTagDialog")), "AI 打标签 is titled AI 打标签");
-assert.ok(!/id="aiInstruction"/.test(dialogHtml("tagManageDialog")) && !/id="tagsRows"/.test(dialogHtml("aiTagDialog")), "neither has the other's part");
+assert.ok(!/id="aiInstruction"/.test(dialogHtml("tagManageDialog")), "标签管理 has no AI 打标签 part");
 for (const [name, text] of [["triage.html", html], ["关注", follow]]) {
   assert.ok(!/data-tags-mode|data-fwmode|id="tagsDialog"|id="fwTagsDialog"/.test(text), `${name}: no combined tags dialog or its switch`);
 }
-assert.ok(!/class="seg"/.test(dialogHtml("tagManageDialog") + dialogHtml("aiTagDialog")), "no segmented switch in either dialog");
+assert.ok(!/class="seg"/.test(dialogHtml("tagManageDialog")), "no segmented switch in 标签管理");
 
 // A small fake DOM: nodes by id record listeners; fire() runs them like the browser would.
 const nodes = {};
@@ -41,6 +40,11 @@ const docL = {};
 const ctx = vm.createContext({ document: { getElementById: (id) => nodes[id] || null, addEventListener: (t, f) => (docL[t] ||= []).push(f) }, CSS: { escape: (s) => s }, setTimeout, clearTimeout });
 for (const f of ["../errors.js", "../typing.js", "../tag-core.js", "../settings.js", "shared.js", "tag-dialogs.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const D = ctx.TagDialogs;
+{
+  const ai = nodes.aiTagDialog.innerHTML;
+  assert.ok(/<h2 id="aiTagTitle">AI 打标签<\/h2>/.test(ai), "AI 打标签 is titled AI 打标签");
+  assert.ok(!/id="tagsRows"|class="seg"/.test(ai), "AI 打标签 has no 标签管理 part and no segmented switch");
+}
 const wait = () => new Promise((r) => setTimeout(r, 5));
 
 // The two modes' adapters, as 收藏夹 (fav-*.js) and follow.js hand them over: only the unit, the limits and the data differ.

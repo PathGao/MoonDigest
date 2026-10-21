@@ -78,6 +78,8 @@
     // 分拣台's 收藏夹设置 / 关注设置 and their AI 参数; a failure is followed by 「：原因」.
     settingsSaved: "设置已保存",
     settingsSaveFailed: "保存设置失败",
+    aiParamsHint: "一般不用改。AI 平台在设置页。",
+    noUndo: "没有可撤销的操作",
     // The address answers, but not in JSON as the Local REST API does (another local service): 测试连接, the pre-run check.
     obsidianNotApi: "这个地址不是 Obsidian Local REST API",
     // The page's copy of the extension does not answer or plays the wrong video (popup, 专注模式, YouTube's player);
@@ -130,6 +132,11 @@
     // Asks Chrome for an AI platform's origin (settings page, side panel, 分拣台); the sentence beside it names it.
     grant: "授权",
     openSettings: "打开设置页",
+    // The settings dialogs (收藏夹设置, 关注设置, 摘读记录设置).
+    aiParams: "请求和 AI 参数",
+    saveSettings: "保存设置",
+    // An undo step's name (U, 关注 and 摘读记录).
+    tagEdit: "标签修改",
     selectAll: "全选",
     // Settings the background names when one is too long to save (SYNC_ITEM_NAMES).
     aiSystemPrompt: "系统提示词",
