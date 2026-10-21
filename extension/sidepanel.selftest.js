@@ -819,6 +819,20 @@ const chatOn = (context) => {
     show({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" });
     real.updateContextChip();
     assert.strictEqual(els.contextTitle.textContent, "这个页面");
+    // B3: a page conversation drawn with 打开这个网页后才能继续问 loses it once its page is read.
+    let cleared = 0;
+    const realRemove = ctx.removeCenteredState;
+    ctx.removeCenteredState = () => cleared++;
+    const pageCtx = { url: "https://example.com/b3", title: "B3", isVideoContext: false };
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "b3", contextKey: "page:https://example.com/b3", contextUrl: pageCtx.url, contextTitle: "B3", contextRef: pageCtx, isVideoContext: false, createdAt: 1, updatedAt: 1, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }] });
+    state.dispatch({ type: "OPEN", id: "b3" });
+    real.updateContextChip();
+    assert.strictEqual(cleared, 0, "the page is not open: the notice stays");
+    show({ ...pageCtx, pageAccess: "ready", pageMarkdown: "正文" });
+    real.updateContextChip();
+    assert.ok(cleared > 0, "the page is read: the notice goes");
+    ctx.removeCenteredState = realRemove;
+    state.dispatch({ type: "NEW" });
     show(video);
   }
 

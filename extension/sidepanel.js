@@ -652,8 +652,10 @@ async function saveNote() {
 function updateContextChip() {
   void renderNote();
   renderFollowups();
-  // A page read since (允许读取网页, the tab back on the page) unlocks sending in a conversation that stays.
+  // A page read since (允许读取网页, the tab back on the page, 继续问 from 摘读记录 opening it) unlocks sending in a
+  // conversation that stays, and takes down the 打开这个网页后才能继续问 drawn under it.
   if (!activeStream) setStreamingUiState(false);
+  if (state.view().nonVideo && state.view().messages.length && !readOnlyReason()) removeCenteredState();
   const { context, mismatch } = state.view();
   if (!context) {
     setContextChipText("读取失败");

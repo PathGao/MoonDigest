@@ -514,4 +514,15 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([r.view().previousId, r.view().messages.length], ["", 2], "a video's conversation is kept");
 }
 
+// B3: 继续问 from 摘读记录 on a page: the conversation opens by reference (a placeholder without pageAccess, so it is only
+// read), and the page's own tab read as ready resolves it, so nothing blocks it any more.
+{
+  const page = { url: "https://example.com/post", title: "文章", isVideoContext: false };
+  const p = panel({ tab: blank, list: [saved("pg", page)] });
+  p.dispatch({ type: "SUMMARY", prompt: "", ref: S.buildConversationContextRef(page) });
+  assert.deepStrictEqual([p.view().id, p.view().context.pageAccess], ["pg", undefined], "opened, its page not read yet");
+  p.load({ ...page, pageAccess: "ready", pageMarkdown: "正文" }, { follow: true });
+  assert.deepStrictEqual([p.view().id, p.view().context.pageAccess, p.view().context.pageMarkdown, p.view().previousId], ["pg", "ready", "正文", ""]);
+}
+
 console.log("sidepanel-state selftest: all passed");
