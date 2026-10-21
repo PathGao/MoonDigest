@@ -651,7 +651,7 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.
   // live in code alone; hints show them through [data-hint-num] spans.
   const hintSpans = [...optionsHtml.matchAll(/data-hint-num="(\w+)"/g)].map((m) => ({ dataset: { hintNum: m[1] } }));
   UI.fillNumHints({ querySelectorAll: (sel) => (sel === "[data-hint-num]" ? hintSpans : []) });
-  assert.deepStrictEqual(hintSpans.map((n) => `${n.dataset.hintNum}=${n.textContent}`).sort(), ["aiSubtitleWan=6", "deepComments=10", "hotComments=20", "introChars=255", "noteSections=5", "presetPrompts=12", "titlesPerRequest=20"]);
+  assert.deepStrictEqual(hintSpans.map((n) => `${n.dataset.hintNum}=${n.textContent}`).sort(), ["aiSubtitleWan=6", "deepComments=10", "hotComments=20", "introChars=255", "noteSections=5", "presetPrompts=12", "presetPrompts=12", "titlesPerRequest=20"]);
   assert.ok(/一次请求带 <span data-hint-num="titlesPerRequest"><\/span> 个标题/.test(optionsHtml), "options.html's 粗看 hint reads TITLES_PER_REQUEST");
   const optionsText = optionsHtml.replace(/<[^>]*>/g, "");
   for (const re of [/\d+ ?条热门评论/, /最多 ?\d+ ?[段条]/, /简介前 ?\d+/, /\d+ ?万字/]) assert.ok(!re.test(optionsText), `options.html writes ${re} itself`);

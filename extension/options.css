@@ -415,6 +415,62 @@ main {
   font-weight: 600;
 }
 
+/* AI 平台's 视频 / 网页 prompt sets: B站-style page tabs, larger than the triage row-2 tabs because they split the
+   whole block below; the current one gets the pink underline (DESIGN: 粉 = where you are). */
+.kind-tabs {
+  display: flex;
+  gap: 32px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.kind-tabs button {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 48px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 48px;
+}
+
+.kind-tabs button:hover {
+  background: none;
+  color: var(--text);
+}
+
+.kind-tabs button[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.kind-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.kind-tabs .kind-note {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+
+[role="tabpanel"] > .row:first-child {
+  border-top: 0;
+}
+
 .about {
   display: flex;
   flex-wrap: wrap;

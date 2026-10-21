@@ -7,7 +7,7 @@
 收藏了却没看的视频、想读的网页，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.6.1-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.7.0-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -129,7 +129,8 @@
 ### 记：备注、摘读记录、Obsidian
 
 - **备注**：在侧边栏、分拣台卡片或摘读记录页给视频写一句话。三处是同一份，导出时一起带上。
-- **摘读记录**：按视频和网页列出 AI 对话、分拣台的 AI 总结和你的备注（备注只给视频）。每条可以复制 Markdown、下载 .md 或写入 Obsidian；可以搜索，选中多条后下载 .md 或删除它们的 AI 对话（每条的「删除 AI 对话」、「删除选中的 N 个的 AI 对话」和「清空全部 AI 对话」都只删 AI 对话，AI 总结和备注留着）。视频和网页的对话都可以「继续问」：网页的会切到这个窗口里开着的那个网页（没开就新开），在侧边栏接着问。
+- **摘读记录**：按视频和网页列出 AI 对话、分拣台的 AI 总结和你的备注（备注只给视频）。每条可以复制 Markdown、下载 .md 或写入 Obsidian；可以搜索，选中多条后打包成 .zip 下载（每条一篇 .md）或删除它们的 AI 对话（每条的「删除 AI 对话」、「删除选中的 N 个的 AI 对话」和「清空全部 AI 对话」都只删 AI 对话，AI 总结和备注留着）。视频和网页的对话都可以「继续问」：网页的会切到这个窗口里开着的那个网页（没开就新开），在侧边栏接着问。
+- **星标和标签**：摘读记录里点标题前的星星加星标，「+ 标签」给一条或选中的几条打标签（视频和网页共用一套，最多 50 个），按星标和标签筛选。「✦ AI 打标签」（I）读问答原文给出建议，点「应用」才生效，U 撤销。加了星标的记录不被「清空全部 AI 对话」删，也不计入对话上限。星标和标签写进笔记开头的 `tags` 和 `starred`。
 - **笔记格式**：设置页「笔记格式」里选笔记开头写哪些自带属性（标题、链接、UP 主、时长、发布日期等），加自己的属性（值里可以用 `{{site}}` 这类变量），还能在正文里留几个空段落给自己写。自带属性和空段落只用在视频笔记上；网页笔记固定写标题、链接、网站、作者、发布日期、导出日期和标签，自定属性两种笔记都带。
 - **Obsidian（可选）**：不开也能复制、下载 Markdown。开了以后通过 Obsidian 插件 Local REST API 写入库里，默认放在 `MoonDigest/bilibili/` 和 `MoonDigest/youtube/`，一个视频一篇笔记；网页的笔记放在 `MoonDigest/网页/`，开头是标题、链接、网站、作者、发布日期，下面是正文和「AI 问答」。写入过一次之后，这个视频再写入都写到那篇笔记（文件名带日期也一样），新的 AI 问答自动更新到笔记末尾的「AI 问答」一段。弹窗、侧边栏和摘读记录页遇到笔记已经存在时，你选「整篇覆盖」「只更新 AI 问答」或「取消」。视频在 B站被删除或隐藏时，只写入对话。YouTube 和 B站分 P 视频还没有笔记、视频页又没开时，侧边栏和摘读记录页都把对话写成一篇单独的 AI 笔记，还没有笔记的网页没开着时也一样；关掉「附带 AI 问答」时也一样。写过笔记的视频或网页没开着时，确认框里只能选「只更新 AI 问答」。
 
