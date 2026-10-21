@@ -27,10 +27,10 @@ body { padding: 14px 16px 0; }
 /* 摘读记录设置's gear (TriageUi.gearBtn): always shown here. */
 .rec-head .act-btn.gear-only { display: inline-flex; }
 
-/* ---------- cards: the checkbox, the star in its own column so title, meta and body share one left edge, the body;
-   继续问 and 写入 Obsidian stacked top-right as the 分拣台's pair ---------- */
+/* ---------- cards: the checkbox, the star in its own column so title, meta and body share one left edge, the body,
+   and the buttons top-right in two rows ---------- */
 .records { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 80px; }
-.entry { display: grid; grid-template-columns: auto 20px minmax(0, 1fr); column-gap: 8px; align-items: start; padding: 12px 140px 12px 12px; }
+.entry { display: grid; grid-template-columns: auto 20px minmax(0, 1fr) auto; column-gap: 8px; align-items: start; padding: 12px; }
 .entry > .card-body { grid-column: 3; }
 /* On the title's first line (15px × 1.5). */
 .entry > [data-act="pick"] { margin: 5px 0 0; padding: 0; accent-color: var(--action); }
@@ -49,6 +49,9 @@ button.entry-summary.open { white-space: normal; }
 .card-body > .chips .chip.triage-tag { border-style: dashed; background: none; color: var(--muted); }
 button.note { display: block; height: auto; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
 button.note:hover { background: var(--bg); color: var(--text); }
+/* No 备注 yet: a quiet 「✎ 备注」 where it would show. */
+.card-body > .chips > .tag-plus:first-child { margin-left: -6px; }
+.entry .note-add { align-self: flex-start; height: 22px; margin: 4px 0 0 -6px; padding: 0 6px; font-size: var(--fs-xs); }
 div.note { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 details { margin-top: var(--space-1); }
@@ -65,30 +68,30 @@ summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 .turn-a :is(th, td) { border: 1px solid var(--border); padding: 2px 6px; }
 .conv-sep { margin: var(--space-4) 0 0; color: var(--faint); font-size: var(--fs-xs); }
 
-/* The foot: quiet buttons always shown; 删除 AI 对话 apart at the far right, red text, no frame. */
-.entry .card-foot { margin-top: 8px; gap: 4px; }
-.entry .card-foot button { height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
-.entry .card-foot .danger { color: var(--danger); }
-.entry .card-foot .danger:hover { background: var(--danger-bg); }
-.entry .pair { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; width: 112px; }
-.entry .pair button { width: 100%; height: 32px; padding: 0; font-size: var(--fs-sm); }
+/* Two rows of two equal columns, right-aligned: 继续问 and 复制 Markdown beside the title, 下载 .md and 写入 Obsidian beside
+   the meta line. */
+.entry-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-left: 8px; }
+.entry-acts button { width: 100%; }
+/* The 「查看 N 轮问答」 line under the body and the buttons, 删除 AI 对话 at its right end (red text, no frame) and staying
+   on that line when the 问答 open. */
+.entry > .qa { grid-row: 2; grid-column: 3 / -1; display: flex; align-items: flex-start; gap: 8px; }
+.qa > details { flex: 1; min-width: 0; }
+.qa > [data-act="delete"] { margin-top: -1px; color: var(--danger); }
+.qa > [data-act="delete"]:hover { background: var(--danger-bg); color: var(--danger); }
 /* 继续问 is each card's main action: a gray fill with plain text (buttons never use blue text, DESIGN 视觉设计 · 颜色). */
-button.ask { border-color: transparent; background: var(--field-bg); }
+button.ask { background: var(--field-bg); }
 button.ask:hover { background: var(--border); }
-button.ask:disabled { background: var(--field-bg); }
 /* 写入中… sits in a cell sized by the idle label, so the button keeps its width. */
 .write-label { display: inline-grid; justify-items: center; }
 .write-label::after { content: attr(data-idle); visibility: hidden; }
 .write-label > span, .write-label::after { grid-area: 1 / 1; }
 button:disabled:has(> .write-label [aria-busy="true"]) { opacity: 0.7; cursor: progress; }
 
-/* As the 分拣台 without its sidebar: the pair goes into the foot's start. */
 @media (max-width: 760px) {
   .rec-find { flex: 1 1 320px; min-width: 0; }
   .rec-find .search { flex: 1 1 auto; width: auto; min-width: 0; }
-  .entry { padding-right: 12px; }
-  .entry .pair { position: static; flex-direction: row; gap: 4px; width: auto; }
-  .entry .pair button { width: auto; height: 26px; padding: 0 8px; font-size: var(--fs-xs); }
+  /* The buttons go under the body, from its left edge, so nothing squeezes the title. */
+  .entry-acts { grid-row: 3; grid-column: 3; justify-self: start; margin: 10px 0 0; }
 }
 @media (max-width: 600px) {
   body { padding: 8px 8px 0; }

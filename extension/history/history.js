@@ -486,11 +486,12 @@ async function undo() {
   setStatus(`已撤销：${top.label}`);
 }
 
-// Own tags come off with a click (U puts them back); the 分拣台's are read-only here, dashed.
+// Own tags come off with a click (U puts them back); the 分拣台's are read-only here, dashed. 「+ 标签」 ends the line.
 function renderTags(g) {
   const own = tagsOf(g).map(UI.cardTagChip);
   const triage = triageTagsOf(g).map((t) => `<span class="chip triage-tag" style="--c:${esc(t.color)}" title="分拣台的标签，在分拣台里改">${esc(t.name)}</span>`);
-  return own.length || triage.length ? `<div class="chips">${[...own, ...triage].join("")}</div>` : "";
+  const plus = readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, ""), false) : "";
+  return own.length || triage.length || plus ? `<div class="chips">${[...own, ...triage].join("")}${plus}</div>` : "";
 }
 
 const SETTINGS_BTN = UI.gearBtn('data-f="settings"', "摘读记录设置");
@@ -579,7 +580,7 @@ const noteIdOf = (g) => g.context.videoId || "";
 function renderNote(g) {
   const id = noteIdOf(g);
   if (id && editing?.id === id) return `<textarea class="note" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
-  if (!g.note) return "";
+  if (!g.note) return id ? `<button type="button" class="quiet note-add" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="note">${body}</div>`;
 }
@@ -649,8 +650,8 @@ function render() {
         const starred = Boolean(g.mark?.star);
         const star = readingKey(g) ? `<button type="button" class="star" data-act="star" aria-pressed="${starred}" aria-label="${starred ? "取消星标" : "加星标"}" title="${starred ? "取消星标" : "加星标"}">${starred ? "★" : "☆"}</button>` : "";
         const obsidian = obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>` : "";
-        const noteAdd = noteIdOf(g) && !g.note && editing?.id !== noteIdOf(g) ? `<button type="button" class="quiet" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
-        // The pair is 继续问 (and 写入 Obsidian) on the card's right; below 760px it sits at the start of the foot.
+        // Top right, two rows of equal columns: 继续问 and the exports in their order. The 问答 line runs under the body and
+        // the buttons, with 删除 AI 对话 at its right end: it reads as deleting those, not the record.
         return `<article class="card entry${selected.has(g.key) ? " selected" : ""}" data-key="${esc(g.key)}">
           <input type="checkbox" name="selectedConversation" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
           ${star}
@@ -660,16 +661,9 @@ function render() {
             ${g.analysis ? renderSummary(g) : ""}
             ${renderTags(g)}
             ${renderNote(g)}
-            ${g.convs.length ? `<details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
-            <div class="card-foot">
-              <span class="pair"><button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}>${UI.AI_SPARK}继续问</button>${obsidian}</span>
-              ${readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, ""), false) : ""}${noteAdd}
-              <button type="button" class="quiet" data-act="copy">${MdgErrors.LABEL.copyMd}</button>
-              <button type="button" class="quiet" data-act="md">${MdgErrors.LABEL.downloadMd}</button>
-              <span class="spacer"></span>
-              ${g.convs.length ? `<button type="button" data-act="delete" class="quiet danger">删除 AI 对话</button>` : ""}
-            </div>
           </div>
+          <div class="entry-acts"><button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}>${UI.AI_SPARK}继续问</button><button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button><button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>${obsidian}</div>
+          ${g.convs.length ? `<div class="qa"><details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details><button type="button" data-act="delete" class="quiet danger">删除 AI 对话</button></div>` : ""}
         </article>`;
       }).join("")
     : allGroups.length ? `<p class="empty">${UI.noMatch(els.search.value, starFilter || recentFilter || tagFilter.size > 0, "记录")}</p>`

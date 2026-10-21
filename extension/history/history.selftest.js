@@ -157,6 +157,13 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.deepStrictEqual(btn("delete"), ["删除选中的 AI 对话", true, "选中的记录没有 AI 对话"]);
   // K13: each entry's button says what it deletes.
   assert.ok(html.includes('data-act="delete" class="quiet danger">删除 AI 对话</button>'), html);
+  // The buttons top right in reading order: 继续问, 复制 Markdown, 下载 .md, 写入 Obsidian; 删除 is not among them.
+  const [actsHtml] = html.split("<article").find((a) => a.includes('data-key="b"')).split('class="entry-acts"')[1].split("</div>");
+  const actAt = (act) => actsHtml.indexOf(`data-act="${act}"`);
+  assert.ok(actAt("ask") >= 0 && actAt("ask") < actAt("copy") && actAt("copy") < actAt("md") && (actAt("obsidian") < 0 || actAt("md") < actAt("obsidian")) && actAt("delete") < 0, actsHtml);
+  // 删除 sits on the 问答 line; a record without AI conversations has none.
+  assert.match(html.split("<article").find((a) => a.includes('data-key="b"')), /<div class="qa"><details>[^]*<\/details><button type="button" data-act="delete" class="quiet danger">删除 AI 对话<\/button><\/div>/);
+  assert.ok(!html.split("<article").find((a) => a.includes(`data-key="${noteKey}"`)).includes('data-act="delete"'), "a 备注-only record has no 删除");
   // K10: 继续问 on a record that is not a video is off with why, through setReason.
   const ask = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
   const realQsa = els.list.querySelectorAll;
@@ -417,6 +424,12 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     const p1 = `${videoKey}c1`;
     const p2 = `${videoKey}c2`;
 
+    // 「+ 标签」 ends the tags line, after the chips, and is there alone without tags; with no 备注, 「✎ 备注」 is in the
+    // body where the 备注 would show.
+    assert.match(entry(p1), /分拣标签<\/span><button type="button" class="quiet tag-plus" data-act="tags"/);
+    assert.match(entry(pageKey), /<div class="chips"><button type="button" class="quiet tag-plus" data-act="tags"/);
+    const body = entry(p1).split('class="entry-acts"')[0];
+    assert.ok(body.includes('class="quiet note-add" data-act="note">✎ 备注</button>') && !entry(p1).split('class="entry-acts"')[1].includes('data-act="note"'), entry(p1));
     // ☆ before the title; a click stars the video (both parts) and keeps its title and address.
     assert.match(entry(p1), /data-act="star" aria-pressed="false" aria-label="加星标" title="加星标">☆<\/button>\s*<div class="card-body">\s*<a class="title"/);
     await on(p1, "star");
