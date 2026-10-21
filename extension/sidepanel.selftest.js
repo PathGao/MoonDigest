@@ -429,6 +429,13 @@ const chatOn = (context) => {
     }
     // A B站 limit reads as everywhere else (MdgErrors.text), not as the background's own words.
     assert.deepStrictEqual(errors, ["视频已失效，这段对话只能查看，不能继续提问。", "读取原视频失败：啥都木有", "读取原视频失败：B站限流，请稍后再试"]);
+    // A page conversation is worded as a page's.
+    errors.length = 0;
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "pg", contextUrl: "https://example.com/pg", contextRef: { url: "https://example.com/pg", isVideoContext: false }, isVideoContext: false, messages: [{ role: "user", content: "q" }] }] });
+    state.dispatch({ type: "OPEN", id: "pg" });
+    ctx.resolveConversationContext = async () => ({ ok: false, error: "断网" });
+    await ctx.hydratePinnedConversationContext();
+    assert.deepStrictEqual([errors, vm.runInContext("sourceKind()", ctx)], [["读取原网页失败：断网"], "网页"]);
     ctx.resolveConversationContext = realResolve;
   }
 
