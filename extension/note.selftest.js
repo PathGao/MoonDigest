@@ -526,10 +526,14 @@ assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(PS.text(PS.own("popup.html")))
     "---", 'title: "一篇\\"文章\\""', 'url: "https://example.com/post"', 'site: "example.com"', 'author: "作者"', 'published: "2026-01-02"', `created: "${CREATED}"`, 'tags: ["clippings"]', "---",
     "", "## 小标题", "", "正文", "", N.AI_SECTION_START, "## AI 问答", "", "### 问：问", "", "答", "", N.AI_SECTION_END, ""
   ].join("\n"));
+  // The user's 自定属性 too, rendered as on a video note, their {{…}} from the page.
+  const withOwn = N.buildPageNote(page, { tags: "", fixedFrontmatterProperties: [{ key: "来源", type: "text", value: "{{site}}" }, { key: "评分", type: "number", value: "4" }] }, [], CREATED);
+  assert.ok(withOwn.startsWith('---\ntitle: "一篇\\"文章\\""') && withOwn.includes('tags: []\n来源: "example.com"\n评分: 4\n---\n'), withOwn);
   // Turned off, no AI 问答; 只更新 AI 问答 (upsertAiSection) replaces only the marked block of one that has it.
   assert.ok(!N.buildPageNote(page, { includeAiChatInNote: false }, turns, CREATED).includes(N.AI_SECTION_START));
   assert.ok(N.upsertAiSection(note, N.buildAiSection(N.buildConversationTurns([{ role: "user", content: "新" }, { role: "assistant", content: "新答" }]))).includes("正文\n\n<!-- moondigest:ai-start -->\n## AI 问答\n\n### 问：新"));
   assert.strictEqual(N.videoNotePath(page, { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: false }), "MoonDigest/网页/一篇_文章_.md");
+  assert.strictEqual(N.buildNoteFilename(page, { includeDateInFilename: true }, CREATED), `${CREATED}-一篇_文章_.md`, "文件名带日期 applies to pages too");
   assert.strictEqual(N.videoNotePath({ site: "youtube", videoId: "v", title: "T" }, { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: false }), "MoonDigest/youtube/T.md");
 }
 console.log("note selftest ok");
