@@ -575,6 +575,20 @@ const chatOn = (context) => {
     assert.deepStrictEqual(sendFor({ url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" }), [true, "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页"]);
     // A page conversation shown without its page (no pageAccess: opened from the list) is only read.
     assert.deepStrictEqual(sendFor(web("h14")), [true, "打开这个网页后才能继续问"]);
+    // F2: the 快捷追问 chips on a page: the page's defaults while the user's list is the default, else the user's.
+    {
+      const prefs = vm.runInContext("aiPrefs", ctx);
+      const was = prefs.aiPresetPrompts;
+      prefs.aiPresetPrompts = [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts];
+      show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
+      assert.deepStrictEqual([...ctx.followupPrompts()], ["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
+      prefs.aiPresetPrompts = ["我的追问"];
+      assert.deepStrictEqual([...ctx.followupPrompts()], ["我的追问"], "the user's own list");
+      prefs.aiPresetPrompts = [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts];
+      show(video);
+      assert.deepStrictEqual([...ctx.followupPrompts()], [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts], "a video keeps the defaults");
+      prefs.aiPresetPrompts = was;
+    }
     // autoSend sends the prompt only while the input still holds it as filled.
     {
       const realSendMessage = ctx.sendMessage;

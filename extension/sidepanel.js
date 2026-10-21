@@ -24,6 +24,8 @@ const PAGE_GRANT_TEXT = "读取网页正文要先允许一次，之后所有网�
 // The default AI 总结要求 names a video; on a web page the same request is made for the page. A prompt the user wrote is
 // theirs and goes as written.
 const PAGE_SUMMARY_PROMPT = "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
+// The default 快捷追问 name videos (时间、评论、章节); a page shows these while the user's list is still the default.
+const PAGE_PRESET_PROMPTS = Object.freeze(["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
@@ -895,11 +897,18 @@ function followupBlockReason() {
   return "";
 }
 
+// The chips above the input: the user's 快捷追问, or on a web page the page's defaults in place of the video defaults.
+function followupPrompts() {
+  const own = aiPrefs.aiPresetPrompts || [];
+  const isDefault = JSON.stringify(own) === JSON.stringify(MdgSettings.DEFAULTS.aiPresetPrompts);
+  return isDefault && state.view().context?.isVideoContext === false ? PAGE_PRESET_PROMPTS : own;
+}
+
 function renderFollowups() {
   if (!els.followups) {
     return;
   }
-  const prompts = aiPrefs.aiPresetPrompts || [];
+  const prompts = followupPrompts();
   const reason = followupBlockReason();
   const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
