@@ -88,6 +88,29 @@ function renderSummary(g) {
   return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
 }
 
+// A web page's record (not a video, with an http(s) address): 继续问 goes on in the page's own tab.
+const isWebPage = (g) => !g.context.videoId && /^https?:\/\//i.test(g.context.url || "");
+
+// 继续问 on a web page: the side panel reads the page from its tab, so it opens on this window inside the click
+// (sidePanel.open needs the gesture), then the page's tab in this window is focused, or opened, and the panel asked for
+// the conversation as a video's is (askSidepanel).
+function askAboutPage(group) {
+  const opening = chrome.sidePanel.open({ windowId: OWN_TAB?.windowId });
+  setStatus(MdgErrors.TEXT.sidepanelOpening);
+  void (async () => {
+    try {
+      await opening;
+      const key = MdgSites.buildContextKey({ url: group.context.url });
+      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => t.url && MdgSites.buildContextKey({ url: t.url }) === key);
+      const tab = found ? await chrome.tabs.update(found.id, { active: true }) : await chrome.tabs.create({ url: group.context.url, windowId: OWN_TAB?.windowId });
+      await MdgLimits.askSidepanel({ tabId: tab.id, contextRef: group.context });
+      setStatus("");
+    } catch (error) {
+      setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${error.message}`, true);
+    }
+  })();
+}
+
 // The 备注 belongs to the video: every part's entry shows and edits the same one, like grouping joins it.
 const noteIdOf = (g) => g.context.videoId || "";
 
@@ -167,7 +190,7 @@ function render() {
             <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
           </div>
           <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask"${g.context.videoId ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
+            <button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
             <button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button>
             <button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>
             ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>`}
@@ -345,6 +368,7 @@ els.list.addEventListener("click", (event) => {
     editing = { id: noteIdOf(group), draft: group.note?.text || "" };
     render();
   }
+  else if (act === "ask" && group && isWebPage(group)) askAboutPage(group);
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });

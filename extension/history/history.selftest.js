@@ -340,7 +340,28 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     const entries = html.split("<article").slice(1).filter((a) => a.includes("example.com/post"));
     assert.strictEqual(entries.length, 1, "one entry for the page");
     assert.ok(entries[0].includes('href="https://example.com/post"') && entries[0].includes("一篇文章") && entries[0].includes("2 段对话"), entries[0]);
-    assert.ok(!entries[0].includes('data-act="note"') && entries[0].includes("data-no-video"), entries[0]);
+    assert.ok(!entries[0].includes('data-act="note"') && !entries[0].includes("data-no-video"), entries[0]);
+    // 继续问 on a page: the side panel opens on this window in the click, the page's tab is focused (or opened), and
+    // the panel is asked for the page's conversation (askSidepanel), as for a video.
+    const calls = [];
+    const was = { sidePanel: ctx.chrome.sidePanel, tabs: ctx.chrome.tabs, set: ctx.chrome.storage.local.set };
+    ctx.chrome.sidePanel = { open: async (o) => calls.push(["open", o]) };
+    let openTabs = [{ id: 7, url: "https://example.com/post#top", windowId: 1 }];
+    ctx.chrome.tabs = { ...was.tabs, query: async () => openTabs, update: async (id, o) => (calls.push(["focus", id]), { id }), create: async (o) => (calls.push(["create", o.url]), { id: 9 }) };
+    ctx.chrome.storage.local.set = async (o) => calls.push(["ask", Object.values(o)[0].tabId, Object.values(o)[0].contextRef.url]);
+    const askPage = async () => {
+      const t = { dataset: { act: "ask" }, closest: (s) => (s === ".entry" ? { dataset: { key: pageKey } } : t) };
+      L.list.click.forEach((f) => f({ target: t }));
+      await wait(20);
+    };
+    await askPage();
+    const taken = () => JSON.parse(JSON.stringify(calls.splice(0)));
+    assert.deepStrictEqual(taken(), [["open", {}], ["focus", 7], ["ask", 7, "https://example.com/post"]]);
+    openTabs = [];
+    await askPage();
+    assert.deepStrictEqual(taken(), [["open", {}], ["create", "https://example.com/post"], ["ask", 9, "https://example.com/post"]]);
+    Object.assign(ctx.chrome, { sidePanel: was.sidePanel, tabs: was.tabs });
+    ctx.chrome.storage.local.set = was.set;
     assert.match(els.count.textContent, /个视频、1 个网页 · 对话 2\//);
   }
 

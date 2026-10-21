@@ -53,8 +53,8 @@
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 摘读记录, 分拣台); 「：原因」 follows.
     sidepanelOpenFailed: "打开侧边栏失败",
-    // 继续问 on a 摘读记录 record that is not a video.
-    notVideo: "网页的对话要在这个网页上打开侧边栏继续问",
+    // 继续问 on a 摘读记录 record that is neither a video nor a web page (a chrome:// or extension page).
+    notVideo: "这个页面不能读取，不能继续问",
     // The side panel's 停止 ended the reply (the background's port message, the panel's own stop).
     aiStopped: "已停止生成",
     // chrome.tabs found no active tab (popup, side panel, background).
