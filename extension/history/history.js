@@ -6,7 +6,9 @@ const KEY = MdgLimits.KEYS.aiConversations;
 const { triageNotes: NOTES_KEY, triageAnalysisPrefix: ANALYSIS, triageSnapshotPrefix: SNAPSHOT, readingMarks: MARKS_KEY, triageTags: TRIAGE_TAGS, triageVideoTags: TRIAGE_VIDEO_TAGS } = MdgLimits.KEYS;
 const $ = (id) => document.getElementById(id);
 const { setReason } = MdgErrors;
-const els = { list: $("list"), search: $("search"), count: $("count"), filters: $("filters"), selectAll: $("selectAll"), selectAllLabel: $("selectAllLabel"), bulkMd: $("bulkMd"), bulkTags: $("bulkTags"), bulkDelete: $("bulkDelete"), clearAll: $("clearAll"), status: $("status") };
+$("searchSlot").outerHTML = TriageUi.searchBox("search", "searchCount", TriageUi.searchScope(MdgErrors.LABEL.history));
+const els = { list: $("list"), search: $("search"), searchCount: $("searchCount"), count: $("count"), filters: $("filters"), stateRow: $("stateRow"), selectAllSlot: $("selectAllSlot"), tagRow: $("tagRow"), tagActs: $("tagActs"), selbar: $("selbar"), clearAll: $("clearAll"), status: $("status") };
+els.search.title = "搜索标题、标签、AI 总结、备注和对话内容";
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
@@ -142,6 +144,18 @@ const toggleStar = (g) => {
   return saveMarks((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
 };
 
+// A card's tag chip: a click takes the tag off that record, one U step, as on the 分拣台.
+async function untag(g, id) {
+  const key = readingKey(g);
+  const name = tagOf(id)?.name || "";
+  const refs = { [key]: refOf(g) };
+  let before = {};
+  const saved = await saveMarks((m) => ((before = tagsBefore(m, [key])), editItems(m, refs, (item) => ({ ...item, tags: item.tags.filter((t) => t !== id) }))));
+  if (!saved) return;
+  pushTagUndo(before, refs, `去掉「${name}」`);
+  setStatus(UI.untagged(name));
+}
+
 // A tag by name: the one that has it, or a new one while there is room; null (and why, in red) otherwise.
 async function createTag(value) {
   const name = MdgTagCore.cleanTagName(value);
@@ -258,7 +272,7 @@ function recordsOf(groups) {
   for (const g of groups) if (readingKey(g)) out.set(readingKey(g), [...(out.get(readingKey(g)) || []), g]);
   return out;
 }
-// 选中 counts the selected records the search and filters hide too, as the bulk buttons do.
+// 选中 counts the selected records the search and filters hide too, as the selection bar does.
 const aiRecords = (scope) => recordsOf(visibleGroups().filter((g) => scope !== "selected" || selected.has(g.key)));
 // A record's 问/答 within budget characters: answers are cut, all to the same length, before any question is; questions
 // past the budget are dropped.
@@ -336,7 +350,7 @@ const aiTags = {
   stopping: () => Boolean(AI.run?.stopping),
   discard() {
     setAiProposal(null);
-    renderFilters(groupByVideo(conversations));
+    render();
   },
   apply: applyAi,
   map: () => Object.fromEntries(Object.entries(marks.items).map(([key, item]) => [key, item.tags || []])),
@@ -357,7 +371,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   const records = aiRecords(scope);
   if (AI.run || !records.size) return;
   const run = (AI.run = { stopping: false });
-  renderFilters(groupByVideo(conversations));
+  render();
   const cfg = await aiSettings();
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
   chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
@@ -392,7 +406,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   }
   setAiProposal(answered ? p : null);
   AI.run = null;
-  renderFilters(groupByVideo(conversations));
+  render();
   aiProgress(answered ? "" : p.errors.join("；"));
   if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
   else if (answered) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
@@ -472,47 +486,69 @@ async function undo() {
   setStatus(`已撤销：${top.label}`);
 }
 
+// Own tags come off with a click (U puts them back); the 分拣台's are read-only here, dashed. 「+ 标签」 ends the line.
 function renderTags(g) {
-  const own = tagsOf(g).map((t) => `<span class="chip" style="--c:${esc(t.color)}">${esc(t.name)}</span>`);
+  const own = tagsOf(g).map(UI.cardTagChip);
   const triage = triageTagsOf(g).map((t) => `<span class="chip triage-tag" style="--c:${esc(t.color)}" title="分拣台的标签，在分拣台里改">${esc(t.name)}</span>`);
   const plus = readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, ""), false) : "";
-  return own.length || triage.length || plus ? `<div class="entry-tags">${[...own, ...triage].join("")}${plus}</div>` : "";
+  return own.length || triage.length || plus ? `<div class="chips">${[...own, ...triage].join("")}${plus}</div>` : "";
 }
 
-// One element, so it can move as it is.
-const SETTINGS_BTN = '<button type="button" class="quiet" data-f="settings" aria-label="摘读记录设置" title="摘读记录设置">⚙</button>';
-function renderFilters(groups) {
-  const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset.f;
-  const stars = groups.filter((g) => g.mark?.star).length;
-  const chips = marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: groups.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" }));
+const SETTINGS_BTN = UI.gearBtn('data-f="settings"', "摘读记录设置");
+// Rows 2 and 3 of the head, 全选 and the selection bar; a focused control there gets focus back after the redraw.
+function renderHead(all, groups) {
+  const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset?.f;
+  const stars = visibleGroups({ star: false }, all).filter((g) => g.mark?.star).length;
   const recentKeys = new Set(AI.recent?.keys);
-  const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: groups.filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
+  const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: visibleGroups({ recent: false }, all).filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
+  const anyTag = visibleGroups({ tags: [] }, all);
+  els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false }, all).length, !starFilter && !recentFilter)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + recent);
+  els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: anyTag.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" })).join(""));
   // 「选中的 N 个」 counts records, as the dialog's 选中 does.
-  const [ai, state] = UI.aiTagsLabel({ running: Boolean(AI.run), pending: Boolean(AI.proposal), picked: aiRecords("selected").size || recordsOf(groups.filter((g) => selected.has(g.key))).size });
-  els.filters.innerHTML = `${UI.filterBtn('data-f="star" class="star-filter"', "★ 星标", stars, starFilter)}${recent}${chips.join("")}<button type="button" class="quiet" data-f="manage">${UI.tagManage}</button><button type="button" class="quiet" data-f="ai" aria-label="${ai} (I)">${UI.AI_SPARK}${ai}${state}</button>${SETTINGS_BTN}`;
+  const picked = aiRecords("selected").size || recordsOf(all.filter((g) => selected.has(g.key))).size;
+  els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: Boolean(AI.run), pending: Boolean(AI.proposal), picked }) + SETTINGS_BTN;
+  const filtered = starFilter || recentFilter || tagFilter.size > 0;
+  UI.setSearchScope(els.search, MdgErrors.LABEL.history, [starFilter && "星标", recentFilter && UI.AI_RECENT, ...[...tagFilter].map((id) => tagOf(id)?.name)].filter(Boolean).join(" · "));
+  els.searchCount.textContent = UI.resultCount(els.search.value.trim() || filtered, groups.length);
+  const shown = shownPicks(groups);
+  els.selectAllSlot.innerHTML = UI.selectAllBox('data-f="select-all"', groups.length, shown.length, MdgErrors.TEXT.noVideosListed);
+  // The bar's buttons act on the listed selected records and say how many; when the search and filters hide every
+  // selected one they count all of them, off with selbar's none, as on the 分拣台.
+  const n = shown.length || selected.size;
+  // 删除 removes AI conversations only, so its N counts the selected records that have one and says when that is fewer.
+  // A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only), so the reason names no other place.
+  const del = deletableKeys(shown.length ? shown : [...selected]).length;
+  const acts = (none) =>
+    UI.actBtn('data-sel="md"', n > 1 ? `打包下载选中的 ${n} 个 .md` : "下载选中的 1 个 .md", { reason: none }) +
+    UI.actBtn('data-sel="tags"', "打标签", { reason: none }) +
+    UI.actBtn('data-sel="delete"', del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话", { cls: "danger", reason: none || (del ? "" : "选中的记录没有 AI 对话"), title: del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "" });
+  els.selbar.innerHTML = selected.size ? UI.selbar({ label: "选中的记录", n: shown.length, hidden: selected.size - shown.length, clearAttrs: 'data-sel="clear"', acts }) : "";
+  setReason(els.clearAll, !conversations.length ? "还没有 AI 对话" : conversations.every(isStarredConv) ? "只剩加了星标的记录的 AI 对话" : "");
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
-function visibleGroups() {
+// The listed records. A count leaves out its own group's choice (star, recent or tags) and keeps the rest, the search
+// too, as the 分拣台's counts do (DESIGN 筛选和计数).
+function visibleGroups({ star = starFilter, recent = recentFilter, tags = tagFilter } = {}, all = groupByVideo(conversations)) {
   const query = els.search.value.trim().toLowerCase();
   // 星标 and the tag chips narrow the list; several tags are ANDed, as on the 分拣台.
-  const recent = new Set(recentFilter ? AI.recent?.keys : []);
-  const groups = groupByVideo(conversations).filter((g) => (!recentFilter || recent.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!starFilter || g.mark?.star) && [...tagFilter].every((id) => g.mark?.tags?.includes(id)))));
+  const recentKeys = new Set(recent ? AI.recent?.keys : []);
+  const groups = all.filter((g) => (!recent || recentKeys.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!star || g.mark?.star) && [...tags].every((id) => g.mark?.tags?.includes(id)))));
   if (!query) return groups;
   return groups.filter((g) =>
     [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...[...tagsOf(g), ...triageTagsOf(g)].map((t) => t.name), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
   );
 }
 
-// The triage summary is markdown (> one-liner, - points, AI 判断 line); shown as one line, verdict first,
-// cut off with an ellipsis until clicked.
+// The 分拣台's AI 总结 as on its cards: the verdict badge and the one-liner on one line, cut off with an ellipsis; a click
+// shows it whole with the points and the reason.
 function renderSummary(g) {
-  const lines = MdgNote.buildTriageSummary(g.analysis).split("\n").filter(Boolean);
-  const verdict = lines.find((l) => l.startsWith(MdgNote.VERDICT_LINE));
-  const rest = lines.filter((l) => l !== verdict).map((l) => esc(l.replace(/^(> |- )/, ""))).join(" · ");
-  const head = verdict ? `<b>${MdgErrors.LABEL.aiVerdict}</b> ${esc(verdict.slice(MdgNote.VERDICT_LINE.length))}` : "";
+  const a = g.analysis;
+  const { verdict } = MdgTagCore.verdictOf({ analysis: a });
   const open = unfolded.has(g.key);
-  return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}">${head}${head && rest ? " · " : ""}<span class="entry-points">${rest}</span></button>`;
+  const points = (a.points || []).filter(Boolean);
+  const more = open ? `${points.length ? `<ol class="points">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>` : ""}${a.oneLiner && a.reason ? `<p class="summary-reason">${esc(a.reason)}</p>` : ""}` : "";
+  return `<button type="button" class="entry-summary${open ? " open" : ""}" data-act="summary" aria-expanded="${open}"><span class="badge ${verdict}"><span class="ai-mark">AI</span>${MdgTagCore.VERDICTS[verdict]}</span> ${esc(a.oneLiner || a.reason || "")}</button>${more}`;
 }
 
 // A web page's record (not a video, with an http(s) address): 继续问 goes on in the page's own tab.
@@ -543,10 +579,10 @@ const noteIdOf = (g) => g.context.videoId || "";
 
 function renderNote(g) {
   const id = noteIdOf(g);
-  if (id && editing?.id === id) return `<textarea class="entry-note-edit" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
-  if (!g.note) return id ? `<button type="button" class="note-add" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
+  if (id && editing?.id === id) return `<textarea class="note" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (!g.note) return id ? `<button type="button" class="quiet note-add" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
-  return id ? `<button type="button" class="entry-note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="entry-note">${body}</div>`;
+  return id ? `<button type="button" class="note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="note">${body}</div>`;
 }
 
 // MdgLimits.saveVideoNote, like the side panel and 分拣台: an unchanged note is not rewritten, an emptied one is deleted.
@@ -608,33 +644,30 @@ function render() {
         const untitled = g.title === g.context.videoId;
         const label = untitled ? "未获取标题" : g.title;
         // Only web links: a saved context URL is shown as a link, never as a javascript: or other scheme.
-        const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="entry-title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="entry-title">${esc(label)}</span>`;
+        const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="title">${esc(label)}</span>`;
         const only = [g.analysis && "分拣台 AI 总结", g.note && "备注", g.mark?.star && "星标", g.mark?.tags?.length && "标签"].filter(Boolean);
         const kind = g.convs.length ? (g.convs.length > 1 ? `${g.convs.length} 段对话` : "") : only.length ? `仅${only.length > 1 ? `${only.slice(0, -1).join("、")}和${only.at(-1)}` : only[0]}，没有 AI 对话` : "没有 AI 对话";
         const starred = Boolean(g.mark?.star);
         const star = readingKey(g) ? `<button type="button" class="star" data-act="star" aria-pressed="${starred}" aria-label="${starred ? "取消星标" : "加星标"}" title="${starred ? "取消星标" : "加星标"}">${starred ? "★" : "☆"}</button>` : "";
-        return `<article class="entry" data-key="${esc(g.key)}">
+        const obsidian = obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>` : "";
+        // Top right, two rows of equal columns: 继续问 and the exports in their order. The 问答 line runs under the body and
+        // the buttons, with 删除 AI 对话 at its right end: it reads as deleting those, not the record.
+        return `<article class="card entry${selected.has(g.key) ? " selected" : ""}" data-key="${esc(g.key)}">
           <input type="checkbox" name="selectedConversation" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
-          <div class="entry-head">
-            <div class="entry-line">${star}${title}</div>
-            <div class="entry-meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
-          </div>
-          <div class="entry-actions">
-            <button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}><span class="ai-spark" aria-hidden="true"></span>继续问</button>
-            <button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button>
-            <button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>
-            ${!obsidianEnabled ? "" : `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>`}
-            ${g.convs.length ? `<button type="button" data-act="delete" class="danger">删除 AI 对话</button>` : `<button type="button" class="danger slot" tabindex="-1" aria-hidden="true" disabled>删除 AI 对话</button>`}
-          </div>
-          <div class="entry-body">
+          ${star}
+          <div class="card-body">
+            ${title}
+            <div class="meta">${[site, formatTime(g.updatedAt), untitled && g.context.videoId, kind].filter(Boolean).map(esc).join(" · ")}</div>
             ${g.analysis ? renderSummary(g) : ""}
             ${renderTags(g)}
             ${renderNote(g)}
-            ${g.convs.length ? `<details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details>` : ""}
           </div>
+          <div class="entry-acts"><button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}>${UI.AI_SPARK}继续问</button><button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button><button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>${obsidian}</div>
+          ${g.convs.length ? `<div class="qa"><details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details><button type="button" data-act="delete" class="quiet danger">删除 AI 对话</button></div>` : ""}
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的视频或网页" : "还没有摘读记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。"}</p>`;
+    : allGroups.length ? `<p class="empty">${UI.noMatch(els.search.value, starFilter || recentFilter || tagFilter.size > 0, "记录")}</p>`
+    : UI.emptyState("还没有摘读记录", "在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。");
   rendering = false;
   // 继续问 on a record that is not a video: off with why, the page's one way (setReason).
   for (const b of els.list.querySelectorAll("[data-no-video]")) setReason(b, MdgErrors.TEXT.notVideo);
@@ -646,34 +679,9 @@ function render() {
   const again = anchor && entryOf(anchor.key);
   if (again) window.scrollBy(0, again.getBoundingClientRect().top - anchor.offset);
   else window.scrollTo(0, scrollY);
-  renderFilters(allGroups);
-  syncBulk(groups);
+  renderHead(allGroups, groups);
 }
 
-
-function syncBulk(groups = visibleGroups()) {
-  // 全选 is three-state over the listed videos: none, some (indeterminate) or all of them selected.
-  const picked = groups.filter((g) => selected.has(g.key)).length;
-  els.selectAll.checked = groups.length > 0 && picked === groups.length;
-  els.selectAll.indeterminate = picked > 0 && picked < groups.length;
-  els.selectAllLabel.textContent = groups.length ? `${MdgErrors.LABEL.selectAll} ${groups.length} 个` : MdgErrors.LABEL.selectAll;
-  setReason(els.selectAll, groups.length ? "" : MdgErrors.TEXT.noVideosListed);
-  // The bulk buttons act on the listed selected videos and say how many (「选中的 N 个」); when every selected one is
-  // hidden by the search they say all of them and are disabled with HIDDEN_ALL, as on the 分拣台.
-  const shown = shownPicks(groups);
-  const n = shown.length || selected.size;
-  const none = !selected.size ? "先勾选记录" : !shown.length ? MdgErrors.TEXT.hiddenAll : "";
-  els.bulkMd.textContent = n > 1 ? `打包下载选中的 ${n} 个 .md` : n ? "下载选中的 1 个 .md" : "下载选中的 .md";
-  setReason(els.bulkTags, none);
-  // 删除 removes AI conversations only, so its N counts the selected videos that have one and says when that is fewer.
-  const del = deletableKeys(shown.length ? shown : [...selected]).length;
-  els.bulkDelete.textContent = del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话";
-  setReason(els.bulkMd, none);
-  // Only AI conversations are deleted here. A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only),
-  // so the reason names no other place.
-  setReason(els.bulkDelete, none || (del ? "" : "选中的记录没有 AI 对话"), del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "");
-  setReason(els.clearAll, !conversations.length ? "还没有 AI 对话" : conversations.every(isStarredConv) ? "只剩加了星标的记录的 AI 对话" : "");
-}
 
 // 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
 // error: a failure the user must handle (red).
@@ -708,8 +716,8 @@ async function load() {
   render();
 }
 
-// The selected videos the search lists: what the bulk buttons act on.
-const shownPicks = (groups = visibleGroups()) => groups.filter((g) => selected.has(g.key)).map((g) => g.key);
+// The selected records the search and filters list: what the selection bar acts on.
+const shownPicks = (groups) => groups.filter((g) => selected.has(g.key)).map((g) => g.key);
 
 // Triage-summary-only and note-only entries have no conversations to delete, so they are left out.
 function deletableKeys(keys) {
@@ -787,16 +795,16 @@ async function saveToObsidian(group) {
 }
 
 els.list.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-act]");
+  const target = event.target.closest("[data-act], [data-untag]");
   const entry = target?.closest(".entry");
   if (!entry) return;
   const key = entry.dataset.key;
   const group = groupByVideo(conversations).find((g) => g.key === key);
   const act = target.dataset.act;
-  if (act === "pick") {
+  if (target.dataset.untag && group) void untag(group, target.dataset.untag);
+  else if (act === "pick") {
     target.checked ? selected.add(key) : selected.delete(key);
-    syncBulk();
-    renderFilters(groupByVideo(conversations)); // 「✦ AI 打标签选中的 N 个」
+    render();
   } else if (act === "copy" && group) {
     navigator.clipboard.writeText(buildNote(group).content).then(
       () => setStatus(MdgErrors.TEXT.copied),
@@ -845,20 +853,27 @@ els.list.addEventListener("keydown", (event) => {
 els.list.addEventListener("focusout", (event) => {
   if (!rendering && event.target.matches("[data-note]")) void closeNote();
 });
-MdgTyping.bindLive(els.search, () => render());
-els.selectAll.addEventListener("change", () => {
-  visibleGroups().forEach((g) => (els.selectAll.checked ? selected.add(g.key) : selected.delete(g.key)));
-  render();
+UI.bindSearch(els.search, () => render());
+els.selbar.addEventListener("click", (event) => {
+  const act = event.target.closest("[data-sel]")?.dataset.sel;
+  const picks = visibleGroups().filter((g) => selected.has(g.key));
+  if (act === "md") downloadGroups(picks);
+  else if (act === "tags") openPicker(picks);
+  else if (act === "delete") void deleteGroups(picks.map((g) => g.key));
+  else if (act === "clear") {
+    selected.clear();
+    render();
+  }
 });
-els.bulkMd.addEventListener("click", () => downloadGroups(visibleGroups().filter((g) => selected.has(g.key))));
-els.bulkTags.addEventListener("click", () => openPicker(visibleGroups().filter((g) => selected.has(g.key))));
 els.filters.addEventListener("click", (event) => {
   const f = event.target.closest("[data-f]")?.dataset.f;
   if (f === "manage") return TagDialogs.manage.open(manageTags);
   if (f === "ai") return void openAi();
   if (f === "settings") return void openSettings();
   if (f === "recent-done") return void clearRecent();
-  if (f === "recent") recentFilter = !recentFilter;
+  if (f === "select-all") UI.toggleAll(visibleGroups().map((g) => g.key), selected);
+  else if (f === "all") starFilter = recentFilter = false;
+  else if (f === "recent") recentFilter = !recentFilter;
   else if (f === "star") starFilter = !starFilter;
   else if (f?.startsWith("tag:")) {
     const id = f.slice(4);
@@ -866,11 +881,10 @@ els.filters.addEventListener("click", (event) => {
   } else return;
   render();
 });
-els.bulkDelete.addEventListener("click", () => void deleteGroups(shownPicks()));
-// I and U as on the 分拣台: not while typing or with a dialog open.
+// I, U and / as on the 分拣台: not while typing or with a dialog open.
 document.addEventListener("keydown", (e) => {
   if (MdgTyping.composing(e) || MdgTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
-  const run = { i: openAi, u: undo }[e.key.toLowerCase()];
+  const run = { i: openAi, u: undo, "/": () => els.search.focus() }[e.key.toLowerCase()];
   if (!run) return;
   e.preventDefault();
   void run();

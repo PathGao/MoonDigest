@@ -65,8 +65,6 @@ const ALLOW = [
   ["triage/follow.js", "btn.disabled = true;", "点了刷新（第 2 行、空状态或提示里的）、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
   ["triage/fav-export.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
-  // 3b
-  ["history/history.js", 'aria-hidden="true" disabled>删除 AI 对话', "看不见的占位（aria-hidden、tabindex=-1），只为对齐，不是控件"],
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   // 4b
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],

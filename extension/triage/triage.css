@@ -362,7 +362,9 @@ select { height: 28px; max-width: 240px; }
 .sel-actions button:hover { background: var(--border); }
 .sel-actions .primary { background: var(--action); }
 .sel-actions .primary:hover { background: var(--action-hover); }
-.sel-actions .danger { margin-left: 4px; }
+/* The destructive button goes last, set apart by a thin rule and extra space (DESIGN 视觉设计 · 控件). */
+.sel-actions .danger { position: relative; margin-left: 17px; }
+.sel-actions .danger::before { content: ""; position: absolute; left: -12px; top: 8px; height: 16px; border-left: 1px solid var(--border-strong); }
 
 .list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: calc(var(--head-h, 0px) + 8px) 8px 80px; }
 /* Two card states. Current (hover or J/K) is the lifted box; selected (a click on the card or X) is the blue outline and tint. Both can show at once. */

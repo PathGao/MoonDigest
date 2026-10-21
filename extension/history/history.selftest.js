@@ -81,38 +81,52 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(200);
   assert.strictEqual(renders, 1, "compositionend renders the committed text once");
 
-  // 全选 is three-state over the listed videos, says how many it covers, and disabled bulk buttons say why.
+  // 全选 is three-state over the listed videos and says how many it covers; the selection bar shows only with a selection.
   els.search.value = "";
   fire("input", {});
   await wait(200);
   assertInert(html, "history list");
   assert.ok(!/href="javascript:/i.test(html) && /https:\/\/example\.com/.test(html), "only http(s) context URLs become links");
-  const sa = els.selectAll;
   const reason = (id) => [els[id].disabled, els[id].title, els[id].attrs["aria-description"]];
-  assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, false], "none selected: empty box");
-  assert.deepStrictEqual(reason("bulkMd"), [true, "先勾选记录", "先勾选记录"]);
-  assert.deepStrictEqual(reason("bulkDelete"), [true, "先勾选记录", "先勾选记录"]);
-  assert.deepStrictEqual(reason("clearAll"), [false, "", undefined], "conversations exist: clear-all usable, no reason");
+  const allBox = () => els.selectAllSlot.innerHTML.match(/aria-checked="(\w+)"/)[1];
+  // A selection bar button by its data-sel: [label, disabled, title].
+  const btn = (name) => {
+    const m = els.selbar.innerHTML.match(new RegExp(`<button[^>]*data-sel="${name}"[^>]*>([^<]*)</button>`));
+    return m && [m[1], /\sdisabled[\s>]/.test(m[0]), (m[0].match(/title="([^"]*)"/) || [])[1] || ""];
+  };
+  assert.strictEqual(allBox(), "false", "none selected: empty box");
+  assert.strictEqual(els.selbar.innerHTML, "", "no selection, no selection bar");
+  assert.deepStrictEqual(reason("clearAll"), [false, "", undefined], "conversations exist: clear-all usable without a selection");
   const pick = (key, checked) => {
     const target = { checked, dataset: { act: "pick" }, closest: (s) => (s === ".entry" ? { dataset: { key } } : target) };
     (L.list.click || []).forEach((f) => f({ target }));
   };
   pick("a", true);
-  assert.deepStrictEqual([sa.checked, sa.indeterminate], [false, true], "some selected: indeterminate");
-  assert.deepStrictEqual(reason("bulkMd"), [false, "", undefined]);
+  assert.strictEqual(allBox(), "mixed", "some selected");
+  assert.ok(els.selbar.innerHTML.includes("已选中 1 个"), els.selbar.innerHTML);
+  assert.deepStrictEqual(btn("md"), ["下载选中的 1 个 .md", false, ""]);
   pick("b", true);
-  assert.deepStrictEqual([sa.checked, sa.indeterminate], [true, false], "all selected: checked");
-  assert.strictEqual(els.selectAllLabel?.textContent, "全选 2 个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
+  assert.strictEqual(allBox(), "true", "all selected");
+  assert.ok(els.selectAllSlot.innerHTML.includes("全选 2 个"), els.selectAllSlot.innerHTML);
+  assert.deepStrictEqual([btn("md")[0], btn("delete")[0]], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
+  // 清空选中 empties the selection and takes the bar away; 全选 selects every listed one again.
+  const selClick = (sel) => (L.selbar.click || []).forEach((f) => f({ target: { closest: () => ({ dataset: { sel } }) } }));
+  const headClick = (f) => (L.filters.click || []).forEach((h) => h({ target: { closest: () => ({ dataset: { f } }) } }));
+  selClick("clear");
+  assert.deepStrictEqual([allBox(), els.selbar.innerHTML], ["false", ""]);
+  headClick("select-all");
+  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载选中的 2 个 .md"]);
   // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
   // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
   const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
   await search("img");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkMd.disabled], ["下载选中的 1 个 .md", false]);
+  assert.deepStrictEqual(btn("md"), ["下载选中的 1 个 .md", false, ""]);
+  assert.ok(els.selbar.innerHTML.includes("另有 1 个被筛选隐藏"), els.selbar.innerHTML);
   await search("没有这个");
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkMd")[1], reason("bulkDelete")[1]], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话", "选中的都被筛选隐藏了", "选中的都被筛选隐藏了"]);
+  assert.deepStrictEqual([btn("md"), btn("delete")], [["打包下载选中的 2 个 .md", true, "选中的都被筛选隐藏了"], ["删除选中的 2 个的 AI 对话", true, "选中的都被筛选隐藏了"]]);
+  assert.ok(els.selbar.innerHTML.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏"), els.selbar.innerHTML);
   await search("");
-  assert.deepStrictEqual([sa.checked, els.bulkMd.textContent], [true, "打包下载选中的 2 个 .md"], "the selection is still there");
+  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载选中的 2 个 .md"], "the selection is still there");
   // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
   // with none that has a conversation it is disabled with the reason.
   const NOTES = ctx.MdgLimits.KEYS.triageNotes;
@@ -121,7 +135,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(350);
   const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
   pick(noteKey, true);
-  assert.deepStrictEqual([els.bulkMd.textContent, els.bulkDelete.textContent, reason("bulkDelete")], ["打包下载选中的 3 个 .md", "删除选中的 2 个的 AI 对话", [false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下", undefined]]);
+  assert.deepStrictEqual([btn("md")[0], btn("delete")], ["打包下载选中的 3 个 .md", ["删除选中的 2 个的 AI 对话", false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下"]]);
   // A21: a 备注 closed by pressing another entry's button (focusout on pointerdown) redraws only after that press,
   // so the button the click lands on is still the one pressed.
   // A key pressed on the page (I, U), outside any text field.
@@ -140,9 +154,16 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.ok(renders > before && !html.includes("data-note"), "redrawn after the press, the box closed");
   pick("a", false);
   pick("b", false);
-  assert.deepStrictEqual([els.bulkDelete.textContent, reason("bulkDelete")], ["删除选中的 AI 对话", [true, "选中的记录没有 AI 对话", "选中的记录没有 AI 对话"]]);
+  assert.deepStrictEqual(btn("delete"), ["删除选中的 AI 对话", true, "选中的记录没有 AI 对话"]);
   // K13: each entry's button says what it deletes.
-  assert.ok(html.includes('data-act="delete" class="danger">删除 AI 对话</button>'), html);
+  assert.ok(html.includes('data-act="delete" class="quiet danger">删除 AI 对话</button>'), html);
+  // The buttons top right in reading order: 继续问, 复制 Markdown, 下载 .md, 写入 Obsidian; 删除 is not among them.
+  const [actsHtml] = html.split("<article").find((a) => a.includes('data-key="b"')).split('class="entry-acts"')[1].split("</div>");
+  const actAt = (act) => actsHtml.indexOf(`data-act="${act}"`);
+  assert.ok(actAt("ask") >= 0 && actAt("ask") < actAt("copy") && actAt("copy") < actAt("md") && (actAt("obsidian") < 0 || actAt("md") < actAt("obsidian")) && actAt("delete") < 0, actsHtml);
+  // 删除 sits on the 问答 line; a record without AI conversations has none.
+  assert.match(html.split("<article").find((a) => a.includes('data-key="b"')), /<div class="qa"><details>[^]*<\/details><button type="button" data-act="delete" class="quiet danger">删除 AI 对话<\/button><\/div>/);
+  assert.ok(!html.split("<article").find((a) => a.includes(`data-key="${noteKey}"`)).includes('data-act="delete"'), "a 备注-only record has no 删除");
   // K10: 继续问 on a record that is not a video is off with why, through setReason.
   const ask = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
   const realQsa = els.list.querySelectorAll;
@@ -158,7 +179,9 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await wait(350);
   els.list.querySelectorAll = realQsa;
   assert.deepStrictEqual([ask.disabled, ask.title, ask.attrs["aria-description"]], [true, ctx.MdgErrors.TEXT.notVideo, ctx.MdgErrors.TEXT.notVideo]);
-  assert.deepStrictEqual([els.bulkMd.textContent, els.status.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
+  assert.deepStrictEqual([btn("md")[0], els.status.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
+  // Out of the selection bar, 清空全部 still clears every conversation, not the selected one.
+  assert.strictEqual(store.mdg_ai_conversations_v1.length, 0, "the unselected record's conversation is gone too");
   ctx.chrome.storage.local.set = async () => {};
   store.mdg_ai_conversations_v1 = convs;
   onChanged({ mdg_ai_conversations_v1: {} }, "local");
@@ -401,8 +424,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     const p1 = `${videoKey}c1`;
     const p2 = `${videoKey}c2`;
 
+    // 「+ 标签」 ends the tags line, after the chips, and is there alone without tags; with no 备注, 「✎ 备注」 is in the
+    // body where the 备注 would show.
+    assert.match(entry(p1), /分拣标签<\/span><button type="button" class="quiet tag-plus" data-act="tags"/);
+    assert.match(entry(pageKey), /<div class="chips"><button type="button" class="quiet tag-plus" data-act="tags"/);
+    const body = entry(p1).split('class="entry-acts"')[0];
+    assert.ok(body.includes('class="quiet note-add" data-act="note">✎ 备注</button>') && !entry(p1).split('class="entry-acts"')[1].includes('data-act="note"'), entry(p1));
     // ☆ before the title; a click stars the video (both parts) and keeps its title and address.
-    assert.match(entry(p1), /data-act="star" aria-pressed="false" aria-label="加星标" title="加星标">☆<\/button>\s*<a class="entry-title"/);
+    assert.match(entry(p1), /data-act="star" aria-pressed="false" aria-label="加星标" title="加星标">☆<\/button>\s*<div class="card-body">\s*<a class="title"/);
     await on(p1, "star");
     const item = store[MARKS].items[videoKey];
     assert.ok(item.star > 0 && item.ref.title === "星标视频" && item.ref.videoId === BV, JSON.stringify(item));
@@ -425,12 +454,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     // 星标 filter: only starred records are listed.
     await filter("star");
     assert.ok(entry(p1) && entry(p2) && !entry(pageKey), html);
-    assert.match(els.filters.innerHTML, /data-f="star" class="star-filter" aria-pressed="true">★ 星标 2</);
+    assert.match(els.stateRow.innerHTML, /data-f="star" aria-pressed="true">★ 星标 2</);
     // Unstarred under the filter: still listed (☆) until the page reloads, so the row does not vanish under the cursor.
     await on(p1, "star");
     assert.ok(entry(p1).includes("☆"), html);
     await on(p1, "star");
-    await filter("star");
+    // 「全部」 clears row 2.
+    await filter("all");
+    assert.ok(entry(pageKey) && /data-f="all" aria-pressed="true">全部 /.test(els.stateRow.innerHTML), els.stateRow.innerHTML);
 
     // A starred record stays when every conversation of it is gone, from what the mark kept.
     store.mdg_ai_conversations_v1 = [...webConvs, conv("untagged", "没有标签")];
@@ -453,8 +484,8 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.TagPicker = { ...ctx.TagPicker, open: (o) => (picker = o) };
     pick(videoKey, true);
     pick(pageKey, true);
-    assert.deepStrictEqual([els.bulkTags.disabled, els.bulkTags.title], [false, ""]);
-    L.bulkTags.click.forEach((f) => f({}));
+    assert.ok(/<button type="button" data-sel="tags" aria-label="打标签">打标签<\/button>/.test(els.selbar.innerHTML), els.selbar.innerHTML);
+    L.selbar.click.forEach((f) => f({ target: { closest: () => ({ dataset: { sel: "tags" } }) } }));
     assert.deepStrictEqual(plain([picker.title, [...picker.targets].sort(), picker.anchor]), ["给选中的 2 个打标签", [pageKey, videoKey], ""]);
     const tag = await picker.create(" 读过 ");
     assert.deepStrictEqual(plain([tag.name, store[MARKS].tags.map((t) => t.name)]), ["读过", ["读过"]]);
@@ -462,7 +493,15 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await picker.onClose(picker.targets.map((key) => ({ key, add: [tag.id], remove: [] })));
     await wait(20);
     assert.deepStrictEqual(plain([store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [[tag.id], [tag.id], "https://example.com/post"]);
-    assert.ok(entry(pageKey).includes(">读过</span>"), entry(pageKey));
+    assert.ok(entry(pageKey).includes('aria-label="去掉标签 读过"'), entry(pageKey));
+    // A tag chip on a card takes the tag off that record with a click; U puts it back.
+    const chip = { dataset: { untag: tag.id }, closest: (sel) => (sel === ".entry" ? { dataset: { key: pageKey } } : chip) };
+    L.list.click.forEach((f) => f({ target: chip }));
+    await wait(20);
+    assert.deepStrictEqual(plain([store[MARKS].items[pageKey], els.status.textContent]), [null, "已去掉「读过」 · U 撤销"]);
+    press("u");
+    await wait(20);
+    assert.deepStrictEqual(plain(store[MARKS].items[pageKey].tags), [tag.id], "U puts it back");
     // U: that close is one step; for 2 records it asks first, then puts their tags back in one marks write.
     asked = "";
     ctx.confirm = (text) => ((asked = text), false);
@@ -478,6 +517,35 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     // A record's own 「+ 标签」 opens the picker under it, for that record alone.
     await on(pageKey, "tags");
     assert.deepStrictEqual(plain([picker.targets, picker.anchor]), [[pageKey], `.entry[data-key="${pageKey}"] .tag-plus`]);
+    // Counts as on the 分拣台: each group leaves out its own choice and keeps the search and the other row. A third page,
+    // tagged in storage (not here, so a filter hides it), tells the rules apart.
+    const third = "page:https://example.com/third";
+    const convsBefore = store.mdg_ai_conversations_v1;
+    store.mdg_ai_conversations_v1 = [...convsBefore, { ...conv(third, "第三篇"), contextUrl: "https://example.com/third", contextRef: { url: "https://example.com/third", title: "第三篇" } }];
+    store[MARKS].items[third] = { star: 0, tags: [tag.id], ref: { site: "", videoId: "", url: "https://example.com/third", title: "第三篇" }, at: 1, updatedAt: 1 };
+    const marksBefore = JSON.parse(JSON.stringify(store[MARKS]));
+    store[MARKS].tags = [...store[MARKS].tags, { id: "t2", name: "乙", color: "#222222" }];
+    store[MARKS].items[videoKey].tags = [...store[MARKS].items[videoKey].tags, "t2"];
+    await reload();
+    const count = (re) => Number((els.stateRow.innerHTML + els.tagRow.innerHTML).match(re)?.[1]);
+    const STAR_N = />★ 星标 (\d+)</, ALL_N = />全部 (\d+)</, TAG_N = /按标签筛选 读过 (\d+)/;
+    assert.deepStrictEqual([count(STAR_N), count(TAG_N)], [1, 3]);
+    await search("一篇文章");
+    assert.deepStrictEqual([count(STAR_N), count(ALL_N), count(TAG_N)], [0, html.split("<article").length - 1, 1], "the search scopes every count");
+    await search("");
+    await filter("star");
+    assert.deepStrictEqual([count(STAR_N), count(TAG_N)], [1, 2], "星标 scopes the tag counts, not its own");
+    await filter("star");
+    await filter(`tag:${tag.id}`);
+    assert.deepStrictEqual([count(STAR_N), count(ALL_N), count(TAG_N)], [1, 3, 3], "a tag scopes row 2, not its own count");
+    await filter(`tag:${tag.id}`);
+    await filter("tag:t2");
+    assert.strictEqual(count(TAG_N), 3, "another tag of the row does not scope it either");
+    await filter("tag:t2");
+    store[MARKS] = marksBefore;
+    delete store[MARKS].items[third];
+    store.mdg_ai_conversations_v1 = convsBefore;
+    await reload();
     // The tag filter and the search find the tagged records; the export carries the tags and 星标.
     await filter(`tag:${tag.id}`);
     assert.ok(entry(videoKey) && entry(pageKey) && !entry("untagged"), html);
@@ -542,7 +610,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.TagDialogs.ai.open = (a) => (ad = a);
     L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
     await wait(20);
-    assert.ok(els.filters.innerHTML.includes('data-f="ai"') && ad?.who === "记录", "「✦ AI 打标签」 opens the dialog with 摘读记录's adapter");
+    assert.ok(els.tagActs.innerHTML.includes('data-f="ai"') && ad?.who === "记录", "「✦ AI 打标签」 opens the dialog with 摘读记录's adapter");
     // Scopes: 当前筛选 counts records (the video's two parts once); 选中 counts the selected ones, hidden or not.
     const scopes = () => plain(ad.scopes().map((s) => [s.value, s.n, s.shown]));
     assert.deepStrictEqual(scopes(), [["filter", 2, null], ["selected", 0, 0]]);
@@ -580,7 +648,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     assert.ok(made, plain(store[MARKS].tags));
     assert.deepStrictEqual(plain([writes, [...store[MARKS].items[videoKey].tags].sort(), store[MARKS].items[pageKey].tags, store[MARKS].items[pageKey].ref.url]), [1, ["t1", made.id].sort(), ["t1"], "https://example.com/post"]);
     assert.strictEqual(ad.proposal(), null);
-    assert.ok(html.includes(">新</span>"), "the chips show on the records");
+    assert.ok(html.includes('aria-label="去掉标签 新"'), "the chips show on the records");
 
     // Room: never past READING_TAGS (50); 应用 creates only what fits.
     const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `m${i}`, name: `标签${i}`, color: "#222222" }));
@@ -617,28 +685,28 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     const filterClick = async (f) => (L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f } }) } })), await wait(20));
     await reset();
     pick(`video:bilibili:${BV}|c1`, true);
-    assert.ok(els.filters.innerHTML.includes(">AI 打标签选中的 1 个</button>"), els.filters.innerHTML);
+    assert.ok(els.tagActs.innerHTML.includes(">AI 打标签选中的 1 个</button>"), els.tagActs.innerHTML);
     pick(`video:bilibili:${BV}|c1`, false);
     let release;
     ctx.chrome.runtime.sendMessage = (msg) => (msg.type === "triage-settings-get" ? Promise.resolve({ ok: false }) : new Promise((r) => (release = () => r({ ok: true, data: answer }))));
     const running = ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
     await wait(20);
-    assert.ok(els.filters.innerHTML.includes(">AI 打标签 · 运行中</button>"), els.filters.innerHTML);
+    assert.ok(els.tagActs.innerHTML.includes(">AI 打标签 · 运行中</button>"), els.tagActs.innerHTML);
     release();
     await running;
-    assert.ok(els.filters.innerHTML.includes(">AI 打标签 · 待确认</button>"), els.filters.innerHTML);
+    assert.ok(els.tagActs.innerHTML.includes(">AI 打标签 · 待确认</button>"), els.tagActs.innerHTML);
     assert.deepStrictEqual(plain(store[PROPOSAL]), plain(ad.proposal()), "the proposal is stored for a reload");
     await ad.apply();
     assert.strictEqual(store[PROPOSAL], undefined);
     assert.deepStrictEqual(plain(store[RECENT].keys.sort()), [pageKey, videoKey].sort());
-    assert.ok(/data-f="recent" title="[^"]*在记录上逐个看，不对的点「\+ 标签」改[^"]*" aria-pressed="true">.*AI 刚打的 3/.test(els.filters.innerHTML), els.filters.innerHTML); // entries, as the other chips count
+    assert.ok(/data-f="recent" title="[^"]*在记录上逐个看，不对的点「\+ 标签」改[^"]*" aria-pressed="true">.*AI 刚打的 3/.test(els.stateRow.innerHTML), els.stateRow.innerHTML); // entries, as the other chips count
     // A record the run did not change is not listed under 「AI 刚打的」; its × stops marking them and lists it again.
     store.mdg_ai_conversations_v1 = [...store.mdg_ai_conversations_v1, { ...web, id: "w2", contextKey: "page:https://example.com/other", contextUrl: "https://example.com/other", contextRef: { ...web.contextRef, url: "https://example.com/other" } }];
     onChanged({ mdg_ai_conversations_v1: {} }, "local");
     await wait(350);
     assert.ok(entry(pageKey) && !entry("page:https://example.com/other"), html);
     await filterClick("recent-done");
-    assert.ok(entry("page:https://example.com/other") && store[RECENT] === undefined && !els.filters.innerHTML.includes("AI 刚打的"), html);
+    assert.ok(entry("page:https://example.com/other") && store[RECENT] === undefined && !els.stateRow.innerHTML.includes("AI 刚打的"), html);
     // U on the 应用: asks (2 records), puts both records' tags back, deletes the tag it made.
     await reset();
     ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
@@ -676,6 +744,11 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     press("i");
     await wait(20);
     assert.strictEqual(ad?.who, "记录");
+    // / goes to the search box, as on the 分拣台.
+    let searchFocused = false;
+    els.search.focus = () => (searchFocused = true);
+    press("/");
+    assert.ok(searchFocused, "/ focuses the search");
 
     // What the AI reads: answers are cut to the budget before questions; a record without a conversation sends its AI
     // 总结 and 备注.
@@ -737,7 +810,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name, data, type) => saved.push(name, type, data.length > 0) };
   const RealDate = ctx.Date;
   vm.runInContext("Date = class extends Date { constructor(...a) { a.length ? super(...a) : super(2026, 9, 14, 7, 30); } }", ctx);
-  (L.bulkMd.click || []).forEach((f) => f({}));
+  (L.selbar.click || []).forEach((f) => f({ target: { closest: () => ({ dataset: { sel: "md" } }) } }));
   ctx.Date = RealDate;
   assert.deepStrictEqual(saved, ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", true]);
 
