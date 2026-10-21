@@ -152,15 +152,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 
   const inViewer = frameId > 0;
   if (!inViewer && !MdgSites.matchSite(tab.url)) {
-    return {
-      title: String(tab.title || "").trim(),
-      url: String(tab.url || "").trim(),
-      author: "",
-      uploadDate: "",
-      subtitleMarkdown: "",
-      hotComments: [],
-      isVideoContext: false
-    };
+    return readWebPage(tab);
   }
   // The viewer's content script came with the 分拣台 page, which an extension update reloads.
   if (!inViewer) await ensureReaderContentReady(tab.id);
@@ -174,6 +166,72 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
     throw Object.assign(new Error(MdgErrors.text(resp, "读取当前页面失败")), resp?.code != null ? { code: resp.code } : {});
   }
   return { ...resp.payload, url: MdgSites.videoUrl(resp.payload), isVideoContext: true };
+}
+
+// A web page (not a supported video site) as a side panel context, read on demand: no content script runs there.
+// pageAccess is the one state:
+//   ready           pageMarkdown is its main text.
+//   needPermission  its origin is an optional host permission not granted yet; the side panel asks in a click. Chrome
+//                   also hides the URL of such a tab (and of chrome:// pages): url is "" until the toolbar icon is
+//                   clicked (activeTab).
+//   unsupported     a URL that is not http(s): extension pages, file:.
+//   failed          pageError says why: the Web Store, an error page, no main text found.
+// ponytail: read again at every context load (tab events, each send); cache by tab and URL if parsing shows up as slow.
+const PAGE_MARKDOWN_MAX = 200000;
+const PAGE_READ_TIMEOUT_MS = 10000;
+
+async function readWebPage(tab) {
+  const url = String(tab.url || "").trim().replace(/#.*$/, "");
+  const page = { title: String(tab.title || "").trim(), url, author: "", uploadDate: "", subtitleMarkdown: "", hotComments: [], isVideoContext: false };
+  if (!url) return { ...page, pageAccess: "needPermission" };
+  const origin = /^https?:\/\/[^/]/i.test(url) ? new URL(url).origin : "";
+  if (!origin) return { ...page, pageAccess: "unsupported" };
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return { ...page, pageAccess: "needPermission" };
+  let read;
+  try {
+    read = await extractWebPage(tab.id);
+  } catch (error) {
+    return { ...page, pageAccess: "failed", pageError: error?.timeout ? error.message : "浏览器不允许读取这个页面" };
+  }
+  if (!String(read?.content || "").trim()) return { ...page, pageAccess: "failed", pageError: "没有找到正文" };
+  return {
+    ...page,
+    title: String(read.title || "").trim() || page.title,
+    author: String(read.author || "").trim(),
+    published: String(read.published || "").trim(),
+    siteName: String(read.site || "").trim() || new URL(url).hostname,
+    description: String(read.description || "").trim(),
+    wordCount: Number(read.wordCount) || 0,
+    pageMarkdown: read.content,
+    pageAccess: "ready"
+  };
+}
+
+// Defuddle's sync parse (never parseAsync, which may fetch from third parties) in the page's isolated world, where the
+// injected bundle stays loaded for the next read. Only the fields the side panel and the note use come back.
+async function extractWebPage(tabId) {
+  const parse = (max) => {
+    if (typeof Defuddle !== "function") return null;
+    const r = new Defuddle(document, { markdown: true, useAsync: false }).parse();
+    return { title: r.title, author: r.author, published: r.published, site: r.site, description: r.description, wordCount: r.wordCount, content: String(r.content || "").slice(0, max) };
+  };
+  const run = async () => {
+    const target = { tabId };
+    const [first] = await chrome.scripting.executeScript({ target, func: parse, args: [PAGE_MARKDOWN_MAX] });
+    if (first?.result) return first.result;
+    await chrome.scripting.executeScript({ target, files: ["vendor/defuddle.js"] });
+    const [again] = await chrome.scripting.executeScript({ target, func: parse, args: [PAGE_MARKDOWN_MAX] });
+    return again?.result || null;
+  };
+  let timer = 0;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(`网页 ${PAGE_READ_TIMEOUT_MS / 1000} 秒没有回应`), { timeout: true })), PAGE_READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([run(), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function openAiSidepanelForTab(tabId) {
@@ -383,7 +441,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 视频记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
+  // 摘读记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
   if (message.type === "history-open") {
     focusOrOpenPage(chrome.runtime.getURL(MdgCommon.PAGES.history))
       .then(() => sendResponse({ ok: true }))
@@ -391,7 +449,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Focuses a settings page that is already open, as the side panel and 视频记录 do (no caller asks for a section).
+  // Focuses a settings page that is already open, as the side panel and 摘读记录 do (no caller asks for a section).
   if (message.type === "open-options") {
     chrome.runtime
       .openOptionsPage()
@@ -926,13 +984,24 @@ function trimAiHistory(history) {
   return { messages: items.slice(start), dropped: start };
 }
 
-// Returns the request messages plus notices for the user about what was cut to fit.
-function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
-  const ctx = context || {};
+// A web page the side panel read (pageAccess ready): its main text, sampled like a long subtitle.
+function pageAiSections(ctx, notices) {
+  const body = sampleAiSubtitle(ctx.pageMarkdown);
+  const sections = [
+    `你是一个阅读助手。当前用户正在读一个网页，标题：「${ctx.title || "未知"}」`,
+    `作者：${ctx.author || "未知"} | 发布日期：${ctx.published || "未知"} | 网站：${ctx.siteName || "未知"}`
+  ];
+  if (body.step > 1) {
+    sections.push(`以下是网页正文（Markdown）。全文过长，均匀抽取了约 1/${body.step} 的行，没抽到的内容你看不到；回答细节时说明可能有遗漏：\n\n${body.text}`);
+    notices.push(`正文过长，只发送了均匀抽取的约 1/${body.step}`);
+  } else {
+    sections.push(`以下是网页正文（Markdown）：\n\n${body.text}`);
+  }
+  return sections;
+}
+
+function videoAiSections(ctx, notices) {
   const subtitle = sampleAiSubtitle(ctx.subtitleMarkdown);
-  const trimmed = trimAiHistory(history);
-  const notices = [];
-  // The side panel only sends video contexts.
   const sections = [
     `你是一个视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
     `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
@@ -967,6 +1036,15 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
       .join("\n");
     sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${block}`);
   }
+  return sections;
+}
+
+// Returns the request messages plus notices for the user about what was cut to fit.
+function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
+  const ctx = context || {};
+  const trimmed = trimAiHistory(history);
+  const notices = [];
+  const sections = ctx.isVideoContext === false ? pageAiSections(ctx, notices) : videoAiSections(ctx, notices);
   const customSystemPrompt = normalizeAiSystemPrompt(systemPrompt);
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);

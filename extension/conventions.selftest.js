@@ -13,7 +13,7 @@
 //   6. Page paths and the file-name rule are MdgCommon's (ARCHITECTURE: common.js).
 // Fails on any hit of 1, 2a, 2b, 3c, 3d and 6. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
 // line that matches no hit (its reason no longer holds). Sections marked (允许) only list.
-// Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, every dev/ folder and dev-sidepanel/ (mocks, the
+// Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, vendor/ (third-party code), every dev/ folder and dev-sidepanel/ (mocks, the
 // build script and its generated index.html), *.mjs, messages.js (the message list, messages.selftest.js), and per check
 // the file that owns the convention (settings.js, limits.js, errors.js, the helpers' own bodies).
 const fs = require("fs");
@@ -27,7 +27,7 @@ const files = [];
   for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
     const rel = path.join(dir, e.name);
     if (e.isDirectory()) {
-      if (!/^dev/.test(e.name)) walk(rel);
+      if (!/^(dev|vendor$)/.test(e.name)) walk(rel);
     } else if (/\.(js|html)$/.test(e.name) && !e.name.endsWith(".selftest.js") && rel !== "messages.js") files.push(rel);
   }
 })(".");

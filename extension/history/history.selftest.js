@@ -327,6 +327,23 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   }
 
 
+  // A web page's conversations group under its page key (MdgSites.buildContextKey): one entry, its title linking the
+  // page, no 备注 (备注 belong to videos), and 继续问 off with why.
+  {
+    const pageKey = ctx.MdgSites.buildContextKey({ url: "https://example.com/post#top" });
+    assert.strictEqual(pageKey, "page:https://example.com/post");
+    const page = { url: "https://example.com/post", title: "一篇文章", isVideoContext: false };
+    const pageConv = (id, updatedAt) => ({ id, contextKey: pageKey, title: page.title, contextTitle: page.title, contextUrl: page.url, contextRef: page, isVideoContext: false, createdAt: updatedAt, updatedAt, messages: [{ role: "user", content: `问${id}` }, { role: "assistant", content: `答${id}` }] });
+    store.mdg_ai_conversations_v1 = [pageConv("w1", 5), pageConv("w2", 6)];
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    const entries = html.split("<article").slice(1).filter((a) => a.includes("example.com/post"));
+    assert.strictEqual(entries.length, 1, "one entry for the page");
+    assert.ok(entries[0].includes('href="https://example.com/post"') && entries[0].includes("一篇文章") && entries[0].includes("2 段对话"), entries[0]);
+    assert.ok(!entries[0].includes('data-act="note"') && entries[0].includes("data-no-video"), entries[0]);
+    assert.match(els.count.textContent, /个视频、1 个网页 · 对话 2\//);
+  }
+
   // B7: several entries download as one file dated by the local day, not UTC.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name) => saved.push(name) };
@@ -334,7 +351,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   vm.runInContext("Date = class extends Date { constructor(...a) { a.length ? super(...a) : super(2026, 9, 14, 7, 30); } }", ctx);
   (L.bulkMd.click || []).forEach((f) => f({}));
   ctx.Date = RealDate;
-  assert.deepStrictEqual(saved, ["MoonDigest视频记录-2026-10-14.md"]);
+  assert.deepStrictEqual(saved, ["MoonDigest摘读记录-2026-10-14.md"]);
 
   console.log("history selftest: all passed");
 })().catch((e) => {

@@ -80,6 +80,10 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   assert.deepStrictEqual(fetched, [], "a web page is not read");
   assert.strictEqual(ctx.el.status.textContent, why);
   assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
+  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.readingViewBtn.disabled], [false, true], "AI 总结 opens the side panel on a web page");
+  ctx.getActiveTab = async () => ({ id: 1, url: "chrome://extensions/" });
+  await ctx.init();
+  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title], [true, why], "not on a page the side panel cannot read");
   vm.runInContext("onVideoPage = true", ctx);
 })().catch((e) => (console.error(e), process.exit(1)));
 

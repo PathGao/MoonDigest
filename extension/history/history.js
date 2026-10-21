@@ -28,7 +28,7 @@ for (const type of ["pointerup", "pointercancel"]) document.addEventListener(typ
 const esc = MdgErrors.escapeHtml;
 const formatTime = (value) => new Date(Number(value) || 0).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-// One entry per video: the side panel's contextKey (site|videoId|cid) is how it ties a conversation to a video.
+// One entry per video or web page: the side panel's contextKey (MdgSites.buildContextKey) ties a conversation to it.
 function groupByVideo(items) {
   const byKey = new Map();
   for (const item of items) {
@@ -180,7 +180,7 @@ function render() {
           </div>
         </article>`;
       }).join("")
-    : `<p class="empty">${allGroups.length ? "没有匹配的视频" : "还没有视频记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频记在这里。"}</p>`;
+    : `<p class="empty">${allGroups.length ? "没有匹配的视频或网页" : "还没有摘读记录。在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。"}</p>`;
   rendering = false;
   // 继续问 on a record that is not a video: off with why, the page's one way (setReason).
   for (const b of els.list.querySelectorAll("[data-no-video]")) setReason(b, MdgErrors.TEXT.notVideo);
@@ -282,7 +282,7 @@ function downloadGroups(groups) {
     MdgDownload.text(notes[0].filename, notes[0].content);
   } else {
     const body = notes.map((n) => `# ${n.filename.replace(/\.md$/i, "")}\n\n${n.content.replace(/^---\n([\s\S]*?)\n---\n/, "```yaml\n$1\n```\n")}`);
-    MdgDownload.text(`MoonDigest视频记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
+    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate()}.md`, body.join("\n\n"));
   }
   setStatus(`已下载 ${groups.length} 个视频的记录`);
 }

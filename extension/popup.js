@@ -58,6 +58,8 @@ async function init() {
   // A web page has nothing to read: say so instead of a failed fetch.
   if (!onVideoPage) {
     syncTools(null, false);
+    // The side panel reads an ordinary web page too (it asks for the site's permission there).
+    if (/^https?:\/\//i.test(tab?.url || "")) setDisabledReason(el.summaryBtn, "");
     setDisabledReason(el.refreshBtn, NOT_VIDEO_PAGE);
     setStatus(NOT_VIDEO_PAGE);
     return;
@@ -129,7 +131,7 @@ function bindEvents() {
   });
 
   el.readingViewBtn?.addEventListener("click", async () => {
-    // A web page has this and AI 总结 disabled (syncTools), so the tab is a video page here.
+    // A web page has this disabled (syncTools), so the tab is a video page here.
     const tab = await getActiveTab();
     setStatus("正在打开专注模式…", false, true);
     setBusy(el.readingViewBtn, true, "打开中…");
@@ -292,7 +294,7 @@ function syncTools(payload, onVideoPage = true) {
   const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");
   setDisabledReason(el.readingViewBtn, pageReason);
-  // A web page has no video to summarize; no AI platform still leaves it usable (the side panel offers 去设置).
+  // No AI platform still leaves it usable (the side panel offers 去设置); init enables it on an http(s) web page.
   setDisabledReason(el.summaryBtn, pageReason);
   setDisabledReason(el.copyBtn, contentReason);
   setDisabledReason(el.mdBtn, contentReason);

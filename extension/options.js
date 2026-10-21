@@ -165,7 +165,7 @@ function init() {
   document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
   for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
-  // Focuses an open triage or 视频记录 tab instead of a second one.
+  // Focuses an open triage or 摘读记录 tab instead of a second one.
   for (const [page, type] of [[MdgCommon.PAGES.triage, "triage-open"], [MdgCommon.PAGES.history, "history-open"]]) {
     document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
       event.preventDefault();

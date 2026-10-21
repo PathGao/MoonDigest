@@ -15,6 +15,8 @@ const types = (effects) => [...effects].map((e) => e.type);
 const v = (id) => `https://www.bilibili.com/video/${id}/`;
 const video = (id, extra) => ({ url: v(id), title: `t-${id}`, site: "bilibili", videoId: id, cid: `c-${id}`, isVideoContext: true, subtitleMarkdown: "s", ...extra });
 const web = { url: "https://example.com/a", title: "web", isVideoContext: false };
+// A page that can never be read (chrome://, an extension page): not followed.
+const blank = { url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" };
 const saved = (id, ctxt, messages = [{ role: "user", content: `q-${id}` }, { role: "assistant", content: `a-${id}` }], updatedAt = 1) => ({
   id,
   title: ctxt.title,
@@ -192,7 +194,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   // An ended reply with an answer saves the conversation with the context it was asked in, even after the tab moved.
   const f = panel();
   f.ask("q");
-  f.load(web, { follow: true });
+  f.load(blank, { follow: true });
   assert.strictEqual(f.view().context.url, v("BV1aa"), "a reply in flight keeps its context");
   assert.deepStrictEqual(types(f.dispatch({ type: "STREAM_ENDED", raw: "a" })), ["save", "autoSync"]);
   assert.deepStrictEqual([f.view().pinned.contextUrl, f.view().context.url, f.view().messages.length], [v("BV1aa"), v("BV1aa"), 2]);
@@ -262,7 +264,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([r.view().id, r.view().context.subtitleMarkdown], ["b", "s"]);
 }
 {
-  // AI 总结 with a reference (分拣台, 视频记录): a saved conversation for that video opens and nothing fills; else a new
+  // AI 总结 with a reference (分拣台, 摘读记录): a saved conversation for that video opens and nothing fills; else a new
   // conversation bound to the video, pending until it resolves, gets the prompt after the resolve.
   const ref = S.buildConversationContextRef(video("BV1zz"));
   const p = panel({ tab: { url: "chrome-extension://x/triage/triage.html", title: "分拣台", isVideoContext: false } });
@@ -425,7 +427,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
 
 {
   // C329: a save merges by entry into the stored list. Kept: each entry's newer version, what this page created; gone:
-  // what this page deleted, and what only this page still has because another page (视频记录) deleted it.
+  // what this page deleted, and what only this page still has because another page (摘读记录) deleted it.
   const c = (id, updatedAt) => ({ ...saved(id, video(`BV1${id}`)), updatedAt });
   const ids = (list) => [...list].map((x) => `${x.id}@${x.updatedAt}`).sort();
   const merged = S.mergeSaved([c("a", 1), c("b", 1), c("o", 5)], [c("a", 2), c("b", 1), c("o", 3), c("x", 1), c("n", 1)], { created: new Set(["n"]), deleted: new Set(["b"]) });
@@ -441,7 +443,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([[...p.view().unsaved.created], [...p.view().unsaved.deleted]], [[mine], ["b"]]);
   p.dispatch({ type: "SAVED_WRITTEN", created: new Set([mine]), deleted: new Set(["b"]) });
   p.dispatch({ type: "SAVED_CHANGED", list: [c("a", 1)] });
-  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 视频记录: gone here too");
+  assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 摘读记录: gone here too");
 }
 
 console.log("sidepanel-state selftest: all passed");

@@ -137,6 +137,10 @@ assert.strictEqual(S.subtitleCache.key({ videoId: "v", subtitleId: "1" }), S.sub
 assert.strictEqual(S.buildContextKey({ site: "bilibili", videoId: "BV1", cid: "9" }), "video:bilibili:BV1|9");
 assert.strictEqual(S.buildContextKey({ site: "youtube", videoId: "abc" }), "video:youtube:abc|");
 assert.strictEqual(S.buildContextKey({}), "");
+// A web page's key is its URL without the #fragment; a video keeps its own key even with a URL (stored keys never change).
+assert.strictEqual(S.buildContextKey({ url: "https://example.com/a?x=1#part" }), "page:https://example.com/a?x=1");
+assert.strictEqual(S.buildContextKey({ site: "bilibili", videoId: "BV1", cid: "9", url: "https://www.bilibili.com/video/BV1" }), "video:bilibili:BV1|9");
+assert.strictEqual(S.buildContextKey(S.contextRef({ url: "https://example.com/a", isVideoContext: false })), "page:https://example.com/a");
 
 // YouTube URLs
 for (const url of [

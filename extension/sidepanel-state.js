@@ -5,30 +5,10 @@
 (() => {
   // ---- contexts and saved conversations ----
 
+  // A video part's key or a web page's (MdgSites.buildContextKey). Conversations saved with the older url: keys get the
+  // page key when they are read (resolveConversationStorageKey).
   function buildContextKey(payload) {
-    if (!payload) {
-      return "";
-    }
-    const videoKey = MdgSites.buildContextKey(buildConversationContextRef(payload) || {});
-    if (videoKey) {
-      return videoKey;
-    }
-    const normalizedUrl = normalizeContextUrlForKey(payload.url);
-    return normalizedUrl ? `url:${normalizedUrl}` : "";
-  }
-
-  function normalizeContextUrlForKey(value) {
-    const text = String(value || "").trim();
-    if (!text) {
-      return "";
-    }
-    try {
-      const parsed = new URL(text);
-      parsed.hash = "";
-      return `${parsed.origin}${parsed.pathname}`;
-    } catch {
-      return text;
-    }
+    return payload ? MdgSites.buildContextKey(buildConversationContextRef(payload)) : "";
   }
 
   const buildConversationContextRef = (context) => (context && typeof context === "object" ? MdgSites.contextRef(context) : null);
@@ -382,7 +362,7 @@
 
   // This page's saved list merged by entry into a stored one (a save writes it; a change another page stored is read
   // through it). Each stored entry stays in its newer version (this page's on a tie), except the ones deleted here; one
-  // only this page has stays only when it was created here, since another page (视频记录, another window's panel)
+  // only this page has stays only when it was created here, since another page (摘读记录, another window's panel)
   // deleted the rest. created / deleted: the ids this page made or deleted and has not written yet (s.unsaved).
   function mergeSaved(stored, local, { created = new Set(), deleted = new Set() } = {}) {
     const mine = new Map(normalizeConversations(local).map((c) => [c.id, c]));
@@ -447,7 +427,7 @@
   }
 
   // AI 总结 (popup, player ✦, 专注模式, 分拣台's viewer) on a video that already has a conversation opens its latest
-  // one; only a video without one gets the summary prompt. A reference (分拣台, 视频记录) names a video that is not the
+  // one; only a video without one gets the summary prompt. A reference (分拣台, 摘读记录) names a video that is not the
   // tab's: its conversation, or a new one bound to it, so the prompt never lands on the tab's own page.
   function summary(s, { prompt, ref }) {
     if (ref) {
@@ -505,7 +485,8 @@
         const keyChanged = contextKeyChanges(s, payload);
         const fillsShown = Boolean(shown(s)?.pending && key === shownKey(s));
         s.live = { ...s.live, context: payload, key, error: "" };
-        const toUrl = payload.isVideoContext !== false && MdgSites.buildContextKey(buildConversationContextRef(payload)) ? partUrl(payload) : "";
+        // A web page is followed like a video; a page that can never be read (chrome://, an extension page) is not.
+        const toUrl = key && payload.pageAccess !== "unsupported" ? partUrl(payload) : "";
         const decision = decideFollow(before, { stage: "payload", toUrl, follow: event.follow, keyChanged, fillsShown });
         s.live.lastVideoUrl = decision.lastVideoUrl;
         if (decision.action === "follow") {

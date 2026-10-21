@@ -60,7 +60,8 @@ module.exports = { read, text, runtimes, scripts, own, shipped, pageCode, triage
 
 if (require.main === module) {
   // messages.js is the message list messages.selftest.js checks; it is not shipped.
-  const files = all.filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && !isDev(f) && f !== "messages.js");
+  // vendor/defuddle.js is injected into web pages on demand (background.js readWebPage), by no runtime's list.
+  const files = all.filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && !isDev(f) && f !== "messages.js" && f !== "vendor/defuddle.js");
   assert.deepStrictEqual(files.filter((f) => !shipped.includes(f)), [], "every shipped script is loaded by some runtime");
   assert.deepStrictEqual(own("popup.html"), ["popup.js"]);
   assert.deepStrictEqual(own("content.js"), ["content.js"], "both content.js entries are one runtime");

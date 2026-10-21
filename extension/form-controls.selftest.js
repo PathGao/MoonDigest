@@ -7,7 +7,8 @@ const files = [];
 const walk = (dir) => {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(file);
+    // vendor/: third-party code, not our pages.
+    if (entry.isDirectory()) entry.name !== "vendor" && walk(file);
     else if (/\.(html|js)$/.test(entry.name) && !entry.name.endsWith(".selftest.js")) files.push(file);
   }
 };
