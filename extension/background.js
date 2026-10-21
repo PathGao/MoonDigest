@@ -771,6 +771,9 @@ function normalizeSyncSettings(settings) {
   merged.notePlaceholderSections = MdgSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
   merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
   merged.aiPresetPrompts = MdgSettings.normalizeAiPresetPrompts(merged.aiPresetPrompts);
+  merged.webAiSystemPrompt = toString(merged.webAiSystemPrompt).trim();
+  merged.webAiSummaryPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt);
+  merged.webAiPresetPrompts = MdgSettings.normalizeAiPresetPrompts(merged.webAiPresetPrompts);
   return merged;
 }
 
@@ -790,7 +793,12 @@ async function getMergedSettings() {
 // chrome.storage.sync keeps at most 8 KB per setting (its key plus its JSON, in UTF-8 bytes; QUOTA_BYTES_PER_ITEM):
 // about 2700 汉字. Past it Chrome refuses the whole save in English without naming the setting, so it is checked first.
 const SYNC_ITEM_BYTES = 8192;
-const SYNC_ITEM_NAMES = Object.fromEntries(["aiSystemPrompt", "playerAiQuickPrompt", "aiPresetPrompts", "fixedFrontmatterProperties", "notePlaceholderSections"].map((k) => [k, MdgErrors.LABEL[k]]));
+const SYNC_ITEM_NAMES = {
+  ...Object.fromEntries(["aiSystemPrompt", "playerAiQuickPrompt", "aiPresetPrompts", "fixedFrontmatterProperties", "notePlaceholderSections"].map((k) => [k, MdgErrors.LABEL[k]])),
+  webAiSystemPrompt: `网页的${MdgErrors.LABEL.aiSystemPrompt}`,
+  webAiSummaryPrompt: `网页的${MdgErrors.LABEL.playerAiQuickPrompt}`,
+  webAiPresetPrompts: `网页的${MdgErrors.LABEL.aiPresetPrompts}`
+};
 const oversizedSyncItem = (payload) => Object.keys(payload).find((k) => k.length + new TextEncoder().encode(JSON.stringify(payload[k])).length > SYNC_ITEM_BYTES) || "";
 // Saving and importing both check before sync.set.
 function checkSyncItems(payload) {
@@ -986,15 +994,6 @@ function trimAiHistory(history) {
   return { messages: items.slice(start), dropped: start };
 }
 
-// The default 系统提示词 is written for videos (字幕与评论, 时间戳); on a web page its words become the page's. A prompt the
-// user wrote goes as written.
-const PAGE_DEFAULT_SYSTEM_PROMPT = MdgSettings.DEFAULTS.aiSystemPrompt
-  .replace("视频内容分析助手", "网页阅读助手")
-  .replace("基于字幕与评论", "基于网页正文")
-  .split("\n")
-  .filter((line) => !line.includes("时间戳"))
-  .join("\n");
-
 // A web page the side panel read (pageAccess ready): its main text, sampled like a long subtitle.
 function pageAiSections(ctx, notices) {
   const body = sampleAiSubtitle(ctx.pageMarkdown);
@@ -1056,8 +1055,8 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const trimmed = trimAiHistory(history);
   const notices = [];
   const sections = ctx.isVideoContext === false ? pageAiSections(ctx, notices) : videoAiSections(ctx, notices);
-  const own = normalizeAiSystemPrompt(systemPrompt);
-  const customSystemPrompt = ctx.isVideoContext === false && own === MdgSettings.DEFAULTS.aiSystemPrompt ? PAGE_DEFAULT_SYSTEM_PROMPT : own;
+  // The side panel sends the set of the context's kind: webAiSystemPrompt for a page, aiSystemPrompt for a video.
+  const customSystemPrompt = normalizeAiSystemPrompt(systemPrompt);
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);
   }

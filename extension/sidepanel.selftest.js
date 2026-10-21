@@ -575,19 +575,23 @@ const chatOn = (context) => {
     assert.deepStrictEqual(sendFor({ url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" }), [true, "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页"]);
     // A page conversation shown without its page (no pageAccess: opened from the list) is only read.
     assert.deepStrictEqual(sendFor(web("h14")), [true, "打开这个网页后才能继续问"]);
-    // F2: the 快捷追问 chips on a page: the page's defaults while the user's list is the default, else the user's.
+    // The two sets of AI texts: a page reads the web* keys, a video the original ones, whatever their values.
     {
       const prefs = vm.runInContext("aiPrefs", ctx);
-      const was = prefs.aiPresetPrompts;
-      prefs.aiPresetPrompts = [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts];
+      const was = { ...prefs };
+      Object.assign(prefs, { aiSystemPrompt: "视频规则", playerAiQuickPrompt: "视频总结", aiPresetPrompts: ["视频追问"], webAiSystemPrompt: "网页规则", webAiSummaryPrompt: "网页总结", webAiPresetPrompts: ["网页追问"] });
+      const pick = () => JSON.parse(vm.runInContext("JSON.stringify([presetPrompts(), summaryPrompt(state.view().context), systemPromptFor(state.view().context), presetKey()])", ctx));
       show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
-      assert.deepStrictEqual([...ctx.followupPrompts()], ["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
-      prefs.aiPresetPrompts = ["我的追问"];
-      assert.deepStrictEqual([...ctx.followupPrompts()], ["我的追问"], "the user's own list");
-      prefs.aiPresetPrompts = [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts];
+      assert.deepStrictEqual(pick(), [["网页追问"], "网页总结", "网页规则", "webAiPresetPrompts"]);
       show(video);
-      assert.deepStrictEqual([...ctx.followupPrompts()], [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts], "a video keeps the defaults");
-      prefs.aiPresetPrompts = was;
+      assert.deepStrictEqual(pick(), [["视频追问"], "视频总结", "视频规则", "aiPresetPrompts"]);
+      // Defaults are no exception: the page shows the web defaults, never the video ones.
+      Object.assign(prefs, { aiPresetPrompts: [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts], webAiPresetPrompts: [...ctx.MdgSettings.DEFAULTS.webAiPresetPrompts] });
+      state.dispatch({ type: "NEW" });
+      show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
+      assert.deepStrictEqual(pick()[0], [...ctx.MdgSettings.DEFAULTS.webAiPresetPrompts]);
+      Object.assign(prefs, was);
+      show(video);
     }
     // autoSend sends the prompt only while the input still holds it as filled.
     {
@@ -602,10 +606,6 @@ const chatOn = (context) => {
       els.input.value = "";
       ctx.sendMessage = realSendMessage;
     }
-    // AI 总结 on a page: the default prompt (it names a video) becomes the page's; the user's own prompt is kept.
-    const def = ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt;
-    assert.strictEqual(ctx.summaryPrompt(def, web("x")), "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。");
-    assert.deepStrictEqual([ctx.summaryPrompt("我的要求", web("x")), ctx.summaryPrompt(def, video)], ["我的要求", def]);
     // 复制 Markdown / 下载 .md of a read page: the page note (body + AI 问答), named like a video note.
     const realSendNote = ctx.sendRuntimeMessage;
     ctx.sendRuntimeMessage = async () => ({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, includeDateInFilename: false } });

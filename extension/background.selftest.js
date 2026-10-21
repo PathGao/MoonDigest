@@ -297,12 +297,18 @@ process.on("exit", (code) => {
   assert.match(pageSystem, /以下是额外系统要求：\n自定义要求/);
   assert.doesNotMatch(pageSystem, /字幕|评论|视频/);
   assert.deepStrictEqual([...pageAsk.notices], []);
-  // The default 系统提示词 speaks of videos: on a page it is the page's version, with its other rules kept.
-  const pageDefault = ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: ctx.MdgSettings.DEFAULTS.aiSystemPrompt }).messages[0].content;
-  assert.match(pageDefault, /以下是额外系统要求：\n你是一名专业的网页阅读助手。\n基于网页正文提炼高价值信息/);
-  assert.match(pageDefault, /不得猜测或编造/);
-  assert.doesNotMatch(pageDefault, /字幕|视频|时间戳/);
-  assert.ok(ctx.buildAiMessages({ context: { isVideoContext: true, subtitleMarkdown: "字幕" }, userPrompt: "q", systemPrompt: ctx.MdgSettings.DEFAULTS.aiSystemPrompt }).messages[0].content.includes(ctx.MdgSettings.DEFAULTS.aiSystemPrompt), "a video keeps it");
+  // The system prompt goes as the side panel sent it (the set of the context's kind), never swapped here.
+  const { webAiSystemPrompt, aiSystemPrompt } = ctx.MdgSettings.DEFAULTS;
+  const pageDefault = ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: webAiSystemPrompt }).messages[0].content;
+  assert.ok(pageDefault.endsWith(`以下是额外系统要求：\n${webAiSystemPrompt}`), pageDefault);
+  assert.doesNotMatch(webAiSystemPrompt, /字幕|视频|时间戳/, "the web default is written for pages");
+  assert.ok(ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt), "no swap: what was sent is used");
+  assert.ok(ctx.buildAiMessages({ context: { isVideoContext: true, subtitleMarkdown: "字幕" }, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt));
+  // The web set is normalized like the video set: trimmed, 快捷追问 deduplicated and capped, missing ones defaulted.
+  const norm = ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiSystemPrompt: "  规则  ", webAiSummaryPrompt: " 总结 ", webAiPresetPrompts: ["a", "a", " ", ...Array.from({ length: 20 }, (_, i) => `q${i}`)] });
+  assert.deepStrictEqual([norm.webAiSystemPrompt, norm.webAiSummaryPrompt, norm.webAiPresetPrompts.length, norm.webAiPresetPrompts[0]], ["规则", "总结", ctx.MdgSettings.MAX_PRESET_PROMPTS, "a"]);
+  assert.deepStrictEqual([...ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiPresetPrompts: "x" }).webAiPresetPrompts], []);
+  assert.throws(() => ctx.checkSyncItems({ webAiSystemPrompt: "字".repeat(3000) }), /网页的系统提示词太长/);
   const longPage = ctx.buildAiMessages({ context: { ...pageCtx, pageMarkdown: Array.from({ length: 4000 }, (_, i) => `第 ${i} 行 ${"字".repeat(40)}`).join("\n") }, userPrompt: "q" });
   assert.ok(longPage.messages[0].content.length < 62000);
   assert.match(longPage.messages[0].content, /全文过长，均匀抽取了约 1\/\d+ 的行/);

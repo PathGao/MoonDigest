@@ -21,11 +21,6 @@ const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const PAGE_INTRO = "AI 会读这篇网页的正文，回答你的问题。";
 const PAGE_GRANT_TEXT = "读取网页正文要先允许一次，之后所有网页都能直接读";
-// The default AI 总结要求 names a video; on a web page the same request is made for the page. A prompt the user wrote is
-// theirs and goes as written.
-const PAGE_SUMMARY_PROMPT = "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
-// The default 快捷追问 name videos (时间、评论、章节); a page shows these while the user's list is still the default.
-const PAGE_PRESET_PROMPTS = Object.freeze(["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
@@ -267,6 +262,9 @@ function bindEvents() {
           changes.aiSystemPrompt ||
           changes.playerAiQuickPrompt ||
           changes.aiPresetPrompts ||
+          changes.webAiSystemPrompt ||
+          changes.webAiSummaryPrompt ||
+          changes.webAiPresetPrompts ||
           changes.obsidianEnabled)) ||
       (areaName === "local" && changes[MdgLimits.KEYS.aiApiKeys])
     ) {
@@ -325,9 +323,13 @@ function grantPageAccess() {
   void asked.then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
 }
 
-function summaryPrompt(prompt, context) {
-  return context?.isVideoContext === false && String(prompt || "").trim() === MdgSettings.DEFAULTS.playerAiQuickPrompt ? PAGE_SUMMARY_PROMPT : prompt;
-}
+// The AI texts come in two sets the user edits (DESIGN): the web* keys on a web page, the original keys on a video.
+const isPage = (context) => context?.isVideoContext === false;
+const summaryPrompt = (context) => (isPage(context) ? aiPrefs.webAiSummaryPrompt : aiPrefs.playerAiQuickPrompt);
+const systemPromptFor = (context) => (isPage(context) ? aiPrefs.webAiSystemPrompt : aiPrefs.aiSystemPrompt);
+// The 快捷追问 list of the shown context's kind, and the setting it is saved under.
+const presetKey = () => (isPage(state.view().context) ? "webAiPresetPrompts" : "aiPresetPrompts");
+const presetPrompts = () => aiPrefs[presetKey()] || [];
 
 function setStreamingUiState(isStreaming, { stopping = false } = {}) {
   const blocked = isStreaming ? "" : readOnlyReason();
@@ -367,8 +369,8 @@ async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   renderFollowups();
 }
 
-function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts }) {
-  return { aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts: [...aiPresetPrompts] };
+function aiPrefsOf({ aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts, webAiSystemPrompt, webAiSummaryPrompt, webAiPresetPrompts }) {
+  return { aiSystemPrompt, playerAiQuickPrompt, aiPresetPrompts: [...aiPresetPrompts], webAiSystemPrompt, webAiSummaryPrompt, webAiPresetPrompts: [...(webAiPresetPrompts || [])] };
 }
 
 function renderModelSelect(preferredProviderId = "") {
@@ -471,7 +473,7 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
   // A reference (分拣台, 摘读记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
   if (!request.contextRef) await loadContextState({ silent: true });
   else if (request.frameId) viewerFrame = { tabId: request.tabId, frameId: request.frameId, videoId: String(request.contextRef.videoId || "") };
-  await act({ type: "SUMMARY", prompt: request.contextRef ? request.prompt : summaryPrompt(request.prompt, state.view().live.context), ref: request.contextRef });
+  await act({ type: "SUMMARY", prompt: !request.contextRef && isPage(state.view().live.context) ? aiPrefs.webAiSummaryPrompt : request.prompt, ref: request.contextRef });
   return true;
 }
 
@@ -814,7 +816,7 @@ function suggestionsContent() {
     return { html: `<p class="sp-empty-intro" aria-busy="true">${MdgErrors.TEXT.subtitleReading}</p>` };
   }
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
-  const prompt = summaryPrompt(aiPrefs.playerAiQuickPrompt, context);
+  const prompt = summaryPrompt(context);
   const ref = buildConversationContextRef(context);
   return {
     html: `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
@@ -901,18 +903,11 @@ function followupBlockReason() {
   return "";
 }
 
-// The chips above the input: the user's 快捷追问, or on a web page the page's defaults in place of the video defaults.
-function followupPrompts() {
-  const own = aiPrefs.aiPresetPrompts || [];
-  const isDefault = JSON.stringify(own) === JSON.stringify(MdgSettings.DEFAULTS.aiPresetPrompts);
-  return isDefault && state.view().context?.isVideoContext === false ? PAGE_PRESET_PROMPTS : own;
-}
-
 function renderFollowups() {
   if (!els.followups) {
     return;
   }
-  const prompts = followupPrompts();
+  const prompts = presetPrompts();
   const reason = followupBlockReason();
   const collapsible = prompts.length > FOLLOWUP_PREVIEW + 1;
   const visible = collapsible && !followupsExpanded ? prompts.slice(0, FOLLOWUP_PREVIEW) : prompts;
@@ -978,7 +973,7 @@ function renderPresetPrompts() {
     return;
   }
   syncPresetAdd();
-  const prompts = Array.isArray(aiPrefs.aiPresetPrompts) ? aiPrefs.aiPresetPrompts : [];
+  const prompts = presetPrompts();
   if (!prompts.length) {
     els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
     return;
@@ -1314,8 +1309,8 @@ function presetAddReason() {
   if (settingsReadFailed) return PRESETS_UNREAD;
   const text = String(els.presetInput.value || "").trim();
   if (!text) return "先输入快捷追问";
-  if ((aiPrefs.aiPresetPrompts || []).includes(text)) return "已有这条快捷追问";
-  const full = (aiPrefs.aiPresetPrompts || []).length >= MdgSettings.MAX_PRESET_PROMPTS;
+  if (presetPrompts().includes(text)) return "已有这条快捷追问";
+  const full = presetPrompts().length >= MdgSettings.MAX_PRESET_PROMPTS;
   return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
 }
 function syncPresetAdd() {
@@ -1349,20 +1344,23 @@ async function removePresetPrompt(prompt) {
 // prompt it was drawn for, and the first removal stays.
 let presetWrites = Promise.resolve();
 function editPresetPrompts(change) {
-  const run = presetWrites.then(() => persistAiPresetPrompts(change(aiPrefs.aiPresetPrompts || [])));
+  const run = presetWrites.then(() => {
+    const key = presetKey();
+    return persistAiPresetPrompts(key, change(aiPrefs[key] || []));
+  });
   presetWrites = run.catch(() => false);
   return run;
 }
 
 // save-settings keeps the keys it is not sent. The list changes only once it is saved; a refusal (the sync storage
 // full, say) leaves it and the typed text as they were and says why. False then.
-async function persistAiPresetPrompts(prompts) {
-  const resp = await sendRuntimeMessage({ type: "save-settings", settings: { aiPresetPrompts: prompts } }).catch((error) => ({ ok: false, error: error.message }));
+async function persistAiPresetPrompts(key, prompts) {
+  const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [key]: prompts } }).catch((error) => ({ ok: false, error: error.message }));
   if (!resp?.ok) {
     showConversationContextNotice(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, NOTICE_LONG_MS, { error: true });
     return false;
   }
-  aiPrefs.aiPresetPrompts = prompts;
+  aiPrefs[key] = prompts;
   return true;
 }
 
@@ -1710,7 +1708,7 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
     providerId,
     context: {
       ...context,
-      aiSystemPrompt: aiPrefs.aiSystemPrompt
+      aiSystemPrompt: systemPromptFor(context)
     },
     prompt: text,
     history: state.view().messages
