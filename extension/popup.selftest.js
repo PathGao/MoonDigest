@@ -12,7 +12,9 @@ const button = () => {
   const on = {};
   return { disabled: false, title: "", dataset: {}, attrs, on, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
-const ctx = vm.createContext({ document: { getElementById: button } });
+const body = { classes: new Set() };
+body.classList = { add: (c) => body.classes.add(c), toggle() {} };
+const ctx = vm.createContext({ URL, document: { getElementById: button, body } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
@@ -71,19 +73,23 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   const fetched = [];
   Object.assign(ctx, {
     bindEvents() {},
-    getActiveTab: async () => ({ id: 1, url: "https://example.com/" }),
+    getActiveTab: async () => ({ id: 1, url: "https://example.com/post", title: "一篇文章" }),
     getSettingsFromRuntime: async () => ({}),
     refreshFromTab: async () => fetched.push(1)
   });
   await ctx.init();
   const why = ctx.MdgErrors.TEXT.notVideoPage;
   assert.deepStrictEqual(fetched, [], "a web page is not read");
-  assert.strictEqual(ctx.el.status.textContent, why);
-  assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
-  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.readingViewBtn.disabled], [false, true], "AI 总结 opens the side panel on a web page");
+  // F1: an ordinary web page says what it is and what works there; the video tools are hidden, AI 总结 works.
+  assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.videoTitle.textContent, ctx.el.videoMeta.textContent], ["网页：AI 总结在侧边栏读正文", "一篇文章", "example.com"]);
+  assert.ok(body.classes.has("web-page"), "the video tools are hidden");
+  assert.strictEqual(ctx.el.summaryBtn.disabled, false, "AI 总结 opens the side panel on a web page");
+  body.classes.clear();
   ctx.getActiveTab = async () => ({ id: 1, url: "chrome://extensions/" });
   await ctx.init();
-  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title], [true, why], "not on a page the side panel cannot read");
+  assert.strictEqual(ctx.el.status.textContent, why);
+  assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
+  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title, body.classes.has("web-page")], [true, why, false], "not on a page the side panel cannot read");
   vm.runInContext("onVideoPage = true", ctx);
 })().catch((e) => (console.error(e), process.exit(1)));
 
