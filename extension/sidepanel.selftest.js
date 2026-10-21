@@ -562,18 +562,32 @@ const chatOn = (context) => {
     assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [false, ""]);
     // A web page by its pageAccess (background.js readWebPage): only a page whose main text was read can be asked about.
     const sendFor = (payload) => (show(payload), ctx.setStreamingUiState(false), [els.sendBtn.disabled, els.sendBtn.title]);
-    assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "needPermission" }), [true, "还没有读取 example.com 网页的权限"]);
+    const GRANT = "读取网页正文要先允许一次，之后所有网页都能直接读";
+    assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "needPermission" }), [true, GRANT]);
     assert.strictEqual(view().nonVideo, true);
     // K2: the quick prompts say the same as 发送.
-    assert.strictEqual(vm.runInContext("providers = [{}]; followupBlockReason()", ctx), "还没有读取 example.com 网页的权限");
-    // 读取此页 granted: the same page read again is ready, and 发送 unlocks.
+    assert.strictEqual(vm.runInContext("providers = [{}]; followupBlockReason()", ctx), GRANT);
+    // 允许读取网页 granted: the same page read again is ready, and 发送 unlocks.
     assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "ready", pageMarkdown: "正文" }), [false, ""]);
-    // No URL: Chrome hides it until the site is granted or the toolbar icon is clicked.
-    assert.deepStrictEqual(sendFor({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }), [true, "看不到这个标签页的网址：点浏览器工具栏上的 MoonDigest 图标，再点「AI 总结」"]);
+    // No URL (Chrome hides it before the grant): the same one-time grant.
+    assert.deepStrictEqual(sendFor({ url: "", title: "", isVideoContext: false, pageAccess: "needPermission" }), [true, GRANT]);
     assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "failed", pageError: "没有找到正文" }), [true, "读取网页失败：没有找到正文"]);
     assert.deepStrictEqual(sendFor({ url: "chrome://newtab/", title: "新标签页", isVideoContext: false, pageAccess: "unsupported" }), [true, "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页"]);
     // A page conversation shown without its page (no pageAccess: opened from the list) is only read.
     assert.deepStrictEqual(sendFor(web("h14")), [true, "打开这个网页后才能继续问"]);
+    // autoSend sends the prompt only while the input still holds it as filled.
+    {
+      const realSendMessage = ctx.sendMessage;
+      const sends = [];
+      ctx.sendMessage = async () => sends.push(els.input.value);
+      els.input.value = "整理这篇网页";
+      await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
+      els.input.value = "整理这篇网页，只要三点";
+      await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
+      assert.deepStrictEqual(sends, ["整理这篇网页"], "an edited prompt is not sent");
+      els.input.value = "";
+      ctx.sendMessage = realSendMessage;
+    }
     // AI 总结 on a page: the default prompt (it names a video) becomes the page's; the user's own prompt is kept.
     const def = ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt;
     assert.strictEqual(ctx.summaryPrompt(def, web("x")), "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。");

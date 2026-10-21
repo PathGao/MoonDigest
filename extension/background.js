@@ -171,9 +171,9 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 // A web page (not a supported video site) as a side panel context, read on demand: no content script runs there.
 // pageAccess is the one state:
 //   ready           pageMarkdown is its main text.
-//   needPermission  its origin is an optional host permission not granted yet; the side panel asks in a click. Chrome
-//                   also hides the URL of such a tab (and of chrome:// pages): url is "" until the toolbar icon is
-//                   clicked (activeTab).
+//   needPermission  web pages are not granted yet (optional host permissions; the side panel's 允许读取网页 asks for all
+//                   http(s) sites in one click). Chrome also hides the URL of such a tab (and of chrome:// pages): url is
+//                   "" unless the toolbar icon was clicked (activeTab), which the popup needs to know it is on a web page.
 //   unsupported     a URL that is not http(s): extension pages, file:.
 //   failed          pageError says why: the Web Store, an error page, no main text found.
 // ponytail: read again at every context load (tab events, each send); cache by tab and URL if parsing shows up as slow.

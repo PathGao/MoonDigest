@@ -20,6 +20,7 @@ const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = MdgLimits.KEYS.playerAiQuickAction;
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const PAGE_INTRO = "AI 会读这篇网页的正文，回答你的问题。";
+const PAGE_GRANT_TEXT = "读取网页正文要先允许一次，之后所有网页都能直接读";
 // The default AI 总结要求 names a video; on a web page the same request is made for the page. A prompt the user wrote is
 // theirs and goes as written.
 const PAGE_SUMMARY_PROMPT = "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
@@ -304,8 +305,7 @@ function pageReason(context) {
     case "ready":
       return "";
     case "needPermission":
-      // Chrome hides the URL of a site not granted yet; clicking the toolbar icon shows it (activeTab).
-      return context.url ? `还没有读取 ${new URL(context.url).hostname} 网页的权限` : "看不到这个标签页的网址：点浏览器工具栏上的 MoonDigest 图标，再点「AI 总结」";
+      return PAGE_GRANT_TEXT;
     case "unsupported":
       return "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页";
     case "failed":
@@ -315,11 +315,12 @@ function pageReason(context) {
   }
 }
 
-// 读取此页: the page's origin, asked for inside the click (permissions.request needs the user gesture, so nothing is
-// awaited before it); granted, the page is read at once.
-function grantPageAccess(url) {
-  const asked = chrome.permissions.request({ origins: [`${new URL(url).origin}/*`] }).catch(() => false);
-  void asked.then((granted) => granted && refreshContextManually());
+// 允许读取网页: every http(s) site at once (optional host permissions, like the AI platform's address), asked for inside
+// the click (permissions.request needs the user gesture, so nothing is awaited before it). Granted, the page is read at
+// once, and an AI 总结 the popup filled meanwhile goes (the autoSend effect); refused, it never goes.
+function grantPageAccess() {
+  const asked = chrome.permissions.request({ origins: ["http://*/*", "https://*/*"] }).catch(() => false);
+  void asked.then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
 }
 
 function summaryPrompt(prompt, context) {
@@ -522,6 +523,10 @@ async function runEffect(effect) {
     }
     case "fill":
       return fillPrompt(effect.prompt);
+    case "autoSend":
+      // Only the prompt as it was filled: an edit since makes it the user's to send.
+      if (els.input.value.trim() === effect.prompt.trim()) void sendMessage();
+      return;
     case "focus":
       autosizeInput();
       return els.input?.focus?.();
@@ -645,7 +650,7 @@ async function saveNote() {
 function updateContextChip() {
   void renderNote();
   renderFollowups();
-  // A page read since (读取此页, the tab back on the page) unlocks sending in a conversation that stays.
+  // A page read since (允许读取网页, the tab back on the page) unlocks sending in a conversation that stays.
   if (!activeStream) setStreamingUiState(false);
   const { context, mismatch } = state.view();
   if (!context) {
@@ -711,7 +716,7 @@ function renderInitialState() {
     return;
   }
   const blocked = context.isVideoContext === false ? pageReason(context) : "";
-  resetConversationView(escapeHtml(blocked), { grant: context.pageAccess === "needPermission" ? context.url || "" : "" });
+  resetConversationView(escapeHtml(blocked), { grant: context.pageAccess === "needPermission" });
 }
 
 // Why the tab's context could not be read (B站 限流, the extension reloaded…), as the read said.
@@ -722,10 +727,10 @@ function contextErrorHtml() {
 // The empty state drawn ([stateHtml, retry]); "" once anything else is drawn into the messages.
 let emptyStateShown = "";
 
-// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own). grant: a web
-// page's URL whose origin is not granted yet: 读取此页 asks for it.
+// retry: a context read failed, so offer to read it again (the context otherwise refreshes on its own). grant: web pages
+// cannot be read yet: 允许读取网页 asks for them.
 // The same empty state again (a tab event, the panel shown again) is not torn down: only its suggestions update.
-function resetConversationView(stateHtml = "", { retry = false, grant = "" } = {}) {
+function resetConversationView(stateHtml = "", { retry = false, grant = false } = {}) {
   updateSidepanelLayoutState();
   const shown = JSON.stringify([stateHtml, retry, grant]);
   if (suggestionsNode?.isConnected && emptyStateShown === shown) {
@@ -752,8 +757,8 @@ function resetConversationView(stateHtml = "", { retry = false, grant = "" } = {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "sp-chip sp-grant-btn";
-      button.textContent = "读取此页";
-      button.addEventListener("click", () => grantPageAccess(grant));
+      button.textContent = "允许读取网页";
+      button.addEventListener("click", grantPageAccess);
       stateNode.append(document.createElement("br"), button);
     }
     els.messages.appendChild(stateNode);

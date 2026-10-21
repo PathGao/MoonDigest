@@ -190,7 +190,7 @@
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
-      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null },
+      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null, autoSend: null },
       streaming: null,
       previousId: "",
       saved: [],
@@ -277,7 +277,7 @@
     if (!conversation?.id || conversation.id !== s.conv.id) {
       effects.push({ type: "draft" });
     }
-    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null };
+    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null, autoSend: null };
     if (conversation) {
       s.conv.id = conversation.id;
       s.conv.pinned = {
@@ -444,7 +444,21 @@
       return open(s, latest.id);
     }
     const text = String(prompt || "").trim();
-    return text ? [...startNew(s), { type: "fill", prompt: text }] : [{ type: "focus" }];
+    if (!text) return [{ type: "focus" }];
+    const effects = [...startNew(s), { type: "fill", prompt: text }];
+    // A web page not granted yet: the prompt goes by itself once the page is read (pageRead), in this conversation and
+    // on this page only; another conversation (setConv) or a refused grant drops it.
+    const live = s.live.context;
+    if (live?.isVideoContext === false && live.pageAccess === "needPermission" && s.live.key) s.conv.autoSend = { prompt: text, key: s.live.key };
+    return effects;
+  }
+
+  // The page AI 总结 waited for is read: send its prompt (the page checks the input still holds it).
+  function pageRead(s, payload, key) {
+    const pending = s.conv.autoSend;
+    if (!pending || pending.key !== key || payload.pageAccess !== "ready" || s.conv.messages.length) return [];
+    s.conv.autoSend = null;
+    return [{ type: "autoSend", prompt: pending.prompt }];
   }
 
   function dispatch(s, event) {
@@ -496,8 +510,11 @@
           if (s.conv.pinned && !s.conv.resolved && fitsLive(s)) s.conv.resolved = { ...payload };
           return [];
         }
-        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload, key)] : [];
+        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload, key)] : pageRead(s, payload, key);
       }
+      case "GRANT_DENIED":
+        s.conv.autoSend = null;
+        return [];
       // A conversation's own context loaded (payload) or failed; a load started for an earlier conversation is ignored.
       case "CONTEXT_RESOLVED": {
         if (event.epoch !== s.conv.epoch || !s.conv.pinned) {

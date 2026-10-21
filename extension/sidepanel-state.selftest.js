@@ -446,4 +446,38 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual(ids(p.view().saved).map((x) => x.split("@")[0]), ["a"], "written, then deleted on 摘读记录: gone here too");
 }
 
+// AI 总结 from the popup on a page not granted yet: filled now, sent once the same page is read in the same conversation.
+{
+  const page = (extra) => ({ url: "https://example.com/post", title: "文章", isVideoContext: false, ...extra });
+  const waiting = page({ pageAccess: "needPermission" });
+  const ready = page({ pageAccess: "ready", pageMarkdown: "正文" });
+  const PROMPT = "整理这篇网页";
+  const start = () => {
+    const p = panel({ tab: waiting });
+    assert.deepStrictEqual(types(p.dispatch({ type: "SUMMARY", prompt: PROMPT })).filter((t) => t === "fill"), ["fill"]);
+    return p;
+  };
+  const sent = (effects) => [...effects].filter((e) => e.type === "autoSend").map((e) => e.prompt);
+  // Granted: the page read again is ready, and the prompt goes, once.
+  const p = start();
+  assert.deepStrictEqual(sent(p.load(ready)), [PROMPT], "sent after the grant");
+  assert.deepStrictEqual(sent(p.load(ready)), [], "only once");
+  // Refused: never sent, also if the page becomes readable later.
+  const q = start();
+  q.dispatch({ type: "GRANT_DENIED" });
+  assert.deepStrictEqual(sent(q.load(ready)), [], "the grant was refused");
+  // Another conversation shown since the fill.
+  const r = start();
+  r.dispatch({ type: "NEW" });
+  assert.deepStrictEqual(sent(r.load(ready)), [], "another conversation");
+  // The tab moved to another page and back.
+  const u = start();
+  u.load(page({ url: "https://example.com/other", pageAccess: "needPermission" }), { follow: true });
+  assert.deepStrictEqual(sent(u.load(ready, { follow: true })), [], "another page in between");
+  // A video or a page already readable never waits.
+  const w = panel({ tab: ready });
+  w.dispatch({ type: "SUMMARY", prompt: PROMPT });
+  assert.deepStrictEqual(sent(w.load(ready)), [], "already readable: the user sends");
+}
+
 console.log("sidepanel-state selftest: all passed");
