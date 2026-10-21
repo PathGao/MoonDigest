@@ -520,7 +520,7 @@ function cardHtml(it, expanded, mark) {
             ${waiting ? `<button type="button" aria-busy="true" disabled>${waiting}</button>` : `<button type="button" data-act="unfav" class="${unfavCls}" aria-label="取消收藏 (D)"${UI.reasonAttrs(decision?.action === "unfav" ? UNFAVED : "")}>取消收藏<kbd class="key">D</kbd></button>`}
           </span>
           <span class="more">
-            ${UI.tagPlusBtn('data-act="tag"', "打标签 (T)")}
+            <button type="button" data-act="tag" aria-label="打标签 (T)">+ 标签<kbd class="key">T</kbd></button>
             ${basketBtn}${askBtn}
           </span>`}
         </div>
