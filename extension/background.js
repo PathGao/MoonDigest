@@ -172,9 +172,9 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 // pageAccess is the one state:
 //   ready           pageMarkdown is its main text.
 //   needPermission  web pages are not granted yet (optional host permissions; the side panel's 允许读取网页 asks for all
-//                   http(s) sites in one click). Chrome also hides the URL of such a tab (and of chrome:// pages): url is
-//                   "" unless the toolbar icon was clicked (activeTab), which the popup needs to know it is on a web page.
-//   unsupported     a URL that is not http(s): extension pages, file:.
+//                   http(s) sites in one click). Chrome also hides the URL of such a tab: url is "" unless the toolbar
+//                   icon was clicked (activeTab), which the popup needs to know it is on a web page.
+//   unsupported     a URL that is not http(s): extension pages, file:; or no URL once web pages are granted (chrome://).
 //   failed          pageError says why: the Web Store, an error page, no main text found.
 // ponytail: read again at every context load (tab events, each send); cache by tab and URL if parsing shows up as slow.
 const PAGE_MARKDOWN_MAX = 200000;
@@ -183,7 +183,8 @@ const PAGE_READ_TIMEOUT_MS = 10000;
 async function readWebPage(tab) {
   const url = String(tab.url || "").trim().replace(/#.*$/, "");
   const page = { title: String(tab.title || "").trim(), url, author: "", uploadDate: "", subtitleMarkdown: "", hotComments: [], isVideoContext: false };
-  if (!url) return { ...page, pageAccess: "needPermission" };
+  // Chrome hides chrome:// URLs even with every http(s) site granted: no URL then is a page that cannot be read.
+  if (!url) return { ...page, pageAccess: (await chrome.permissions.contains({ origins: ["http://*/*", "https://*/*"] })) ? "unsupported" : "needPermission" };
   const origin = /^https?:\/\/[^/]/i.test(url) ? new URL(url).origin : "";
   if (!origin) return { ...page, pageAccess: "unsupported" };
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return { ...page, pageAccess: "needPermission" };

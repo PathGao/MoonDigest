@@ -456,7 +456,12 @@ process.on("exit", (code) => {
     // Chrome hides the URL of a site the extension cannot read yet (and of chrome:// pages).
     tabUrl = undefined;
     got = await read();
-    assert.deepStrictEqual([got.pageAccess, got.url, calls], ["needPermission", "", []]);
+    assert.deepStrictEqual([got.pageAccess, got.url, calls.splice(0)], ["needPermission", "", ["http://*/*"]]);
+    // B2: with web pages granted, a URL still hidden is a chrome:// page: not readable, and no grant offered.
+    granted = true;
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, calls.splice(0)], ["unsupported", ["http://*/*"]]);
+    granted = false;
     tabUrl = "https://example.com/a?x=1#part";
     got = await read();
     assert.deepStrictEqual([got.pageAccess, got.url, got.title, calls.splice(0)], ["needPermission", "https://example.com/a?x=1", "标签标题", ["https://example.com/*"]]);
