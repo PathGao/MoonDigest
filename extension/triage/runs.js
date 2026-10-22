@@ -14,7 +14,7 @@
 //   from elsewhere ({ text, done, total, wait: { until, label }, slowed }).
 // - pill(order): the first job in order that runs, waits or has a row, else the newest finished line. A wait always
 //   reads 「‹its line› · B站限流卡住，m:ss 后重试」, keeping the bar.
-// triage.html loads this classic script after shared.js; runs.selftest.js tests it in node.
+// triage.html and history.html (摘读记录's AI 打标签) load this classic script after shared.js; runs.selftest.js tests it in node.
 (() => {
   // Waits ms in short naps, returning early once ok() turns false.
   async function nap(ms, ok = () => true) {
@@ -167,7 +167,7 @@
   const AI_TIMEOUT_TRIES = 2;
   const AI_THROTTLE_WAITS = 5;
   const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
-  // A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row; any other error fails only this
+  // A run's judge of AI answers, by the rule above, with its own counts in a row; any other error fails only this
   // request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (held(r): the run's hold,
   // then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
   function aiJudge(held = (r) => r.code === "AI_THROTTLED") {

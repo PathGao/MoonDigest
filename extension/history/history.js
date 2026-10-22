@@ -546,7 +546,7 @@ function renderHead(all, groups) {
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
-// The listed records. A count leaves out its own group's choice (star, recent or tags) and keeps the rest, the search
+// The listed records. A count leaves out its own group's choice (star, tagged, recent or tags) and keeps the rest, the search
 // too, as the 分拣台's counts do (DESIGN 筛选和计数).
 function visibleGroups({ star = starFilter, recent = recentFilter, tagged = tagState, tags = tagFilter } = {}, all = groupByVideo(conversations)) {
   const words = searchWords(els.search.value);
