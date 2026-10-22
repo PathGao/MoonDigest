@@ -8,8 +8,8 @@
 //   3. a sender passes a field the entry does not list;
 //   4. a listed request field is not read by the handler (its branch, and the functions it hands the message to);
 //   5. a builder returns other fields than the entry's payload, or a payload field is read nowhere else.
-//   6. a triageListen's web types (what a content script may send it) differ from the types its file answers that a
-//      content script (manifest.json) sends: one missing breaks that page, one extra lets a web page in.
+//   6. a triageListen's web types (what a content script may send it) differ from the types its table's file answers
+//      that a content script (manifest.json) sends: one missing breaks that page, one extra lets a web page in.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -203,19 +203,27 @@ for (const [type, e] of Object.entries(M)) {
   }
 }
 
-// 6. Each triageListen(prefix, HANDLERS, [web types]) against the list: its file's types a content script sends.
+// 6. Each triageListen(prefix, HANDLERS, web types) against the list: the types of the file that defines HANDLERS that a
+// content script sends. The web types are an array literal there or a const array (obsidian.js's, registered by background.js).
+// NOT_FROM_WEB: types a content-script file sends only from extension pages, and why.
+const NOT_FROM_WEB = { "export-note": "note-actions.js sends it for 复制 / 下载; the video page (content.js) only writes" };
 const contentScripts = new Set(JSON.parse(read("manifest.json")).content_scripts.flatMap((g) => g.js).map(path.normalize));
+const definer = (name, open) => files.find((g) => new RegExp(`(?:const|let)\\s+${name}\\s*=\\s*\\${open}`).test(src[g]));
 for (const f of files) {
-  for (const m of src[f].matchAll(/triageListen\(\s*[^,]+,\s*[\w$]+,\s*\[([^\]]*)\]/g)) {
-    const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
-    const prefix = /^triageListen\(\s*"([^"]*)"/.exec(m[0])?.[1];
+  for (const m of src[f].matchAll(/(?<!function\s+)triageListen\(\s*([^,]+),\s*([\w$]+),\s*(\[[^\]]*\]|[\w$]+)/g)) {
+    const prefix = /^"([^"]*)"$/.exec(m[1].trim())?.[1];
+    const owner = definer(m[2], "{");
+    const arr = m[3].startsWith("[") ? m[3] : new RegExp(`(?:const|let)\\s+${m[3]}\\s*=\\s*(\\[[^\\]]*\\])`).exec(src[definer(m[3], "[")] || "")?.[1] || "";
+    const listed = [...arr.matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
     const want = Object.entries(M)
-      .filter(([type, e]) => e.to === f && (!prefix || type.startsWith(prefix)) && e.from.some((x) => contentScripts.has(x)))
+      .filter(([type, e]) => e.to === owner && (!prefix || type.startsWith(prefix)) && !NOT_FROM_WEB[type] && e.from.some((x) => contentScripts.has(x)))
       .map(([type]) => type)
       .sort();
-    if (listed.join() !== want.join()) fail(`${lineOf(f, m.index)}: web types ${listed.join(", ")}; content scripts send ${want.join(", ")}`);
+    if (!owner) fail(`${lineOf(f, m.index)}: ${m[2]} is defined nowhere`);
+    else if (listed.join() !== want.join()) fail(`${lineOf(f, m.index)}: web types ${listed.join(", ")}; content scripts send ${want.join(", ")}`);
   }
 }
+for (const [type, why] of Object.entries(NOT_FROM_WEB)) if (!M[type]?.from.some((x) => contentScripts.has(x))) fail(`NOT_FROM_WEB ${type}: no content script sends it any more (${why})`);
 
 if (fails.length) {
   console.error(`messages selftest: ${fails.length} problem(s)\n  ${fails.join("\n  ")}`);

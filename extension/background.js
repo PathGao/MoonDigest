@@ -580,6 +580,11 @@ chrome.runtime.onConnect.addListener((port) => {
   if (!port || port.name !== MdgCommon.CHAT_PORT) {
     return;
   }
+  // Only the side panel chats: a B站 or YouTube page's script would spend the user's AI platform.
+  if (!fromExtensionPage(port.sender)) {
+    port.disconnect();
+    return;
+  }
 
   let activeAbortController = null;
   let activeAbortMeta = null;
@@ -1243,9 +1248,11 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 
 // triage/shared.js (loaded at the top) is the pages' TriageUi; it touches no DOM until called, so the worker reuses its
 // formatters, tag rules and intIn.
-// obsidian.js answers write-video-note and sync-video-note-ai: the background is the only writer to Obsidian.
+// obsidian.js answers write-video-note, export-note and sync-video-note-ai (OBSIDIAN_HANDLERS, registered below): the
+// background is the only writer to Obsidian.
 // follow-core.js (FollowCore) gives follow-bg.js the page's groupsOf, so an UP's groups are read one way on both sides.
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
 triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "yt-player-response", "fetch-json"], (r) => r);
+triageListen(null, OBSIDIAN_HANDLERS, OBSIDIAN_WEB_TYPES, (r) => ({ ok: true, ...r }));

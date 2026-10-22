@@ -62,6 +62,7 @@ function chat() {
   return new Promise((resolve) => {
     const port = {
       name: "sidepanel-chat",
+      sender: { url: "chrome-extension://me/sidepanel.html" },
       onDisconnect: { addListener() {} },
       onMessage: { addListener: (fn) => fn({ action: "chat", providerId: "p", prompt: "q", context: { isVideoContext: true, subtitleMarkdown: "字幕" } }) },
       postMessage: (m) => {
@@ -241,7 +242,7 @@ process.on("exit", (code) => {
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
   const stored = { readerTheme: "dark", readerFontScale: "l", aiPresetPrompts: ["a"] };
-  ctx.chrome = { storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
+  ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}` }, storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
   await ctx.saveSettings({ aiPresetPrompts: [], noteFolder: "N" });
   assert.strictEqual(stored.readerTheme, "dark");
   assert.strictEqual(stored.readerFontScale, "l");
@@ -463,7 +464,17 @@ process.on("exit", (code) => {
     assert.strictEqual((await ask({ type: "get-settings" })).settings.obsidianApiKey, "vault-key");
     // What content.js sends still reaches its handler (an answer other than the refusal; fetch-json's own URL check).
     assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: "https://evil.example/" }, web)) }, { ok: false, error: "URL not allowed" });
-    for (const type of ["open-options", "player-ai-quick-action", "yt-player-response"]) {
+    // obsidian.js's: the video page writes its note; exporting one (a remembered note's text) and syncing the side
+    // panel's AI section are the extension pages'.
+    for (const type of ["export-note", "sync-video-note-ai"]) assert.strictEqual((await ask({ type }, web)).error, `网页不能发送 ${type}`, type);
+    // The side panel's chat port: a page's script is disconnected before anything is read or sent.
+    {
+      const seen = [];
+      const port = { name: "sidepanel-chat", sender: web, disconnect: () => seen.push("disconnect"), onDisconnect: { addListener: () => seen.push("listen") }, onMessage: { addListener: () => seen.push("listen") }, postMessage: (m) => seen.push(m) };
+      onConnect(port);
+      assert.deepStrictEqual(seen, ["disconnect"]);
+    }
+    for (const type of ["open-options", "player-ai-quick-action", "yt-player-response", "write-video-note"]) {
       let refused = null;
       const kept = onMessage.some((fn) => fn({ type }, web, (r) => (refused = r)) === true);
       assert.ok(kept && !refused, `${type} from a video page`);

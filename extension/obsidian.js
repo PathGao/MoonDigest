@@ -337,15 +337,8 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
   return { path, ...done, text: done.exists ? aiSectionResult(path, done.updated) : `Obsidian 里的${ref.isVideoContext ? "视频" : "网页"}笔记已不存在，未写入` };
 }
 
-if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  const handlers = { "write-video-note": writeVideoNote, "export-note": exportNote, "sync-video-note-ai": syncVideoNoteAi };
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    const handler = handlers[message?.type];
-    if (!handler) return false;
-    handler(message).then(
-      (result) => sendResponse({ ok: true, ...result }),
-      (e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code && { code: e.code }) })
-    );
-    return true;
-  });
-}
+// Answered as { ok: true, ...result } through triageListen, which background.js registers once triage-bg.js has loaded.
+const OBSIDIAN_HANDLERS = { "write-video-note": writeVideoNote, "export-note": exportNote, "sync-video-note-ai": syncVideoNoteAi };
+// The video page writes its own note (content.js through MdgNoteActions); copying, exporting and the side panel's AI
+// section are the extension pages'.
+const OBSIDIAN_WEB_TYPES = ["write-video-note"];
