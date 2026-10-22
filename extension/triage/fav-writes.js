@@ -355,6 +355,7 @@ const fav = {
     const verb = UI.transferVerb[how];
     const meta = { mediaId: from, verb, to: target.id, toName: folderName(target.id) };
     const plainItem = ({ removedAt, movedTo, hidden, from, ...it }) => it;
+    const stayed = { n: 0, error: "" }; // moved out of 稍后再看 into the target, but B站 kept them in 稍后再看 too
     const r = await W.run("transfer", verb, async () => { // named by its verb (移动, 复制, 收藏) where others wait on it
       if (target.create) {
         const made = await send({ type: "triage-folder-create", title: target.create, privacy: target.privacy });
@@ -376,22 +377,26 @@ const fav = {
         folders: [from, to],
         meta,
         // Folders are not read while being written, so both cached lists follow each chunk here instead of by a sync.
-        async onChunk({ items }) {
+        async onChunk({ items }, reply) {
           // Read per chunk: ticking or unticking the target meanwhile takes effect for the rest.
           const chosen = S.included.includes(to);
+          const kept = new Set((reply?.data?.stayed || []).map(String));
+          stayed.n += kept.size;
+          if (kept.size) stayed.error = reply.data.stayedError;
+          const left = items.filter((it) => !kept.has(String(it.aid)));
           bumpCount(to, items.length);
-          if (move) bumpCount(from, -items.length);
+          if (move) bumpCount(from, -left.length);
           if (chosen) await patchSnapshot(to, { add: items.map(plainItem) }, Boolean(target.create));
           if (add) {
             if (chosen) await dropRemoved(items.map((it) => it.bvid));
             else await addMovedToRemoved(from, items.map(plainItem), { id: to, title: toName });
           }
-          if (move) {
-            const gone = new Set(items.map((it) => it.bvid));
+          if (move && left.length) {
+            const gone = new Set(left.map((it) => it.bvid));
             // One queued step, so a folder save in between never sees the videos gone from here but not yet recorded.
             await serialStore(async () => {
               await patchSnapshotNow(from, { drop: [...gone] });
-              if (!chosen) await addMovedNow(from, items, { id: to, title: toName });
+              if (!chosen) await addMovedNow(from, left, { id: to, title: toName });
             });
             if (S.mediaId === from) setItems(S.items.filter((it) => !gone.has(it.bvid)));
           }
@@ -408,7 +413,8 @@ const fav = {
     if (made && !el.folderSelect.querySelector(`option[value="${to}"]`)) {
       el.folderSelect.querySelector(`option[value="${REMOVED}"]`)?.previousElementSibling?.before(new Option(`${toName} (${made.count})`, to));
     }
-    if (r.done === list.length) {
+    if (stayed.n && !r.error && !r.stopped) toast(`${where}${stayed.n} 个已收藏到「${toName}」，但没能从${MdgErrors.LABEL.watchLater}移除：${stayed.error}`, true);
+    else if (r.done === list.length) {
       toast(`${where}已${verb} ${r.done} 个到「${toName}」${(move || add) && !S.included.includes(to) ? `，它们在「${REMOVED_NAME}」里，勾选这个收藏夹后会自动找回` : ""}`);
     }
     render();

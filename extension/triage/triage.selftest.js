@@ -2881,6 +2881,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.strictEqual(toasts.at(-1), "已从「已出分拣范围」找回 2 个视频");
 
+    // R34: B站 kept some in 稍后再看 after adding them to the target: they stay listed here, the count only drops by the
+    // ones that left, and the toast says so instead of 「已移动」.
+    const pair = [item(970), item(971)];
+    store[t.K.snapshot("1")] = snap(pair);
+    openFake("1", pair);
+    t.S.allFolders[0].count = 2;
+    handlers["triage-transfer"] = () => ({ ok: true, data: { done: 1, stayed: [1971], stayedError: "B站返回 90001：不在" } });
+    t.askTransfer = async () => ({ how: "move", target: { id: "2" } });
+    await t.fav.transfer(pair);
+    assert.deepStrictEqual(t.S.items.map((it) => it.bvid), ["BV971"]);
+    assert.deepStrictEqual(store[t.K.snapshot("1")].bvids, ["BV971"]);
+    assert.strictEqual(t.S.allFolders[0].count, 1);
+    assert.strictEqual(toasts.at(-1), "1 个已收藏到「目标」，但没能从稍后再看移除：B站返回 90001：不在");
+    openFake("removed", []);
+
     // 已出分拣范围 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
     store[t.K.removed] = { BV960: { item: item(960), at: 5 }, BV961: { item: item(961), at: 5 } };
     openFake("removed", [{ ...item(960), removedAt: 5 }, { ...item(961), removedAt: 5 }]);
