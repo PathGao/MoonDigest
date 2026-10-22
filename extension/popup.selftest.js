@@ -129,6 +129,12 @@ setTimeout(() => (async () => {
   assert.deepStrictEqual(noteTools(), Array(3).fill(`${T.pageReadFailed}：没有找到正文`));
   assert.strictEqual(ctx.el.status.textContent, `${T.pageReadFailed}：没有找到正文`);
   assert.strictEqual(ctx.el.summaryBtn.disabled, false, "AI 总结 still opens the side panel, which says the same");
+  // 刷新 reads the page again, as a video's does; a read that now works turns the tools on.
+  assert.strictEqual(ctx.el.refreshBtn.disabled, false, "刷新 works on a web page");
+  answer = note;
+  asked.length = 0;
+  await ctx.el.refreshBtn.on.click();
+  assert.deepStrictEqual([asked.map((m) => m.type), noteTools()], [["popup-page-note"], ["", "", ""]]);
   ctx.MdgDownload = download;
   ctx.bindEvents = () => {};
   body.classes.clear();

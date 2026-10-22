@@ -727,7 +727,8 @@ function renderInitialState() {
     return;
   }
   const blocked = context.isVideoContext === false ? pageReason(context) : "";
-  resetConversationView(escapeHtml(blocked), { grant: context.pageAccess === "needPermission" });
+  // A page that failed to read (a timeout, no main text yet) gets 重试, as a video that failed does.
+  resetConversationView(escapeHtml(blocked), { retry: context.pageAccess === "failed", grant: context.pageAccess === "needPermission" });
 }
 
 // Why the tab's context could not be read (B站 限流, the extension reloaded…), as the read said.

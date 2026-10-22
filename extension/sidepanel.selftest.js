@@ -702,6 +702,15 @@ const chatOn = (context) => {
     ctx.loadContextState = async () => false;
     assert.strictEqual(await real.ensureCurrentContextForSend(), false);
     assert.deepStrictEqual(calls, ["reset:B站限流，请稍后再试", "reset:B站限流，请稍后再试"]);
+    // A web page that failed to read gets 重试, as a failed video does; one that needs the grant gets 允许读取网页 only.
+    ctx.resetConversationView = (html, opts) => calls.push([html, opts.retry, opts.grant]);
+    calls.length = 0;
+    show({ ...web("slow"), pageAccess: "failed", pageError: "没有找到正文" });
+    real.renderInitialState();
+    show({ ...web("slow"), pageAccess: "needPermission" });
+    real.renderInitialState();
+    assert.deepStrictEqual(calls.map((c) => c.slice(1)), [[true, false], [false, true]]);
+    ctx.resetConversationView = (html) => calls.push(`reset:${html}`);
     // A36: a question sent while 重试 reads the page: the empty state is not redrawn over it and its reply.
     calls.length = 0;
     const prevInitial = ctx.renderInitialState;
