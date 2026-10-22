@@ -75,10 +75,7 @@
   // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消. fullReason: why
   // 整篇覆盖 cannot be done (no open video page to rebuild the note from); it is disabled with it.
   function choose(filepath, { hasAiSection, fullReason } = {}) {
-    document.querySelector("dialog.mdg-overwrite[open]")?.close("");
-    const dialog = document.createElement("dialog");
-    dialog.className = "mdg-overwrite";
-    dialog.innerHTML = `<form method="dialog">
+    return show(`<form method="dialog">
       <h2>该笔记已存在</h2>
       <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${hasAiSection === false ? "没有 AI 问答可更新。" : ""}整篇覆盖会替换全部内容：`}</p>
       <code></code>
@@ -86,9 +83,34 @@
         <button class="danger" value="full">整篇覆盖</button>
         ${hasAiSection ? '<button value="">取消</button><button class="primary" value="ai" autofocus>只更新 AI 问答</button>' : '<button value="" autofocus>取消</button>'}
       </div>
-    </form>`;
-    dialog.querySelector("code").textContent = String(filepath || "");
-    if (fullReason) MdgErrors.setReason(dialog.querySelector('[value="full"]'), fullReason);
+    </form>`, (dialog) => {
+      dialog.querySelector("code").textContent = String(filepath || "");
+      if (fullReason) MdgErrors.setReason(dialog.querySelector('[value="full"]'), fullReason);
+    });
+  }
+
+  // write-video-note's askPage: a web page with no note yet and not open in any tab. Resolves "open" (打开网页再写: the
+  // background opens it and writes its note), "own" (只写 AI 笔记, the conversation alone) or "" (取消).
+  function choosePage(url) {
+    return show(`<form method="dialog">
+      <h2>网页没有打开</h2>
+      <p>要写成完整的网页笔记，先在后台打开这个网页。只写 AI 笔记会单独存一篇，之后再写网页笔记时库里会有两篇。</p>
+      <code></code>
+      <div class="actions">
+        <button value="own">只写 AI 笔记</button>
+        <button value="">取消</button>
+        <button class="primary" value="open" autofocus>打开网页再写</button>
+      </div>
+    </form>`, (dialog) => (dialog.querySelector("code").textContent = String(url || "")));
+  }
+
+  // One dialog at a time: a second answers the first with 取消.
+  function show(html, fill) {
+    document.querySelector("dialog.mdg-overwrite[open]")?.close("");
+    const dialog = document.createElement("dialog");
+    dialog.className = "mdg-overwrite";
+    dialog.innerHTML = html;
+    fill(dialog);
     // A click outside is a press and a release both on the backdrop: a text selection dragged out of the box ends
     // with a click on the dialog too, and must not close it.
     let downOutside = false;
@@ -108,5 +130,5 @@
     });
   }
 
-  globalThis.MdgOverwriteDialog = Object.freeze({ choose });
+  globalThis.MdgOverwriteDialog = Object.freeze({ choose, choosePage });
 })();

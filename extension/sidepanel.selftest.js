@@ -208,6 +208,16 @@ const chatOn = (context) => {
     assert.strictEqual(await write(() => (state.dispatch({ type: "NEW" }), "full"), web("x")), "-", "switched during the dialog");
     // H1: said like the video page's, not as a red failure.
     assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.obsidianConvSwitched, undefined]);
+    // askPage (a web page with no note, not open): the page dialog first, then the same request with its choice.
+    {
+      const was = ctx.sendRuntimeMessage;
+      ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, text: "已写入 Obsidian：网页/x.md" } : { ok: true, askPage: true, url: "https://example.com/x" });
+      ctx.MdgOverwriteDialog.choosePage = async (url) => (url === "https://example.com/x" ? choice() : "wrong");
+      assert.strictEqual(await write(() => "open", web("x")), "-,-");
+      assert.deepStrictEqual([sent.map((m) => m.pageChoice), shown.at(-1)], [[undefined, "open"], ["已写入 Obsidian：网页/x.md", undefined]]);
+      assert.strictEqual(await write(() => "", web("x")), "-", "取消: nothing sent again");
+      ctx.sendRuntimeMessage = was;
+    }
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
     const realTab = ctx.sendMessageToActiveTab;

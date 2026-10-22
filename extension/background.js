@@ -250,6 +250,28 @@ async function popupPageNote(tabId) {
   return { ref: MdgSites.contextRef(page), ...MdgNote.buildPageNoteFile(page, settings, turns, stored) };
 }
 
+// A web page's note read from a tab that shows it (its URL without #), for a write sent without the page (摘读记录, the
+// side panel on a page not in its tab); null when none does or it cannot be read now. open: no such tab, so open one in
+// the background and read it once loaded (the write's 「打开网页再写」); a failed read then throws its reason.
+async function tabPageNote(url, open = false) {
+  let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => String(t.url || "").replace(/#.*$/, "") === url);
+  if (!tab && !open) return null;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url, active: false });
+    for (const end = Date.now() + 15000; tab?.status !== "complete"; tab = await chrome.tabs.get(tab.id).catch(() => null)) {
+      if (!tab) throw new Error("网页标签页已关闭");
+      if (Date.now() > end) throw new Error("网页加载超时");
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  try {
+    return { markdown: (await popupPageNote(tab.id)).content };
+  } catch (error) {
+    if (open) throw error;
+    return null;
+  }
+}
+
 async function openAiSidepanelForTab(tabId) {
   if (chrome.sidePanel?.open) {
     await chrome.sidePanel.open({ tabId });

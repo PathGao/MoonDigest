@@ -2087,17 +2087,23 @@ async function saveCurrentConversationToObsidian() {
     const page = await pageNote(context, buildConversationTurns(messages));
     const request = { type: "write-video-note", ref, conversation: { messages }, page: page ? { markdown: page.content } : await openPageNote(ref) };
     let resp = await sendRuntimeMessage(request);
+    // 取消, or another conversation shown meanwhile: nothing is written, and the notice says which.
+    const stopped = (choice) => {
+      const why = !choice ? MdgErrors.TEXT.obsidianCancelled : epoch !== state.view().epoch ? MdgErrors.TEXT.obsidianConvSwitched : "";
+      if (why) showConversationContextNotice(why, NOTICE_SHORT_MS);
+      return Boolean(why);
+    };
+    // A web page with no note yet and not open: open it and write its note, or only the conversation (as 摘读记录).
+    let pageChoice;
+    if (resp?.ok && resp.askPage) {
+      pageChoice = await MdgOverwriteDialog.choosePage(resp.url);
+      if (stopped(pageChoice)) return;
+      resp = await sendRuntimeMessage({ ...request, pageChoice });
+    }
     if (resp?.ok && resp.ask) {
       const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
-      if (!mode) {
-        showConversationContextNotice(MdgErrors.TEXT.obsidianCancelled, NOTICE_SHORT_MS);
-        return;
-      }
-      if (epoch !== state.view().epoch) {
-        showConversationContextNotice(MdgErrors.TEXT.obsidianConvSwitched, NOTICE_SHORT_MS);
-        return;
-      }
-      resp = await sendRuntimeMessage({ ...request, mode });
+      if (stopped(mode)) return;
+      resp = await sendRuntimeMessage({ ...request, pageChoice, mode });
     }
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);

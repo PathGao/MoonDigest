@@ -801,10 +801,17 @@ async function saveToObsidian(group) {
       return { type: "write-video-note", ref: g.context, conversation: { messages: newest?.messages || [] } };
     };
     let resp = await chrome.runtime.sendMessage(request());
+    // A web page with no note yet and not open: open it and write its note, or only the conversation (as the side panel).
+    let pageChoice;
+    if (resp?.ok && resp.askPage) {
+      pageChoice = await MdgOverwriteDialog.choosePage(resp.url);
+      if (!pageChoice) return setStatus(MdgErrors.TEXT.obsidianCancelled);
+      resp = await chrome.runtime.sendMessage({ ...request(), pageChoice });
+    }
     if (resp?.ok && resp.ask) {
       const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
       if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
-      resp = await chrome.runtime.sendMessage({ ...request(), mode });
+      resp = await chrome.runtime.sendMessage({ ...request(), pageChoice, mode });
     }
     if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
