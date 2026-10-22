@@ -257,6 +257,8 @@ const chatOn = (context) => {
       const ask = ["export-note,-,BV1xx411c7mD,这个视频", "export-note,open,BV1xx411c7mD,这个视频"];
       assert.deepStrictEqual(await run(ctx.copyCurrentConversationMarkdown, () => "open"), ask);
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => "open"), ask);
+      // K16: 下载 .md says so here too, as on every entry.
+      assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.downloaded, undefined]);
       assert.deepStrictEqual([copied, saved, asked.map((a) => a.join())], [["# 视频笔记"], [["V.md", "# 视频笔记"]], ["u,true,true,复制", "u,true,true,下载"]]);
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => ""), [ask[0]]);
       assert.deepStrictEqual([saved.length, shown.at(-1)], [1, ["已取消下载", undefined]]);
@@ -282,9 +284,10 @@ const chatOn = (context) => {
     ctx.chrome.runtime.openOptionsPage = () => settings++;
     const E = ctx.MdgErrors;
     const LONG = vm.runInContext("NOTICE_LONG_MS", ctx);
-    ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败"));
-    ctx.showObsidianFailure(E.fromResp({ ok: false, error: "Obsidian 返回 HTTP 500" }, "Local API 写入失败"));
-    ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" }, "Local API 写入失败"));
+    const fail = async (reply) => ctx.showNoteResult(await ctx.MdgNoteActions.run("write", { request: () => ({ ref: {} }), send: async () => reply }));
+    await fail({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" });
+    await fail({ ok: false, error: "Obsidian 返回 HTTP 500" });
+    await fail({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true, E.LABEL.toSettings, 0], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true, "", LONG], [`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true, "", LONG]]);
     assert.strictEqual(settings, 0, "nothing opens before the click");
     actions[0].run();
@@ -857,11 +860,11 @@ const chatOn = (context) => {
 
   // B4: a failed copy is red, from the export menu and from a reply's own 复制 alike.
   {
-    const prev = [ctx.showConversationContextNotice, ctx.exportCurrentConversation];
+    const prev = [ctx.showConversationContextNotice, ctx.sendRuntimeMessage];
     const notices = [];
     ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text.split("：")[0], Boolean(opts?.error)]);
     ctx.navigator.clipboard = { writeText: async () => { throw new Error("无法访问剪贴板"); } };
-    ctx.exportCurrentConversation = async () => ({ markdown: "x" });
+    ctx.sendRuntimeMessage = async () => ({ ok: true, filename: "x.md", markdown: "x" });
     await ctx.copyCurrentConversationMarkdown();
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败", true], ["复制失败", true]]);
@@ -876,7 +879,7 @@ const chatOn = (context) => {
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板", true], ["已复制 Markdown", false]]);
     delete ctx.navigator.clipboard;
-    [ctx.showConversationContextNotice, ctx.exportCurrentConversation] = prev;
+    [ctx.showConversationContextNotice, ctx.sendRuntimeMessage] = prev;
   }
 
   const tick = () => new Promise((r) => setImmediate(r));

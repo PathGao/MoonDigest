@@ -1969,29 +1969,23 @@ function renderAssistantMessage(node, raw) {
   node.appendChild(actions);
 }
 
-// 复制 Markdown and 下载 .md (verb 复制 / 下载): the note 写入 Obsidian writes for the conversation on screen
-// (export-note), asked about the same way when its page is not open. null: cancelled, said in the notice.
-async function exportCurrentConversation(verb) {
-  const request = await currentNoteRequest("export-note");
-  let resp = await sendRuntimeMessage(request);
-  if (resp?.ok && resp.askPage) {
-    const pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false, verb);
-    if (!pageChoice) return showConversationContextNotice(`已取消${verb}`, NOTICE_SHORT_MS), null;
-    resp = await sendRuntimeMessage({ ...request, pageChoice });
-  }
-  if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.unknown);
-  return resp;
+// 复制 Markdown, 下载 .md and 写入 Obsidian (kind copy / download / write) of the conversation on screen, through
+// MdgNoteActions: the note 写入 Obsidian writes, asked about the same way when its page is not open. The request is
+// built once, before any await. Resolves MdgNoteActions.run's result; nothing is shown here.
+function runNoteAction(kind, isStale) {
+  const request = currentNoteRequest();
+  return MdgNoteActions.run(kind, { request: () => request, send: (m) => sendRuntimeMessage(m), isStale });
 }
 
 // What the three export buttons send: the conversation on screen, and its page's note when this panel has it (a web
 // page read here, the active tab showing this video). Taken from the view before any await.
-async function currentNoteRequest(type) {
+async function currentNoteRequest() {
   const { resolved, context: shown, pinned, messages } = state.view();
   const context = resolved || shown || pinned?.contextRef || {};
   const conversation = { messages: messages.slice() };
   const ref = buildConversationContextRef(context);
   const page = await pageNote(context, buildConversationTurns(conversation.messages));
-  return { type, ref, conversation, page: page ? { markdown: page.content } : await openPageNote(ref) };
+  return { ref, conversation, page: page ? { markdown: page.content } : await openPageNote(ref) };
 }
 
 // ---- auto-sync: after a manual save bound the video to its note, every finished answer updates the section ----
@@ -2036,11 +2030,12 @@ async function autoSyncConversation(conversationId) {
   }
 }
 
-// A failed manual write is red; not set up or a wrong key adds 去设置 and stays until the next notice (a closed Obsidian
-// gets the red line only).
-function showObsidianFailure(error) {
-  const settings = error?.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
-  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, settings ? 0 : NOTICE_LONG_MS, { error: true, action: settings });
+// An export's result in the notice: done or cancelled briefly, a write's path longer; a failure red, and when not set up
+// or a wrong key with 去设置, staying until the next notice (a closed Obsidian gets the red line only).
+function showNoteResult(r, doneMs = NOTICE_SHORT_MS) {
+  if (r.ok) return showConversationContextNotice(r.text, r.done ? doneMs : NOTICE_SHORT_MS);
+  const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
+  showConversationContextNotice(r.text, settings ? 0 : NOTICE_LONG_MS, { error: true, action: settings });
 }
 
 let syncStatusTimer = 0;
@@ -2071,31 +2066,16 @@ function hideSyncStatus() {
 
 // With no conversation the menu's items are disabled (syncExportButtons); what can fail is building the note.
 async function downloadCurrentConversation() {
-  try {
-    const note = await exportCurrentConversation("下载");
-    if (note) MdgDownload.text(note.filename, note.markdown);
-  } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.downloadFailed}：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
-  }
+  showNoteResult(await runNoteAction("download"));
 }
 
 async function copyCurrentConversationMarkdown() {
-  try {
-    const note = await exportCurrentConversation("复制");
-    if (note) await copyMarkdown(note.markdown);
-  } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
-  }
+  showNoteResult(await runNoteAction("copy"));
 }
 
-// Every copy on this page (the export menu's 复制 Markdown and a reply's own): 已复制 Markdown, or the failure in red.
+// A reply's own 复制 Markdown: 已复制 Markdown, or the failure in red, as the export menu's.
 async function copyMarkdown(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    showConversationContextNotice(MdgErrors.TEXT.copied, NOTICE_SHORT_MS);
-  } catch (error) {
-    showConversationContextNotice(`${MdgErrors.TEXT.copyFailed}：${MdgErrors.messageOf(error, MdgErrors.TEXT.noClipboard)}`, NOTICE_MS, { error: true });
-  }
+  showNoteResult(await MdgNoteActions.run("copy", { note: { markdown: text } }));
 }
 
 // The background (write-video-note) decides where the conversation goes: the video note's AI 问答 section, a note it
@@ -2110,35 +2090,11 @@ async function saveCurrentConversationToObsidian() {
   syncExportButtons();
   showConversationContextNotice(MdgErrors.TEXT.obsidianWriting);
   try {
-    const request = await currentNoteRequest("write-video-note");
-    let resp = await sendRuntimeMessage(request);
-    // 取消, or another conversation shown meanwhile: nothing is written, and the notice says which.
-    const stopped = (choice) => {
-      const why = !choice ? MdgErrors.TEXT.obsidianCancelled : epoch !== state.view().epoch ? MdgErrors.TEXT.obsidianConvSwitched : "";
-      if (why) showConversationContextNotice(why, NOTICE_SHORT_MS);
-      return Boolean(why);
-    };
-    // A web page or video page with no note yet and not open: open it and write its note, or only the conversation (as
-    // 摘读记录).
-    let pageChoice;
-    if (resp?.ok && resp.askPage) {
-      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false);
-      if (stopped(pageChoice)) return;
-      resp = await sendRuntimeMessage({ ...request, pageChoice });
-    }
-    if (resp?.ok && resp.ask) {
-      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
-      if (stopped(mode)) return;
-      resp = await sendRuntimeMessage({ ...request, pageChoice, mode });
-    }
-    if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
-    }
-    showConversationContextNotice(resp.text, NOTICE_LONG_MS);
+    // Another conversation shown during a dialog: nothing is written, and the notice says so.
+    const r = await runNoteAction("write", () => (epoch !== state.view().epoch ? MdgErrors.TEXT.obsidianConvSwitched : ""));
+    showNoteResult(r, NOTICE_LONG_MS);
     // The note exists now: an auto-sync's gone note or failure no longer holds.
-    hideSyncStatus();
-  } catch (error) {
-    showObsidianFailure(error);
+    if (r.done) hideSyncStatus();
   } finally {
     obsidianWriting = false;
     syncExportButtons();

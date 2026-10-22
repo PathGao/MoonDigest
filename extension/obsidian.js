@@ -191,7 +191,7 @@ async function resolveNote({ ref: input, mode, conversation, page, pageChoice },
   const standalone = (why, sourcePath) => {
     const extras = MdgNote.triageExtras(stored, extrasRef);
     const { analysis, note } = extras;
-    if (!turns.length && !analysis && !note.trim()) throw new Error("没有可写入 Obsidian 的内容");
+    if (!turns.length && !analysis && !note.trim()) throw obsidianCoded(MdgErrors.TEXT.nothingToWrite, MdgErrors.CODE.NOTE_EMPTY);
     const filename = MdgNote.buildAiConversationFilename(ref);
     const markdown = MdgNote.buildAiConversationMarkdown({ context: ref, turns, filename, sourcePath, extras });
     return { path: MdgNote.conversationNotePath(ref, settings), why, body: async () => ({ markdown: MdgNote.withTriageSummary(markdown, analysis, note) }) };
@@ -248,7 +248,7 @@ async function resolveNote({ ref: input, mode, conversation, page, pageChoice },
 // its page is read from a tab that shows it; with none and no note of it yet, the answer is askPage (writing the
 // conversation alone would leave a second note once the page's note is written), and the caller sends again with
 // pageChoice "open" (open the page, then write its note) or "own" (the conversation as its own note).
-// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video?, own? } (own false: 「附带 AI 问答」 is off, so 只写 AI 笔记 is not offered)
+// Resolves { ask: true, path, hasAiSection, aiOff?, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video?, own? } (own false: 「附带 AI 问答」 is off, so 只写 AI 笔记 is not offered)
 // or { path, kind: full | ai | unchanged | conversation, text, title }.
 async function writeVideoNote(message) {
   const settings = await getMergedSettings();
@@ -262,7 +262,8 @@ async function writeVideoNote(message) {
   const { path } = target;
   const existing = target.note || (await readVaultNote(vault, path));
   if (existing.exists && !mode) {
-    return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }), ...(target.fullReason && { fullReason: target.fullReason }) };
+    // aiOff: 「附带 AI 问答」 is off, so the dialog says that rather than 没有 AI 问答.
+    return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section), ...(!aiOn && { aiOff: true }) }), ...(target.fullReason && { fullReason: target.fullReason }) };
   }
   if (target.video && existing.exists && mode === "ai") {
     // Only the AI 问答 section changes: the rest of the note, subtitle warning included, stays as written before.

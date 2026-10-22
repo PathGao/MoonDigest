@@ -22,7 +22,7 @@ const files = [];
 // Globals: whatever a file publishes as globalThis.X = ...
 const definedBy = {};
 for (const f of files) for (const m of read(f).matchAll(/globalThis\.([A-Z]\w+)\s*=/g)) definedBy[m[1]] ??= f;
-for (const g of ["MdgCommon", "MdgLimits", "MdgErrors", "MdgSettings", "MdgSites", "MdgTagCore", "MdgSurfaces", "MdgNote", "MdgTyping", "MdgDownload", "MdgOverwriteDialog", "TriageUi", "TriageCore", "FollowCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
+for (const g of ["MdgCommon", "MdgLimits", "MdgErrors", "MdgSettings", "MdgSites", "MdgTagCore", "MdgSurfaces", "MdgNote", "MdgTyping", "MdgDownload", "MdgOverwriteDialog", "MdgNoteActions", "TriageUi", "TriageCore", "FollowCore", "MoonTriage", "TagPicker", "TagDialogs"]) {
   assert.ok(definedBy[g], `no file defines ${g}`);
 }
 const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
@@ -32,7 +32,8 @@ const runtimes = PS.runtimes.map((r) => [r.where, r.files]);
 assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 
 // The worker loads triage/shared.js for its pure helpers; the DOM bindings that read MdgTyping never run there.
-const exempt = new Set(["background.js|triage/shared.js|MdgTyping"]);
+// The video page passes its own dialog to note-actions.js and only writes: its download and default dialogs never run there.
+const exempt = new Set(["background.js|triage/shared.js|MdgTyping", "content.js|note-actions.js|MdgDownload", "content.js|note-actions.js|MdgOverwriteDialog"]);
 let checked = 0;
 for (const [where, list] of runtimes) {
   assert.strictEqual(list[0], "common.js", `${where} loads common.js first`);

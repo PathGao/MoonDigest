@@ -70,14 +70,16 @@
   }
 
   // The video page's overwrite choice (content.js confirmOverwriteNote, same words) for extension pages, shown when
-  // write-video-note answers ask. Resolves the mode to send again, "full" or "ai", or "" (取消, Esc, a click outside). hasAiSection true offers 只更新 AI 问答; false says why it is
-  // missing; left out (a note with no AI 问答 section, such as a conversation note) offers only 整篇覆盖.
-  // 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消. fullReason: why
-  // 整篇覆盖 cannot be done (no open video page to rebuild the note from); it is disabled with it.
-  function choose(filepath, { hasAiSection, fullReason } = {}) {
+  // write-video-note answers ask (MdgNoteActions asks it). Resolves the mode to send again, "full" or "ai", or "" (取消,
+  // Esc, a click outside). hasAiSection true offers 只更新 AI 问答; false says why it is missing (aiOff: 「附带 AI 问答」
+  // is off; else there is no conversation); left out (a note with no AI 问答 section, such as a conversation note) offers
+  // only 整篇覆盖. 整篇覆盖 never sits next to the focused default button. A second dialog answers the first with 取消.
+  // fullReason: why 整篇覆盖 cannot be done (no open video page to rebuild the note from); it is disabled with it.
+  function choose(filepath, { hasAiSection, aiOff, fullReason } = {}) {
+    const missing = hasAiSection === false ? (aiOff ? "「附带 AI 问答」已关。" : "没有 AI 问答可更新。") : "";
     return show(`<form method="dialog">
       <h2>该笔记已存在</h2>
-      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${hasAiSection === false ? "没有 AI 问答可更新。" : ""}整篇覆盖会替换全部内容：`}</p>
+      <p>${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${missing}整篇覆盖会替换全部内容：`}</p>
       <code></code>
       <div class="actions">
         <button class="danger" value="full">整篇覆盖</button>
@@ -89,7 +91,7 @@
     });
   }
 
-  // write-video-note's and export-note's askPage: a web page, or a video whose note needs its page (YouTube, 分 P), with
+  // write-video-note's and export-note's askPage (MdgNoteActions asks it): a web page, or a video whose note needs its page (YouTube, 分 P), with
   // no note yet and not open in any tab. verb: what the button does with the note (写, 复制, 下载). Resolves "open"
   // (打开网页再写 / 打开视频页再复制…: the background opens it and builds its note), "own" (只写 AI 笔记…, the
   // conversation alone; not offered when own is false: 「附带 AI 问答」 off) or "" (取消).
@@ -98,7 +100,7 @@
       ? ["视频页没有打开", "先在后台打开视频页。", "视频笔记", "打开视频页再"]
       : ["网页没有打开", "先在后台打开这个网页。", "网页笔记", "打开网页再"];
     // Only a write leaves a second note behind in the vault.
-    const ownText = verb === "写" ? `只写 AI 笔记会单独存一篇，之后再写${kind}时库里会有两篇。` : `只${verb} AI 笔记只有对话，没有${video ? "字幕" : "正文"}。`;
+    const ownText = verb === "写" ? `只写 AI 笔记会单独写一篇，之后再写${kind}时库里会有两篇。` : `只${verb} AI 笔记只有对话，没有${video ? "字幕" : "正文"}。`;
     return show(`<form method="dialog">
       <h2>${title}</h2>
       <p>要${verb}${verb === "写" ? "成" : ""}完整的${kind}，${open}${own ? ownText : ""}</p>

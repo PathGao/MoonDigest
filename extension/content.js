@@ -1307,7 +1307,8 @@ function noteRef() {
   return { site: state.site, videoId: state.videoId, cid: state.cid, pageIndex: state.pageIndex, pageCount: state.pageCount, pageTitle: state.pageTitle, title: state.title, author: state.author, uploadDate: state.uploadDate, url: cleanVideoUrl() };
 }
 
-// The background (write-video-note) picks the path and writes; this page sends its note and draws the overwrite dialog.
+// The background (write-video-note) picks the path and writes; this page hands its note to MdgNoteActions and draws
+// the overwrite dialog itself (a content script cannot show the extension pages' <dialog>).
 // Resolves { ok, text, written?, error?, code? }: text is the result for the popup to show (ok: false is red), written:
 // false when the existing note was left alone (取消, video switched). The result never goes into the popup's status
 // (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
@@ -1323,47 +1324,35 @@ async function sendToObsidian() {
 
   // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
   const clip = computeCurrentClipSignature();
-  const ref = noteRef();
-  const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
+  const request = { ref: noteRef(), page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
+  // Once the dialog was answered the popup has closed: the result shows on the page.
   let onPage = false;
-  const report = (text, ok, action = null) => {
-    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok, action });
-    return { ok, text };
+  const choose = async (path, opts) => {
+    const mode = await confirmOverwriteNote(path, opts);
+    onPage = true;
+    if (mode) setReadingNotice(MdgErrors.TEXT.obsidianWriting, { busy: true });
+    return mode;
   };
-  try {
-    let resp = await sendRuntimeMessage(request);
-    if (resp?.ok && resp.ask) {
-      const mode = await confirmOverwriteNote(resp.path, { hasAiSection: resp.hasAiSection });
-      onPage = true;
-      if (!mode) {
-        return { ...report(MdgErrors.TEXT.obsidianCancelled, true), written: false };
-      }
-      if (computeCurrentClipSignature() !== clip) {
-        return { ...report(MdgErrors.TEXT.obsidianVideoSwitched, true), written: false };
-      }
-      setReadingNotice(MdgErrors.TEXT.obsidianWriting, { busy: true });
-      resp = await sendRuntimeMessage({ ...request, mode });
-    }
-    if (!resp?.ok) {
-      throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
-    }
-    return report(resp.text, true);
-  } catch (error) {
-    if (MdgErrors.reloaded(error)) {
-      return report(MdgErrors.TEXT.reloaded, false);
-    }
-    // Not set up or a wrong key: 去设置, opened only on its click (the popup shows it from code when the page did not
-    // take over). A closed Obsidian only gets the red line.
-    const settings = error.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: requestOpenOptions } : null;
-    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, false, settings), error: MdgErrors.messageOf(error), code: error.cause?.code };
-  }
+  const r = await MdgNoteActions.run("write", {
+    request: () => request,
+    send: sendRuntimeMessage,
+    isStale: () => (computeCurrentClipSignature() !== clip ? MdgErrors.TEXT.obsidianVideoSwitched : ""),
+    dialogs: { choose }
+  });
+  // Not set up or a wrong key: 去设置, opened only on its click (the popup shows it from code when the page did not
+  // take over). A closed Obsidian only gets the red line.
+  const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: requestOpenOptions } : null;
+  if (onPage) setReadingNotice(r.text, { hideMs: r.ok ? 3000 : 0, error: !r.ok, action: settings });
+  if (r.ok) return { ok: true, text: r.text, ...(!r.done && { written: false }) };
+  return { ok: false, text: r.text, ...(r.reason !== r.text && { error: r.reason }), ...(r.code && { code: r.code }) };
 }
 
 let cancelOverwriteNote = null;
 
-// Resolves "ai" (replace only the marked AI 问答 section), "full" (rewrite the note) or "" (cancel).
+// Resolves "ai" (replace only the marked AI 问答 section), "full" (rewrite the note) or "" (cancel). aiOff: why there is no
+// AI 问答 to update is 「附带 AI 问答」 off (as MdgOverwriteDialog.choose).
 // 整篇覆盖 never sits next to the default button: a slip must not turn an update into a rewrite.
-function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
+function confirmOverwriteNote(filepath, { hasAiSection = false, aiOff = false } = {}) {
   // A second dialog answers the first with 取消, so its caller does not wait forever.
   cancelOverwriteNote?.();
   return new Promise((resolve) => {
@@ -1372,7 +1361,7 @@ function confirmOverwriteNote(filepath, { hasAiSection = false } = {}) {
     overlay.innerHTML = `
       <div class="mdg-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mdgConfirmTitle">
         <div id="mdgConfirmTitle" class="mdg-confirm-title">该笔记已存在</div>
-        <div class="mdg-confirm-body">${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : "没有 AI 问答可更新。整篇覆盖会替换全部内容："}</div>
+        <div class="mdg-confirm-body">${hasAiSection ? "只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。" : `${aiOff ? "「附带 AI 问答」已关。" : "没有 AI 问答可更新。"}整篇覆盖会替换全部内容：`}</div>
         <div class="mdg-confirm-path"></div>
         <div class="mdg-confirm-actions">
           <button type="button" class="mdg-confirm-danger" data-choice="full">整篇覆盖</button>
