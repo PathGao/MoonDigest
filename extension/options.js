@@ -167,8 +167,13 @@ function init() {
       closeAllFixedPropertyMenus();
     }
   });
-  // Typing in any box marked red (by validation or by save-settings' too-long field) clears its mark.
-  document.addEventListener("input", (event) => event.target.classList?.remove("input-error"));
+  // Typing in any box marked red (by validation or by save-settings' too-long field) clears its mark; an edit in a
+  // property or section row clears the row's marks and error line.
+  for (const type of ["input", "change"]) document.addEventListener(type, (event) => {
+    const row = event.target.closest?.(".fixed-property-row, .note-section-row");
+    if (row) clearRowErrors(row);
+    else event.target.classList?.remove("input-error");
+  });
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
   for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
   // Focuses an open triage or 摘读记录 tab instead of a second one.
@@ -529,10 +534,11 @@ function syncUnsaved() {
   setUnsaved(changed.length > 0);
 }
 
-// Deleting a provider is written right away, so the saved copy follows.
+// Deleting a provider is written right away, so the saved copy follows, and so does 「未授权访问」.
 function updateSavedProviders(update) {
   if (savedForm) {
     savedForm.providers = update(savedForm.providers);
+    renderHostPermissionBanner(hostPermissionUrls(savedForm.payload, savedForm.providers));
   }
   syncUnsaved();
   renderSavedState();
@@ -761,9 +767,16 @@ function applyValidationError(validation) {
 }
 
 function clearInputErrors() {
-  document.querySelectorAll(".input-error").forEach((input) => input.classList.remove("input-error"));
-  clearFixedPropertyErrors();
-  clearNoteSectionErrors();
+  clearRowErrors(document);
+}
+
+// The red boxes and the property and section rows' error lines under root (a row, or the whole page).
+function clearRowErrors(root) {
+  root.querySelectorAll(".input-error").forEach((input) => input.classList.remove("input-error"));
+  root.querySelectorAll(".fixed-property-error, .note-section-error").forEach((node) => {
+    node.hidden = true;
+    node.textContent = "";
+  });
 }
 
 function renderFixedPropertyRows(items) {
@@ -795,7 +808,7 @@ function addFixedPropertyRow(item = {}) {
     <p class="fixed-property-error" hidden></p>
   `;
 
-  row.querySelector(".fixed-property-remove")?.addEventListener("click", () => {
+  row.querySelector(".fixed-property-remove").addEventListener("click", () => {
     row.remove();
     updateFixedPropertyEmptyState();
     syncUnsaved();
@@ -805,11 +818,11 @@ function addFixedPropertyRow(item = {}) {
   const typePicker = row.querySelector(".fixed-property-type-picker");
   const typeMenu = row.querySelector(".fixed-property-type-menu");
 
-  typeButton?.addEventListener("click", (event) => {
+  typeButton.addEventListener("click", (event) => {
     event.stopPropagation();
-    const isOpen = typePicker?.dataset.open === "true";
+    const isOpen = typePicker.dataset.open === "true";
     closeAllFixedPropertyMenus();
-    if (typePicker && typeMenu && !isOpen) {
+    if (!isOpen) {
       typePicker.dataset.open = "true";
       typeButton.setAttribute("aria-expanded", "true");
       typeMenu.hidden = false;
@@ -819,38 +832,17 @@ function addFixedPropertyRow(item = {}) {
   row.querySelectorAll(".fixed-property-type-option").forEach((option) => {
     option.addEventListener("click", () => {
       const nextType = MdgSettings.normalizeFixedPropertyType(option.getAttribute("data-type"));
-      const valueSlot = row.querySelector(".fixed-property-value-slot");
-      if (typePicker) {
-        typePicker.dataset.type = nextType;
-        typePicker.dataset.open = "false";
-      }
-      if (typeButton) {
-        typeButton.setAttribute("aria-expanded", "false");
-        const labelNode = typeButton.querySelector(".fixed-property-type-label");
-        if (labelNode) {
-          labelNode.textContent = getFixedPropertyTypeLabel(nextType);
-        }
-      }
-      if (typeMenu) {
-        typeMenu.hidden = true;
-      }
+      typePicker.dataset.type = nextType;
+      typePicker.dataset.open = "false";
+      typeButton.setAttribute("aria-expanded", "false");
+      typeButton.querySelector(".fixed-property-type-label").textContent = getFixedPropertyTypeLabel(nextType);
+      typeMenu.hidden = true;
       const currentValue = readFixedPropertyValue(row);
-      if (valueSlot) {
-        valueSlot.innerHTML = buildFixedPropertyValueControl(nextType, currentValue);
-        bindFixedPropertyValueEvents(row);
-      }
-      clearFixedPropertyErrorState(row);
+      row.querySelector(".fixed-property-value-slot").innerHTML = buildFixedPropertyValueControl(nextType, currentValue);
+      clearRowErrors(row);
       syncUnsaved();
     });
   });
-
-  row.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("input", () => {
-      input.classList.remove("input-error");
-      clearFixedPropertyErrorState(row);
-    });
-  });
-  bindFixedPropertyValueEvents(row);
 
   elements.fixedPropertiesList.appendChild(row);
   updateFixedPropertyEmptyState();
@@ -895,15 +887,10 @@ function addNoteSectionRow(item = {}) {
     <p class="note-section-error" hidden></p>
   `;
 
-  row.querySelector(".note-section-remove")?.addEventListener("click", () => {
+  row.querySelector(".note-section-remove").addEventListener("click", () => {
     row.remove();
     updateNoteSectionEmptyState();
     syncUnsaved();
-  });
-
-  row.querySelectorAll(".note-section-title, .note-section-content, .note-section-position").forEach((input) => {
-    input.addEventListener("input", () => clearNoteSectionErrorState(row));
-    input.addEventListener("change", () => clearNoteSectionErrorState(row));
   });
 
   elements.noteSectionsList.appendChild(row);
@@ -1032,26 +1019,6 @@ function validateFixedFrontmatterProperties(items) {
   return { ok: true };
 }
 
-function clearFixedPropertyErrors() {
-  elements.fixedPropertiesList.querySelectorAll(".fixed-property-key, .fixed-property-value").forEach((input) => {
-    input.classList.remove("input-error");
-  });
-  elements.fixedPropertiesList.querySelectorAll(".fixed-property-error").forEach((node) => {
-    node.hidden = true;
-    node.textContent = "";
-  });
-}
-
-function clearNoteSectionErrors() {
-  elements.noteSectionsList.querySelectorAll(".note-section-title, .note-section-content, .note-section-position").forEach((input) => {
-    input.classList.remove("input-error");
-  });
-  elements.noteSectionsList.querySelectorAll(".note-section-error").forEach((node) => {
-    node.hidden = true;
-    node.textContent = "";
-  });
-}
-
 // YYYY-MM-DD naming a day that exists (2026-02-30 does not).
 function isCalendarDate(text) {
   const day = new Date(`${text}T00:00:00Z`);
@@ -1096,35 +1063,6 @@ function buildFixedPropertyTypePicker(type) {
 
 function getFixedPropertyTypeLabel(type) {
   return FIXED_PROPERTY_TYPE_LABELS[MdgSettings.normalizeFixedPropertyType(type)];
-}
-
-function bindFixedPropertyValueEvents(row) {
-  row.querySelectorAll(".fixed-property-value").forEach((input) => {
-    input.addEventListener("input", () => clearFixedPropertyErrorState(row));
-    input.addEventListener("change", () => clearFixedPropertyErrorState(row));
-  });
-}
-
-function clearFixedPropertyErrorState(row) {
-  row.querySelectorAll(".fixed-property-key, .fixed-property-value").forEach((input) => {
-    input.classList.remove("input-error");
-  });
-  const errorNode = row.querySelector(".fixed-property-error");
-  if (errorNode) {
-    errorNode.hidden = true;
-    errorNode.textContent = "";
-  }
-}
-
-function clearNoteSectionErrorState(row) {
-  row.querySelectorAll(".note-section-title, .note-section-content, .note-section-position").forEach((input) => {
-    input.classList.remove("input-error");
-  });
-  const errorNode = row.querySelector(".note-section-error");
-  if (errorNode) {
-    errorNode.hidden = true;
-    errorNode.textContent = "";
-  }
 }
 
 function closeAllFixedPropertyMenus() {
@@ -1246,6 +1184,11 @@ function plainHttpWarning(url) {
   return local ? "" : PLAIN_HTTP_WARNING;
 }
 
+// A preset by id; an unknown one (or none) is the last, 自定义.
+function presetOf(id) {
+  return AI_PRESETS.find((p) => p.id === id) || AI_PRESETS.at(-1);
+}
+
 function generateAiProviderId() {
   return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -1253,7 +1196,7 @@ function generateAiProviderId() {
 function addAiProviderRow(item = {}) {
   const id = String(item.id || generateAiProviderId());
   const presetId = String(item.presetId || "custom");
-  const preset = AI_PRESETS.find((p) => p.id === presetId) || AI_PRESETS[AI_PRESETS.length - 1];
+  const preset = presetOf(presetId);
   const baseUrl = String(item.baseUrl ?? preset.baseUrl ?? "");
   const model = String(item.model || "");
   const requiresKey = item.requiresKey !== false && preset.requiresKey !== false;
@@ -1284,16 +1227,15 @@ function addAiProviderRow(item = {}) {
   `;
 
   row.querySelector(".ai-provider-preset").addEventListener("change", (e) => {
-    const previousPreset = AI_PRESETS.find((p) => p.id === row.dataset.currentPresetId) || null;
-    const next = AI_PRESETS.find((p) => p.id === e.target.value);
-    if (!next) return;
+    const previousPreset = presetOf(row.dataset.currentPresetId);
+    const next = presetOf(e.target.value);
     const baseUrlInput = row.querySelector(".ai-provider-baseurl");
     const currentBaseUrl = baseUrlInput.value.trim();
-    if (!currentBaseUrl || (previousPreset && currentBaseUrl === previousPreset.baseUrl)) {
+    if (!currentBaseUrl || currentBaseUrl === previousPreset.baseUrl) {
       baseUrlInput.value = next.baseUrl;
     }
     const modelInput = row.querySelector(".ai-provider-model");
-    if (!modelInput.value.trim() || (previousPreset && modelInput.value.trim() === previousPreset.model)) {
+    if (!modelInput.value.trim() || modelInput.value.trim() === previousPreset.model) {
       modelInput.value = next.model;
     }
     row.dataset.currentPresetId = next.id;
@@ -1337,7 +1279,7 @@ function addAiProviderRow(item = {}) {
   const keyInput = row.querySelector(".ai-provider-apikey");
   const syncKey = () => {
     const saved = savedKeyApplies(row);
-    const preset = AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value) || AI_PRESETS.at(-1);
+    const preset = presetOf(row.querySelector(".ai-provider-preset").value);
     keyInput.placeholder = apiKeyPlaceholder(saved, preset.requiresKey);
     row.querySelector(".keytag").hidden = !saved || Boolean(keyInput.value);
   };
@@ -1397,7 +1339,7 @@ async function testAiProviderRow(row, sync) {
   const asked = pattern ? chrome.permissions.request({ origins: [pattern] }).catch(() => false) : true;
   const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
   const model = row.querySelector(".ai-provider-model").value.trim();
-  const requiresKey = (AI_PRESETS.find((p) => p.id === row.querySelector(".ai-provider-preset").value) || AI_PRESETS.at(-1)).requiresKey;
+  const requiresKey = presetOf(row.querySelector(".ai-provider-preset").value).requiresKey;
   showAiProviderStatus(statusNode, "正在测试…");
   statusNode.setAttribute("aria-busy", "true");
   testBtn.disabled = true;
@@ -1459,7 +1401,7 @@ function showAiProviderStatus(node, text, isError = false) {
 function collectAiProviders() {
   return Array.from(elements.aiProvidersList.querySelectorAll(".ai-provider-row")).map((row) => {
     const presetSelect = row.querySelector(".ai-provider-preset");
-    const preset = AI_PRESETS.find((p) => p.id === presetSelect.value) || AI_PRESETS[AI_PRESETS.length - 1];
+    const preset = presetOf(presetSelect.value);
     const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim().replace(/\/+$/, "");
     return {

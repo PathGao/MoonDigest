@@ -118,7 +118,7 @@ async function runWrite(md = false) {
   const items = writeScopeItems();
   const overwrite = el.writeOverwrite.checked;
   // Taken now: the index is named after this folder and lists these one-liners wherever the page is by then.
-  const title = folderTitle();
+  const title = folderName(S.mediaId);
   const oneLiners = Object.fromEntries(items.map((it) => [it.bvid, S.analyses[it.bvid]?.oneLiner]));
   clearWriteResult();
   if (el.banner.dataset.kind === "obsidian") el.banner.hidden = true;
@@ -271,7 +271,7 @@ async function buildBackup() {
 
 
 function buildCsv() {
-  const title = folderTitle();
+  const title = folderName(S.mediaId);
   const header = ["收藏夹", "BV 号", "标题", "UP 主", "时长", "链接", "封面", "发布时间", "收藏时间", "简介", MdgErrors.LABEL.aiVerdict, "判断来源", "理由", "一句话", "要点", "标签", "备注", "我的处理", "处理时间", "是否失效", "原在", "离开原因"];
   const rows = [header];
   for (const it of S.items) {

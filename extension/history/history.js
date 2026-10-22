@@ -38,7 +38,7 @@ const writing = new Set(); // entry keys with a 写入 Obsidian in flight
 const unfolded = new Set(); // entry keys whose one-line AI summary is shown in full
 const expanded = new Set(); // entry keys whose 问答 are open, kept while a search hides the entry
 let reloadTimer = 0;
-let editing = null; // { id, draft } while a 备注 is open; storage reloads wait until it closes
+let editing = null; // { key, id, draft } while an entry's 备注 is open; storage reloads wait until it closes
 let reloadPending = false;
 let rendering = false;
 let pressing = false; // a pointer is down: redrawing now would replace the control it is pressing
@@ -154,8 +154,7 @@ const tagStore = MdgTagStore.create({
   cap: () => MdgLimits.READING_TAGS,
   full: (n) => `已经有 ${n} 个标签了，先在「${UI.tagManage}」里删掉不用的`,
   fullShort: () => `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个`,
-  capName: "摘读记录的标签",
-  keepOverCap: false,
+  hardCap: "摘读记录的标签",
   newTagMax: () => AI.settings.newTagMax,
   confirm: (...a) => UI.askConfirm(...a),
   say: (text, error) => setStatus(text, error),
@@ -173,10 +172,24 @@ const tagStore = MdgTagStore.create({
     if (AI.recent?.at === at) await clearRecent();
   }
 });
+// 取消星标 that puts the AI 对话 over MdgLimits.AI_CONVERSATIONS asks first, saying how many of the oldest go and how many
+// are this record's; confirmed, the cap applies at once, not silently at the side panel's next save.
 const toggleStar = async (g) => {
+  const key = readingKey(g);
   const on = !g.mark?.star;
-  starEdited.add(readingKey(g));
-  await marksDb.update((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
+  let cut = 0;
+  if (!on) {
+    const kept = new Set(MdgLimits.capConversations(conversations, { ...marks, items: { ...marks.items, [key]: { ...marks.items[key], star: 0 } } }));
+    const gone = conversations.filter((c) => !kept.has(c));
+    const mine = new Set(groupByVideo(conversations).filter((x) => readingKey(x) === key).flatMap((x) => x.convs));
+    const own = gone.filter((c) => mine.has(c)).length;
+    cut = gone.length;
+    const body = `<p>AI 对话超过 ${MdgLimits.AI_CONVERSATIONS} 段，将删除最旧的 ${cut} 段${own ? `，其中 ${own} 段是「${esc(g.title)}」的` : ""}，删除后不能恢复。</p>`;
+    if (cut && !(await UI.askConfirm("取消星标？", body, "取消星标并删除", { danger: true }))) return;
+  }
+  starEdited.add(key);
+  if (!(await marksDb.update((m) => editItems(m, { [key]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 }))))) return;
+  if (cut) await MdgLimits.updateConversations((list) => list).catch((error) => setStatus(`${MdgErrors.TEXT.deleteFailed}：${error.message}`, true));
   render();
 };
 
@@ -271,7 +284,7 @@ function aiItem(key, parts, excluded) {
 const aiLive = () => new Map(groupByVideo(conversations).filter(readingKey).map((g) => [readingKey(g), refOf(g)]));
 // A proposal naming a deleted tag no longer fits: dropped, not applied.
 function dropStaleProposal() {
-  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) setAiProposal(null);
+  if (AI.proposal && !tagStore.fits(AI.proposal)) setAiProposal(null);
 }
 function aiProviderId() {
   try {
@@ -481,7 +494,7 @@ const noteIdOf = (g) => g.context.videoId || "";
 
 function renderNote(g) {
   const id = noteIdOf(g);
-  if (id && editing?.id === id) return `<textarea class="note" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
+  if (id && editing?.key === g.key) return `<textarea class="note" name="entryNote" data-note rows="2" placeholder="${MdgErrors.TEXT.notePlaceholder}" aria-label="备注">${esc(editing.draft)}</textarea>`;
   if (!g.note) return id ? `<button type="button" class="quiet note-add" data-act="note">${MdgErrors.LABEL.noteAdd}</button>` : "";
   const body = `<b>备注</b> ${esc(g.note.text.trim())}`;
   return id ? `<button type="button" class="note" data-act="note" title="点击编辑备注">${body}</button>` : `<div class="note">${body}</div>`;
@@ -526,8 +539,18 @@ function render() {
   const pages = allGroups.filter((g) => !g.context.videoId).length;
   const { counted, starred } = MdgLimits.conversationCounts(conversations, marks);
   els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${counted}/${MdgLimits.AI_CONVERSATIONS}${starred ? `，星标 ${starred} 段不计` : ""}`;
-  // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
-  for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
+  // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection. An entry whose
+  // last conversation went (清空全部 AI 对话) is keyed anew when its record stays, with an AI 总结, 备注 or mark: that
+  // entry keeps the selection, the unfolded summary and the open 问答.
+  const keys = new Set(allGroups.map((g) => g.key));
+  for (const set of [selected, unfolded, expanded]) {
+    for (const key of [...set]) {
+      if (keys.has(key)) continue;
+      set.delete(key);
+      const left = allGroups.filter((g) => !g.convs.length && readingKey(g) === MdgLimits.readingKeyOf(key));
+      if (left.length === 1) set.add(left[0].key);
+    }
+  }
   // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.
   // New entries land above the one being read, so the first entry in view keeps its offset (by its key, not scrollY).
   const scrollY = window.scrollY;
@@ -739,7 +762,7 @@ els.list.addEventListener("click", (event) => {
     render();
   }
   else if (act === "note" && group) {
-    editing = { id: noteIdOf(group), draft: group.note?.text || "" };
+    editing = { key, id: noteIdOf(group), draft: group.note?.text || "" };
     render();
   }
   else if (act === "star" && group) void toggleStar(group);

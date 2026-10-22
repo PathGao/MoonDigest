@@ -8,7 +8,7 @@ import "./triage.js"; // runs first: it starts 收藏夹 (fav-*.js), which gives
 
 // 关注's pure functions: follow-core.js (FollowCore), loaded before this module.
 const {
-  ALL, STATUS, withFeedInProgress, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers,
+  ALL, STATUS, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers,
   sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, visibleUps,
   SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, feedOrdered, feedCounts, feedList, feedLeaving,
   stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
@@ -20,7 +20,7 @@ const {
 const T = globalThis.MoonTriage;
 const UI = globalThis.TriageUi;
 const { toast, askConfirm, send } = T;
-const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, cleanTagName, plainClick, img } = UI;
+const { esc, fmtDate, fmtAgo, fmtDuration, fmtCount, plainClick, img } = UI;
 // What 导出 → UP 主表格 holds; B站 caps a group name at 16 characters.
 const CSV_HINT = "名字、标签、更新状态、最后投稿、粉丝数";
 const { GROUP_NAME_MAX } = TriageUi;
@@ -125,7 +125,7 @@ async function load() {
   D = {
     list: got.list || null,
     people: got.people || {},
-    last: withFeedInProgress(got.last, got.last_wip),
+    last: UI.withFeedInProgress(got.last, got.last_wip),
     content: got.content || {},
     tags: got.tags || [],
     map: got.tag_map || {},
@@ -151,7 +151,7 @@ function derive() {
   for (const id of [...F.tags]) if (!D.tags.some((t) => t.id === id)) F.tags.delete(id);
   if (!D.recent?.mids?.length) F.recentFilter = false;
   // A proposal naming a deleted tag no longer fits; it is dropped rather than applied.
-  if (AI.proposal && !UI.aiProposalOk(AI.proposal, tagOf)) setAiProposal(null);
+  if (AI.proposal && !tagStore.fits(AI.proposal)) setAiProposal(null);
 }
 const following = () => D.list?.list || [];
 const tagOf = (id) => D.tags.find((t) => t.id === id);
@@ -167,9 +167,10 @@ const names = (mids) => UI.confirmList(mids.map(nameOf));
 const tagStore = MdgTagStore.create({
   ...MdgTagStore.follow({
     get: () => D,
-    put({ tags, map }) {
+    put({ tags, map, gone }) {
       if (tags) D.tags = tags;
       if (map) D.map = map;
+      if (gone) D.gone = gone;
       derive();
     },
     set: (o) => write(o)
@@ -179,7 +180,6 @@ const tagStore = MdgTagStore.create({
   cap: () => MdgLimits.UP_TAGS,
   full: (n) => MdgTagCore.upFullText(n),
   fullShort: () => `UP 标签已满 ${MdgLimits.UP_TAGS} 个`,
-  keepOverCap: true,
   newTagMax: () => AI.settings.newTagMax,
   // An 已取消关注 UP 主 keeps its tags in its follow_unfollowed record: it carries the tag too.
   uses: (id) => Object.values(D.gone).filter((g) => g.tagIds?.includes(id)).length,
@@ -206,16 +206,26 @@ const tagStore = MdgTagStore.create({
   }
 });
 // An 已取消关注 UP 主's tags are kept in its follow_unfollowed record (follow-bg.js moves them there when it leaves):
-// change(ids) edits them there. Resolves the ids before, or null when the record is gone.
+// change(ids) edits them there. Resolves the ids before, null when the record is gone, false when the write failed
+// (write has said so in red): then no U step is pushed, and a U step stays.
 async function setGoneTags(mid, change) {
   let prev = null;
-  await MdgLimits.updateFollow(["unfollowed"], (s) => {
-    const rec = s.unfollowed?.[mid];
-    if (!rec) return null;
-    prev = [...(rec.tagIds || [])];
-    D.gone = { ...s.unfollowed, [mid]: { ...rec, tagIds: change(prev) } };
-    return { unfollowed: D.gone };
-  }, write);
+  let next = null;
+  try {
+    await MdgLimits.updateFollow(["unfollowed"], (s) => {
+      const rec = s.unfollowed?.[mid];
+      if (!rec) return null;
+      prev = [...(rec.tagIds || [])];
+      next = { ...s.unfollowed, [mid]: { ...rec, tagIds: change(prev) } };
+      return { unfollowed: next };
+    }, async (o) => {
+      if (!(await write(o))) throw new Error("已取消关注的 UP 主的标签没有存上");
+    });
+  } catch (e) {
+    console.error("[follow] tag write failed", e);
+    return false;
+  }
+  if (next) D.gone = next;
   derive();
   return prev;
 }
@@ -228,11 +238,12 @@ async function untagGone(mid, id, name) {
     tags: true,
     undo: async () => {
       const live = new Set(D.tags.map((t) => t.id));
-      await setGoneTags(mid, () => prev.filter((x) => live.has(x)));
+      if ((await setGoneTags(mid, () => prev.filter((x) => live.has(x)))) === false) return false;
       render();
       return `已撤销：${UI.untagStep(name)}`;
     }
   });
+  toast(UI.untagged(name));
 }
 
 // ---------- mode ----------
@@ -801,7 +812,6 @@ const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p
 // Returns how many UP 主 went through: the ones a group request left out (B站 took the rest) are not counted. Its progress shows in the row's progress pill, as a 收藏夹 batch does, with 停止.
 // UI.FOLLOW_WRITE_GAP_MS between requests. B站限流 (THROTTLED): the pill counts down, then the same request
 // goes again; 停止 ends the run there, keeping what went through (and its undo).
-const perUp = (mids, msg) => mids.map((mid) => msg(mid));
 // skipped (an array) gets the UP 主 a group request left out ({ mid, error }); lost, the ones 重新关注 could not put
 // back in their groups ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
@@ -841,7 +851,7 @@ async function unfollow(mids) {
   if (!mids.length) return;
   // Always asked, even for one: following again later does not bring back the follow date, ★ 特别关注 or 关注分组.
   const ok = await askConfirm(`在 B站取消关注 ${mids.length} 个 UP 主？`, `${names(mids)}<p class="dialog-hint">标签会保留，可以在「已出分拣范围 › 已取消关注」里重新关注，不想留记录的也在那里清理。重新关注后会放回原来的分组和特别关注，关注日期变成重新关注的那天。</p>`, `取消关注 ${mids.length} 个`, { danger: true });
-  if (ok) await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
+  if (ok) await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 2 })), "取消关注");
 }
 // 清理, as 收藏夹's: deletes 已取消关注 records with the tags they keep, asked first, no U. B站 is not touched.
 async function clean(mids) {
@@ -894,7 +904,7 @@ async function refollow(mids) {
   if (!ok) return;
   const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
   const lost = [];
-  const done = mids.slice(0, await relationRun(perUp(mids, (mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost }));
+  const done = mids.slice(0, await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost }));
   if (!done.length) return;
   pushWriteUndo(done, {
     label: "重新关注",
@@ -1091,9 +1101,12 @@ async function aiSettings() {
   const triage = own ? null : await send({ type: "triage-settings-get" });
   const { value, seed } = followAiSettings(own, triage?.ok ? triage.data : null);
   // Not stored (sync quota, …): the copied values still work this time, and the next use tries again.
-  if (seed) await chrome.storage.sync.set(MdgLimits.followFull({ ai_settings: seed })).catch((e) => toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true));
+  if (seed) await saveAi(seed);
   return value;
 }
+// Stores follow_ai_settings; a failure is said in red. Resolves whether it was stored.
+const saveAi = (ai) =>
+  chrome.storage.sync.set(MdgLimits.followFull({ ai_settings: ai })).then(() => true, (e) => (toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true), false));
 // 关注设置's fields as the values they store; settingsShown is what they held when the dialog opened (as 收藏夹设置's).
 const settingsFields = () => ({
   ...normAi({ batchSize: $("fwBatchInput").value, intervalSec: $("fwIntervalInput").value, newTagMax: $("fwNewMaxInput").value, allowRemove: $("fwRemoveInput").checked }),
@@ -1289,12 +1302,7 @@ const aiTags = {
   // As 收藏夹: the switch is a setting, kept for the next run.
   async setAllowRemove(on) {
     const next = withAllowRemove(await aiSettings(), on);
-    try {
-      await chrome.storage.sync.set(MdgLimits.followFull({ ai_settings: next }));
-    } catch (e) {
-      toast(`${MdgErrors.TEXT.settingsSaveFailed}：${e.message}`, true);
-      return false;
-    }
+    if (!(await saveAi(next))) return false;
     AI.settings = next;
     return true;
   },
@@ -1375,12 +1383,13 @@ function pickSide(id) {
   if (id === F.side) return;
   if (id === "out" || F.side === "out") freshScope(id);
   F.side = id;
-  if (F.feed) F.feed.dry = 0;
   saveView();
   fromTop();
 }
-// A new sidebar item, tab, filter, search or sort lists other cards: it starts at the top, as 收藏夹's.
+// A new sidebar item, tab, filter, search or sort lists other cards: it starts at the top, as 收藏夹's, and the feed's
+// count of pages that brought none of them starts again.
 function fromTop() {
+  if (F.feed) F.feed.dry = 0;
   E.list.scrollTop = 0;
   F.order = null;
   render();
@@ -1419,7 +1428,6 @@ main.addEventListener("click", async (e) => {
   const tg = t.closest("[data-fw-tag]");
   if (tg) {
     if (!F.tags.delete(tg.dataset.fwTag)) F.tags.add(tg.dataset.fwTag);
-    if (F.feed) F.feed.dry = 0;
     return fromTop();
   }
   const src = t.closest("[data-source]");
@@ -1455,10 +1463,7 @@ main.addEventListener("click", async (e) => {
     const mid = untag.closest("[data-mid]").dataset.mid;
     const name = tagOf(untag.dataset.untag)?.name;
     if (!rows.get(mid)?.gone) await tagStore.untag(mid, untag.dataset.untag);
-    else {
-      await untagGone(mid, untag.dataset.untag, name);
-      toast(UI.untagged(name));
-    }
+    else await untagGone(mid, untag.dataset.untag, name);
     return render();
   }
   const pk = t.closest("[data-pick]");

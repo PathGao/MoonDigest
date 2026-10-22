@@ -988,6 +988,83 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     ctx.TagDialogs.ai.open = realOpen;
   }
 
+  // R27 / R28: two parts of one B站 video, and P1's AI 总结.
+  {
+    const keep = { ...store };
+    const BV = "BV1abcdefghi";
+    const qa = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }];
+    const part = (n) => ({ id: `p${n}`, contextKey: `video:bilibili:${BV}|c${n}`, title: "V", contextRef: { site: "bilibili", videoId: BV, cid: `c${n}`, pageIndex: n, title: "V" }, createdAt: n, updatedAt: n, messages: qa });
+    const act = (key, a, checked) => {
+      const t = { checked, dataset: { act: a }, closest: (s) => (s === ".entry" ? { dataset: { key } } : t) };
+      L.list.click.forEach((f) => f({ target: t }));
+    };
+    for (const k of Object.keys(store)) delete store[k];
+    store.mdg_ai_conversations_v1 = [part(1), part(2)];
+    store[ctx.MdgLimits.KEYS.triageAnalysisPrefix + BV] = { status: "done", oneLiner: "一句话", verdict: "keep", analyzedAt: 1 };
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    // R27: 备注 on P2 opens one editor, on P2's entry.
+    act(`video:bilibili:${BV}|c2`, "note");
+    await wait(20);
+    const editors = [...els.list.innerHTML.matchAll(/<article[^>]*data-key="([^"]*)"[\s\S]*?<\/article>/g)].filter(([a]) => a.includes("data-note")).map(([, k]) => k);
+    assert.deepStrictEqual(editors, [`video:bilibili:${BV}|c2`]);
+    (L.list.keydown || []).forEach((f) => f({ key: "Escape", target: { matches: (sel) => sel === "[data-note]" }, preventDefault() {} }));
+    await wait(20);
+    // R28: P1 selected, its summary unfolded and 问答 open; 清空全部 AI 对话 leaves P1's AI 总结 as an entry keyed anew,
+    // which keeps all three.
+    store.mdg_ai_conversations_v1 = [part(1)];
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    const p1 = `video:bilibili:${BV}|c1`;
+    act(p1, "pick", true);
+    act(p1, "summary");
+    L.list.toggle.forEach((f) => f({ target: { open: true, closest: () => ({ dataset: { key: p1 } }) } }));
+    ctx.confirm = () => true;
+    for (const f of L.clearAll.click) await f({});
+    await wait(50);
+    const after = [...els.list.innerHTML.matchAll(/data-key="([^"]*)"/g)].map(([, k]) => k).filter((k) => k.includes(BV));
+    assert.deepStrictEqual(after, [`video:bilibili:${BV}|`]);
+    const entry = els.list.innerHTML.match(/<article[^>]*data-key="video:bilibili:BV1abcdefghi\|"[\s\S]*?<\/article>/)[0];
+    assert.ok(/class="card entry selected"/.test(entry) && /data-act="pick"[^>]*checked/.test(entry) && /aria-expanded="true"/.test(entry), entry);
+    act(after[0], "pick", false);
+    act(after[0], "summary");
+    for (const k of Object.keys(store)) delete store[k];
+    Object.assign(store, keep);
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+  }
+
+  // D2: 取消星标 that puts the AI 对话 over the cap asks first with how many of the oldest go, this record's among them;
+  // cancelled, the 星标 stays; confirmed, the cap applies at once.
+  {
+    const keep = { ...store };
+    const MARKS = ctx.MdgLimits.KEYS.readingMarks;
+    const key = "page:https://old.example/";
+    const qa = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }];
+    const c = (id, contextKey, at) => ({ id, contextKey, title: id, contextUrl: contextKey.slice(5), createdAt: at, updatedAt: at, messages: qa });
+    for (const k of Object.keys(store)) delete store[k];
+    store.mdg_ai_conversations_v1 = [c("old1", key, 1), c("old2", key, 2), ...Array.from({ length: 500 }, (_, i) => c(`n${i}`, `page:https://n${i}.example/`, 1000 + i))];
+    store[MARKS] = { tags: [], items: { [key]: { star: 5, tags: [], ref: { url: "https://old.example/", title: "旧网页" } } } };
+    onChanged({ mdg_ai_conversations_v1: {}, [MARKS]: {} }, "local");
+    await wait(350);
+    const star = async () => {
+      const t = { dataset: { act: "star" }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      L.list.click.forEach((f) => f({ target: t }));
+      await wait(50);
+    };
+    confirmAnswer = false;
+    await star();
+    assert.deepStrictEqual(asks.at(-1), ["取消星标？", "<p>AI 对话超过 500 段，将删除最旧的 2 段，其中 2 段是「old2」的，删除后不能恢复。</p>", "取消星标并删除", { danger: true }]);
+    assert.deepStrictEqual([store[MARKS].items[key].star, store.mdg_ai_conversations_v1.length], [5, 502], "cancelled: nothing changes");
+    confirmAnswer = true;
+    await star();
+    assert.deepStrictEqual([store[MARKS].items[key]?.star || 0, store.mdg_ai_conversations_v1.length, store.mdg_ai_conversations_v1.some((x) => x.contextKey === key)], [0, 500, false]);
+    for (const k of Object.keys(store)) delete store[k];
+    Object.assign(store, keep);
+    onChanged({ mdg_ai_conversations_v1: {}, [MARKS]: {} }, "local");
+    await wait(350);
+  }
+
   // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC. Each is the
   // record's note (export-note) without a dialog: one whose page is not open is its AI 笔记 (pageChoice own), one that
   // cannot be built is this page's AI 笔记, and the status line counts both.

@@ -1266,21 +1266,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // I7: 未授权访问 ends it by its code, not by matching the words.
   assert.ok(vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_ACCESS", error: "x" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, error: "未授权访问 https://a.test" }));
   assert.ok(!vm.runInContext("aiEnds", ctx)({ ok: false, code: "AI_BAD_JSON" }) && !vm.runInContext("aiEnds", ctx)({ ok: false, code: "OBSIDIAN" }), "a video's own error or a non-AI code goes on");
-  // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). An error of this request alone fails only it.
+  // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts, with the 收藏夹 runs' hold). An error of this
+  // request alone fails only it.
   {
+    const aiJudge = () => {
+      const judge = t.MdgRuns.aiJudge();
+      return (r) => judge(r, vm.runInContext("runs", ctx).hold);
+    };
     const steps = (rs) => {
-      const judge = vm.runInContext("aiJudge", ctx)();
+      const judge = aiJudge();
       return rs.map((r) => judge({ ...r }));
     };
     const T = { ok: false, code: "AI_TIMEOUT" }, L = { ok: false, code: "AI_THROTTLED" }, own = { ok: false, error: "字幕取不到" };
     assert.deepStrictEqual(steps([T, T]), ["retry", "stop"], "the second timeout in a row ends the run");
     assert.deepStrictEqual(steps([T, { ok: true }, T]), ["retry", "ok", "retry"], "an answer resets the count");
     assert.deepStrictEqual(steps([L, L, L, L, L, L]), ["wait", "wait", "wait", "wait", "wait", "stop"]);
-    const judge = vm.runInContext("aiJudge", ctx)();
+    const judge = aiJudge();
     const last = { ...L };
     for (const r of [L, L, L, L, L]) judge({ ...r });
     assert.deepStrictEqual([judge(last), last.code], ["stop", "AI_GAVE_UP"], "the run then ends as AI_GAVE_UP");
-    assert.strictEqual(vm.runInContext("aiJudge", ctx)()({ ...L }), "wait", "each run counts its own");
+    assert.strictEqual(aiJudge()({ ...L }), "wait", "each run counts its own");
 
     assert.deepStrictEqual(steps([T, own, T]), ["retry", "item", "retry"], "only this video (粗看: this batch) failed");
     assert.deepStrictEqual(steps([{ ok: false, code: "AI_QUOTA" }]), ["stop"]);
@@ -2348,7 +2353,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.ai.proposals = {};
     let calls = 0;
     handlers["triage-ai-command"] = async (m) => {
-      if (++calls === 2) await tagStore().remove(tagStore().tagOf("b"));
+      if (++calls === 2) await tagStore().remove(t.S.tags.find((x) => x.id === "b"));
       return { ok: true, data: { assignments: { [m.items[0].bvid]: { add: ["留"] } } } };
     };
     toasts.length = 0;
@@ -2876,6 +2881,21 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
     assert.strictEqual(toasts.at(-1), "已从「已出分拣范围」找回 2 个视频");
 
+    // R34: B站 kept some in 稍后再看 after adding them to the target: they stay listed here, the count only drops by the
+    // ones that left, and the toast says so instead of 「已移动」.
+    const pair = [item(970), item(971)];
+    store[t.K.snapshot("1")] = snap(pair);
+    openFake("1", pair);
+    t.S.allFolders[0].count = 2;
+    handlers["triage-transfer"] = () => ({ ok: true, data: { done: 1, stayed: [1971], stayedError: "B站返回 90001：不在" } });
+    t.askTransfer = async () => ({ how: "move", target: { id: "2" } });
+    await t.fav.transfer(pair);
+    assert.deepStrictEqual(t.S.items.map((it) => it.bvid), ["BV971"]);
+    assert.deepStrictEqual(store[t.K.snapshot("1")].bvids, ["BV971"]);
+    assert.strictEqual(t.S.allFolders[0].count, 1);
+    assert.strictEqual(toasts.at(-1), "1 个已收藏到「目标」，但没能从稍后再看移除：B站返回 90001：不在");
+    openFake("removed", []);
+
     // 已出分拣范围 收藏到 a chosen folder: added with no source, back in that folder's list without the removed fields.
     store[t.K.removed] = { BV960: { item: item(960), at: 5 }, BV961: { item: item(961), at: 5 } };
     openFake("removed", [{ ...item(960), removedAt: 5 }, { ...item(961), removedAt: 5 }]);
@@ -3326,6 +3346,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       for (let i = 0; i < 5; i++) await new Promise(setImmediate);
       const { type, aiProviderId, ...patch } = saved;
       assert.deepStrictEqual(plain(patch), { triageIntervalSec: 99 }, "only the edited field is written");
+      // R24: the folder ticks too. An import that changed the folder choice while the dialog was open stays when the
+      // ticks were left as they opened; ticks the user changed are written.
+      const keep = { included: t.S.included, applyIncluded: t.applyIncluded, folderToggles: t.el.folderToggles };
+      const applied = [];
+      t.applyIncluded = async (x) => applied.push(plain(x));
+      let ticked = ["1"];
+      t.el.folderToggles = { querySelectorAll: () => ticked.map((value) => ({ value })) };
+      Object.assign(t.S, { allFolders: [{ id: 1, title: "一" }, { id: 2, title: "二" }], included: ["1"] });
+      const close = async () => {
+        t.openSettings();
+        t.S.included = store[t.K.included] = ["1", "2"]; // 导入设置 lands
+        t.el.settingsDialog.returnValue = "save";
+        fire("settingsDialog", "close");
+        for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      };
+      await close();
+      assert.deepStrictEqual([plain(store[t.K.included]), applied], [["1", "2"], []], "the imported choice stays");
+      t.S.included = ["1"];
+      t.openSettings();
+      ticked = ["2"];
+      t.el.settingsDialog.returnValue = "save";
+      fire("settingsDialog", "close");
+      for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      assert.deepStrictEqual([plain(store[t.K.included]), applied], [["2"], [["2"]]], "a changed tick is written");
+      Object.assign(t, { applyIncluded: keep.applyIncluded });
+      Object.assign(t.S, { included: keep.included });
+      t.el.folderToggles = keep.folderToggles;
       Object.assign(t, { render: was.render });
       Object.assign(t.S.settings, was.settings);
       t.S.allFolders = was.allFolders;
@@ -4122,6 +4169,81 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.S.videoTags.BV650), [made.id, "x650"].sort((a, b) => plain(t.S.videoTags.BV650).indexOf(a) - plain(t.S.videoTags.BV650).indexOf(b)));
     t.S.settings.triageTagLimit = keep.limit;
     Object.assign(t.S, { tags: keep.tags, videoTags: keep.videoTags, undo: [] });
+  }
+
+  // A result from before criteria were recorded counts as made under the open folder's criteria, and is stored so;
+  // 所有收藏夹 has no one criteria to stamp.
+  {
+    const was = { title: handlers["triage-title-get"], analysis: handlers["triage-analysis-get"], crit: t.S.folderCriteria };
+    handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
+    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, { verdict: "keep" }])) });
+    t.S.folderCriteria = { F700: "只留干货" };
+    for (const [id, n, want] of [["F700", 700, "只留干货"], ["all", 701, undefined]]) {
+      openFake(id, [item(n)]);
+      await t.loadResults(t.S.folderToken);
+      assert.strictEqual(t.S.titleRes[`BV${n}`].criteria, want, id);
+    }
+    Object.assign(handlers, { "triage-title-get": was.title, "triage-analysis-get": was.analysis });
+    t.S.folderCriteria = was.crit;
+  }
+
+  // R20: another tab deletes the tag this tab filters by: the filter drops it, so the list is not left empty with no
+  // chip to turn it off.
+  {
+    openFake("R20", [item(1), item(2)]);
+    Object.assign(t.S, { tab: "read", tags: [{ id: "x", name: "X", folder: "R20", color: "#f00" }], videoTags: { BV1: ["x"] }, tagFilter: new Set(["x"]) });
+    assert.deepStrictEqual(plain(t.visibleItems().map((i) => i.bvid)), ["BV1"]);
+    t.followShared({ [t.K.tags]: { newValue: [] } });
+    assert.deepStrictEqual([t.visibleItems().length, t.S.tagFilter.size], [2, 0]);
+    Object.assign(t.S, { tags: [], videoTags: {} });
+  }
+
+  // R25: 保留, then 取消收藏, then favorited again on B站: the sync drops the 取消收藏 and the 保留 shows again.
+  {
+    const keep = { action: "keep", at: 1 };
+    openFake("R25", [item(3)], { BV3: { action: "unfav", at: 1000, aid: 1003, title: "视频3" } });
+    t.S.kept = { BV3: keep };
+    store[t.K.snapshot("R25")] = { bvids: ["BV3"], items: [item(3)], ids: ["BV3"], intro: "" };
+    Object.assign(t.S, { syncing: false, lastSyncAt: 0 });
+    const was = handlers["triage-folder-items"];
+    handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [{ ...item(3), favTime: 9e9 }], ids: ["BV3"], info: { intro: "" } } });
+    await t.syncFolder({ force: true });
+    handlers["triage-folder-items"] = was;
+    assert.deepStrictEqual(plain(t.S.decisions.BV3), keep);
+    t.S.kept = {};
+  }
+
+  // R9: 所有收藏夹's batch 取消收藏 while a folder load rebuilds the list mid-run (the video left every folder, so the
+  // rebuilt list lacks it): it still gets its record, the U step and the toast.
+  {
+    const was = { sleepWhile: t.sleepWhile, pick: t.pickBatchUnfavFolders, unfav: handlers["triage-unfav"] };
+    t.S.folderToken++;
+    t.S.allFolders = t.S.folders = [{ id: "f1", title: "一", count: 1 }, { id: "f2", title: "二", count: 1 }];
+    Object.assign(t.S, { included: ["f1", "f2"], mediaId: "all", decisions: {}, undo: [], folderDecisions: { f1: {}, f2: {} } });
+    t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.rebuildAll();
+    t.pickBatchUnfavFolders = async () => ["f1", "f2"];
+    handlers["triage-unfav"] = (m) => (m.mediaId === "f2" && t.rebuildAll(), { ok: true }); // as runLoadAll after checking a folder
+    await t.fav.unfavMany([...t.S.items]);
+    assert.deepStrictEqual([t.S.undo.length, t.S.decisions.BV10?.action, t.S.itemMap.has("BV10"), toasts.at(-1)], [1, "unfav", true, `已从 2 个收藏夹取消收藏 2 个视频${t.TriageUi.UNDO}`]);
+    Object.assign(t, { sleepWhile: was.sleepWhile, pickBatchUnfavFolders: was.pick });
+    handlers["triage-unfav"] = was.unfav;
+    Object.assign(t.S, { loadAll: null, undo: [], folderDecisions: {} });
+  }
+
+  // R26: Esc with the 导出 popover open closes only the popover (the browser's), not the player too.
+  {
+    let closed = 0;
+    const was = { closeViewer: t.closeViewer, q: ctx.document.querySelector, viewing: t.S.viewing };
+    t.S.viewing = "BV1";
+    t.closeViewer = () => closed++;
+    ctx.document.querySelector = (sel) => (sel === ":popover-open" ? {} : null);
+    t.onKey({ key: "Escape", target: { closest: () => null }, preventDefault() {} });
+    ctx.document.querySelector = was.q;
+    t.onKey({ key: "Escape", target: { closest: () => null }, preventDefault() {} });
+    assert.strictEqual(closed, 1, "only the second Esc closes the player");
+    Object.assign(t, { closeViewer: was.closeViewer });
+    t.S.viewing = was.viewing;
   }
 
   console.log("triage selftest: all passed");

@@ -44,10 +44,12 @@ const marked = ["aiSystemPrompt", "noteFolder"].map(() => {
   const set = new Set(["input-error"]);
   return { set, classList: { remove: (c) => set.delete(c) } };
 });
-const marks = vm.createContext({ document: { querySelectorAll: (sel) => (sel === ".input-error" ? marked.filter((n) => n.set.size) : []) }, elements: {}, clearFixedPropertyErrors() {}, clearNoteSectionErrors() {} });
-vm.runInContext(fn("clearInputErrors"), marks);
+// A property row's and a section row's error line go too.
+const lines = [{ hidden: false, textContent: "属性名不能为空" }, { hidden: false, textContent: "段落标题不能为空" }];
+const marks = vm.createContext({ document: { querySelectorAll: (sel) => (sel === ".input-error" ? marked.filter((n) => n.set.size) : sel === ".fixed-property-error, .note-section-error" ? lines : []) } });
+vm.runInContext([fn("clearInputErrors"), fn("clearRowErrors")].join("\n"), marks);
 marks.clearInputErrors();
-assert.deepStrictEqual(marked.map((n) => n.set.size), [0, 0], "every red box is cleared");
+assert.deepStrictEqual([marked.map((n) => n.set.size), lines.map((l) => [l.hidden, l.textContent])], [[0, 0], [[true, ""], [true, ""]]], "every red box and error line is cleared");
 
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -146,7 +148,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const parts = {};
   const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
   const page = vm.createContext({ URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
   page.addAiProviderRow({});
   const test = parts[".ai-provider-test"];
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -220,7 +222,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     updateAiProvidersEmptyState() {},
     chrome: { permissions: { request: async () => true }, runtime: { sendMessage: (m) => (sent.push(m), new Promise((r) => (answer = r))) } }
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   page.addAiProviderRow({ id: "p1", presetId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", hasSavedKey: true });
   parts[".ai-provider-preset"].value = "deepseek";
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -244,6 +246,24 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.strictEqual(test.disabled, false, "enabled again when it answers");
   // C274, C276: the edit hid the status, and the answer, for the values before it, is not shown.
   assert.strictEqual(parts[".ai-provider-status"].hidden, true);
+})().catch((e) => (console.error(e), process.exit(1)));
+
+// R30: a deleted AI platform leaves the 「未授权访问」 banner, which lists what is saved now.
+(async () => {
+  const banner = { hidden: true };
+  const text = { textContent: "" };
+  const page = vm.createContext({
+    URL, elements: { hostPermissionBanner: banner, hostPermissionText: text, hostPermissionBtn: {} }, syncUnsaved() {}, renderSavedState() {},
+    savedForm: { payload: { obsidianEnabled: false }, providers: [{ id: "a", baseUrl: "https://a.example/v1" }, { id: "b", baseUrl: "https://b.example/v1" }] },
+    chrome: { permissions: { request: async () => false, contains: async () => false } }
+  });
+  vm.runInContext([fn("updateSavedProviders"), fn("hostPermissionUrls"), fn("hostPermissionPattern"), `async ${fn("missingHostPermissions")}`, `async ${fn("renderHostPermissionBanner")}`].join("\n"), page);
+  page.updateSavedProviders((list) => list.filter((x) => x.id !== "a"));
+  await new Promise((r) => setTimeout(r));
+  assert.deepStrictEqual([banner.hidden, text.textContent], [false, "未授权访问 https://b.example，AI 请求会失败。"]);
+  page.updateSavedProviders(() => []);
+  await new Promise((r) => setTimeout(r));
+  assert.strictEqual(banner.hidden, true);
 })().catch((e) => (console.error(e), process.exit(1)));
 
 // C249, C256, C257: a property row's error marks the box it is about; a date must exist.
@@ -362,7 +382,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } },
     updateAiProvidersEmptyState() {}, updateSavedProviders() {}, chrome: { runtime: { sendMessage: async () => reply() } }
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
   page.addAiProviderRow({ id: "p1" });
   const del = parts[".ai-provider-remove"];
   const status = parts[".ai-provider-status"];
@@ -398,7 +418,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) }, runtime: { sendMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true }) } }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
-  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("urlOrigin"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("urlOrigin"), fn("presetOf"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   // L4: the declined permission carries its code, as the background's does.
   const replies = [];
   const realText = page.MdgErrors.text;

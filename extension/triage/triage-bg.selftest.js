@@ -739,10 +739,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.strictEqual(calls.pop()[0], "/x/v3/fav/resource/copy");
     await H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true });
     assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v2/history/toview/del"]);
-    // R34: the add went through and only the removal failed: the error says what was done, with B站's code.
+    // R34: a limited removal is thrown as it is (the run waits and sends the same video again; the add is idempotent);
+    // any other failed removal answers the video as stayed, with the reason: it is in the target and still in 稍后再看.
     const realFetch = t.fetch;
     t.fetch = async (url, opts) => (/toview\/del/.test(url) ? { ok: true, status: 200, json: async () => ({ code: -352, message: "风控" }) } : realFetch(url, opts));
-    await assert.rejects(H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true }), (e) => e.code === "THROTTLED" && e.message === `已收藏到目标收藏夹，但没能从稍后再看移除：${t.MdgErrors.TEXT.biliThrottled}`);
+    await assert.rejects(H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true }), (e) => e.code === "THROTTLED");
+    t.fetch = async (url, opts) => (/toview\/del/.test(url) ? { ok: true, status: 200, json: async () => ({ code: 90001, message: "不在稍后再看里" }) } : realFetch(url, opts));
+    assert.deepStrictEqual(plain(await H["triage-transfer"]({ from: "toview", to: "2", aids: [10, 11], move: true })), { done: 2, stayed: [10, 11], stayedError: "B站返回 90001：不在稍后再看里" });
     t.fetch = realFetch;
     calls.length = 0;
     await H["triage-transfer"]({ from: "", to: "2", aids: [10, 11], move: false });

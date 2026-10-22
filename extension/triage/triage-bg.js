@@ -1052,20 +1052,26 @@ const TRIAGE_HANDLERS = {
 
   // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
   // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove. The page sends one video per
-  // request from 稍后再看; an add that went through with its removal failed says so, it is not undone.
+  // request from 稍后再看. A removal that B站 limits is thrown as it is: the run waits and sends the same video again (the
+  // add is idempotent). Any other failed removal is not undone and not a failure: the video is in the target and still
+  // in 稍后再看, answered as stayed (its aids) with the reason, so the page shows it copied rather than moved.
   "triage-transfer": async ({ from, to, aids, move }) => {
     const list = triageAids(aids);
     if (!triageNumId(to) || (from && !triageFolderId(from)) || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
     if (!from || from === TRIAGE_TOVIEW) {
+      const stayed = [];
+      let stayedError = "";
       for (const aid of list) {
         await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: to, del_media_ids: "" });
         if (move && from) {
           await triageBiliPost("/x/v2/history/toview/del", { aid }).catch((e) => {
-            throw triageError(`已收藏到目标收藏夹，但没能从${MdgErrors.LABEL.watchLater}移除：${e.message}`, e.code);
+            if (e.code === MdgErrors.CODE.THROTTLED) throw e;
+            stayed.push(aid);
+            stayedError = e.message;
           });
         }
       }
-      return { done: list.length };
+      return stayed.length ? { done: list.length, stayed, stayedError } : { done: list.length };
     }
     await triageBiliPost(`/x/v3/fav/resource/${move ? "move" : "copy"}`, {
       src_media_id: from,

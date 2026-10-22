@@ -32,7 +32,6 @@
     const label = action ? ACTION[action] : v ? (v.stage === 0 ? LABEL.invalid : `AI ${name}`) : "";
     const info = {
       label,
-      aria: "",
       verdict: v ? v.verdict : "",
       stage: v?.stage || 0,
       low: Boolean(v?.low),
@@ -42,7 +41,6 @@
       points: done ? (analysis.points || []).map(String).filter(Boolean) : [],
       tags: userTags
     };
-    info.aria = ariaOf(info, userTags);
     return info;
   }
   // What a mark reads aloud: the decision and the verdict it shows, and the tags it shows.
@@ -202,7 +200,7 @@
 
   globalThis.MdgBadges = {
     bvidFromHref, badgeInfo, mergeDecisions, midFromHref, upTagsOf, spotIn, upCounts, upHidden,
-    faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag, SURFACES, surfaceOf, fitCount, biliSaysSeen, lineParts
+    faceKey, whoIndex, resolveMid, pickRows, saveUpTag, surfaceOf, fitCount, biliSaysSeen, lineParts
   };
   if (typeof chrome === "undefined" || !chrome.storage?.local || typeof document === "undefined") return;
   // The 分拣台's player (viewer-frame.js): a video gets only the line under its title, its AI 判断 as the switch says and
@@ -293,7 +291,7 @@
   }
 
   // badges.css hides BewlyCat's own watch progress while ours is on.
-  const SEEN_ATTR = "data-mdg-seen"; // badges.css hides BewlyCat's progress under it
+  const SEEN_ATTR = "data-mdg-seen";
   const markBewly = () => document.getElementById("bewly")?.toggleAttribute(SEEN_ATTR, seenCfg.on);
 
   const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
@@ -331,6 +329,7 @@
   let full = false;
   let frame = 0;
   const ours = (n) => n.nodeType === 1 && /(?:^|\s)mdg-/.test(n.className?.baseVal ?? n.className ?? "");
+  const overlay = (n) => n.nodeType === 1 && Boolean(n.matches?.(".mdg-pop, .mdg-tagpick-host"));
   function want(n) {
     if (full) return;
     if (pending.size >= MAX) {
@@ -354,6 +353,8 @@
       }
       const added = [...r.addedNodes];
       const removed = [...r.removedNodes];
+      // Our pop and tag picker coming and going (hover, 「+」): nothing on the page changed.
+      if ([...added, ...removed].every(overlay)) continue;
       // Our own marks added: nothing new. A mark removed may be B站's doing, so its parent is looked at again (after
       // our own removals that finds nothing to write).
       if (!removed.length && added.every(ours)) continue;
@@ -389,8 +390,7 @@
     if (!enabled || timer) return;
     timer = setTimeout(() => {
       timer = 0;
-      full = true;
-      soon();
+      rescan();
     }, 400);
   }
   const rescan = () => {
@@ -443,7 +443,20 @@
   }
 
   // A 动态 card's author: a data attribute up to the card, else its avatar file, else its name (each only when unique).
+  // Worked out again only for a new name element, a new name in it or new follow data (idx): every pass asks for every
+  // loaded card (feedFilter counts the whole list), and infinite scroll keeps adding cards.
+  // ponytail: keyed by the name's text; a card B站 reuses for a same-named UP keeps the first one's mid.
+  let mids = new WeakMap();
+  let midsOf = null;
   function nameMid(el, idx) {
+    if (midsOf !== idx) [mids, midsOf] = [new WeakMap(), idx];
+    const hit = mids.get(el);
+    if (hit?.name === el.textContent) return hit.mid;
+    const mid = findMid(el, idx);
+    mids.set(el, { name: el.textContent, mid });
+    return mid;
+  }
+  function findMid(el, idx) {
     const card = el.closest(".dyn-orig-author, .bili-dyn-item, .bili-dyn-list__item");
     let data = "";
     for (let n = el; n?.nodeType === 1 && !data; n = n === card ? null : n.parentNode) data = n.getAttribute("data-mid") || n.getAttribute("data-uid") || "";
@@ -709,59 +722,61 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (pick && !path.includes(pick.host) && !path.includes(pick.add)) closePick(false);
   }
 
+  // A new element with its class and text, either left out when not given.
+  function elOf(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
   function renderPick() {
     if (!pick) return;
-    const el = (tag, cls, text) => {
-      const n = document.createElement(tag);
-      if (cls) n.className = cls;
-      if (text != null) n.textContent = text;
-      return n;
-    };
-    const head = el("div", "h", upTagTitle(pick.add.dataset.name));
+    const head = elOf("div", "h", upTagTitle(pick.add.dataset.name));
     // The extension reloaded under this page: storage and messages no longer reach it.
     if (!chrome.runtime?.id) {
-      pick.panel.replaceChildren(head, el("div", "empty", TEXT.reloaded));
+      pick.panel.replaceChildren(head, elOf("div", "empty", TEXT.reloaded));
       return placePick();
     }
     const was = pick.root.activeElement;
     const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("go") ? "go" : was?.classList?.contains("opt") ? "new" : was ? "input" : null));
     pick.focus = null;
     const rows = pickRows(pick.mid, up.tags, up.map);
-    const list = el("div", "list");
+    const list = elOf("div", "list");
     list.setAttribute("role", "menu");
     for (const r of rows) {
-      const b = el("button", "opt");
+      const b = elOf("button", "opt");
       b.type = "button";
       b.dataset.id = r.id;
       b.setAttribute("role", "menuitemcheckbox");
       b.setAttribute("aria-checked", String(r.on));
-      const dot = el("span", "dot");
+      const dot = elOf("span", "dot");
       if (r.color) dot.style.setProperty("--c", r.color);
-      b.append(el("span", "ck", r.on ? "✓" : ""), dot, el("span", "nm", r.name));
+      b.append(elOf("span", "ck", r.on ? "✓" : ""), dot, elOf("span", "nm", r.name));
       list.append(b);
     }
-    if (!rows.length) list.append(el("div", "empty", "还没有 UP 标签"));
-    const more = el("div", "new");
+    if (!rows.length) list.append(elOf("div", "empty", "还没有 UP 标签"));
+    const more = elOf("div", "new");
     const full = upTagsFull(up.tags);
-    if (full) more.append(el("div", "empty", full));
+    if (full) more.append(elOf("div", "empty", full));
     else if (pick.editing) {
-      const input = el("input");
+      const input = elOf("input");
       input.type = "text";
       input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
       input.placeholder = "标签名，回车新建";
       input.setAttribute("aria-label", LABEL.newTagName);
       more.append(input);
     } else {
-      const b = el("button", "opt");
+      const b = elOf("button", "opt");
       b.type = "button";
       b.dataset.new = "";
-      b.append(el("span", "ck", "+"), el("span", "nm", LABEL.newTag));
+      b.append(elOf("span", "ck", "+"), elOf("span", "nm", LABEL.newTag));
       more.append(b);
     }
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
-    const go = el("button", "go", "在分拣台「关注」里打开这个 UP 主 ↗");
+    const go = elOf("button", "go", "在分拣台「关注」里打开这个 UP 主 ↗");
     go.type = "button";
-    pick.panel.replaceChildren(head, list, more, go, el("div", "foot", `${LOCAL_ONLY} · Esc 关闭`));
+    pick.panel.replaceChildren(head, list, more, go, elOf("div", "foot", `${LOCAL_ONLY} · Esc 关闭`));
     placePick();
     const again = focus === "go" ? go : focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
     if (focus) (again || pickFocusables()[0])?.focus();
@@ -1110,27 +1125,33 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     resizes?.disconnect();
     findAll(".mdg-badge, .mdg-ups").forEach((b) => delete b.dataset.fit);
   }
-  const resizes = typeof ResizeObserver === "function" ? new ResizeObserver(() => {
+  // Only the boxes in the containers that changed size are fitted again (fitBoxes observes each box's parent).
+  const resized = new Set();
+  const resizes = typeof ResizeObserver === "function" ? new ResizeObserver((entries) => {
+    for (const e of entries) resized.add(e.target);
     if (refitFrame) return;
     refitFrame = requestAnimationFrame(() => {
       refitFrame = 0;
-      fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => b.dataset.fit));
+      const boxes = [...resized].flatMap((p) => kids(p).filter((b) => b.dataset.fit && b.matches(".mdg-badge, .mdg-ups")));
+      resized.clear();
+      fitBoxes(boxes);
     });
   }) : null;
 
   function markVideoLine(bvid) {
     const old = document.querySelector(".mdg-line");
     const info = cache.get(bvid);
-    if (old && old.dataset.bvid === bvid && info) return;
-    old?.remove();
     const parts = info && lineParts(info, lineOn);
-    if (!parts) return;
+    // Keyed by what it shows, as upChip: redrawn when that changes (保留 or a tag in the 分拣台), else left as it is.
+    const key = parts ? `${bvid}|${JSON.stringify(parts)}` : "";
+    if ((old?.dataset.key || "") === key) return;
     // Below the views / danmaku / date row; the title alone when that row isn't there.
     const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
-    if (!anchor) return;
+    if (!parts || !anchor) return void old?.remove();
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;
+    line.dataset.key = key;
     line.append(brandEl(), badgeEl(parts.info, bvid, parts.tags));
     const text = parts.text;
     if (text) {
@@ -1139,31 +1160,27 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       s.textContent = text;
       line.append(s);
     }
+    // Swapped in one step: no frame without a line.
+    old?.remove();
     anchor.after(line);
   }
 
   // The AI's reasons on a verdict, or every tag of a group on its 「+N」.
   function showPop(host) {
-    const add = (tag, cls, text) => {
-      const n = document.createElement(tag);
-      n.className = cls;
-      n.textContent = text;
-      return n;
-    };
     let at = host;
     const rows = [];
     if (host.classList.contains("mdg-more")) {
-      rows.push(add("div", "mdg-pop-head", host.dataset.head), add("div", "mdg-pop-one", host.dataset.names));
+      rows.push(elOf("div", "mdg-pop-head", host.dataset.head), elOf("div", "mdg-pop-one", host.dataset.names));
     } else {
       at = host.matches(".mdg-line") ? host.querySelector(".mdg-badge") : host;
       const raw = cache.get(at?.dataset.bvid);
       // What this mark shows (lineParts): with the AI 判断 switched off, no verdict and so none of its reasons.
       const info = raw && lineParts(raw, at.closest(".mdg-line") ? lineOn : ruleFor(at))?.info;
-      if (!info?.label || (!info.reason && !info.oneLiner)) return;
-      rows.push(add("div", "mdg-pop-head", info.aria));
-      if (info.oneLiner) rows.push(add("div", "mdg-pop-one", info.oneLiner));
-      for (const p of info.points) rows.push(add("div", "mdg-pop-pt", `• ${p}`));
-      if (info.reason) rows.push(add("div", "mdg-pop-reason", `理由：${info.reason}`));
+      if (!info?.label || (!info.reason && !info.oneLiner)) return hidePop();
+      rows.push(elOf("div", "mdg-pop-head", info.aria));
+      if (info.oneLiner) rows.push(elOf("div", "mdg-pop-one", info.oneLiner));
+      for (const p of info.points) rows.push(elOf("div", "mdg-pop-pt", `• ${p}`));
+      if (info.reason) rows.push(elOf("div", "mdg-pop-reason", `理由：${info.reason}`));
     }
     pop ||= Object.assign(document.createElement("div"), { className: "mdg-pop", role: "tooltip" });
     pop.replaceChildren(...rows);
@@ -1285,7 +1302,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       clearMarks();
       schedule();
     } else if (area === "local" && enabled && triageOn) {
-      const changed = Object.keys(changes).map((k) => /^triage_(?:title|analysis)_(BV[0-9A-Za-z]{10})$/.exec(k)?.[1]).filter(Boolean);
+      const changed = Object.keys(changes).flatMap((k) => [K.triageTitlePrefix, K.triageAnalysisPrefix].filter((p) => k.startsWith(p)).map((p) => k.slice(p.length)));
       if (!changed.length) return;
       gen++;
       for (const b of changed) {

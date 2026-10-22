@@ -30,9 +30,6 @@
     return "unchecked";
   }
 
-  // The feed read still going over the last finished one, so 更新状态 change as it goes (shared.js, as the AI 打标签 reads it).
-  const withFeedInProgress = (last, wip) => UI.withFeedInProgress(last, wip);
-
   // The newest titles from both sources, as the AI 打标签 gets them (shared.js upTitles).
   const recentTitles = (mid, D) => UI.upTitles(D.last?.v?.[mid], D.content?.[mid]);
 
@@ -324,5 +321,5 @@
     };
   }
 
-  globalThis.FollowCore = { DAY, ALL, STATUS, lastPostOf, followStatus, withFeedInProgress, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, inGroupId, inGroup, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, tagPass, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, sortCmp, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, syncView };
+  globalThis.FollowCore = { DAY, ALL, STATUS, followStatus, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, syncView };
 })();

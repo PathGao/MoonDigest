@@ -13,6 +13,11 @@ const tagsDb = MdgTagStore.local({
   },
   save: (patch) => (noteOwnWrites(patch), store(patch))
 });
+// A tag deleted (here, by U, or in another tab): off the filter, and a proposal naming it is dropped.
+function tagGone(id) {
+  S.tagFilter.delete(id);
+  pruneAiProposals();
+}
 const tagStore = MdgTagStore.create({
   ...tagsDb,
   who: "视频",
@@ -22,7 +27,6 @@ const tagStore = MdgTagStore.create({
   cap: () => tagLimit(),
   full: (n) => `这个收藏夹已经有 ${n} 个标签了，先删掉不用的，或在${SETTINGS_NAME}里调高上限`,
   fullShort: (folder) => `${folder === ALL ? "各收藏夹" : ""}名额已满`,
-  keepOverCap: true,
   newTagMax: () => S.settings.triageAiNewTagMax,
   steps: { push: (step) => pushUndo({ kind: "tags", ...step }), drop: (pred) => (S.undo = S.undo.filter((e) => !pred(e))) },
   confirm: (...a) => askConfirm(...a),
@@ -33,10 +37,7 @@ const tagStore = MdgTagStore.create({
     render();
     setFocus(S.focused);
   },
-  tagGone(id) {
-    S.tagFilter.delete(id);
-    pruneAiProposals();
-  },
+  tagGone,
   setProposal: (p) => (S.ai.proposal = p),
   live: () => S.itemMap,
   // This batch replaces the folder's last one; the list shows it to look over.
@@ -114,7 +115,7 @@ const tagPlaying = () => S.viewer?.folders?.length && openPicker(S.viewing, "#vi
 
 // ---------- 判断标准 ----------
 function openCriteria() {
-  el.criteriaTitle.textContent = `判断标准 ·「${folderTitle()}」`;
+  el.criteriaTitle.textContent = `判断标准 ·「${folderName(S.mediaId)}」`;
   el.criteriaInput.value = criteria();
   el.criteriaDialog.returnValue = "";
   el.criteriaDialog.showModal();
