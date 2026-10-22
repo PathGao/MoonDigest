@@ -787,13 +787,14 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
 }
 
 // 协作打标签：只返回提案，不缓存。提示里让 AI 新建至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小），多出的照样返回
-// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit.
+// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit, and so does 摘读记录. 开启思考 and
+// 粗看输出上限 are 收藏夹设置's: 关注设置 and 摘读记录设置 have neither, so their runs think off with the automatic cap.
 async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter(triageItemId);
   if (!list.length) throw triageError("缺少 items");
-  const ai = await triageAiSettings();
+  const ai = unit === TRIAGE_AI_UNIT ? await triageAiSettings() : { triageThinking: false, triageTitleMaxTokens: null };
   const opts = { maxNewTags: TriageUi.numSetting("newTagMax", maxNewTags), allowRemove: allowRemove === true };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),

@@ -106,7 +106,7 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
       new RegExp(`\\b(${alt})\\b(?:\\.newValue)?\\s*(?:\\?\\?|\\|\\|)\\s*(?:true|false)\\b`), // x.k ?? true, || false
       new RegExp(`Boolean\\(\\s*[\\w$.?\\[\\]"']*\\b(${alt})\\b(?:\\.newValue)?\\s*\\)`), // Boolean(settings.k)
       new RegExp(`!!\\s*[\\w$.?]*\\b(${alt})\\b`), // !!settings.k
-      new RegExp(`(?:^|\\{\\s*|,\\s*(?<!\\.\\.\\.[\\w$.]+,\\s*))(${alt})\\s*:\\s*(?:true|false)\\b`) // { k: true }: the default written again (not an override after ...spread)
+      new RegExp(`(?:^|\\{\\s*|,\\s*(?<!\\.\\.\\.[\\w$.]+,[^{}]*))(${alt})\\s*:\\s*(?:true|false)\\b`) // { k: true }: the default written again (not an override after ...spread, first or later)
     ];
   };
   const hits = [];

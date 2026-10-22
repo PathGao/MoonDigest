@@ -362,11 +362,20 @@ assert.strictEqual(N.buildMarkdown({ ...cases.biliSingle.meta, aiTurns: turns },
 
 // The AI context is the note without the player embed (Obsidian's only) and hot comments; the note keeps the embed.
 for (const c of [cases.biliSingle, cases.youtube]) {
-  const note = N.buildMarkdown(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: false }, refOf(c.meta));
+  const note = N.buildMarkdown(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: false, includeTimestampInBody: true }, refOf(c.meta));
   const ai = N.buildAiContext(c.meta, c.body, { ...c.settings, includeHotCommentsInNote: true }, refOf(c.meta));
   assert.ok(!ai.includes("## 热门评论"), "no hot comments");
   assert.ok(note.includes("<iframe") && !ai.includes("<iframe"), c.meta.title);
   assert.strictEqual(ai, note.replace(/<iframe[^\n]*\n\n/, ""), "nothing else differs");
+}
+// The file-only switches do not reach the AI: timestamps stay with 正文保留时间戳 off, and the AI 问答 section (the video
+// page's state carries aiTurns) is never in it, whatever 附带 AI 问答 says.
+{
+  const c = cases.biliSingle;
+  const stamped = N.buildAiContext(c.meta, c.body, { ...c.settings, includeTimestampInBody: true }, refOf(c.meta));
+  assert.strictEqual(N.buildAiContext(c.meta, c.body, { ...c.settings, includeTimestampInBody: false }, refOf(c.meta)), stamped);
+  assert.ok(/`\d+:\d\d`/.test(stamped), stamped);
+  assert.strictEqual(N.buildAiContext({ ...c.meta, aiTurns: turns }, c.body, { ...c.settings, includeAiChatInNote: true }, refOf(c.meta)), stamped);
 }
 
 // upsert: present → replaced, absent → appended, outside bytes identical, idempotent, empty section leaves the note alone.

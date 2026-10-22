@@ -1342,7 +1342,9 @@ async function runAi({ instruction, scope, allowRemove }) {
     request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
     merge: (p, data) => UI.mergeAiBatch(p, data, opts),
     intervalMs,
-    progress: (text) => (progress(text), renderSync())
+    progress: (text) => (progress(text), renderSync()),
+    // 收藏夹设置's 粗看输出上限 does not apply here (triageAiCommand).
+    limitHint: false
   });
   renderAiState();
   let { proposal, errors } = await running;
