@@ -221,11 +221,22 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual(resp.data, { path: notePath, title: "T", skipped: false, aiUpdated: false });
   assert.ok(!vault.get(notePath).includes("又改了"));
 
-  // 「附带 AI 问答」 off: a conversation the user writes is its own note; the video note gets none.
+  // 「附带 AI 问答」 off: a write with a conversation still writes the video note, without the conversation (no
+  // separate AI 笔记).
   sync.includeAiChatInNote = false;
-  // (It exists from above: the ask names the conversation note, with no 只更新 AI 问答.)
   resp = await write({ ref: bili, conversation: conversation("关") });
-  assert.deepStrictEqual(resp, { ok: true, ask: true, path: "N/bilibili/【AI笔记】T.md" });
+  assert.deepStrictEqual(resp, { ok: true, ask: true, path: notePath, hasAiSection: false });
+  resp = await write({ ref: bili, conversation: conversation("关"), mode: "full" });
+  assert.deepStrictEqual([resp.path, resp.kind], [notePath, "full"]);
+  const aiNote = vault.get("N/bilibili/【AI笔记】T.md");
+  assert.ok(!vault.get(notePath).includes("### 问：关") && !aiNote.includes("### 问：关"), vault.get(notePath));
+  // A recorded note without its page: nothing can change, said so, nothing asked.
+  resp = await write({ ref: yt, conversation: conversation("关") });
+  assert.deepStrictEqual([resp.kind, resp.text], ["unchanged", `AI 问答没有变化：${resp.path}`]);
+  // No note yet and no page: asked, without 只写 AI 笔记 (own false), which is then refused too.
+  const noNote = { ...yt, videoId: "y9", title: "Y9", url: "https://www.youtube.com/watch?v=y9" };
+  assert.deepStrictEqual(await write({ ref: noNote, conversation: conversation("关") }), { ok: true, askPage: true, url: "https://www.youtube.com/watch?v=y9", video: true, own: false });
+  assert.strictEqual((await write({ ref: noNote, conversation: conversation("关"), pageChoice: "own" })).askPage, true);
   resp = await write({ ref: { ...yt, videoId: "y3", title: "Y3" }, page: { markdown: "# 页面", cover: "" } });
   assert.strictEqual(vault.get(resp.path), "# 页面");
   sync.includeAiChatInNote = true;
