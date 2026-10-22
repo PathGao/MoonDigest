@@ -37,6 +37,7 @@
     "history-open": { from: ["options.js", "popup.js", "sidepanel.js"], to: "background.js", request: [], response: [] },
     "triage-open": { from: ["badges.js", "options.js", "popup.js"], to: TRIAGE_BG, request: ["hash"], response: data },
     "ensure-reader-content": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: [] },
+    "popup-page-note": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: ["ref", "filename", "content"] },
     "open-reading-view-tab": { from: ["popup.js"], to: "background.js", request: ["url", "tabId"], response: [] },
     "player-ai-quick-action": { from: ["content.js", "popup.js"], to: "background.js", request: ["tabId", "source", "contextRef"], response: [] },
 
@@ -65,7 +66,7 @@
     "ai-sidepanel-resolve-page-ref": { from: ["sidepanel.js"], to: "background.js", request: ["contextRef"], response: ["payload"] },
 
     // Obsidian (obsidian.js, the one writer)
-    "write-video-note": { from: ["content.js", "history/history.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page"], response: ["ask", "path", "hasAiSection", "fullReason", "kind", "text", "title"] },
+    "write-video-note": { from: ["content.js", "history/history.js", "popup.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page"], response: ["ask", "path", "hasAiSection", "fullReason", "kind", "text", "title"] },
     "sync-video-note-ai": { from: ["sidepanel.js"], to: "obsidian.js", request: ["ref", "conversation"], response: ["path", "exists", "updated", "text"] },
 
     // 分拣台 收藏夹 (answers are { ok, data })

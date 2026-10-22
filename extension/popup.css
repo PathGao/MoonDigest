@@ -412,12 +412,13 @@ body {
   color: var(--faint);
 }
 
-/* An ordinary web page: only AI 总结 applies (the side panel reads the page); the video's cover and tools are not shown. */
+/* An ordinary web page: AI 总结 (the side panel reads the page) and the page note's tools; the video's are not shown. */
 .web-page .cover,
 .web-page #refreshBtn,
 .web-page .subrow,
 .web-page #preview,
-.web-page .tools,
+.web-page #downloadBtn,
+.web-page #readingViewBtn,
 .web-page .details {
   display: none;
 }

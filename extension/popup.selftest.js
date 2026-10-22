@@ -69,7 +69,8 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
 })().catch((e) => (console.error(e), process.exit(1)));
 
 // B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.
-(async () => {
+// After B2 (promises only), which stubs MdgDownload too.
+setTimeout(() => (async () => {
   const fetched = [];
   Object.assign(ctx, {
     bindEvents() {},
@@ -77,13 +78,59 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
     getSettingsFromRuntime: async () => ({}),
     refreshFromTab: async () => fetched.push(1)
   });
+  // The page's note comes from the background (popup-page-note), which reads the tab through activeTab.
+  const asked = [];
+  let answer = { ok: true, ref: { url: "https://example.com/post", isVideoContext: false }, filename: "一篇文章.md", content: "---\ntitle: 一篇文章\n---\n\n正文\n" };
+  ctx.sendToRuntime = async (m) => (asked.push(m), typeof answer === "function" ? answer(m) : answer);
   await ctx.init();
   const why = ctx.MdgErrors.TEXT.notVideoPage;
-  assert.deepStrictEqual(fetched, [], "a web page is not read");
+  const T = ctx.MdgErrors.TEXT;
+  assert.deepStrictEqual(fetched, [], "a web page is not read like a video page");
+  assert.deepStrictEqual(asked.map((m) => ({ ...m })), [{ type: "popup-page-note", tabId: 1 }]);
   // F1: an ordinary web page says what it is and what works there; the video tools are hidden, AI 总结 works.
   assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.videoTitle.textContent, ctx.el.videoMeta.textContent], ["网页：AI 总结在侧边栏读正文", "一篇文章", "example.com"]);
   assert.ok(body.classes.has("web-page"), "the video tools are hidden");
   assert.strictEqual(ctx.el.summaryBtn.disabled, false, "AI 总结 opens the side panel on a web page");
+  const noteTools = () => [ctx.el.copyBtn, ctx.el.mdBtn, ctx.el.sendBtn].map((b) => (b.disabled ? b.title : ""));
+  assert.deepStrictEqual(noteTools(), ["", "", ""], "the page note's tools work once it is read");
+  // 复制 Markdown and 下载 .md take the note and its file name as the side panel builds them.
+  const copied = [];
+  const saved = [];
+  ctx.navigator = { clipboard: { writeText: async (t) => copied.push(t) } };
+  const download = ctx.MdgDownload;
+  ctx.MdgDownload = { ...download, text: (name, content) => saved.push([name, content]) };
+  ctx.bindEvents = bindEvents;
+  ctx.bindEvents();
+  await ctx.el.copyBtn.on.click();
+  assert.deepStrictEqual([copied, ctx.el.status.textContent], [[answer.content], T.copied]);
+  await ctx.el.mdBtn.on.click();
+  assert.deepStrictEqual(saved, [["一篇文章.md", answer.content]]);
+  // 写入 Obsidian writes that note through write-video-note; an existing note asks here, like the side panel.
+  const chosen = [];
+  ctx.MdgOverwriteDialog = { choose: async (p, opts) => (chosen.push([p, opts.hasAiSection]), "ai") };
+  const note = answer;
+  answer = (m) => (m.mode ? { ok: true, text: "已写入 Obsidian：网页/一篇文章.md" } : { ok: true, ask: true, path: "网页/一篇文章.md", hasAiSection: true });
+  asked.length = 0;
+  await ctx.el.sendBtn.on.click();
+  assert.deepStrictEqual(asked.map((m) => JSON.parse(JSON.stringify(m))), [
+    { type: "write-video-note", ref: note.ref, page: { markdown: note.content } },
+    { type: "write-video-note", ref: note.ref, page: { markdown: note.content }, mode: "ai" }
+  ]);
+  assert.deepStrictEqual([chosen, ctx.el.status.textContent, ctx.el.sendBtn.disabled], [[["网页/一篇文章.md", true]], "已写入 Obsidian：网页/一篇文章.md", false]);
+  ctx.MdgOverwriteDialog = { choose: async () => "" };
+  await ctx.el.sendBtn.on.click();
+  assert.strictEqual(ctx.el.status.textContent, T.obsidianCancelled, "取消 writes nothing");
+  answer = { ok: false, error: "连不上" };
+  await ctx.el.sendBtn.on.click();
+  assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：连不上`);
+  // A page that cannot be read (no main text, a timeout, the Web Store): the note's tools are disabled with the reason.
+  answer = { ok: false, error: `${T.pageReadFailed}：没有找到正文` };
+  await ctx.init();
+  assert.deepStrictEqual(noteTools(), Array(3).fill(`${T.pageReadFailed}：没有找到正文`));
+  assert.strictEqual(ctx.el.status.textContent, `${T.pageReadFailed}：没有找到正文`);
+  assert.strictEqual(ctx.el.summaryBtn.disabled, false, "AI 总结 still opens the side panel, which says the same");
+  ctx.MdgDownload = download;
+  ctx.bindEvents = () => {};
   body.classes.clear();
   ctx.getActiveTab = async () => ({ id: 1, url: "chrome://extensions/" });
   await ctx.init();
@@ -91,7 +138,7 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
   assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title, body.classes.has("web-page")], [true, why, false], "not on a page the side panel cannot read");
   vm.runInContext("onVideoPage = true", ctx);
-})().catch((e) => (console.error(e), process.exit(1)));
+})().catch((e) => (console.error(e), process.exit(1))));
 
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.

@@ -467,16 +467,43 @@ process.on("exit", (code) => {
     granted = true;
     got = await read();
     assert.deepStrictEqual([got.pageAccess, calls.splice(0)], ["unsupported", ["http://*/*"]]);
+    // A URL that shows can be read: a granted site, or the tab whose toolbar icon was clicked (activeTab), which
+    // permissions.contains does not count, so it is not asked.
     granted = false;
     tabUrl = "https://example.com/a?x=1#part";
     got = await read();
-    assert.deepStrictEqual([got.pageAccess, got.url, got.title, calls.splice(0)], ["needPermission", "https://example.com/a?x=1", "标签标题", ["https://example.com/*"]]);
-    granted = true;
+    assert.deepStrictEqual(calls.splice(0), ["parse 200000", "vendor/defuddle.js", "parse 200000"], "injected once it is missing");
+    assert.deepStrictEqual([got.pageAccess, got.url, got.title, got.author, got.published, got.siteName, got.pageMarkdown], ["ready", "https://example.com/a?x=1", "文章", "作者", "2026-01-02", "example.com", "正文"]);
     got = await read();
-    assert.deepStrictEqual(calls.splice(0), ["https://example.com/*", "parse 200000", "vendor/defuddle.js", "parse 200000"], "injected once it is missing");
-    assert.deepStrictEqual([got.pageAccess, got.title, got.author, got.published, got.siteName, got.pageMarkdown], ["ready", "文章", "作者", "2026-01-02", "example.com", "正文"]);
-    got = await read();
-    assert.deepStrictEqual(calls.splice(0), ["https://example.com/*", "parse 200000"], "the bundle stays loaded");
+    assert.deepStrictEqual(calls.splice(0), ["parse 200000"], "the bundle stays loaded");
+    // The popup's note of a web page (popup-page-note): the side panel's note file, with the page's newest conversation.
+    {
+      const wasSettings = ctx.getMergedSettings;
+      ctx.getMergedSettings = async () => ({ ...ctx.MdgSettings.DEFAULTS, includeAiChatInNote: true });
+      const conv = (contextKey, updatedAt, q) => ({ contextKey, updatedAt, messages: [{ role: "user", content: q }, { role: "assistant", content: `答：${q}` }] });
+      const key = "page:https://example.com/a?x=1";
+      const stored = { [ctx.MdgLimits.KEYS.aiConversations]: [conv(key, 1, "旧问题"), conv(key, 2, "新问题"), conv("page:https://example.com/b", 3, "别的页")] };
+      ctx.chrome.storage = { local: { get: async () => stored } };
+      const resp = await ask({ type: "popup-page-note", tabId: 1 });
+      calls.splice(0);
+      const context = await read();
+      calls.splice(0);
+      const expected = ctx.MdgNote.buildPageNoteFile(context, await ctx.getMergedSettings(), ctx.MdgNote.buildConversationTurns(stored[ctx.MdgLimits.KEYS.aiConversations][1].messages), stored);
+      assert.deepStrictEqual([resp.ok, resp.filename, resp.content], [true, expected.filename, expected.content]);
+      assert.ok(resp.content.includes("正文") && resp.content.includes("新问题") && !/旧问题|别的页/.test(resp.content), resp.content);
+      assert.deepStrictEqual([resp.ref.url, resp.ref.isVideoContext], ["https://example.com/a?x=1", false], "write-video-note's ref");
+      // Only an extension page asks: a content script (sender.tab) is refused.
+      let refused;
+      onMessage.forEach((fn) => fn({ type: "popup-page-note", tabId: 1 }, { tab: { id: 9 } }, (r) => (refused ||= r)));
+      assert.strictEqual(refused?.ok, false);
+      // No main text: the side panel's words.
+      const text = page.content;
+      page.content = "  ";
+      assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error: `${ctx.MdgErrors.TEXT.pageReadFailed}：没有找到正文` });
+      page.content = text;
+      calls.splice(0);
+      ctx.getMergedSettings = wasSettings;
+    }
     page = { ...page, content: "  " };
     got = await read();
     assert.deepStrictEqual([got.pageAccess, got.pageError, got.pageMarkdown], ["failed", "没有找到正文", undefined]);

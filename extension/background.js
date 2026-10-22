@@ -172,8 +172,8 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 // pageAccess is the one state:
 //   ready           pageMarkdown is its main text.
 //   needPermission  web pages are not granted yet (optional host permissions; the side panel's 允许读取网页 asks for all
-//                   http(s) sites in one click). Chrome also hides the URL of such a tab: url is "" unless the toolbar
-//                   icon was clicked (activeTab), which the popup needs to know it is on a web page.
+//                   http(s) sites in one click). Chrome hides the URL of such a tab: url is "". A tab whose toolbar icon
+//                   was clicked (activeTab) shows its URL and is read like a granted one.
 //   unsupported     a URL that is not http(s): extension pages, file:; or no URL once web pages are granted (chrome://).
 //   failed          pageError says why: the Web Store, an error page, no main text found.
 // ponytail: read again at every context load (tab events, each send); cache by tab and URL if parsing shows up as slow.
@@ -186,8 +186,9 @@ async function readWebPage(tab) {
   // Chrome hides chrome:// URLs even with every http(s) site granted: no URL then is a page that cannot be read.
   if (!url) return { ...page, pageAccess: (await chrome.permissions.contains({ origins: ["http://*/*", "https://*/*"] })) ? "unsupported" : "needPermission" };
   const origin = /^https?:\/\/[^/]/i.test(url) ? new URL(url).origin : "";
+  // A URL shows only where the page can be read: a granted site, or the tab the toolbar icon was clicked on (activeTab,
+  // until it navigates), which permissions.contains does not count.
   if (!origin) return { ...page, pageAccess: "unsupported" };
-  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return { ...page, pageAccess: "needPermission" };
   let read;
   try {
     read = await extractWebPage(tab.id);
@@ -234,6 +235,19 @@ async function extractWebPage(tabId) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// { ref, filename, content }, or throws the reason the page has no note, in the side panel's words.
+async function popupPageNote(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.id) throw new Error(MdgErrors.TEXT.noTab);
+  const page = await readWebPage(tab);
+  if (page.pageAccess === "failed") throw new Error(MdgErrors.TEXT.pageReadFailed + "：" + page.pageError);
+  if (page.pageAccess !== "ready") throw new Error("这个页面不能读取");
+  const { aiConversations } = MdgLimits.KEYS;
+  const [settings, stored] = await Promise.all([getMergedSettings(), chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys({ url: page.url })])]);
+  const turns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], page)?.messages);
+  return { ref: MdgSites.contextRef(page), ...MdgNote.buildPageNoteFile(page, settings, turns, stored) };
 }
 
 async function openAiSidepanelForTab(tabId) {
@@ -433,6 +447,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .then((results) => sendResponse({ ok: true, data: results?.[0]?.result ?? null }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  // The popup's 复制 Markdown, 下载 .md and 写入 Obsidian on a web page: its note as the side panel builds it, with the
+  // page's latest conversation. Only an extension page asks (no sender tab): the tab is read through activeTab.
+  if (message.type === "popup-page-note") {
+    if (sender?.tab) {
+      sendResponse({ ok: false, error: MdgErrors.TEXT.unknown });
+      return false;
+    }
+    popupPageNote(Number(message.tabId) || 0)
+      .then((note) => sendResponse({ ok: true, ...note }))
+      .catch((error) => sendResponse({ ok: false, error: error.message || MdgErrors.TEXT.unknown }));
     return true;
   }
 

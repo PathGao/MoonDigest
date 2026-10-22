@@ -400,6 +400,11 @@ assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1",
 assert.strictEqual(N.pickConversation([...convs, conv("video:bilibili:BV1|", 8)], { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV2" }), null);
 assert.strictEqual(N.pickConversation(convs, { site: "youtube", videoId: "" }), null);
+// A web page: its exact page: key, newest; a video's URL-less ref still finds nothing.
+const pages = [...convs, conv("page:https://example.com/a", 2), conv("page:https://example.com/a", 4), conv("page:https://example.com/a?x", 7)];
+assert.strictEqual(N.pickConversation(pages, { url: "https://example.com/a#top" }).updatedAt, 4);
+assert.strictEqual(N.pickConversation(pages, { url: "https://example.com/b" }), null);
+assert.strictEqual(N.pickConversation(pages, { site: "bilibili", videoId: "BV1", url: "https://example.com/a" }).updatedAt, 3, "a video keeps its own key");
 // AI conversation note (side panel 保存对话 / history page): moved out of sidepanel.js byte for byte.
 const aiContext = { title: "视频]标题", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2", site: "bilibili", videoId: "BV1GJ411x7h7", author: "UP主" };
 const aiFile = N.buildAiConversationFilename(aiContext);
