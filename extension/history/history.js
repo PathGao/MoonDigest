@@ -812,51 +812,34 @@ async function deleteGroups(keys) {
 
 // What a record's three buttons send: the record and its newest conversation (the one auto-sync keeps in the note),
 // read again at each send so a reply saved while a dialog was open goes in too.
-function noteRequest(group, type) {
+function noteRequest(group) {
   const g = groupByVideo(conversations).find((x) => x.key === group.key) || group;
   const newest = g.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), g.convs[0]);
-  return { type, ref: g.context, conversation: { messages: newest?.messages || [] } };
+  return { ref: g.context, conversation: { messages: newest?.messages || [] } };
 }
 
-// 复制 and 下载 of one record (verb 复制 / 下载): the note 写入 Obsidian writes (export-note), asked about the same way
-// when its page is not open. null: cancelled, said in the status line.
-async function exportGroup(group, verb) {
-  let resp = await chrome.runtime.sendMessage(noteRequest(group, "export-note"));
-  if (resp?.ok && resp.askPage) {
-    const pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false, verb);
-    if (!pageChoice) return setStatus(`已取消${verb}`), null;
-    resp = await chrome.runtime.sendMessage({ ...noteRequest(group, "export-note"), pageChoice });
-  }
-  if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.unknown);
-  return resp;
+// 复制, 下载 and 写入 Obsidian of one record (kind copy / download / write) through MdgNoteActions: the note 写入
+// Obsidian writes, asked about the same way when its page is not open. The status line says the result; not set up or
+// a wrong key adds 去设置, opened only on its click (a closed Obsidian only gets the red line).
+async function runNoteAction(group, kind) {
+  const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group) });
+  const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
+  setStatus(r.text, !r.ok, settings);
 }
 
-async function copyGroup(group) {
-  try {
-    const note = await exportGroup(group, "复制");
-    if (!note) return;
-    await navigator.clipboard.writeText(note.markdown);
-    setStatus(MdgErrors.TEXT.copied);
-  } catch (error) {
-    setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true);
-  }
-}
+const copyGroup = (group) => runNoteAction(group, "copy");
 
 // One record: its note, asked about as 复制. Several go into one zip without a dialog or a tab opened: a record whose note
 // needs its page that no tab shows gets its AI 笔记 (pageChoice own), and the status line counts them.
 async function downloadGroups(groups) {
   try {
-    if (groups.length === 1) {
-      const note = await exportGroup(groups[0], "下载");
-      if (note) MdgDownload.text(note.filename, note.markdown), setStatus("已下载 1 条记录");
-      return;
-    }
+    if (groups.length === 1) return await runNoteAction(groups[0], "download");
     setStatus(`正在打包 ${groups.length} 条记录…`);
     const notes = [];
     let noPage = 0;
     let failed = 0;
     for (const g of groups) {
-      const resp = await chrome.runtime.sendMessage({ ...noteRequest(g, "export-note"), pageChoice: "own" }).catch(() => null);
+      const resp = await MdgNoteActions.build({ ...noteRequest(g), pageChoice: "own" }).catch(() => null);
       if (resp?.ok && resp.markdown) {
         notes.push(resp);
         if (resp.noPage) noPage++;
@@ -884,27 +867,7 @@ async function saveToObsidian(group) {
   setStatus(MdgErrors.TEXT.obsidianWriting);
   render();
   try {
-    const request = () => noteRequest(group, "write-video-note");
-    let resp = await chrome.runtime.sendMessage(request());
-    // A web page or video page with no note yet and not open: open it and write its note, or only the conversation (as
-    // the side panel).
-    let pageChoice;
-    if (resp?.ok && resp.askPage) {
-      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false);
-      if (!pageChoice) return setStatus(MdgErrors.TEXT.obsidianCancelled);
-      resp = await chrome.runtime.sendMessage({ ...request(), pageChoice });
-    }
-    if (resp?.ok && resp.ask) {
-      const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
-      if (!mode) return setStatus(MdgErrors.TEXT.obsidianCancelled);
-      resp = await chrome.runtime.sendMessage({ ...request(), pageChoice, mode });
-    }
-    if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
-    setStatus(resp.text);
-  } catch (error) {
-    // Not set up or a wrong key: 去设置, opened only on its click. A closed Obsidian only gets the red line.
-    const settings = error?.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
-    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, true, settings);
+    await runNoteAction(group, "write");
   } finally {
     writing.delete(group.key);
     render();

@@ -81,6 +81,12 @@
     obsidianWriting: "正在写入 Obsidian…",
     writing: "写入中…",
     copied: "已复制 Markdown",
+    // 下载 .md of one note, on every entry (popup, side panel, 摘读记录, 一篇摘录); a zip of several says its count.
+    downloaded: "已下载 .md",
+    // The note has nothing in it (obsidian.js resolveNote, code NOTE_EMPTY): one sentence per exit (note-actions.js).
+    nothingToCopy: "没有可复制的内容",
+    nothingToDownload: "没有可下载的内容",
+    nothingToWrite: "没有可写入 Obsidian 的内容",
     // A copy to the clipboard failed (popup, side panel, 摘读记录, 分拣台); 「：原因」 follows, noClipboard without one.
     copyFailed: "复制失败",
     // 下载 .md failed (side panel, 摘读记录); 「：原因」 follows.
@@ -227,6 +233,8 @@
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
     // page. OBSIDIAN_DOWN (closed, plugin off, timeout) also fails every write, but the settings page cannot fix it.
     OBSIDIAN: { action: "settings" },
+    // A note with nothing in it (no conversation, analysis or 备注): a second try finds nothing either.
+    NOTE_EMPTY: { retry: false },
     NOT_LOGGED_IN: { action: "login", text: TEXT.biliLogin },
     [-101]: { action: "login", text: TEXT.biliLogin },
     THROTTLED: { text: TEXT.biliThrottled },

@@ -5,7 +5,8 @@
 //   2. the entry list: every page or content script that loads errors.js is an entry here or exempt with a reason;
 //   3. the entries decide nothing of their own: (a) the settings page opens only from a click (去设置 / ⚙), never on an
 //      error path; (b) no remedy branch on a code of their own ("AI_…", CODE.THROTTLED…); (c) isBiliVideoGone only
-//      picks a sentence (retry is remedies'); (d) 去设置 / 授权 stand next to remedies / action / grantOrigin.
+//      picks a sentence (retry is remedies'); (d) 去设置 / 授权 stand next to remedies / action / grantOrigin;
+//   4. a note's 复制 / 下载 / 写入 Obsidian go through MdgNoteActions: only NOTE_FLOW's files name its messages or dialogs.
 // 3b and 3c fail on a hit not in ALLOW, and on an ALLOW line that matches no hit (its reason no longer holds).
 // Per entry, the page's own selftest drives its renderer with each code (sidepanel appendStreamError, 分拣台
 // handleAiError, 摘读记录 aiRemedy, 专注模式 readingRetryShown).
@@ -38,6 +39,7 @@ const RULES = {
   AI_TRUNCATED: ["retry"], // 分拣台 adds 打开收藏夹设置
   OBSIDIAN: ["settings", "retry"],
   OBSIDIAN_DOWN: ["retry"],
+  NOTE_EMPTY: [], // 没有可复制 / 下载 / 写入 Obsidian 的内容: a second try finds nothing either
   THROTTLED: ["retry"],
   NOT_LOGGED_IN: ["login", "retry"],
   [-101]: ["login", "retry"],
@@ -136,6 +138,7 @@ const NOT_ENTRIES = {
   "triage/runs.js": "the run judge: waits on AI_THROTTLED, stops on aiEnds (MdgErrors.action); shows none",
   "note.js": "writes subtitleMissing into a note (text, no remedy)",
   "messages.js": "the message list",
+  "note-actions.js": "the shared 复制 / 下载 / 写入 Obsidian flow (MdgNoteActions): returns the words and remedies; the entries show them",
   "options.js": "设置页 (EXEMPT above): 测试连接's 授权 goes through grantOrigin(message, code)"
 };
 const INVENTORY = /MdgErrors\.(action|text|fromResp|grantOrigin|subtitleMissing|remedies|messageOf)\(|["'](AI_[A-Z_]+|OBSIDIAN(?:_DOWN)?|THROTTLED|NOT_LOGGED_IN)["']|\bCODE\.[A-Z_]+|openOptionsPage|"open-options"|LABEL\.retry|isBiliVideoGone|aiSettingsCode|aiEnds/;
@@ -223,6 +226,25 @@ for (const [f, ls] of Object.entries(lines)) {
   });
 }
 ALLOW.forEach(([f, snippet], j) => check(used[j] === 1, `ALLOW: ${f} 「${snippet}」 matches ${used[j]} hits; drop or fix the line`));
+
+// 4. 复制 Markdown / 下载 .md / 写入 Obsidian go through MdgNoteActions (note-actions.js) on every entry: no other
+// shipped file sends write-video-note or export-note, or opens MdgOverwriteDialog's dialogs itself. Only these may.
+const NOTE_FLOW = {
+  "note-actions.js": "the flow: sends both, asks both dialogs",
+  "obsidian.js": "answers both",
+  "messages.js": "the message list"
+};
+const NOTE_FLOW_RE = /["'](write-video-note|export-note)["']|MdgOverwriteDialog\.choose/;
+(function walk(dir) {
+  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+    const rel = path.join(dir, e.name);
+    if (e.isDirectory()) !/^(dev|vendor$)/.test(e.name) && walk(rel);
+    else if (rel.endsWith(".js") && !rel.endsWith(".selftest.js") && !(rel in NOTE_FLOW)) {
+      read(rel).split("\n").forEach((l, i) => !isComment(l) && NOTE_FLOW_RE.test(l) && check(false, `4. ${rel}:${i + 1} sends a note request or opens its dialog itself (use MdgNoteActions.run): ${l.trim().slice(0, 120)}`));
+    }
+  }
+})(".");
+for (const f of Object.keys(NOTE_FLOW)) check(NOTE_FLOW_RE.test(read(f)), `4. NOTE_FLOW lists ${f}, which no longer names them`);
 
 if (failures.length) {
   console.error(failures.join("\n"));

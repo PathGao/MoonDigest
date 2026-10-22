@@ -225,7 +225,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // separate AI 笔记).
   sync.includeAiChatInNote = false;
   resp = await write({ ref: bili, conversation: conversation("关") });
-  assert.deepStrictEqual(resp, { ok: true, ask: true, path: notePath, hasAiSection: false });
+  // K9: the dialog says the switch is off, not 没有 AI 问答.
+  assert.deepStrictEqual(resp, { ok: true, ask: true, path: notePath, hasAiSection: false, aiOff: true });
   resp = await write({ ref: bili, conversation: conversation("关"), mode: "full" });
   assert.deepStrictEqual([resp.path, resp.kind], [notePath, "full"]);
   const aiNote = vault.get("N/bilibili/【AI笔记】T.md");

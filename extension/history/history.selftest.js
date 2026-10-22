@@ -259,7 +259,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), !m.pageChoice ? { ok: true, askPage: true, url: "https://example.com/x" } : m.mode ? { ok: true, text: "已写入 Obsidian：q.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
   ctx.MdgOverwriteDialog.choosePage = async (url) => (url === "https://example.com/x" ? pageChoice : "wrong");
   await click();
-  assert.deepStrictEqual([sent.length, els.status.textContent], [1, "已取消写入 Obsidian，原笔记未被覆盖。"], "取消 sends nothing again");
+  // K11: no note yet, so no 「原笔记未被覆盖」.
+  assert.deepStrictEqual([sent.length, els.status.textContent], [1, "已取消写入 Obsidian"], "取消 sends nothing again");
   pageChoice = "own";
   await click();
   assert.deepStrictEqual([sent.map((m) => [m.pageChoice, m.mode]), els.status.textContent], [[[undefined, undefined], ["own", undefined], ["own", "full"]], "已写入 Obsidian：q.md"]);

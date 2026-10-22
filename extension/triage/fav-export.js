@@ -80,17 +80,11 @@ async function exportDigest(how) {
     el.writeProgress.textContent = MdgErrors.TEXT.obsidianWriting;
   }
   const markdown = await digestMarkdown();
-  if (how === "copy") {
-    await navigator.clipboard.writeText(markdown).then(
-      () => (el.writeProgress.textContent = MdgErrors.TEXT.copied),
-      (err) => {
-        el.writeProgress.textContent = `${MdgErrors.TEXT.copyFailed}：${err.message}`;
-        el.writeProgress.classList.add("fail-text");
-      }
-    );
-  } else if (how === "download") {
-    MdgDownload.text(filename, markdown);
-    el.writeProgress.textContent = `已下载 ${filename}`;
+  if (how !== "obsidian") {
+    // Copied or downloaded as every other note is (MdgNoteActions); written through triage-export, which never asks.
+    const r = await MdgNoteActions.run(how, { note: { filename, markdown } });
+    el.writeProgress.textContent = r.text;
+    el.writeProgress.classList.toggle("fail-text", !r.ok);
   } else {
     const r = await send({ type: "triage-export", filename, markdown });
     setBusy(el.writeRunBtn, false);

@@ -105,12 +105,8 @@ function bindEvents() {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
-    try {
-      await navigator.clipboard.writeText(payload.markdown);
-      setStatus(MdgErrors.TEXT.copied);
-    } catch (error) {
-      setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true);
-    }
+    const r = await MdgNoteActions.run("copy", { note: payload });
+    setStatus(r.text, !r.ok);
   });
 
   el.downloadBtn.addEventListener("click", async () => {
@@ -137,16 +133,17 @@ function bindEvents() {
       return;
     }
     // Named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script builds it.
-    MdgDownload.text(payload.filename, payload.markdown);
-    setStatus("已下载 .md");
+    const r = await MdgNoteActions.run("download", { note: payload });
+    setStatus(r.text, !r.ok);
   });
 
   el.sendBtn.addEventListener("click", async () => {
     setStatus(MdgErrors.TEXT.obsidianWriting, false, true);
     setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
     if (!onVideoPage) {
-      const { text, ok, code } = await writeWebNote().finally(() => setBusy(el.sendBtn, false));
-      setStatus(text, !ok, false, ok ? null : obsidianSettings(code));
+      // As the side panel writes it: the background picks the path, an existing note asks here.
+      const r = await MdgNoteActions.run("write", { request: () => ({ ref: webNote.ref, page: { markdown: webNote.markdown } }), send: (m) => sendToRuntime(m) }).finally(() => setBusy(el.sendBtn, false));
+      setStatus(r.text, !r.ok, false, obsidianSettings(r.code));
       return;
     }
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
@@ -251,22 +248,6 @@ async function openOptions() {
 
 // Not set up or a wrong key: 去设置 in the status line, opened only on its click. A closed Obsidian only gets the red line.
 const obsidianSettings = (code) => (MdgErrors.action(code) === "settings" ? { label: MdgErrors.LABEL.toSettings, run: openOptions } : null);
-
-// 写入 Obsidian of a web page, as the side panel writes it: the background picks the path, an existing note asks here.
-// Resolves { ok, text, code? } for the status.
-async function writeWebNote() {
-  const request = { type: "write-video-note", ref: webNote.ref, page: { markdown: webNote.markdown } };
-  const send = (message) => sendToRuntime(message).catch((error) => ({ ok: false, error: error.message }));
-  let resp = await send(request);
-  if (resp?.ok && resp.ask) {
-    const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
-    if (!mode) return { ok: true, text: MdgErrors.TEXT.obsidianCancelled };
-    resp = await send({ ...request, mode });
-  }
-  if (resp?.ok) return { ok: true, text: resp.text };
-  const error = MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
-  return { ok: false, text: `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, code: error.cause?.code };
-}
 
 async function refreshFromTab(force = false) {
   setStatus(MdgErrors.TEXT.videoReading, false, true);
