@@ -881,6 +881,20 @@
     return folder ? `${folder}/${filename}` : filename;
   }
   const videoNotePath = (meta, settings) => inNoteFolder(meta, settings, buildNoteFilename(meta, settings || {}));
+  // 下载 .md and the 逐个视频笔记 .zip: the name of the note a write recorded under key (obsidian.js
+  // rememberObsidianNotePath, KEYS.obsidianNotePaths), so a dated note downloads under its own date; else filename.
+  function recordedFilename(paths, key, filename) {
+    const path = String((key && paths?.[key]?.path) || "");
+    return path ? path.split("/").pop() : filename;
+  }
+  // 一篇摘录 and the 逐个视频笔记 index cover many videos: their folder is the template's folders before the first one
+  // that names a single video, resolved for B站. A template without one gives the notes' own folder.
+  const PER_VIDEO_FOLDER = /\{\{\s*(author|upload_date|id|video_id|created)\s*\}\}/i;
+  function sharedNoteFolder(template) {
+    const segments = normalizeFolder(template).split("/");
+    const cut = segments.findIndex((segment) => PER_VIDEO_FOLDER.test(segment));
+    return resolveFolderTemplate((cut < 0 ? segments : segments.slice(0, cut)).join("/"), { site: "bilibili" });
+  }
   const conversationNotePath = (context, settings) => inNoteFolder(context, settings, buildAiConversationFilename(context));
 
   function normalizeFolder(input) {
@@ -1146,7 +1160,9 @@
     readingKey,
     buildNoteFilename,
     resolveFolderTemplate,
+    sharedNoteFolder,
     videoNotePath,
+    recordedFilename,
     conversationNotePath,
     // The popup's subtitle box shows the TXT the user downloads.
     buildSubtitlePreview: buildTxt,

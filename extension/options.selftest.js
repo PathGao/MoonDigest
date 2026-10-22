@@ -56,6 +56,14 @@ const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(h
 // An imported settings file fills the property rows.
 // K14: the batch sizes live in 收藏夹设置 (用词表), not 「分拣台里」.
 assert.ok(!fs.readFileSync(path.join(__dirname, "options.html"), "utf8").includes("在分拣台里设置"));
+// A setting's row says what it does not cover: hot comments go into a note without subtitles anyway (note.js
+// buildMarkdown), and only 写入 Obsidian stores the cover in the vault (obsidian.js linkCoverInVault).
+{
+  const html = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
+  const hintOf = (id) => new RegExp(`for="${id}">[^\\n]*?</label><p class="hint">([^\\n]*?)</p>`).exec(html)?.[1] || "";
+  assert.ok(hintOf("includeHotCommentsInNote").includes("没有字幕的视频关着也带"), hintOf("includeHotCommentsInNote"));
+  assert.ok(/复制和下载的笔记用 B站 的图片地址.*写入 Obsidian 时封面存进库里/.test(hintOf("includeCoverInNote")), hintOf("includeCoverInNote"));
+}
 // The scripts options.html loads before options.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./options.js", "options.js loads last");

@@ -697,10 +697,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("被筛选隐藏"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
   delete t.S.kept.BV1;
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
-  t.S.analyses.BV1 = { status: "done", oneLiner: "一句话", points: ["要点"] };
-  const digest = t.buildMarkdown(t.writeScopeItems("all", false));
+  // 一篇摘录 carries what each video's own note carries (MdgNote.triageExtras), read from storage as the note is: the
+  // 「AI 判断」 line, every folder's 分拣 tags and 摘读记录's, 星标 and the note.
+  const KS = t.MdgLimits.KEYS;
+  const digestScope = t.writeScopeItems("all", false);
+  const digestStored = {
+    [KS.triageAnalysis("BV1")]: { status: "done", oneLiner: "一句话", points: ["要点"], verdict: "keep", reason: "讲得清楚" },
+    [KS.triageNotes]: { BV3: { text: " 我的笔记 " } },
+    [KS.triageTags]: [{ id: "tx", name: "别的夹", folder: "999" }],
+    [KS.triageVideoTags]: { BV1: ["tx"] },
+    [KS.readingMarks]: { tags: [{ id: "r1", name: "精读" }], items: { [t.MdgNote.readingKey({ site: "bilibili", videoId: "BV1" })]: { tags: ["r1"], star: true } } }
+  };
+  const keys = vm.runInContext("digestKeys", ctx)(digestScope);
+  assert.ok(Object.keys(digestStored).every((k) => keys.includes(k)), keys);
+  const digest = t.buildMarkdown(digestScope, digestStored);
   assert.ok(digest.includes("## [视频4](https://www.bilibili.com/video/BV4)\n\nUP 主：up · 已失效"), digest);
-  assert.ok(digest.includes("## [视频1](https://www.bilibili.com/video/BV1)\n\nUP 主：up\n\n> 一句话\n\n- 要点"), digest);
+  assert.ok(digest.includes("## [视频1](https://www.bilibili.com/video/BV1)\n\nUP 主：up · 星标\n\n> 一句话\n\n- 要点\n\nAI 判断：值得留，讲得清楚\n\n标签：别的夹、精读\n"), digest);
   assert.ok(digest.includes("## [视频3](https://www.bilibili.com/video/BV3)\n\nUP 主：up\n\n备注：我的笔记"), digest);
   t.S.selected.clear();
 
@@ -3088,7 +3100,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!fs.readFileSync(path.join(__dirname, "triage.css"), "utf8").includes(".ai-review-head"), "unused .ai-review-head is gone");
 
   // 一篇摘录's title time comes from fmtTime, not formatted again by hand.
-  assert.ok(t.buildMarkdown([], new Date(2026, 0, 2, 3, 4)).includes("title: B站摘录 2026-01-02 03:04\n"));
+  assert.ok(t.buildMarkdown([], {}, new Date(2026, 0, 2, 3, 4)).includes("title: B站摘录 2026-01-02 03:04\n"));
   assert.ok(!/pad\(now\.getHours\(\)\)/.test(source), "buildMarkdown uses fmtTime");
 
   // The list and its lookup map change together, in setItems only.

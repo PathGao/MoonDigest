@@ -824,18 +824,18 @@ async function triageBuildNote(bvid, settings) {
   const hotComments =
     settings.includeHotCommentsInNote || !body.length ? await site.fetchComments(ref, meta, io).catch(() => []) : [];
   const noteMeta = { ...MdgNote.noteMetaOf({ site: "bilibili", videoId: bvid, meta, bundle, track }), hotComments, subtitleFailure, subtitleNeedLogin };
-  const { aiConversations } = MdgLimits.KEYS;
+  const { aiConversations, obsidianNotePaths } = MdgLimits.KEYS;
   // 分拣台 notes always summarize the video's P1 (the analysis is per bvid).
   const extrasRef = { site: "bilibili", videoId: bvid, pageIndex: 1 };
-  const stored = await chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys(extrasRef)]);
+  const stored = await chrome.storage.local.get([aiConversations, obsidianNotePaths, ...MdgNote.triageExtrasKeys(extrasRef)]);
   const { analysis, note, userTags, starred } = MdgNote.triageExtras(stored, extrasRef);
   // The user's 分拣 tags, every folder's, go into the note's tags next to the fixed ones from the settings page.
   Object.assign(noteMeta, { userTags, starred });
   noteMeta.aiTurns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], noteMeta)?.messages);
   const markdown = MdgNote.withTriageSummary(MdgNote.buildMarkdown(noteMeta, body, settings, ref), analysis, note);
   // The computed path for this video's note (obsidian.js prefers a recorded one); the cover goes into the vault there
-  // (hdslb links 403 in Obsidian).
-  const filename = MdgNote.buildNoteFilename(noteMeta, settings);
+  // (hdslb links 403 in Obsidian). filename, the .zip's: the recorded note's name, as 下载 .md.
+  const filename = MdgNote.recordedFilename(stored[obsidianNotePaths], MdgSites.buildContextKey(noteMeta), MdgNote.buildNoteFilename(noteMeta, settings));
   const path = MdgNote.videoNotePath(noteMeta, settings);
   const cover = { url: meta.cover, name: `bilibili-${bvid}` };
   return { meta, noteMeta, body, markdown, filename, path, cover, subtitleWarning };
@@ -1092,12 +1092,13 @@ const TRIAGE_HANDLERS = {
     return {};
   },
 
-  // 一篇摘录 and the 逐个视频笔记 index: one file into the B站 notes' folder (the folder template with site=bilibili).
+  // 一篇摘录 and the 逐个视频笔记 index: one file into the B站 notes' folder, up to its first per-video folder
+  // (MdgNote.sharedNoteFolder).
   "triage-export": async ({ filename, markdown }) => {
     const name = String(filename || "").trim();
     if (!name) throw triageError("缺少文件名");
     const settings = await getMergedSettings();
-    const folder = MdgNote.resolveFolderTemplate(settings.noteFolder, { site: "bilibili" });
+    const folder = MdgNote.sharedNoteFolder(settings.noteFolder);
     const path = folder ? `${folder}/${name}` : name;
     // putVaultNote gives up after OBSIDIAN_TIMEOUT_MS, so a hung Obsidian ends 写入中….
     await putVaultNote(obsidianConfig(settings), path, typeof markdown === "string" ? markdown : "");

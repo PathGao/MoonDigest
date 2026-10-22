@@ -338,6 +338,17 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.strictEqual((await write({ ref: bili })).code, "OBSIDIAN");
   sync.obsidianEnabled = true;
 
+  // 一篇摘录 and the 逐个视频笔记 index cover many videos: the template's folders before the first per-video one.
+  const exportedTo = async (noteFolder) => {
+    sync.noteFolder = noteFolder;
+    return (await send({ type: "triage-export", filename: "汇总.md", markdown: "# x" })).data.path;
+  };
+  assert.deepStrictEqual(
+    [await exportedTo("N/{{site}}/{{author}}"), await exportedTo("N/{{site}}-{{upload_date}}/x"), await exportedTo("{{created}}/{{site}}"), await exportedTo("N/{{site}}")],
+    ["N/bilibili/汇总.md", "N/汇总.md", "汇总.md", "N/bilibili/汇总.md"]
+  );
+  sync.noteFolder = "N/{{site}}";
+
   // Closed: OBSIDIAN_DOWN for the writes, auto-sync (the record is kept for a retry) and 一篇摘录 (triage-export).
   const before = vault.get(notePath);
   await new Promise((resolve) => server.close(resolve));
@@ -360,11 +371,10 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   walk(".");
   for (const f of scripts) {
     assert.ok(f === "obsidian.js" || !/\/vault\/|"(obsidian-note-exists|write-obsidian-note|update-obsidian-ai-section)"/.test(read(f)), `${f} reaches the vault; send write-video-note`);
-    assert.ok(["note.js", "obsidian.js", "triage/triage-bg.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use MdgNote.videoNotePath`);
+    assert.ok(["note.js", "obsidian.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use MdgNote.videoNotePath or sharedNoteFolder`);
     // The result sentences are worded once, in obsidian.js (dev mocks stand in for it).
     assert.ok(f === "obsidian.js" || f.startsWith("dev") || !read(f).includes("已更新 AI 问答："), `${f} words a write's result; show the background's text`);
   }
-  assert.strictEqual(read("triage/triage-bg.js").split("resolveFolderTemplate(").length, 2, "triage-bg.js: only triage-export");
 
   console.log("obsidian sync selftest ok");
 })().catch((error) => {

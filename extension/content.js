@@ -579,6 +579,9 @@ function bindSettingsWatcher() {
         rebuildDerivedContent();
       });
     }
+    // A write recorded a note (obsidian.js): 下载 .md takes its name from now on.
+    const pathsKey = MdgLimits.KEYS.obsidianNotePaths;
+    if (areaName === "local" && changes[pathsKey]) state.notePaths = changes[pathsKey].newValue || {};
     const extrasRef = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
     if (MdgNote.triageExtrasKeys(extrasRef).some((key) => changes[key]) && state.markdown) {
       loadTriageExtras().then((extras) => {
@@ -1285,8 +1288,8 @@ function getPopupPayload() {
     noteRef: noteRef(),
     // What 写入 Obsidian's result starts with for this note (the side panel sends it with the note as page.warning).
     noteWarning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state),
-    // 下载 .md: the same name as the note 写入 Obsidian writes (MdgNote.buildNoteFilename).
-    filename: MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS),
+    // 下载 .md: the same name as the note 写入 Obsidian writes: the one it recorded, else MdgNote.buildNoteFilename.
+    filename: MdgNote.recordedFilename(state.notePaths, MdgSites.buildContextKey(noteRef()), MdgNote.buildNoteFilename(state, state.settings || DEFAULT_SETTINGS)),
     // The subtitle dropdown's line when there is no track, and 下载字幕's reason: the same as 专注模式's (noTrackText).
     subtitleMissing: noTrackText(),
     srt: state.srt || "",
@@ -4155,6 +4158,11 @@ async function refreshDerivedContent() {
   }
   const aiTurns = await loadAiTurns();
   const triageExtras = await loadTriageExtras();
+  const pathsKey = MdgLimits.KEYS.obsidianNotePaths;
+  let notePaths = {};
+  try {
+    notePaths = (await chrome.storage.local.get(pathsKey))[pathsKey] || {};
+  } catch {}
   if (runId !== state.fetchRunId) {
     return;
   }
@@ -4162,7 +4170,7 @@ async function refreshDerivedContent() {
   if (hotComments.length || !state.hotComments?.length) {
     Object.assign(state, { hotComments, commentsFailure });
   }
-  Object.assign(state, { aiTurns, triageExtras });
+  Object.assign(state, { aiTurns, triageExtras, notePaths });
   rebuildDerivedContent();
 }
 }
