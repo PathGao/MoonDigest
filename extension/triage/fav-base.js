@@ -397,21 +397,9 @@ function toast(text, error = false) {
   if (!error) toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
 }
 
-// alone: only the one button (a notice, not a question).
-// reason: the OK button is disabled with why (only 取消 is left).
-function askConfirm(title, bodyHtml, okText, { danger = false, alone = false, reason = "" } = {}) {
-  el.confirmDialog.querySelector("button[value=cancel]").hidden = alone;
-  el.confirmTitle.textContent = title;
-  el.confirmBody.innerHTML = bodyHtml;
-  el.confirmOk.className = danger ? "danger solid" : "primary";
-  el.confirmOk.textContent = okText;
-  el.confirmOk.setAttribute("aria-label", okText);
-  UI.setReason(el.confirmOk, reason);
-  el.confirmDialog.returnValue = "";
-  el.confirmDialog.showModal();
-  return new Promise((resolve) => {
-    el.confirmDialog.addEventListener("close", () => resolve(el.confirmDialog.returnValue === "ok"), { once: true });
-  });
+// The confirm dialog is shared.js's, as 摘读记录's (a function here so the tests can stand in for it).
+function askConfirm(...args) {
+  return UI.askConfirm(...args);
 }
 
 // kind "ai" marks an AI setup problem; a run that then succeeds clears only that kind, whichever folder it ran in.

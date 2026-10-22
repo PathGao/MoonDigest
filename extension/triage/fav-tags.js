@@ -253,7 +253,7 @@ function saveTagEdit(t, field, value) {
 
 async function deleteTag(id) {
   const t = tagById(id);
-  const n = Object.values(S.videoTags).filter((ids) => ids.includes(id)).length;
+  const n = UI.tagUses(S.videoTags, id);
   const ok = await askConfirm(...UI.deleteTagAsk(t, n, "视频"), "删除", { danger: true });
   if (!ok) return;
   S.tags = S.tags.filter((x) => x.id !== id);

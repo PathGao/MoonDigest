@@ -10,6 +10,7 @@ const OLD = /boc/i;
 const ALLOWED = [
   ["extension/limits.js", "boc_"], // the migration's old key prefix
   ["extension/limits.selftest.js", "boc_"], // the migration test's old keys
+  ["extension/history/history.selftest.js", "boc_"], // 摘读记录 runs the migration on load
   ["extension/content.js", "boc-content-superseded"], // a 3.5.x copy in an open tab stands down on it; remove after 3.6
   ["*", "bnjihpbocpimaipifanfkjjpfdbigggd"] // the Chrome Web Store extension id
 ];

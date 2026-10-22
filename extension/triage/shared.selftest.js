@@ -419,6 +419,9 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.
   // follow.js's page part is not in a harness; it must go through the same functions.
   const follow = PS.text(PS.follow);
   assert.ok(follow.includes("UI.editedTag(") && follow.includes("UI.withoutTag("), "关注 edits and deletes tags with the shared functions");
+  // H2: 标签管理's count and the delete confirm count every key the delete takes the tag off (关注: 已取消关注 too).
+  assert.strictEqual(UI.tagUses({ x: ["a", "b"], y: ["a"], z: ["b"] }, "a"), 2);
+  assert.ok(follow.split("UI.tagUses(D.map, id)").length === 3 && !/following\(\)\.filter\(\(m\) => rows\.get\(m\)\?\.tagIds\.includes\(id\)\)/.test(follow), "关注 counts the whole tag map");
 }
 
 // 全选: none / some / all of what is listed → unchecked / mixed / checked. Nothing listed: 「全选」 with no number, disabled

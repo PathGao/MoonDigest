@@ -3280,6 +3280,33 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       delete handlers["triage-settings-save"];
     }
 
+    // H1: 收藏夹 follows its settings written elsewhere (导入设置), and a save writes only the fields changed in the dialog,
+    // so an import that lands while it is open is not put back.
+    {
+      const was = { render: t.render, allFolders: t.S.allFolders, settings: { ...t.S.settings } };
+      t.render = () => {};
+      t.S.allFolders = [];
+      handlers["triage-settings-get"] = () => ({ ok: true, data: { ...was.settings, triageTagLimit: 7, triageAiBatchSize: 9 } });
+      assert.strictEqual(t.followSettings({ obsidianEnabled: { newValue: true } }), undefined, "other keys ask nothing");
+      await t.followSettings({ triageTagLimit: { newValue: 7 } });
+      assert.deepStrictEqual([t.S.settings.triageTagLimit, t.S.settings.triageAiBatchSize], [7, 9], "the stored values are taken");
+      t.openSettings();
+      await new Promise(setImmediate);
+      t.el.intervalInput.value = "99";
+      let saved = null;
+      handlers["triage-settings-save"] = (m) => ((saved = m), { ok: true });
+      t.el.settingsDialog.returnValue = "save";
+      fire("settingsDialog", "close");
+      for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      const { type, aiProviderId, ...patch } = saved;
+      assert.deepStrictEqual(plain(patch), { triageIntervalSec: 99 }, "only the edited field is written");
+      Object.assign(t, { render: was.render });
+      Object.assign(t.S.settings, was.settings);
+      t.S.allFolders = was.allFolders;
+      delete handlers["triage-settings-save"];
+      delete handlers["triage-settings-get"];
+    }
+
     // The selection bar's slot (outside stagebar) sends its clicks to the same handler.
     assert.strictEqual(L.favSel?.click?.length, 1);
     // 全选 sits in listHeader inside stagebar: one click bubbles through both and selects once, not on and off again.

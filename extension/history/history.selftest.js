@@ -38,7 +38,17 @@ const conv = (key, bad) => ({ id: key, contextKey: key, title: bad, contextUrl: 
 let onChanged = null;
 const sync = {}; // chrome.storage.sync
 const store = { mdg_ai_conversations_v1: [conv("a", XSS[0]), { ...conv("b", XSS[1]), contextUrl: "javascript:alert(1)" }] };
+// The AI platform picked in the side panel, under 3.5's key: this page moves it before reading it, as 收藏夹 does.
+const lsData = { boc_ai_selected_provider: "b" };
+const localStorage = {
+  get length() { return Object.keys(lsData).length; },
+  key: (i) => Object.keys(lsData)[i] ?? null,
+  getItem: (k) => (k in lsData ? lsData[k] : null),
+  setItem: (k, v) => (lsData[k] = String(v)),
+  removeItem: (k) => delete lsData[k]
+};
 const ctx = vm.createContext({
+  localStorage,
   TextEncoder,
   console,
   setTimeout,
@@ -59,9 +69,15 @@ assert.strictEqual(scripts.pop(), path.join(__dirname, "history.js"), "history.j
 // H12: 清空全部 clears AI conversations only, and says so.
 assert.ok(fs.readFileSync(path.join(__dirname, "history.html"), "utf8").includes(">清空全部 AI 对话</button>"));
 for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
+// H5: 删除标签 and U 撤销 ask in the 分拣台's confirm dialog (UI.askConfirm), not the browser's confirm(): asks records each.
+const asks = [];
+let confirmAnswer = true;
+ctx.TriageUi.askConfirm = async (...a) => (asks.push(JSON.parse(JSON.stringify(a))), confirmAnswer);
+assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmBody"[\s\S]*value="cancel"[\s\S]*id="confirmOk"/.test(fs.readFileSync(path.join(__dirname, "history.html"), "utf8")), "history.html has the confirm dialog");
 
 (async () => {
   await vm.runInContext(`(async () => {\n${source}\n})()`, ctx);
+  assert.deepStrictEqual(lsData, { mdg_ai_selected_provider: "b" }, "the old localStorage key is moved on load");
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const fire = (t, e = {}) => (L.search[t] || []).forEach((f) => f(e));
   // the search box renders once typing stops, never on each pinyin keystroke.
@@ -127,6 +143,10 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   assert.ok(els.selbar.innerHTML.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏"), els.selbar.innerHTML);
   await search("");
   assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载选中的 2 个 .md"], "the selection is still there");
+  // H4: 已打标签 with none tagged lists nothing and says why, as the other filters do.
+  headClick("tagstate:tagged");
+  assert.ok(html.includes("没有符合筛选的记录"), html);
+  headClick("all");
   // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
   // with none that has a conversation it is disabled with the reason.
   const NOTES = ctx.MdgLimits.KEYS.triageNotes;
@@ -535,12 +555,11 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await wait(20);
     assert.deepStrictEqual(plain(store[MARKS].items[pageKey].tags), [tag.id], "U puts it back");
     // U: that close is one step; for 2 records it asks first, then puts their tags back in one marks write.
-    asked = "";
-    ctx.confirm = (text) => ((asked = text), false);
+    confirmAnswer = false;
     press("u");
     await wait(20);
-    assert.ok(asked.startsWith("撤销批量改标签？") && store[MARKS].items[pageKey].tags.length === 1, asked);
-    ctx.confirm = () => true;
+    assert.ok(asks.at(-1)[0] === "撤销批量改标签？" && asks.at(-1)[2] === "撤销" && store[MARKS].items[pageKey].tags.length === 1, JSON.stringify(asks.at(-1)));
+    confirmAnswer = true;
     press("u");
     await wait(20);
     assert.deepStrictEqual(plain([store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey]]), [[], null], "the tags as before the close; a record left with nothing is dropped");
@@ -613,6 +632,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     assert.ok(els.tagsRows.innerHTML.includes("读过") && els.tagsRows.innerHTML.includes("2 个记录"), els.tagsRows.innerHTML);
     const del = { closest: (sel) => (sel === ".tag-row" ? { dataset: { id: tag.id } } : sel === "[data-tag-del]" ? {} : null) };
     for (const f of L.tagsRows.click) await f({ target: del });
+    assert.deepStrictEqual(asks.at(-1), ["删除标签「读过」？", "<p>将从 2 个记录上去掉这个标签，无法撤销。</p>", "删除", { danger: true }], "a red 删除, the body as html");
     assert.deepStrictEqual(plain([store[MARKS].tags, store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey]]), [[], [], null]);
     assert.ok(entry(pageKey) && !entry(pageKey).includes("读过"), entry(pageKey));
 
@@ -679,8 +699,8 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), { ok: true, data: answer });
     await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
     assert.strictEqual(sent.length, 1);
-    const { type, items, tags, maxNewTags } = sent[0];
-    assert.deepStrictEqual([type, tags, maxNewTags], ["triage-reading-ai-tag", [{ name: "旧", rule: "" }], 5]);
+    const { type, items, tags, maxNewTags, aiProviderId } = sent[0];
+    assert.deepStrictEqual([type, tags, maxNewTags, aiProviderId], ["triage-reading-ai-tag", [{ name: "旧", rule: "" }], 5, "b"]);
     const byId = Object.fromEntries(items.map((it) => [it.id, it]));
     assert.deepStrictEqual(Object.keys(byId).sort(), [pageKey, videoKey]);
     // A record with conversations sends their 问/答, oldest first, not the AI 总结 or 备注.
@@ -709,6 +729,9 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     assert.strictEqual(ad.room(), 1);
     ctx.chrome.runtime.sendMessage = async () => ({ ok: true, data: { newTags: ["甲", "乙"], assignments: { [videoKey]: { add: ["甲", "乙"], remove: [] } }, note: "" } });
     await ad.run({ instruction: "分", scope: "filter", allowRemove: false });
+    // H3: the review is told up front which ticked new tag 应用 will not create, and why.
+    const skip = ad.notMade(ad.proposal());
+    assert.deepStrictEqual([[...skip.keys], skip.why], [["乙"], "摘读记录的标签最多 50 个"]);
     writes = 0;
     await ad.apply();
     assert.deepStrictEqual(plain([writes, store[MARKS].tags.length, store[MARKS].items[videoKey].tags.length]), [1, 50, 1], "one of the two new tags fits");
@@ -761,14 +784,14 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
     await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
     await ad.apply();
-    let undoAsked = "";
-    ctx.confirm = (text) => ((undoAsked = text), true);
+    asks.length = 0;
+    const undoAsked = () => asks.at(-1)?.[0] || "";
     press("u", { closest: () => ({ tagName: "TEXTAREA" }) });
     await wait(20);
-    assert.ok(!undoAsked && store[MARKS].items[videoKey], "U typed in a text field is text");
+    assert.ok(!undoAsked() && store[MARKS].items[videoKey], "U typed in a text field is text");
     press("u");
     await wait(20);
-    assert.ok(undoAsked.startsWith("撤销这次 AI 打标签？"), undoAsked);
+    assert.ok(undoAsked().startsWith("撤销这次 AI 打标签？"), undoAsked());
     const tagsNow = Object.values(store[MARKS].items).flatMap((item) => item.tags);
     assert.deepStrictEqual(plain([store[MARKS].tags.map((t) => t.name), tagsNow, store[RECENT]]), [["旧"], [], null], "tags as before, 新 deleted, 「AI 刚打的」 gone");
     ctx.confirm = () => true;

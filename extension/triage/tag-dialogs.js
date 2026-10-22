@@ -140,10 +140,13 @@
   // stop(), stopping() (stop was pressed and the batch in flight still runs), discard(), apply(), map() (item id → tag ids), live() (has(id): still in the folder / still followed),
   // tagName(id), manage (the mode's 标签管理 adapter, for the link), where?() (the open folder; "" when the mode has none),
   // allTags?() (every tag when tags() shows one per name; tags() otherwise), check? (how to put a wrong one right, for a page
-  // without T: 摘读记录) }.
-  // The review counts what 应用 would change now, new tags standing in by name (UI.previewId).
+  // without T: 摘读记录), notMade?(p) (a hard limit on the tag count, 摘读记录's: { keys, why }, the ticked new tags 应用
+  // cannot create and why) }.
+  // The review counts what 应用 would change now, new tags standing in by name (UI.previewId); one 应用 cannot create
+  // counts as unticked, as 应用 skips it.
   const allTags = (a) => (a.allTags || a.tags)();
-  const changesOf = (a, p) => UI.aiChanges(p, a.map(), a.live(), (key) => UI.previewId(p, key, allTags(a)));
+  const notMade = (a, p) => a.notMade?.(p) || { keys: new Set(), why: "" };
+  const changesOf = (a, p, skip = notMade(a, p).keys) => UI.aiChanges(p, a.map(), a.live(), (key) => !skip.has(key) && UI.previewId(p, key, allTags(a)));
   let ai = null;
   // adapter → { where, text }: its run's progress line and the folder the run is in, kept while the dialog is closed and
   // shown only there.
@@ -228,7 +231,8 @@
     UI.setReason(stop, stopping ? UI.WRITE_STOPPING : "");
     $("aiProgress").textContent = progressText(a);
   }
-  // AI may propose more new tags than the run's cap; they are all kept, and this says by how much.
+  // AI may propose more new tags than the run's cap; they are all kept, and this says by how much. Not under a hard
+  // limit (notMade), which says instead which ones 应用 will not create.
   function overCapLines(p) {
     return Object.entries(p.caps || {}).flatMap(([folder, cap]) => {
       const mine = p.newTags.filter((t) => (t.folder ?? "") === folder);
@@ -241,8 +245,6 @@
     const a = ai;
     const who = sp(a.who);
     const live = a.live();
-    $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
-      [...overCapLines(p), ...(p.excludedHits?.length ? [`AI 想用的「${p.excludedHits.join("」「")}」是你点掉的标签，没有采用。`] : [])].map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
     $("aiNewTagsHead").hidden = !p.newTags.length;
     $("aiNewTags").innerHTML = p.newTags
       .map((t, i) => {
@@ -261,9 +263,15 @@
   function renderTally(p) {
     const a = ai;
     const who = sp(a.who);
-    const changes = changesOf(a, p);
+    const skip = notMade(a, p);
+    const changes = changesOf(a, p, skip.keys);
+    // Redrawn with each tick: which new tags 应用 cannot create follows them.
+    const unmade = p.newTags.filter((t) => skip.keys.has(t.key)).map((t) => cleanTagName(t.name));
+    const warns = unmade.length ? [`「${unmade.join("」「")}」不会新建：${skip.why}，用到它们的${who}也不会打上。取消勾选别的新标签可以腾出位置。`] : overCapLines(p);
+    $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
+      [...warns, ...(p.excludedHits?.length ? [`AI 想用的「${p.excludedHits.join("」「")}」是你点掉的标签，没有采用。`] : [])].map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
     // A new tag whose name an existing one has is that tag (previewId), not a new one.
-    const newN = p.newTags.filter((t) => t.checked && UI.aiRef.keyOf(String(UI.previewId(p, t.key, allTags(a)) || ""))).length;
+    const newN = p.newTags.filter((t) => t.checked && !skip.keys.has(t.key) && UI.aiRef.keyOf(String(UI.previewId(p, t.key, allTags(a)) || ""))).length;
     $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
     const tally = UI.aiTally(p, changes, a.tagName);
     // Nothing to apply: the AI proposed nothing, or what it proposed was unticked or left the list since.
