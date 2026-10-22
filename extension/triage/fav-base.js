@@ -111,6 +111,7 @@ const S = {
   notes: {},
   finishedFilter: false, // 看完了
   dupFilter: false, // 所有收藏夹 only: 重复收藏
+  tagState: "", // row 3: "" | "untagged" | "tagged"
   aiRecent: {},
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
@@ -561,13 +562,14 @@ function kindOf(it) {
 const isDup = (it) => it.folders?.length > 1;
 
 // skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
-// "kind"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
+// "kind", "tagged"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && (skip !== "states" || g === "tags");
   if (on("dup") && S.dupFilter && !isDup(it)) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
+  if (on("tagged") && S.tagState && (tagIdsOf(it.bvid).length > 0) !== (S.tagState === "tagged")) return false;
   if (on("tags") && S.tagFilter.size && !hasAllTags(tagIdsOf(it.bvid), S.tagFilter, (id) => tagById(id)?.name ?? id)) return false;
   const words = queryWords();
   if (!words.length) return true;

@@ -337,6 +337,7 @@ function bindEvents() {
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.matches("[data-dupfilter]")) pickState("dup");
+    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
     else return;
