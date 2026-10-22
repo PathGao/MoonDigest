@@ -22,7 +22,7 @@
   // note: { filename, markdown } the entry built itself (popup, 一篇摘录, a side panel reply): copied or downloaded as is.
   // send(message): the background's reply (default chrome.runtime.sendMessage). isStale(): after a dialog, why the
   // entry no longer wants this note ("" goes on). dialogs: { choose, choosePage }, default MdgOverwriteDialog.
-  // Resolves { ok, done, text, remedies, code?, reason?, resp? }: done false is nothing done (取消, switched), not red;
+  // Resolves { ok, done, text, remedies, code?, reason? }: done false is nothing done (取消, switched), not red;
   // ok false is a failure, text its whole line, remedies MdgErrors.remedies(code) and reason the words after 「：」.
   async function run(kind, { request, note, send = (m) => chrome.runtime.sendMessage(m), isStale = () => "", dialogs = globalThis.MdgOverwriteDialog } = {}) {
     try {
@@ -30,7 +30,7 @@
       if (resp.stop) return { ok: true, done: false, text: resp.stop, remedies: [] };
       if (kind === "copy") await navigator.clipboard.writeText(resp.markdown);
       if (kind === "download") MdgDownload.text(resp.filename, resp.markdown);
-      return { ok: true, done: true, text: DONE[kind] || resp.text, remedies: [], resp };
+      return { ok: true, done: true, text: DONE[kind] || resp.text, remedies: [] };
     } catch (error) {
       const code = error?.cause?.code;
       if (MdgErrors.reloaded(error)) return { ok: false, done: false, text: MdgErrors.TEXT.reloaded, remedies: [], reason: MdgErrors.TEXT.reloaded };

@@ -107,6 +107,8 @@ let contextLoad = null;
 let contextLoadFollow = false;
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
+// The 上一个视频 bar's conversation is only known gone once the saved list is read (init reads both at once).
+let savedLoaded = false;
 
 init().catch((err) => {
   console.error(err);
@@ -935,7 +937,7 @@ function renderFollowups() {
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
     setDisabledReason(btn, reason, visible[index]);
-    btn.addEventListener("click", () => sendPrompt(visible[index]));
+    btn.addEventListener("click", () => void sendMessage(visible[index]));
     const start = () => startFollowupMarquee(btn);
     const stop = () => btn.classList.remove("is-marquee");
     btn.addEventListener("mouseenter", start);
@@ -972,12 +974,7 @@ function startFollowupMarquee(btn) {
 // The panel's AI 总结 sends at once. The prompt a video switch filled in goes with it, so it is not left in the box.
 function sendSummary(prompt) {
   if (els.input.value.trim() === prompt.trim()) void sendMessage();
-  else sendPrompt(prompt);
-}
-
-// 快捷追问 sends its text as is; the input box and what is typed there stay.
-function sendPrompt(prompt) {
-  void sendMessage(prompt);
+  else void sendMessage(prompt);
 }
 
 function renderPresetPrompts() {
@@ -1044,8 +1041,7 @@ function renderHistoryList() {
 
   els.historyList.querySelectorAll(".sp-history-open").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = String(btn.getAttribute("data-id") || "");
-      loadConversationById(id);
+      void act({ type: "OPEN", id: String(btn.getAttribute("data-id") || "") });
       hideHistoryPopover();
     });
   });
@@ -1062,6 +1058,7 @@ function renderHistoryList() {
 async function loadSavedConversations() {
   const data = await chrome.storage.local.get([CONVERSATIONS_STORAGE_KEY]).catch(() => ({}));
   await act({ type: "SAVED_CHANGED", list: data?.[CONVERSATIONS_STORAGE_KEY] });
+  savedLoaded = true;
   renderHistoryList();
   void hydrateConversationPageMetadata();
 }
@@ -1099,10 +1096,6 @@ async function saveConversations() {
   });
   state.dispatch({ type: "SAVED_WRITTEN", ...written });
   renderHistoryList();
-}
-
-function loadConversationById(id) {
-  return act({ type: "OPEN", id });
 }
 
 async function deleteConversation(id) {
@@ -1191,16 +1184,9 @@ async function syncLiveContextState() {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  const { bound, context, messages } = state.view();
-  if (bound) {
-    updateContextChip();
-    return;
-  }
-  if (!ok || !context || !providers.length || !messages.length) {
-    renderInitialState();
-    return;
-  }
-  renderSuggestions();
+  // A conversation not bound to a video has no messages: its start state.
+  if (state.view().bound) updateContextChip();
+  else renderInitialState();
 }
 
 // A video switch lights up the chip that names the video; the animation fades it back on its own.
@@ -1238,7 +1224,7 @@ function renderPreviousVideoBar() {
   if (!conversation) {
     previousVideoBarSignature = "";
     bar.hidden = true;
-    if (previousId) {
+    if (previousId && savedLoaded) {
       void act({ type: "PREVIOUS_DISMISSED" });
     }
     return;
@@ -1299,7 +1285,7 @@ function handlePreviousVideoBarClick(event) {
     void act({ type: "PREVIOUS_DISMISSED" });
   } else if (action === "resume") {
     previousVideoExpanded = false;
-    loadConversationById(conversation.id);
+    void act({ type: "OPEN", id: conversation.id });
   } else if (action === "open") {
     void openPreviousVideoUrl(conversation.contextUrl || conversation.contextRef?.url || "");
   }
@@ -1501,15 +1487,19 @@ function formatConversationTimestamp(value) {
   return `${MdgCommon.localDate(date)} ${date.toTimeString().slice(0, 5)}`;
 }
 
+// A load that ends on another conversation (the tab followed another video) says nothing: the question was not asked there.
 async function ensureCurrentContextForSend() {
+  const { epoch } = state.view();
   if (state.view().pinned) {
     const notice = state.view().resolved ? null : showConversationContextNotice(`正在加载原${sourceKind()}信息…`);
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
+    if (state.view().epoch !== epoch) return (notice?.remove(), false);
     return hydratePinnedConversationContext({ notice });
   }
   const loadingNotice = state.view().context?.pending ? showConversationContextNotice(MdgErrors.TEXT.videoReading) : null;
   const ok = await loadContextState({ refresh: false, silent: true });
   loadingNotice?.remove();
+  if (state.view().epoch !== epoch) return false;
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   const context = state.view().context;
   if (!ok || !context || context.pending) {
@@ -1638,10 +1628,12 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   }
 
   // The typed question leaves the box now: what is typed while the context loads is the next one. Not sent, it comes
-  // back into an empty box.
-  const { epoch } = state.view();
+  // back into an empty box, or into its own conversation's draft when another one shows now.
+  const { epoch, draftKey } = state.view();
   const unsent = () => {
-    if (typed && !els.input.value.trim()) {
+    if (typed && state.view().epoch !== epoch && state.view().draftKey !== draftKey) {
+      if (!drafts.get(draftKey)) drafts.set(draftKey, text);
+    } else if (typed && !els.input.value.trim()) {
       els.input.value = text;
       autosizeInput();
     }
@@ -1684,6 +1676,7 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   }
 
   onStart?.();
+  els.messages.querySelectorAll(".sp-msg-retry").forEach((button) => button.remove());
   suggestionsNode?.remove();
   suggestionsNode = null;
   removeCenteredState();
@@ -1874,10 +1867,11 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   }
   const retry = document.createElement("button");
   retry.type = "button";
-  retry.className = "sp-chip sp-grant-btn";
+  retry.className = "sp-chip sp-grant-btn sp-msg-retry";
   retry.innerHTML = `${AI_SPARK}${MdgErrors.LABEL.retry}`;
   // The retry replaces the failed turn instead of repeating the question below it.
-  // Only once the resend starts: one that stops before (the video no longer loads) keeps the failed turn.
+  // Only once the resend starts: one that stops before (the video no longer loads) keeps the failed turn. Only the
+  // latest turn has one: a newer turn takes the older ones away (sendMessage), as a redraw does.
   retry.addEventListener("click", () => {
     if (activeStream || sendPending) return;
     const question = node.previousElementSibling?.classList.contains("sp-msg-user") ? node.previousElementSibling : null;
@@ -1936,9 +1930,6 @@ function clearStreamRuntimeState() {
 }
 
 function renderAssistantMessage(node, raw) {
-  if (!node) {
-    return;
-  }
   node.innerHTML = "";
   const cleanedRaw = stripThinkBlocks(raw);
   const pasteReadyRaw = normalizeMarkdownForSectionPaste(cleanedRaw);
@@ -1971,10 +1962,13 @@ function renderAssistantMessage(node, raw) {
 
 // 复制 Markdown, 下载 .md and 写入 Obsidian (kind copy / download / write) of the conversation on screen, through
 // MdgNoteActions: the note 写入 Obsidian writes, asked about the same way when its page is not open. The request is
-// built once, before any await. Resolves MdgNoteActions.run's result; nothing is shown here.
-function runNoteAction(kind, isStale) {
+// built once, before any await; another conversation shown during a dialog stops it, and the notice says so.
+// Resolves MdgNoteActions.run's result; nothing is shown here.
+const NOTE_SWITCHED = { copy: MdgErrors.TEXT.convSwitchedCopy, download: MdgErrors.TEXT.convSwitchedDownload, write: MdgErrors.TEXT.obsidianConvSwitched };
+function runNoteAction(kind) {
+  const { epoch } = state.view();
   const request = currentNoteRequest();
-  return MdgNoteActions.run(kind, { request: () => request, isStale });
+  return MdgNoteActions.run(kind, { request: () => request, isStale: () => (epoch !== state.view().epoch ? NOTE_SWITCHED[kind] : "") });
 }
 
 // What the three export buttons send: the conversation on screen, and its page's note when this panel has it (a web
@@ -2082,16 +2076,14 @@ async function copyMarkdown(text) {
 // builds, or the conversation's own note. This page sends the conversation, and the open video page's note when the
 // tab shows this video, and asks before an existing note is touched.
 async function saveCurrentConversationToObsidian() {
-  // Taken before any await: switching video mid-write must not put another video's chat into this note.
-  const { epoch, messages } = state.view();
+  const { messages } = state.view();
   // Its button is disabled without a conversation and during a write (syncExportButtons).
   if (obsidianWriting || !buildConversationTurns(messages).length) return;
   obsidianWriting = true;
   syncExportButtons();
   showConversationContextNotice(MdgErrors.TEXT.obsidianWriting);
   try {
-    // Another conversation shown during a dialog: nothing is written, and the notice says so.
-    const r = await runNoteAction("write", () => (epoch !== state.view().epoch ? MdgErrors.TEXT.obsidianConvSwitched : ""));
+    const r = await runNoteAction("write");
     showNoteResult(r, NOTICE_LONG_MS);
     // The note exists now: an auto-sync's gone note or failure no longer holds.
     if (r.done) hideSyncStatus();
@@ -2122,18 +2114,11 @@ async function openPageNote(ref) {
   return page?.markdown && MdgSites.sameContext(page.url, ref) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
 
-// A caught error's words: its message (or the string thrown), else fallback; never 「{}」 for an Error without words.
 function linkifyAssistantTimestamps(root) {
-  if (!root) {
-    return;
-  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes = [];
   while (walker.nextNode()) {
     const current = walker.currentNode;
-    if (!(current instanceof Text)) {
-      continue;
-    }
     const parent = current.parentElement;
     if (!parent || parent.closest("a, code, pre, button")) {
       continue;
@@ -2149,11 +2134,9 @@ function linkifyAssistantTimestamps(root) {
     const text = node.textContent || "";
     const fragment = document.createDocumentFragment();
     let lastIndex = 0;
-    let hasMatch = false;
     TIMESTAMP_PATTERN.lastIndex = 0;
     let match;
     while ((match = TIMESTAMP_PATTERN.exec(text))) {
-      hasMatch = true;
       if (match.index > lastIndex) {
         fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
       }
@@ -2169,9 +2152,6 @@ function linkifyAssistantTimestamps(root) {
       });
       fragment.append(button);
       lastIndex = match.index + timestamp.length;
-    }
-    if (!hasMatch) {
-      return;
     }
     if (lastIndex < text.length) {
       fragment.append(document.createTextNode(text.slice(lastIndex)));

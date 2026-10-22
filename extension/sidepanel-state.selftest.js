@@ -310,15 +310,16 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.strictEqual(panel().view().nonVideo, false, "a fresh conversation on a video");
 }
 {
-  // The history page deleted the shown conversation: a fresh one; with a reply in flight it is left to save it again.
+  // The history page deleted the shown conversation: a fresh one. R8: a reply in flight is dropped as for a delete
+  // here, so it cannot save the conversation back.
   const p = panel({ list: [saved("a", video("BV1aa"))] });
   const list = p.view().saved;
   assert.deepStrictEqual(types(p.dispatch({ type: "SAVED_CHANGED", list: [], previous: list })), ["draft"]);
   assert.strictEqual(p.view().id, "");
   const q = panel({ list: [saved("a", video("BV1aa"))] });
   q.ask("q");
-  q.dispatch({ type: "SAVED_CHANGED", list: [], previous: list });
-  assert.deepStrictEqual([q.view().id, q.view().streaming], ["a", true]);
+  assert.deepStrictEqual(types(q.dispatch({ type: "SAVED_CHANGED", list: [], previous: list })), ["dropStream", "draft"]);
+  assert.deepStrictEqual([q.view().id, q.view().streaming, q.view().saved.length], ["", false, 0]);
   // 上一个视频: set by a follow, dismissed by the user.
   q.dispatch({ type: "PREVIOUS_LOADED", id: "a" });
   assert.deepStrictEqual(plain(q.dispatch({ type: "PREVIOUS_DISMISSED" })), [{ type: "previous", id: "" }]);
