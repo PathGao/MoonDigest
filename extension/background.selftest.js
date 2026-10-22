@@ -517,6 +517,13 @@ process.on("exit", (code) => {
       assert.deepStrictEqual([resp.ok, resp.filename, resp.content], [true, expected.filename, expected.content]);
       assert.ok(resp.content.includes("正文") && resp.content.includes("新问题") && !/旧问题|别的页/.test(resp.content), resp.content);
       assert.deepStrictEqual([resp.ref.url, resp.ref.isVideoContext], ["https://example.com/a?x=1", false], "write-video-note's ref");
+      // R11: a page written to Obsidian downloads under that note's name (its date), not today's.
+      stored[ctx.MdgLimits.KEYS.obsidianNotePaths] = { [key]: { path: "N/网页/2026-01-01-文章.md" } };
+      ctx.chrome.storage = { local: { get: async (keys) => Object.fromEntries([].concat(keys).filter((k) => k in stored).map((k) => [k, stored[k]])) } };
+      assert.strictEqual((await ask({ type: "popup-page-note", tabId: 1 })).filename, "2026-01-01-文章.md");
+      calls.splice(0);
+      delete stored[ctx.MdgLimits.KEYS.obsidianNotePaths];
+      ctx.chrome.storage = { local: { get: async () => stored } };
       // Only an extension page asks: a content script (sender.tab) is refused.
       let refused;
       onMessage.forEach((fn) => fn({ type: "popup-page-note", tabId: 1 }, { tab: { id: 9 } }, (r) => (refused ||= r)));
@@ -729,6 +736,23 @@ process.on("exit", (code) => {
   const { local: _, ...older } = file;
   await ctx.importSettings(older);
   assert.deepStrictEqual(importLocal.triage_included_folders, ["7"]);
+
+  // R2: a key goes with the host it was saved for. An imported row that keeps its id but moves to another origin, or a
+  // moved Obsidian address, drops that key; a row on the same origin and an unrelated key stay.
+  {
+    const sync = { aiProviders: [{ id: "p", baseUrl: "https://b.example/v1" }, { id: "s", baseUrl: "https://same.example/v1" }], obsidianApiBaseUrl: "http://127.0.0.1:27123" };
+    const local = { obsidianApiKey: "ok", aiProviderKeys: { p: "sk-for-B", s: "sk-same", q: "sk-q" } };
+    ctx.chrome = { storage: { sync: area(sync), local: area(local) } };
+    const stub = ctx.loadAiProviderKeys;
+    ctx.loadAiProviderKeys = async () => ({ ...local.aiProviderKeys });
+    await ctx.importSettings({ ...file, settings: { aiProviders: [{ id: "p", baseUrl: "https://a.example/v1" }, { id: "s", baseUrl: "https://same.example/v2" }], obsidianApiBaseUrl: "https://other.example:27124" } });
+    assert.deepStrictEqual(local.aiProviderKeys, { s: "sk-same", q: "sk-q" });
+    assert.strictEqual(local.obsidianApiKey, "");
+    local.obsidianApiKey = "ok";
+    await ctx.importSettings({ ...file, settings: { obsidianApiBaseUrl: "https://other.example:27124/" } });
+    assert.strictEqual(local.obsidianApiKey, "ok", "the same origin keeps the Obsidian key");
+    ctx.loadAiProviderKeys = stub;
+  }
 
   // 分拣台's 完整备份 and a newer file are refused without touching anything.
   const before = JSON.stringify(importSync);

@@ -5,10 +5,10 @@
 // ===== 纯函数 =====
 
 const TRIAGE_BAD_REPLY = "AI 回复格式不对";
-// 从模型输出里取第一个完整的 {...} 或 [...]（去掉 ``` 围栏，跳过字符串里的括号）
+// 从模型输出里取第一个完整的 {...} 或 [...]（先去掉 <think> 思考段和 ``` 围栏，跳过字符串里的括号）
 function triageExtractJson(content, open) {
   const close = open === "[" ? "]" : "}";
-  const s = String(content || "").replace(/```(?:json)?/gi, "");
+  const s = MdgNote.stripThinkBlocks(content).replace(/```(?:json)?/gi, "");
   const start = s.indexOf(open);
   if (start < 0) throw new Error(TRIAGE_BAD_REPLY);
   let depth = 0, inStr = false, esc = false, end = -1;
@@ -100,16 +100,17 @@ function triageParseTitleBatch(content, items) {
   return { results, failed };
 }
 
+// One cell of a prompt's 序号|… line: no | or line break inside (triage-bg.js and follow-bg.js lines).
+const triageCell = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
+
 function triageTitleLine(item, n) {
-  const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  return `${n}|${clean(item.title)}|${clean(item.upper)}|${Number(item.duration) ? TriageUi.fmtDuration(item.duration) : ""}|${TriageUi.fmtDate(item.pubdate)}|${clean(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
+  return `${n}|${triageCell(item.title)}|${triageCell(item.upper)}|${Number(item.duration) ? TriageUi.fmtDuration(item.duration) : ""}|${TriageUi.fmtDate(item.pubdate)}|${triageCell(item.intro).slice(0, TriageUi.INTRO_CHARS)}`;
 }
 
 // 序号|标题|UP|时长|简介前 INTRO_CHARS 字|现有标签|一句话|要点（；分隔）（没有的字段留空）
 function triageCommandLine(item, n) {
-  const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  const list = (a) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []);
-  return [n, clean(item.title), clean(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", clean(item.intro).slice(0, TriageUi.INTRO_CHARS), list(item.currentTags).join("、"), clean(item.oneLiner), list(item.points).join("；")].join("|");
+  const list = (a) => (Array.isArray(a) ? a.map(triageCell).filter(Boolean) : []);
+  return [n, triageCell(item.title), triageCell(item.upper), Number(item.duration) ? TriageUi.fmtDuration(item.duration) : "", triageCell(item.intro).slice(0, TriageUi.INTRO_CHARS), list(item.currentTags).join("、"), triageCell(item.oneLiner), list(item.points).join("；")].join("|");
 }
 
 // 批量打标签的提案只改标签：add 只留已有标签或本次新建的标签，remove 只留视频现有标签且要 allowRemove；
@@ -145,8 +146,9 @@ function triageParseCommand(content, items, tags, { allowRemove = false } = {}) 
   return { newTags, assignments, note: String(obj.note ?? "").trim() };
 }
 
+// URLSearchParams turns every value into its string.
 function triageForm(obj) {
-  return new URLSearchParams(Object.entries(obj).map(([k, v]) => [k, String(v)])).toString();
+  return new URLSearchParams(obj).toString();
 }
 
 // 判断都相对这个收藏夹的用途：娱乐收藏夹里的好段子是「值得留」，不是「可清理」。
@@ -225,10 +227,9 @@ const TRIAGE_AI_UNIT = {
 // One record per line: n|title|type|tags|conversation (问：… 答：…, cut by the page to TriageUi.READING_AI_CHARS)|分拣台 AI
 // 总结|备注 (first INTRO_CHARS). A record with a conversation has no 总结 or 备注, one without has only those.
 function readingAiLine(item, n) {
-  const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
   const list = (a) => (Array.isArray(a) ? a : []);
-  const talk = list(item.turns).map((t) => `问：${clean(t?.q)}${clean(t?.a) ? ` 答：${clean(t.a)}` : ""}`).join(" ");
-  return [n, clean(item.title), clean(item.site), list(item.currentTags).map(clean).filter(Boolean).join("、"), talk, clean(item.oneLiner), clean(item.note).slice(0, TriageUi.INTRO_CHARS)].join("|");
+  const talk = list(item.turns).map((t) => `问：${triageCell(t?.q)}${triageCell(t?.a) ? ` 答：${triageCell(t.a)}` : ""}`).join(" ");
+  return [n, triageCell(item.title), triageCell(item.site), list(item.currentTags).map(triageCell).filter(Boolean).join("、"), talk, triageCell(item.oneLiner), triageCell(item.note).slice(0, TriageUi.INTRO_CHARS)].join("|");
 }
 // 摘读记录 (history.js): videos and web pages, by record key (id).
 const READING_AI_UNIT = {
@@ -311,23 +312,29 @@ function triageBiliData(json) {
 // page's own fetches use it too) aborts the request; that and a dropped connection are NETWORK.
 const TRIAGE_BILI_CFG = { timeoutMs: MdgErrors.NET_TIMEOUT_MS };
 async function triageBiliFetch(url, init = {}) {
+  const ms = TRIAGE_BILI_CFG.timeoutMs;
+  return triageRace(ms, () => triageError(MdgErrors.netTimeout(ms), "NETWORK"), async (signal) => {
+    const res = await fetch(url, { ...init, credentials: "include", signal }).catch((e) => {
+      // A dropped connection is fetch's TypeError, whose English text the user does not need.
+      throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
+    });
+    return triageBiliJson(res);
+  });
+}
+
+// run(signal) with a deadline: past ms the signal aborts and the call rejects with timeoutError(). Racing the timer
+// (not just aborting) also ends a fetch or body read that ignores the abort.
+async function triageRace(ms, timeoutError, run) {
   const ctl = new AbortController();
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       ctl.abort();
-      reject(triageError(MdgErrors.netTimeout(TRIAGE_BILI_CFG.timeoutMs), "NETWORK"));
-    }, TRIAGE_BILI_CFG.timeoutMs);
+      reject(timeoutError());
+    }, ms);
   });
-  const request = async () => {
-    const res = await fetch(url, { ...init, credentials: "include", signal: ctl.signal }).catch((e) => {
-      // A dropped connection is fetch's TypeError, whose English text the user does not need.
-      throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
-    });
-    return triageBiliJson(res);
-  };
   try {
-    return await Promise.race([request(), timeout]);
+    return await Promise.race([run(ctl.signal), timeout]);
   } finally {
     clearTimeout(timer);
   }
@@ -391,15 +398,11 @@ async function triageBiliPost(path, fields) {
 // reads turn risk control into THROTTLED themselves, as for the video page.
 const TRIAGE_BILI_IO = { signWbi: true, fetchJson: (url) => triageBiliGetJson(url) };
 
-// nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由 triageMid 判断登录；风控码是限流，不是未登录。
-async function triageNav() {
+// nav 未登录时 code=-101，triageBiliGet 会当错误抛出，所以只查 HTTP 与 JSON，由这里判断登录；风控码是限流，不是未登录。
+async function triageMid() {
   const json = await triageBiliGetJson(`${TRIAGE_BILI_API}/x/web-interface/nav`);
   if (BILI_RISK_CODES.has(json.code)) throw triageCodeError(json);
-  return json.data || {};
-}
-
-async function triageMid() {
-  const nav = await triageNav();
+  const nav = json.data || {};
   if (!nav.isLogin || !nav.mid) throw triageNotLoggedIn();
   return nav.mid;
 }
@@ -427,6 +430,9 @@ const SEEN_PRUNE_GAP_MS = 86400 * 1000;
 const SEEN_PREFIX = MdgLimits.KEYS.seenPrefix;
 // counted: entries SEEN_MAX counts, as of the last prune plus every new one written since (an upper bound).
 const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, counted, backoffUntil, resume }
+// Set when the ticked folders or their snapshots change (triageStorageChanged): a video `counted` left out as exempt may
+// count now, so the next read prunes in full. A key of its own: a read in flight writes the meta it holds.
+const SEEN_RECOUNT = "triage_seen_recount";
 
 // Percent watched from a history item: progress -1 means finished.
 function seenPercent(progress, duration) {
@@ -475,11 +481,17 @@ function seenSync({ force }) {
   return Promise.race([start, seenRun]);
 }
 
-// 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh.
-async function seenClear() {
-  await seenRun?.catch(() => {});
-  const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
-  await chrome.storage.local.remove([...keys, SEEN_META]);
+// 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh:
+// a read that starts while the history is being dropped waits for it (seenSyncOnce), so it never writes back the old
+// `newest` and skips what was dropped.
+let seenClearing = null;
+function seenClear() {
+  seenClearing ||= (async () => {
+    await seenRun?.catch(() => {});
+    const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
+    await chrome.storage.local.remove([...keys, SEEN_META]);
+  })().finally(() => (seenClearing = null));
+  return seenClearing;
 }
 
 // 封面显示 is on: the history is read only then, checked again before every page (MdgSettings.seenOn, which every reader
@@ -487,6 +499,7 @@ async function seenClear() {
 const seenOn = async () => MdgSettings.seenOn((await chrome.storage.sync.get({ seenShow: MdgSettings.DEFAULTS.seenShow })).seenShow);
 
 async function seenSyncOnce(force, started) {
+  await seenClearing?.catch(() => {});
   if (!(await seenOn())) return { skipped: "off" };
   let meta = (await chrome.storage.local.get(SEEN_META))[SEEN_META] || {};
   const now = Date.now();
@@ -540,7 +553,10 @@ async function seenSyncOnce(force, started) {
   // Pruned once a day (entries age out, folders get unticked) and as soon as the count may be over SEEN_MAX: meta.counted
   // is kept up to date by the writes above, so no read of every entry is needed to know.
   let dropped = 0;
-  if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS || !(typeof meta.counted === "number" && meta.counted <= SEEN_MAX)) {
+  const recount = (await chrome.storage.local.get(SEEN_RECOUNT))[SEEN_RECOUNT];
+  if (recount || now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS || !(typeof meta.counted === "number" && meta.counted <= SEEN_MAX)) {
+    // Dropped before the folders are read: a change during the prune sets it again for the next read.
+    if (recount) await chrome.storage.local.remove(SEEN_RECOUNT);
     const all = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
     const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
     const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
@@ -738,18 +754,9 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
 
   const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
-  const controller = new AbortController();
-  let timer;
-  // Racing the timer (not just aborting) also ends a fetch or body read that ignores the abort.
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      reject(triageError(MdgErrors.aiTimeout(ms), "AI_TIMEOUT"));
-    }, ms);
-  });
-  const request = async () => {
+  return triageRace(ms, () => triageError(MdgErrors.aiTimeout(ms), "AI_TIMEOUT"), async (signal) => {
     // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
-    const res = await postChat({ baseUrl, apiKey, signal: controller.signal, thinking }, body).catch(async () => {
+    const res = await postChat({ baseUrl, apiKey, signal, thinking }, body).catch(async () => {
       throw await aiFetchError(baseUrl);
     });
     if (!res.ok) throw triageAiHttpError(res.status, await res.text().catch(() => ""));
@@ -759,12 +766,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     // Cut at the output limit, with or without a partial answer: the page offers 调大输出上限.
     if (choice?.finish_reason === "length") throw triageError("模型输出被截断", "AI_TRUNCATED");
     return { content: choice?.message?.content, model: provider.model };
-  };
-  try {
-    return await Promise.race([request(), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
+  });
 }
 
 async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
@@ -974,7 +976,9 @@ const TRIAGE_HANDLERS = {
           play: Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
         });
       }
-      if (!data?.has_more || !data?.medias?.length) break;
+      if (!data?.has_more) break;
+      // More to come but nothing on this page (seen under risk control): what follows is unread, not gone.
+      if (!data?.medias?.length) return { items, info, partial: { page: pn, error: "B站 返回了空的一页" } };
       if (knownSet && (data.medias || []).every((m) => knownSet.has(m.bvid || m.bv_id))) return { items, info, head: true };
       // Page progress for the triage page's loading line; no open page to receive it is fine.
       globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-folder-page", mediaId: String(mediaId), page: pn })?.catch?.(() => {});
@@ -1047,14 +1051,19 @@ const TRIAGE_HANDLERS = {
   },
 
   // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
-  // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove.
+  // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove. The page sends one video per
+  // request from 稍后再看; an add that went through with its removal failed says so, it is not undone.
   "triage-transfer": async ({ from, to, aids, move }) => {
     const list = triageAids(aids);
     if (!triageNumId(to) || (from && !triageFolderId(from)) || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
     if (!from || from === TRIAGE_TOVIEW) {
       for (const aid of list) {
         await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: to, del_media_ids: "" });
-        if (move && from) await triageBiliPost("/x/v2/history/toview/del", { aid });
+        if (move && from) {
+          await triageBiliPost("/x/v2/history/toview/del", { aid }).catch((e) => {
+            throw triageError(`已收藏到目标收藏夹，但没能从${MdgErrors.LABEL.watchLater}移除：${e.message}`, e.code);
+          });
+        }
       }
       return { done: list.length };
     }
@@ -1147,6 +1156,16 @@ function triageRegisterDnr() {
 // { ok: false, error, code? }. Other types are left to the other listeners. Returns the listener.
 // Only the extension's own pages are answered, so a script in a B站 or YouTube page cannot write to the account, spend
 // AI tokens or save settings; webTypes are the ones its content scripts send (badges.js).
+// 观看进度 turned 关 drops its history; the ticked folders or their snapshots changed make the next read recount.
+function triageStorageChanged(changes, area) {
+  const c = area === "sync" && changes.seenShow;
+  if (c && MdgSettings.seenOn(c.oldValue) && !MdgSettings.seenOn(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
+  const snapshot = MdgLimits.KEYS.triageSnapshot("");
+  if (area === "local" && Object.keys(changes).some((k) => k === MdgLimits.KEYS.triageIncludedFolders || k.startsWith(snapshot))) {
+    chrome.storage.local.set({ [SEEN_RECOUNT]: true }).catch(() => {});
+  }
+}
+
 function triageListen(prefix, handlers, webTypes = []) {
   const listener = (message, sender, sendResponse) => {
     const type = message?.type;
@@ -1175,10 +1194,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   triageMigrateNotes().catch((e) => console.warn("[triage] 笔记迁移失败", e));
   chrome.runtime.onInstalled.addListener(triageRegisterDnr);
   chrome.runtime.onStartup.addListener(triageRegisterDnr);
-  chrome.storage.onChanged.addListener((changes, area) => {
-    const c = area === "sync" && changes.seenShow;
-    if (c && MdgSettings.seenOn(c.oldValue) && !MdgSettings.seenOn(c.newValue)) seenClear().catch((e) => console.warn("[triage] 清除观看进度失败", e));
-  });
+  chrome.storage.onChanged.addListener(triageStorageChanged);
 
   triageListen("triage-", TRIAGE_HANDLERS, ["triage-open", "triage-seen-sync"]);
 }

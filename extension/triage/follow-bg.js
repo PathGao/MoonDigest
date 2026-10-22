@@ -54,6 +54,7 @@ function followMergePerson(old, nu) {
 // - 同步开始后在这里关注、B站 列表还没反映的人保留。
 // - 同步开始后在这里改过分组的人（cur.groupsAt ≥ startedAt，或上一条保留的人）用 cur 的分组，fresh 可能是改之前抓的。
 // - unf 里的人只有关注时间晚于取关时间才算重新关注（back，标签进 restore）；否则仍算取关、不进列表。
+//   例外：source "bili" 是从 B站 列表里少了这个人推出来的，B站 列表又有他就是还关注着（推错了），也算 back。
 // - cur 里有、fresh 里没有、unf 里也没有的人是在 B站 取关的：gone[mid] = { at, tagIds, source: "bili" }。只在 fresh 拉全时判断。
 // - changes = { at, added, removed, partial? }：新列表比 cur 多的人、gone 的人，给界面的「已刷新 +N −M」。没有上次的列表时为 null。
 //   没拉全时 removed 为空、partial = { read, total }（读到几个、B站 说共几个），界面写琥珀「已刷新（部分）+N」。
@@ -67,7 +68,7 @@ function followDiff(cur, fresh, unf, tagMap, live, startedAt, at) {
   const list = [...kept, ...fresh.list].filter((m) => {
     const u = unf[m];
     if (!u) return true;
-    if (!((ft[m] || 0) > (u.at || 0))) return false;
+    if (!((ft[m] || 0) > (u.at || 0)) && !(u.source === "bili" && inFresh.has(m))) return false;
     back.push(m);
     const ids = (u.tagIds || []).filter((id) => live.has(id));
     if (ids.length) restore[m] = ids;
@@ -161,9 +162,8 @@ function followFoldFeed(last, items) {
 
 // 序号|名字|签名|主要分区|最近标题|现有标签
 function followAiLine(item, n) {
-  const clean = (s) => String(s ?? "").replace(/[|\r\n]+/g, " ").trim();
-  const list = (a, sep) => (Array.isArray(a) ? a.map(clean).filter(Boolean) : []).join(sep);
-  return [n, clean(item.name), clean(item.sign), clean(item.tname), list(item.titles, "；"), list(item.currentTags, "、")].join("|");
+  const list = (a, sep) => (Array.isArray(a) ? a.map(triageCell).filter(Boolean) : []).join(sep);
+  return [n, triageCell(item.name), triageCell(item.sign), triageCell(item.tname), list(item.titles, "；"), list(item.currentTags, "、")].join("|");
 }
 
 // 批量打标签的对象换成 UP 主，规则和收藏夹同一份（triageBuildCommandMessages）。
@@ -309,6 +309,9 @@ async function followSyncJob(ctx) {
     const fresh = { list: [], followTime: {}, special: {}, groups: {} };
     const people = {};
     let total = 0;
+    // A total that moves between pages (a follow or unfollow on B站 meanwhile) shifts the pages: someone may fall
+    // between two of them, so the read is not complete and nobody missing from it counts as unfollowed.
+    let shifted = false;
     const stored = (await MdgLimits.followGet(["list"])).list;
     const showPages = !stored || stored.partial;
     // ponytail: 100 页 = 5000 人，B站 关注上限也是这个数
@@ -317,7 +320,9 @@ async function followSyncJob(ctx) {
       const j = await get(() => followAgain(() => followGetJson(url), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
       if (j.code !== 0) throw followCodeError(j, "读取关注列表失败：");
       const page = j.data?.list || [];
-      total = Number(j.data?.total) || 0;
+      const pageTotal = Number(j.data?.total) || 0;
+      if (pn > 1 && pageTotal !== total) shifted = true;
+      total = pageTotal;
       for (const x of page) {
         const mid = String(x.mid);
         if (people[mid]) continue;
@@ -340,7 +345,7 @@ async function followSyncJob(ctx) {
       await ctx.progress({ done: fresh.list.length, total: Math.max(total, fresh.list.length) });
       if (!page.length || fresh.list.length >= total) break;
     }
-    fresh.complete = fresh.list.length >= total;
+    fresh.complete = !shifted && fresh.list.length >= total;
     fresh.total = total;
     // B站 关注分组 names. 0 默认分组 and -10 特别关注 are B站's fixed ones; the page names them itself.
     const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
@@ -435,14 +440,12 @@ async function followSyncJob(ctx) {
     try {
       rec = await get(() => followArcSearch(mid));
     } catch (e) {
-      // THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下整个同步；账号没了记下来；其他（WBI -403、HTTP 5xx…）是暂时的，不记，下次再查。
-      if (typeof e.code === "string") throw e;
-      if (!FOLLOW_GONE_CODES.has(e.code)) {
+      rec = followGoneRecord(e, { count: 0, tlist: {}, v: [] });
+      if (!rec) {
         skipped++;
         await ctx.progress({ skipped, step: `${step}${followSkippedText(skipped)}` });
         continue;
       }
-      rec = { code: e.code, count: 0, tlist: {}, v: [] };
     }
     if (!rec.code && !rec.count) {
       const views = await get(() => followGetData(`${FOLLOW_API}/x/space/upstat?mid=${mid}`)).then((d) => Number(d?.archive?.view), (e) => {
@@ -466,6 +469,13 @@ async function followSyncJob(ctx) {
   await followStatsPhase(ctx);
 }
 
+// 一个 UP 主的请求失败了（查投稿、粉丝数）：THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下整个同步；账号没了记下来
+// （empty 加上 B站 的码）；其他（WBI -403、HTTP 5xx…）是暂时的，返回 null：不记，下次再查。
+function followGoneRecord(e, empty) {
+  if (typeof e.code === "string") throw e;
+  return FOLLOW_GONE_CODES.has(e.code) ? { code: e.code, ...empty } : null;
+}
+
 // 第 4 步：每个关注的人的粉丝数（x/relation/stat，一人一次）→ follow_stats。7 天内查过的跳过，所以接着跑不重查。
 const FOLLOW_STATS_DAYS = 7;
 async function followStatsPhase(ctx) {
@@ -485,14 +495,12 @@ async function followStatsPhase(ctx) {
       const d = await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stat?vmid=${mid}`));
       rec = { follower: Number(d?.follower) || 0 };
     } catch (e) {
-      // 同 arc：THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下；账号没了记下来；其他暂时的不记。
-      if (typeof e.code === "string") throw e;
-      if (!FOLLOW_GONE_CODES.has(e.code)) {
+      rec = followGoneRecord(e, { follower: 0 });
+      if (!rec) {
         skipped++;
         await ctx.progress({ skipped, step: step() });
         continue;
       }
-      rec = { code: e.code, follower: 0 };
     }
     await followUpdate(["stats"], (st) => ({ stats: { ...st.stats, [mid]: { ...rec, at: followNow() } } }));
     done++;
@@ -557,7 +565,10 @@ async function followStart() {
     });
 }
 
+// Each 停止 counts: a resume (followResume) that read running before it does not start the sync again.
+let followStops = 0;
 async function followStop() {
+  followStops++;
   if (followRun) {
     followRun.stop = true;
     followRun.abort();
@@ -567,9 +578,10 @@ async function followStop() {
 
 // worker 启动时：上次还在跑就接着跑。
 async function followResume() {
+  const stops = followStops;
   const j = (await MdgLimits.followGet(["jobs"])).jobs;
   followSlowUntil = Math.max(followSlowUntil, (j?.slowUntil || 0) * 1000);
-  if (j?.running) await followStart();
+  if (j?.running && stops === followStops) await followStart();
   else if (!followRun) chrome.alarms?.clear(FOLLOW_ALARM);
 }
 

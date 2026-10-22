@@ -44,17 +44,21 @@ const area = (store) => ({
 });
 const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
-// The tabs a write without its page looks in (tabNote); created: tabs it opened; muted: tabs it muted; videoPage: a video
-// tab's popup-refresh answer.
+// The tabs a write without its page looks in (tabNote); created: the pages it opened in new tabs; muted: tabs it muted
+// before loading their page (D1: a video tab opens blank, then is muted and loaded in one update); removed: tabs it
+// closed; videoPage: a video tab's popup-refresh answer.
 let openTabs = [];
 const created = [];
 const muted = [];
+const removed = [];
 let videoPage = () => ({ ok: false });
 const tabs = new Proxy({
   query: async () => openTabs,
-  create: async (t) => (created.push(t.url), { id: 9, status: "complete", ...t }),
+  create: async (t) => (t.url !== "about:blank" && created.push(t.url), { id: 9, status: "complete", ...t }),
   get: async (id) => ({ id, status: "complete" }),
-  update: async (id, p) => p.muted && muted.push(id),
+  // Muted with the page it loads, not after: "late" marks a mute of a tab already loading.
+  update: async (id, p) => (p.muted && muted.push(p.url ? id : "late"), p.url && created.push(p.url)),
+  remove: async (id) => removed.push(id),
   sendMessage: (id, m, o, cb) => cb(m.type === "popup-refresh" && o.frameId === 0 ? videoPage(id) : undefined)
 }, { get: (t, k) => t[k] || noop });
 const chrome = {
@@ -168,7 +172,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     openTabs = [{ id: 7, url: "https://www.youtube.com/watch?v=y5aaaaaaaaa&t=30" }];
     videoPage = (id) => pageOf({ ...y5, title: "Y5", author: "作者" }, `# Y5 笔记 ${id}`);
     resp = await write({ ref: y5, conversation: conversation("标签页") });
-    assert.deepStrictEqual([resp.kind, resp.path, created, muted], ["full", "N/youtube/Y5.md", [], []]);
+    assert.deepStrictEqual([resp.kind, resp.path, created, muted, removed], ["full", "N/youtube/Y5.md", [], [], []], "a tab already open is read, never closed");
     assert.ok(vault.get("N/youtube/Y5.md").startsWith("# Y5 笔记 7") && vault.get("N/youtube/Y5.md").includes("### 问：标签页"));
     assert.strictEqual(local[PATHS]["video:youtube:y5aaaaaaaaa|"].path, "N/youtube/Y5.md");
     // A tab of another part of the same B站 video is not this part's.
@@ -179,6 +183,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     videoPage = (id) => pageOf({ ...p2, cid: "c72", pageTitle: "第二集" }, `# 分P 笔记 ${id}`);
     resp = await write({ ref: p2, conversation: conversation("分"), pageChoice: "open" });
     assert.deepStrictEqual([resp.kind, resp.path, created, muted], ["full", "N/bilibili/分P-P2-第二集.md", ["https://www.bilibili.com/video/BV7/?p=2"], [9]]);
+    // D1: the tab opened for the read is closed once it is done.
+    assert.deepStrictEqual(removed.splice(0), [9]);
     assert.strictEqual(local[PATHS]["video:bilibili:BV7|c72"].path, "N/bilibili/分P-P2-第二集.md");
     // M1: a watch-later tab playing this part (its oid is the part's cid) shows it too: read there, nothing opened.
     created.length = muted.length = 0;
@@ -193,6 +199,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     videoPage = () => ({ ok: true, payload: { url: p2.url, markdown: "" } });
     assert.deepStrictEqual(await write({ ref: { ...p2, videoId: "BV8", url: "" }, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: "打开的视频页不是这个视频的 P2" });
     assert.deepStrictEqual(await write({ ref: p2, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: `${E.videoReadFailed}：视频页没有给出笔记` });
+    // D1: closed when the read fails too, each time.
+    assert.deepStrictEqual(removed.splice(0), [9, 9, 9]);
     videoPage = () => ({ ok: false });
     created.length = muted.length = 0;
   }
@@ -203,9 +211,15 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual([resp.kind, resp.text], ["conversation", "已写入 Obsidian：N/bilibili/【AI笔记】T.md（单独的 AI 笔记）"]);
   resp = await send({ type: "triage-write-note", bvid: "BV9", overwrite: false });
   assert.deepStrictEqual(resp, { ok: false, error: "啥都木有", code: -404 });
-  // C219: the same for a recorded note: 整篇覆盖 cannot rebuild it, so the conversation is its own note.
+  // R7 (was C219): a recorded note of a deleted video: 整篇覆盖 cannot rebuild it, so it fails saying why and writes
+  // nothing; it never overwrites the AI 笔记 the user may have edited at the conversation's path. 只更新 AI 问答 works.
+  vault.set("N/bilibili/【AI笔记】T.md", "我改过的 AI 笔记");
+  log.splice(0);
   resp = await write({ ref: bili, conversation: conversation("q"), mode: "full" });
-  assert.deepStrictEqual([resp.kind, resp.path], ["conversation", "N/bilibili/【AI笔记】T.md"]);
+  assert.deepStrictEqual([resp, log.filter((l) => l.startsWith("PUT"))], [{ ok: false, error: "视频已失效，整篇覆盖无法重建" }, []]);
+  assert.strictEqual(vault.get("N/bilibili/【AI笔记】T.md"), "我改过的 AI 笔记");
+  resp = await write({ ref: bili, conversation: conversation("q"), mode: "ai" });
+  assert.deepStrictEqual([resp.kind, resp.path], ["ai", notePath]);
   gone = false;
 
   // 逐个视频笔记 never asks: without overwrite an existing note keeps its body (its AI 问答 follows); with it, rewritten.
@@ -313,12 +327,13 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     openTabs = [];
     read.length = 0;
     resp = await write({ ref: third, conversation: conversation("三"), pageChoice: "open" });
-    assert.deepStrictEqual([resp.path, read, created], ["N/网页/第三篇.md", [9], ["https://example.com/third"]]);
+    assert.deepStrictEqual([resp.path, read, created, removed.splice(0)], ["N/网页/第三篇.md", [9], ["https://example.com/third"], [9]]);
     // A page that cannot be read once opened says why, and writes nothing.
     ctx.popupPageNote = async () => {
       throw new Error("读取网页失败：没有找到正文");
     };
     assert.deepStrictEqual(await write({ ref: { ...third, url: "https://example.com/4", title: "四" }, conversation: conversation("四"), pageChoice: "open" }), { ok: false, error: "读取网页失败：没有找到正文" });
+    assert.deepStrictEqual(removed.splice(0), [9]);
     ctx.popupPageNote = pageNoteOf;
     // The page's note deleted in the vault: auto-sync says so in a page's words.
     vault.delete("N/网页/一篇文章.md");
@@ -357,16 +372,31 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     await write({ ref: y7, conversation: conversation("问"), page: { markdown: "# Y7 页面" } });
     resp = await exp({ ref: y7, conversation: conversation("再问") });
     assert.deepStrictEqual([resp.filename, resp.markdown], ["Y7.md", N.upsertAiSection(vault.get("N/youtube/Y7.md"), N.buildAiSection(N.buildConversationTurns(conversation("再问").messages)))]);
-    // 「附带 AI 问答」 off: the note as it is, no conversation added; asked without own, which 摘读记录's zip still sends.
+    // R10: 「附带 AI 问答」 off: as a fresh export, no AI 问答, the vault note's old one dropped too; asked without own,
+    // which 摘读记录's zip still sends.
     sync.includeAiChatInNote = false;
     resp = await exp({ ref: y7, conversation: conversation("关") });
-    assert.strictEqual(resp.markdown, vault.get("N/youtube/Y7.md"));
+    assert.strictEqual(resp.markdown, N.upsertAiSection(vault.get("N/youtube/Y7.md"), ""));
+    assert.ok(vault.get("N/youtube/Y7.md").includes("### 问：问") && !resp.markdown.includes("moondigest:ai"), resp.markdown);
     resp = await exp({ ref: bili, conversation: conversation("关") });
     assert.ok(!resp.markdown.includes("### 问："), resp.markdown);
     const y8 = { ...yt, videoId: "y8", title: "Y8", url: "https://www.youtube.com/watch?v=y8" };
     assert.deepStrictEqual(await exp({ ref: y8, conversation: conversation("关") }), { ok: true, askPage: true, url: y8.url, video: true, own: false });
     assert.strictEqual((await exp({ ref: y8, conversation: conversation("关"), pageChoice: "own" })).noPage, true);
     sync.includeAiChatInNote = true;
+    // R10: the vault note links the cover it stored; exported from there it has the image's own address, as a fresh one.
+    const y10 = { ...yt, videoId: "y10", title: "Y10", url: "https://www.youtube.com/watch?v=y10" };
+    const withCover = `---\ncover: "${coverUrl}"\n---\n\n![cover](${coverUrl})\n\n正文`;
+    await write({ ref: y10, page: { markdown: withCover, cover: coverUrl } });
+    assert.ok(vault.get("N/youtube/Y10.md").includes('cover: "[[N/youtube/attachments/youtube-y10.jpg]]"'), vault.get("N/youtube/Y10.md"));
+    resp = await exp({ ref: y10, conversation: conversation("封") });
+    assert.ok(resp.markdown.startsWith(withCover) && resp.markdown.includes("### 问：封"), resp.markdown);
+    // R1: a web page whose address starts another's (/post-2 recorded, /post not) never takes that note.
+    const post2 = { url: "https://example.com/post-2", title: "二", isVideoContext: false };
+    await write({ ref: post2, page: { markdown: "# 二" } });
+    const post = { url: "https://example.com/post", title: "一", isVideoContext: false };
+    assert.deepStrictEqual(await exp({ ref: post, conversation: conversation("前缀") }), { ok: true, askPage: true, url: post.url });
+    assert.deepStrictEqual(await write({ ref: post, conversation: conversation("前缀") }), { ok: true, askPage: true, url: post.url });
     // Obsidian off: still exported; a recorded note cannot be read, so its page is asked for.
     sync.obsidianEnabled = false;
     assert.strictEqual((await exp({ ref: y7, conversation: conversation("问") })).askPage, true);

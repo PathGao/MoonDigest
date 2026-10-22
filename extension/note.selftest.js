@@ -396,6 +396,12 @@ const halfMarked = `${userNote}${N.AI_SECTION_START}\n## AI 问答\n`;
 assert.strictEqual(N.upsertAiSection(halfMarked, newSection), `${halfMarked}\n${newSection}\n`);
 // A23: the next sync replaces only that appended section; the text after the stray start marker stays.
 assert.strictEqual(N.upsertAiSection(`${halfMarked}\n${newSection}\n`, section), `${halfMarked}\n${section}\n`);
+// R5: a note whose start marker the user deleted gets one section appended, and later syncs replace that one.
+const endOnly = `${userNote}${section.replace(`${N.AI_SECTION_START}\n`, "")}\n\n后记\n`;
+const once = N.upsertAiSection(endOnly, newSection);
+assert.strictEqual(once, `${endOnly}\n${newSection}\n`);
+assert.strictEqual(N.upsertAiSection(N.upsertAiSection(once, newSection), newSection), once, "no second section");
+assert.strictEqual(N.upsertAiSection(once, section), `${endOnly}\n${section}\n`);
 
 // pickConversation: the newest conversation of the part or page, by the side panel's rule (MdgSites.isConversationOf;
 // sidepanel-state.selftest.js M2 checks both pick the same over stored shapes). Other videos and parts never match.
@@ -535,6 +541,18 @@ assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(PS.text(PS.own("popup.html")))
   assert.ok(md(bili, body, { ...baseSettings, fixedFrontmatterProperties: [{ key: "标签", type: "list", value: "{{video_tags}}" }] }).includes('\n标签: ["科技", "AI"]\n'));
   // C204, C217: a folder drops what a file name drops, and never climbs out with . or ..
   assert.strictEqual(N.resolveFolderTemplate("../a/./{{author}}", { author: "UP#[1]^" }, CREATED), "a/UP 1");
+  // R36: no folder or file starts with a dot (Obsidian skips it); a title of dots alone falls back to the id.
+  assert.strictEqual(N.resolveFolderTemplate(".hidden/{{author}}/b", { author: ".x" }, CREATED), "hidden/x/b");
+  assert.deepStrictEqual([N.buildNoteFilename({ title: ".NET 入门" }, { includeDateInFilename: false }), N.buildNoteFilename({ title: "...", videoId: "BV1" }, { includeDateInFilename: false })], ["NET 入门.md", "BV1.md"]);
+  // R39: {{key}} reads the context's own keys only, in 自定属性, 正文附加段落 and folders alike.
+  const proto = md(bili, body, { ...baseSettings, fixedFrontmatterProperties: [{ key: "x", type: "text", value: "a{{constructor}}b" }], notePlaceholderSections: [{ title: "段", position: "before_intro", content: "c{{toString}}d" }] });
+  assert.ok(proto.includes('\nx: "ab"\n') && proto.includes("## 段\n\ncd\n") && !/function|native/.test(proto));
+  assert.strictEqual(N.resolveFolderTemplate("A/{{constructor}}/B", {}, CREATED), "A/B");
+  // R38: a 自定属性 named like a key the note writes itself (星标's starred, a field) is left out, not written twice.
+  const starredProp = md({ ...bili, starred: true }, body, { ...baseSettings, fixedFrontmatterProperties: [{ key: "Starred", type: "checkbox", value: "false" }, { key: "video_tags", type: "text", value: "x" }] });
+  assert.deepStrictEqual([starredProp.match(/^starred:/gim).length, /^video_tags: "x"/m.test(starredProp)], [1, false]);
+  const pageProp = N.buildPageNote({ url: "https://a.b/c", title: "t", published: "2026-01-01" }, { fixedFrontmatterProperties: [{ key: "published", type: "text", value: "x" }] }, [], CREATED);
+  assert.strictEqual(pageProp.match(/^published:/gm).length, 1);
   // C206, C207: subtitles before the first chapter open the section; two chapters starting together share no line.
   const chap = (chapters) => md({ ...bili, chapters }, [{ from: 0, to: 5, content: "开头" }, ...body.slice(2)]);
   const one = chap([{ from: 60, to: 0, title: "甲" }, { from: 60, to: 0, title: "乙" }, { from: 100, to: 0, title: "丙" }]);

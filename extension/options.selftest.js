@@ -264,6 +264,8 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual(check("完成", "checkbox", "yes").slice(0, 2), [false, "value"]);
   assert.deepStrictEqual(check("", "text", "x").slice(0, 2), [false, "key"]);
   assert.deepStrictEqual(check("title", "text", "x"), [false, "key", "该属性名与自带属性重复，请换一个名称"]);
+  // R38: every name a note writes itself (MdgSettings.RESERVED_PROPERTY_KEYS, note.js's rule), not only the field boxes.
+  assert.deepStrictEqual(["Starred", "published"].map((k) => check(k, "text", "x")[2]), Array(2).fill("该属性名与自带属性重复，请换一个名称"));
   // K3: a name note.js would leave out (MdgSettings.FIXED_PROPERTY_KEY_RE, one rule for both) is refused with why.
   assert.deepStrictEqual(check("-评分", "text", "x"), [false, "key", "属性名不能以短横线开头，笔记里会被读成列表"]);
   assert.deepStrictEqual(check("评分@", "text", "x"), [false, "key", "属性名只能包含文字、数字、空格、下划线和短横线"]);

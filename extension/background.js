@@ -237,8 +237,8 @@ async function popupPageNote(tabId) {
   if (page.pageAccess === "failed") throw new Error(MdgErrors.TEXT.pageReadFailed + "：" + page.pageError);
   if (page.pageAccess === "needPermission") throw new Error(MdgErrors.TEXT.pageGrant);
   if (page.pageAccess !== "ready") throw new Error(MdgErrors.TEXT.pageUnsupported);
-  const { aiConversations } = MdgLimits.KEYS;
-  const [settings, stored] = await Promise.all([getMergedSettings(), chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys({ url: page.url })])]);
+  const { aiConversations, obsidianNotePaths } = MdgLimits.KEYS;
+  const [settings, stored] = await Promise.all([getMergedSettings(), chrome.storage.local.get([aiConversations, obsidianNotePaths, ...MdgNote.triageExtrasKeys({ url: page.url })])]);
   const turns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], page)?.messages);
   return { ref: MdgSites.contextRef(page), ...MdgNote.buildPageNoteFile(page, settings, turns, stored) };
 }
@@ -246,19 +246,20 @@ async function popupPageNote(tabId) {
 // The note of ref read from a tab that shows it, for a write sent without its page (摘读记录, the side panel on another
 // tab): a web page's (its URL without #) built as the popup's, a video part's from its content script (popup-refresh)
 // with the part as the video page's own write names it (ref). null when no tab shows it or it cannot be read now. open:
-// no such tab, so open one in the background (muted: a video page may start playing) and read it once loaded (the
-// write's 「打开网页再写」 / 「打开视频页再写」); a failed read then throws its reason.
+// no such tab, so open one in the background and read it once loaded (the write's 「打开网页再写」 / 「打开视频页再写」);
+// a failed read then throws its reason. A video tab is muted before it loads the video, so it never plays aloud. The tab
+// opened here is closed once the read is done, read or not; a tab that was already open is left alone.
 async function tabNote(ref, open = false) {
   const video = ref.isVideoContext;
   let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => MdgSites.sameContext(t.url, ref));
   if (!tab && !open) return null;
   const opened = !tab;
-  if (opened) {
-    tab = await chrome.tabs.create({ url: video ? MdgSites.videoUrl(ref) : ref.url, active: false });
-    if (video) await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
-    tab = await MdgSites.waitTabLoaded(tab.id);
-  }
   try {
+    if (opened) {
+      tab = await chrome.tabs.create({ url: video ? "about:blank" : ref.url, active: false });
+      if (video) await chrome.tabs.update(tab.id, { muted: true, url: MdgSites.videoUrl(ref) });
+      tab = await MdgSites.waitTabLoaded(tab.id);
+    }
     if (!video) return { page: { markdown: (await popupPageNote(tab.id)).content } };
     const page = (await videoTabPayload(tab.id, opened))?.payload;
     // B站 may open another part than the one asked for (the part it remembers as last watched).
@@ -268,6 +269,8 @@ async function tabNote(ref, open = false) {
   } catch (error) {
     if (open) throw error;
     return null;
+  } finally {
+    if (opened && tab) chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -741,7 +744,6 @@ chrome.runtime.onConnect.addListener((port) => {
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
         port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: MdgErrors.CODE.AI_SETUP });
-        clearActiveRequestState();
         return;
       }
       const keys = await loadAiProviderKeys();
@@ -749,7 +751,6 @@ chrome.runtime.onConnect.addListener((port) => {
       const problem = aiProviderProblem(provider, apiKey);
       if (problem) {
         port.postMessage({ type: "error", error: problem.text, code: problem.code });
-        clearActiveRequestState();
         return;
       }
       await streamChat({
@@ -794,7 +795,7 @@ async function initializeSettingsStorage() {
 // triage_tags_by_folder_v1 and triage_kept_v1 marked v1.2.0 migrations the 分拣台 no longer has. Sync's triageCriteria
 // stays: another computer still on a version with those migrations reads it.
 async function removeDeadStorageKeys() {
-  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
+  const keys = await MdgLimits.storageKeys(chrome.storage.local);
   const dead = ["triage_tab", "triage_read_verdict", "triage_tag_presets", "triage_schemes_migrated", "triage_watched", "triage_schemes", "triage_folder_scheme", "triage_excluded_folders", "triage_simplified_v1", "triage_tags_by_folder_v1", "triage_kept_v1"];
   await chrome.storage.local.remove(keys.filter((k) => dead.includes(k) || k.startsWith("triage_verdict_override_")));
   await chrome.storage.sync.remove(["triageExportFolder", "readerChapterVisibility"]);
@@ -877,7 +878,7 @@ function checkSyncItems(payload) {
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
   const normalized = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...payload });
-  const syncPayload = Object.fromEntries(Object.keys(payload).filter((k) => k in normalized && k !== "obsidianApiKey").map((k) => [k, normalized[k]]));
+  const syncPayload = Object.fromEntries(Object.keys(payload).filter((k) => k !== "obsidianApiKey").map((k) => [k, normalized[k]]));
   checkSyncItems(syncPayload);
 
   await Promise.all([
@@ -929,12 +930,32 @@ async function importSettings(file) {
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
   const settings = withoutApiKeys(file.settings);
   checkSyncItems(settings);
-  const current = Object.keys(await chrome.storage.sync.get(null));
+  const currentSync = await chrome.storage.sync.get(null);
   await chrome.storage.sync.set(settings);
-  await chrome.storage.sync.remove(current.filter((k) => !(k in settings)));
+  await chrome.storage.sync.remove(Object.keys(currentSync).filter((k) => !(k in settings)));
   if (folders) await chrome.storage.local.set({ [FOLDERS_KEY]: folders.map(String) });
   if (criteria) await chrome.storage.local.set({ [CRITERIA_KEY]: criteria });
+  await serialAiProviders(() => dropMovedKeys(currentSync, settings));
   await initializeSettingsStorage();
+}
+
+// A saved key belongs to the host it was saved for (options.js savedKeyApplies): a key whose platform row, or the
+// Obsidian address, points at another origin after an import is dropped, never sent there; the user enters it again.
+async function dropMovedKeys(before, after) {
+  const origin = (url) => {
+    try {
+      return new URL(String(url).trim()).origin;
+    } catch {
+      return "";
+    }
+  };
+  const origins = (settings) => new Map((Array.isArray(settings[AI_PROVIDERS]) ? settings[AI_PROVIDERS] : []).map((p) => [String(p?.id || "").trim(), origin(p?.baseUrl)]));
+  const [was, now] = [origins(before), origins(after)];
+  const keys = await loadAiProviderKeys();
+  const kept = Object.fromEntries(Object.entries(keys).filter(([id]) => (was.get(id) || "") === (now.get(id) || "")));
+  if (Object.keys(kept).length !== Object.keys(keys).length) await chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: kept });
+  const obsidianUrl = (settings) => settings.obsidianApiBaseUrl ?? MdgSettings.DEFAULTS.obsidianApiBaseUrl;
+  if (origin(obsidianUrl(before)) !== origin(obsidianUrl(after))) await chrome.storage.local.remove("obsidianApiKey");
 }
 
 function toString(value) {

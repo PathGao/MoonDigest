@@ -16,9 +16,10 @@
   }
 
   // A file name: Obsidian's forbidden characters replaced (so wiki links to a note resolve), whitespace runs (newlines
-  // too) as one space, at most 120 characters; fallback when nothing is left.
+  // too) as one space, no leading dots (Obsidian skips dotfiles), at most 120 characters, counted by code point so an
+  // emoji is never cut in half; fallback when nothing is left.
   const fileName = (value, fallback = "") =>
-    String(value ?? "").replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").trim().slice(0, 120) || fallback;
+    Array.from(String(value ?? "").replace(/[\\/:*?"<>|#^[\]]/g, "_").replace(/\s+/g, " ").replace(/^[\s.]+/, "").trim()).slice(0, 120).join("") || fallback;
 
   // "1:02:03" / "12:34" → seconds; -1 for anything that is not h:mm:ss digits, an empty text or segment included.
   function parseTimestamp(text) {

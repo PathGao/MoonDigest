@@ -91,6 +91,12 @@ assert.deepStrictEqual(batch.results.BV2, { verdict: "keep", reason: "教程 [�
 assert.deepStrictEqual(batch.failed, { BV1: "AI 给的判断看不懂：「what」" }, "an unknown verdict fails the video with why, not 拿不准");
 assert.ok(!("BV1" in batch.results) && !("BV3" in batch.results), "a video the AI left out has no result, so the page fails it (可重试) instead of 拿不准");
 assert.throws(() => t.triageParseTitleBatch('[{"i":1,"verdict":"keep"', items), /回复不完整/);
+// R33: a model that writes its thinking into the reply: the brackets in <think> are not the answer.
+{
+  const reply = '[{"i":1,"verdict":"keep","reason":"x","confidence":"high"}]';
+  assert.strictEqual(t.triageParseTitleBatch(`<think>第[1]个像教程</think>\n${reply}`, items).results[items[0].bvid].verdict, "keep");
+  assert.strictEqual(t.triageParseLlm('<think>先想 {"verdict":"keep"}</think>{"one_liner":"讲X","points":["a"],"verdict":"keep"}').oneLiner, "讲X");
+}
 
 const TITLE_PROMPT = vm.runInContext("TRIAGE_TITLE_PROMPT", ctx);
 // Prompts: the three classes, the folder's 判断标准 when set, and no tag lists.
@@ -397,15 +403,15 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   t.fetch = jsonRes({ code: 11010, message: "内容不存在" });
   await assert.rejects(t.triageBiliPost("/x", {}), (e) => e.code === undefined);
   t.fetch = async () => ({ ok: true, status: 200, json: async () => JSON.parse("<html>") });
-  await assert.rejects(t.triageNav(), /不是 JSON/);
+  await assert.rejects(t.triageMid(), /不是 JSON/);
   t.fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
-  await assert.rejects(t.triageNav(), /HTTP 502/);
+  await assert.rejects(t.triageMid(), /HTTP 502/);
   // 收藏夹 reads use 关注's channel: no answer in time is NETWORK instead of hanging forever.
   vm.runInContext("TRIAGE_BILI_CFG.timeoutMs = 20", ctx);
   t.fetch = () => new Promise(() => {});
   const within = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error("hangs")), 500))]);
   await assert.rejects(within(t.triageBiliGet("https://api.test")), (e) => e.code === "NETWORK" && /没有回应/.test(e.message));
-  await assert.rejects(within(t.triageNav()), (e) => e.code === "NETWORK");
+  await assert.rejects(within(t.triageMid()), (e) => e.code === "NETWORK");
   // Headers in, body never: the same timeout ends it and aborts the request.
   let signal = null;
   t.fetch = async (url, init) => ((signal = init.signal), { ok: true, status: 200, json: () => new Promise(() => {}) });
@@ -429,6 +435,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.deepStrictEqual([...partial.items.map((it) => it.bvid)], ["BV1", "BV2"]);
   assert.strictEqual(partial.partial.page, 2);
   assert.strictEqual(partial.partial.error, t.MdgErrors.TEXT.biliThrottled, "risk control in a B站 answer says 限流, not 「B站返回 -352」");
+  // R4: an empty page that says there is more is partial too: the videos after it were not read, not removed.
+  t.fetch = async (url) => jsonRes({ code: 0, data: { medias: new URL(url).searchParams.get("pn") === "1" ? [media(1)] : [], has_more: true } })();
+  const empty = await folderItems({ mediaId: 1 });
+  assert.deepStrictEqual([empty.items.length, empty.partial?.page, empty.ids], [1, 2, undefined]);
   t.fetch = jsonRes({ code: -352, message: "风控" });
   await assert.rejects(folderItems({ mediaId: 1 }), (e) => e.code === "THROTTLED");
   t.fetch = jsonRes({ code: 0, data: { medias: [media(3)], has_more: false } });
@@ -729,6 +739,12 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.strictEqual(calls.pop()[0], "/x/v3/fav/resource/copy");
     await H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true });
     assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v2/history/toview/del"]);
+    // R34: the add went through and only the removal failed: the error says what was done, with B站's code.
+    const realFetch = t.fetch;
+    t.fetch = async (url, opts) => (/toview\/del/.test(url) ? { ok: true, status: 200, json: async () => ({ code: -352, message: "风控" }) } : realFetch(url, opts));
+    await assert.rejects(H["triage-transfer"]({ from: "toview", to: "2", aids: [10], move: true }), (e) => e.code === "THROTTLED" && e.message === `已收藏到目标收藏夹，但没能从稍后再看移除：${t.MdgErrors.TEXT.biliThrottled}`);
+    t.fetch = realFetch;
+    calls.length = 0;
     await H["triage-transfer"]({ from: "", to: "2", aids: [10, 11], move: false });
     assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v3/fav/resource/deal"]);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "toview", aids: [10], move: true }), /缺少目标/);
@@ -927,6 +943,37 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.strictEqual(urls.length - n, 1, "no page is read after the switch went off");
     assert.deepStrictEqual(plain(stopped), { stopped: "off", pages: 1 });
     sync = { seenShow: "bar" };
+    // R31: unticking a folder (or its snapshot changing) makes the next read prune in full, as the count it kept left
+    // that folder's videos out.
+    {
+      const nowS = Math.floor(Date.now() / 1000);
+      for (const k of Object.keys(st)) if (k.startsWith("seen_")) delete st[k];
+      for (let i = 0; i < 5003; i++) st[`seen_BVf${i}`] = [50, nowS - 100 - i];
+      st.triage_included_folders = ["F"];
+      st.triage_snapshot_F = { bvids: ["BVf0", "BVf1", "BVf2", "BVf3", "BVf4"] };
+      st.triage_seen_meta = { ...st.triage_seen_meta, syncedAt: 0, prunedAt: 0 };
+      await read({ force: true });
+      assert.deepStrictEqual([seenCount(), st.triage_seen_meta.counted], [5003, 4998], "the ticked folder's five are exempt");
+      st.triage_included_folders = [];
+      t.triageStorageChanged({ triage_included_folders: { newValue: [] } }, "local");
+      await new Promise((r) => setTimeout(r, 0));
+      await read({ force: true });
+      assert.deepStrictEqual([seenCount(), st.triage_seen_meta.counted, "triage_seen_recount" in st], [5000, 5000, false]);
+      t.triageStorageChanged({ other: {} }, "local");
+      await new Promise((r) => setTimeout(r, 0));
+      assert.ok(!("triage_seen_recount" in st), "only the folder choice and snapshots");
+    }
+    // R35: 关 then 开 at once: the read that starts while the history is dropped waits, and never writes the old
+    // `newest` back.
+    {
+      st.triage_seen_meta = { ...st.triage_seen_meta, newest: T + 999, syncedAt: 0 };
+      const clearing = t.seenClear();
+      pages = [page([h("BVnew", T + 1, 10)], 0)];
+      const again = read({ force: true });
+      await clearing;
+      await again;
+      assert.deepStrictEqual([plain(st.seen_BVnew), st.triage_seen_meta.newest], [[10, T + 1], T + 1]);
+    }
   }
 
   // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.

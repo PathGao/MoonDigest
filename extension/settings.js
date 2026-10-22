@@ -94,6 +94,9 @@
   // A 自定属性 name note.js writes and the settings page accepts: letters, digits, _, - and spaces, starting with a letter,
   // digit or _ (a key like 「-评分」 would read as a YAML list item and break the block).
   const FIXED_PROPERTY_KEY_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_\-\s]*$/u;
+  // Names a note writes itself, lower case: every note field, 星标's starred, a web page's published. A 自定属性 with one
+  // would repeat the key, so note.js leaves it out and the settings page refuses it.
+  const RESERVED_PROPERTY_KEYS = Object.freeze([...DEFAULTS.frontmatterFields, "video_tags", "starred", "published"]);
   // 正文附加段落's positions, in the settings page's order, by the names it shows.
   const NOTE_SECTION_LABELS = Object.freeze({ before_intro: "简介前", before_chapters: "章节前", before_subtitle: "字幕前" });
   const NOTE_SECTION_POSITIONS = new Set(Object.keys(NOTE_SECTION_LABELS));
@@ -184,6 +187,7 @@
   globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
     FIXED_PROPERTY_KEY_RE,
+    RESERVED_PROPERTY_KEYS,
     LOCAL_DEFAULTS,
     NOTE_SECTION_LABELS,
     MAX_NOTE_SECTIONS,

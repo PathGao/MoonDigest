@@ -45,8 +45,7 @@
     const url = String(ref?.url || "");
     const tags = noteTags(meta, settings);
     const tagsCsv = tags.join(", ");
-    const tagsYaml =
-      tags.length === 0 ? "[]" : `[${tags.map((tag) => `"${escapeYaml(tag)}"`).join(", ")}]`;
+    const tagsYaml = yamlList(tags);
 
     const compactWithHours = shouldShowHoursInNote(meta, body);
     const chapterLines = buildChapterLines(meta.chapters || [], compactWithHours);
@@ -82,19 +81,19 @@
       const follows = [intro && "简介", hotCommentLines.length && "热门评论"].filter(Boolean).join("与");
       lines.push(`> ${MdgErrors.subtitleMissing(meta)}${follows ? `，以下为${follows}` : ""}。`, "");
     }
-    pushOptionalLines(lines, noteSections.before_intro);
+    lines.push(...noteSections.before_intro);
 
     if (intro) {
       lines.push("## 简介", "", intro, "");
     }
 
-    pushOptionalLines(lines, noteSections.before_chapters);
+    lines.push(...noteSections.before_chapters);
 
     if (chapterLines.length > 0) {
       lines.push("## 章节", "", ...chapterLines, "");
     }
 
-    pushOptionalLines(lines, noteSections.before_subtitle);
+    lines.push(...noteSections.before_subtitle);
     if (hasSubtitles) {
       lines.push("## 字幕", "", ...subtitleSectionLines, "");
     }
@@ -232,11 +231,13 @@
   }
 
   // Replaces the marked section of an existing note, or appends one; bytes outside the markers
-  // are untouched, and running it twice with the same section yields the same note. The end marker pairs with the
-  // nearest start before it: a start left behind by a deleted end must not swallow the user's text up to the next end.
+  // are untouched, and running it twice with the same section yields the same note. The section is the first end after
+  // the first start, paired with the nearest start before it: a start left behind by a deleted end must not swallow the
+  // user's text up to the next end, and an end left behind by a deleted start is skipped, so the section appended once
+  // is the one replaced from then on.
   function upsertAiSection(note, section) {
     const text = String(note || "");
-    const end = text.indexOf(AI_SECTION_END);
+    const end = text.indexOf(AI_SECTION_END, text.indexOf(AI_SECTION_START));
     const start = end >= 0 ? text.lastIndexOf(AI_SECTION_START, end) : -1;
     if (start >= 0 && end >= 0) {
       return `${text.slice(0, start)}${section}${text.slice(end + AI_SECTION_END.length)}`;
@@ -431,20 +432,10 @@
 
   function getEnabledFrontmatterFields(settings) {
     const raw = Array.isArray(settings?.frontmatterFields) ? settings.frontmatterFields : DEFAULT_FRONTMATTER_FIELDS;
-    const allowed = new Set(FRONTMATTER_FIELDS);
-    const unique = [];
-    raw.forEach((item) => {
-      const key = S.normalizeFrontmatterField(item);
-      if (!key || !allowed.has(key) || unique.includes(key)) {
-        return;
-      }
-      unique.push(key);
-    });
-    return unique;
+    return [...new Set(raw.map(S.normalizeFrontmatterField))].filter((key) => FRONTMATTER_FIELDS.includes(key));
   }
 
   function getFixedFrontmatterPropertyLines(settings, templateContext = {}) {
-    const systemFields = new Set(FRONTMATTER_FIELDS);
     const rows = Array.isArray(settings?.fixedFrontmatterProperties) ? settings.fixedFrontmatterProperties : [];
     const seenKeys = new Set();
     const lines = [];
@@ -460,7 +451,7 @@
       if (!S.FIXED_PROPERTY_KEY_RE.test(key)) {
         return;
       }
-      if (systemFields.has(lowerKey) || seenKeys.has(lowerKey)) {
+      if (S.RESERVED_PROPERTY_KEYS.includes(lowerKey) || seenKeys.has(lowerKey)) {
         return;
       }
       seenKeys.add(lowerKey);
@@ -521,17 +512,13 @@
       return "";
     }
 
-    const context = buildFolderTemplateContext(meta, created);
-    const resolved = String(normalized).replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
-      const key = String(rawKey || "").trim().toLowerCase();
-      return Object.hasOwn(context, key) ? context[key] : "";
-    });
+    const resolved = fillTemplate(normalized, buildFolderTemplateContext(meta, created));
 
-    // . and .. would climb out of the vault folder the user named.
+    // No folder starts with a dot: Obsidian skips it, and . and .. would climb out of the vault folder the user named.
     return resolved
       .split("/")
-      .map((segment) => sanitizeFolderTemplateValue(segment))
-      .filter((segment) => segment && segment !== "." && segment !== "..")
+      .map((segment) => sanitizeFolderTemplateValue(segment).replace(/^[\s.]+/, ""))
+      .filter(Boolean)
       .join("/");
   }
 
@@ -571,7 +558,7 @@
     if (!title) {
       return [];
     }
-    const content = resolveFrontmatterTemplateValue(item?.content, templateContext).trim();
+    const content = fillTemplate(item?.content, templateContext).trim();
     const lines = [`## ${title}`, ""];
     if (content) {
       lines.push(content, "");
@@ -579,21 +566,11 @@
     return lines;
   }
 
-  function pushOptionalLines(targetLines, extraLines) {
-    if (!Array.isArray(extraLines) || !extraLines.length) {
-      return;
-    }
-    targetLines.push(...extraLines);
-  }
-
-  function resolveFrontmatterTemplateValue(value, templateContext = {}) {
+  // {{key}} → the context's own value ({{constructor}} is no key); an unknown key is "".
+  function fillTemplate(value, context = {}) {
     return String(value || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey) => {
-      const key = String(rawKey || "").trim().toLowerCase();
-      if (!key) {
-        return "";
-      }
-      const resolved = templateContext[key];
-      return resolved == null ? "" : String(resolved);
+      const key = rawKey.toLowerCase();
+      return Object.hasOwn(context, key) ? String(context[key] ?? "") : "";
     });
   }
 
@@ -610,7 +587,7 @@
 
   function formatFixedPropertyYamlLine(key, type, value, templateContext = {}) {
     const normalizedType = S.normalizeFixedPropertyType(type);
-    const resolvedValue = resolveFrontmatterTemplateValue(value, templateContext).trim();
+    const resolvedValue = fillTemplate(value, templateContext).trim();
 
     if (!resolvedValue) {
       return "";
@@ -633,8 +610,7 @@
     }
 
     if (normalizedType === "list") {
-      const items = parseFrontmatterArrayItems(resolvedValue);
-      return `${key}: [${items.map((item) => `"${escapeYaml(item)}"`).join(", ")}]`;
+      return `${key}: ${yamlList(parseFrontmatterArrayItems(resolvedValue))}`;
     }
 
     if (normalizedType === "date") {
@@ -755,8 +731,8 @@
   function buildSrt(body) {
     return body
       .map((item, index) => {
-        const from = formatTimestamp(item.from, true);
-        const to = formatTimestamp(item.to, true);
+        const from = formatTimestamp(item.from);
+        const to = formatTimestamp(item.to);
         const text = (item.content || "").trim();
         return `${index + 1}\n${from} --> ${to}\n${text}`;
       })
@@ -780,26 +756,24 @@
       .join("\n");
   }
 
+  // The last subtitle's end, in seconds.
+  const maxTo = (body) => (body || []).reduce((max, item) => {
+    const to = Number(item?.to || 0);
+    return Number.isFinite(to) && to > max ? to : max;
+  }, 0);
+
   function shouldShowHoursInSubtitle(body) {
-    const maxTo = (body || []).reduce((max, item) => {
-      const to = Number(item?.to || 0);
-      return Number.isFinite(to) && to > max ? to : max;
-    }, 0);
-    return maxTo >= 3600;
+    return maxTo(body) >= 3600;
   }
 
   function shouldShowHoursInNote(meta, body) {
-    const subtitleMaxTo = (body || []).reduce((max, item) => {
-      const to = Number(item?.to || 0);
-      return Number.isFinite(to) && to > max ? to : max;
-    }, 0);
     const chapterMaxTo = MdgSites.normalizeChapters(meta?.chapters || []).reduce((max, item) => {
       const from = Number(item?.from || 0) || 0;
       const to = Number(item?.to || 0) || 0;
       return Math.max(max, from, to);
     }, 0);
     const duration = Number(meta?.videoDuration || 0) || 0;
-    return Math.max(subtitleMaxTo, chapterMaxTo, duration) >= 3600;
+    return Math.max(maxTo(body), chapterMaxTo, duration) >= 3600;
   }
 
   function formatCompactTimestamp(seconds, withHours) {
@@ -818,7 +792,8 @@
     return `${String(totalMinutes).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
   }
 
-  function formatTimestamp(seconds, forSrt = false) {
+  // SRT's 00:01:02,500.
+  function formatTimestamp(seconds) {
     const safe = Number(seconds) || 0;
     // Rounded: 1.001 * 1000 is 1000.9999999999999, which floor would make a millisecond early.
     const msTotal = Math.max(0, Math.round(safe * 1000));
@@ -827,14 +802,8 @@
     const second = Math.floor((msTotal % 60000) / 1000);
     const ms = msTotal % 1000;
 
-    const hh = String(hour).padStart(2, "0");
-    const mm = String(minute).padStart(2, "0");
-    const ss = String(second).padStart(2, "0");
-    if (!forSrt) {
-      return `${hh}:${mm}:${ss}.${String(ms).padStart(3, "0")}`;
-    }
-
-    return `${hh}:${mm}:${ss},${String(ms).padStart(3, "0")}`;
+    const pad2 = (n) => String(n).padStart(2, "0");
+    return `${pad2(hour)}:${pad2(minute)}:${pad2(second)},${String(ms).padStart(3, "0")}`;
   }
 
 
@@ -846,8 +815,8 @@
       baseParts.push(created);
     }
 
-    // fileName keeps a non-blank name non-blank, so this is the one fallback.
-    baseParts.push(String(meta.title || "").trim() || meta.videoId || "video-subtitle");
+    const fallback = meta.videoId || "video-subtitle";
+    baseParts.push(String(meta.title || "").trim() || fallback);
 
     if (Number(meta.pageCount) > 1) {
       baseParts.push(`P${Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1}`);
@@ -857,7 +826,8 @@
       }
     }
 
-    return `${fileName(baseParts.filter(Boolean).join("-"))}.md`;
+    // A title of dots alone leaves nothing (fileName drops leading dots).
+    return `${fileName(baseParts.filter(Boolean).join("-"), fallback)}.md`;
   }
 
   // Where a video's note and a conversation's own note go when no path is recorded (obsidian.js): the folder template,
@@ -1107,10 +1077,12 @@
   }
 
   // A web page's note file, the one the side panel and the popup copy, download and write to Obsidian. stored:
-  // chrome.storage.local with triageExtrasKeys({ url }), for its 标签 and 星标.
+  // chrome.storage.local with triageExtrasKeys({ url }), for its 标签 and 星标, and KEYS.obsidianNotePaths when read, so
+  // a page written to Obsidian downloads under that note's name (recordedFilename).
   function buildPageNoteFile(page, settings, turns, stored) {
     const { userTags, starred } = triageExtras(stored, { url: page.url });
-    return { filename: buildNoteFilename(page, settings), content: buildPageNote({ ...page, userTags, starred }, settings, turns) };
+    const filename = recordedFilename(stored?.[MdgLimits.KEYS.obsidianNotePaths], MdgSites.buildContextKey({ url: page.url }), buildNoteFilename(page, settings));
+    return { filename, content: buildPageNote({ ...page, userTags, starred }, settings, turns) };
   }
 
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
