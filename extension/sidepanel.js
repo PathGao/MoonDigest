@@ -303,26 +303,13 @@ function readOnlyReason() {
 // Why a web page cannot be asked about, by background.js readWebPage's pageAccess; "" once its main text is read. A page
 // conversation shown without its page in the tab (opened from the list, the tab moved on) has no pageAccess.
 function pageReason(context) {
-  switch (context?.pageAccess) {
-    case "ready":
-      return "";
-    case "needPermission":
-      return MdgErrors.TEXT.pageGrant;
-    case "unsupported":
-      return MdgErrors.TEXT.pageUnsupported;
-    case "failed":
-      return `${MdgErrors.TEXT.pageReadFailed}：${context.pageError}`;
-    default:
-      return "打开这个网页后才能继续问";
-  }
+  return MdgErrors.pageText(context) ?? "打开这个网页后才能继续问";
 }
 
-// 允许读取网页: every http(s) site at once (optional host permissions, like the AI platform's address), asked for inside
-// the click (permissions.request needs the user gesture, so nothing is awaited before it). Granted, the page is read at
-// once, and an AI 总结 the popup filled meanwhile goes (the autoSend effect); refused, it never goes.
+// 允许读取网页 (MdgErrors.grantPages, nothing awaited before it). Granted, the page is read at once, and an AI 总结 the
+// popup filled meanwhile goes (the autoSend effect); refused, it never goes.
 function grantPageAccess() {
-  const asked = chrome.permissions.request({ origins: ["http://*/*", "https://*/*"] }).catch(() => false);
-  void asked.then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
+  void MdgErrors.grantPages().then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
 }
 
 // The AI texts come in two sets the user edits (DESIGN): the web* keys on a web page, the original keys on a video.
@@ -776,7 +763,7 @@ function resetConversationView(stateHtml = "", { retry = false, grant = false } 
       const button = document.createElement("button");
       button.type = "button";
       button.className = "sp-chip sp-grant-btn";
-      button.textContent = "允许读取网页";
+      button.textContent = MdgErrors.LABEL.grantPage;
       button.addEventListener("click", grantPageAccess);
       stateNode.append(document.createElement("br"), button);
     }
@@ -1300,7 +1287,7 @@ async function openPreviousVideoUrl(url) {
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
 }
 
-const PRESETS_UNREAD = "读取设置失败，暂时不能修改快捷追问";
+const PRESETS_UNREAD = `${MdgErrors.TEXT.settingsReadFailed}，暂时不能修改快捷追问`;
 // 添加 is disabled with the reason while the box is empty, holds one already listed, or the list is full (one past the
 // limit would be cut when saved); Enter follows the same rule, and the typed text stays.
 function presetAddReason() {
@@ -2109,7 +2096,7 @@ async function openPageNote(ref) {
   if (!ref.videoId || !tab?.id || !live.context || !MdgSites.sameContext(live.tabUrl, ref, { live: live.context })) {
     return undefined;
   }
-  const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
+  const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, { retries: 1 }).catch(() => null);
   const page = resp?.ok ? resp.payload : null;
   return page?.markdown && MdgSites.sameContext(page.url, ref) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
@@ -2193,7 +2180,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
       type: "sidepanel-seek-video-time",
       seconds: safeSeconds,
       videoId: inTriage ? MdgSites.parseRef(targetUrl)?.id || "" : ""
-    }, inTriage ? 1 : undefined);
+    }, inTriage ? { retries: 1 } : { inject: true });
     if (!response?.ok) {
       throw MdgErrors.fromResp(response, MdgErrors.TEXT.reloadRetry);
     }
@@ -2204,19 +2191,12 @@ async function jumpToAssistantTimestamp(seconds, label) {
   }
 }
 
-async function sendMessageToActiveTab(tabId, message, retries = 12) {
+// inject: a video page without the script gets it, as in the popup (MdgErrors.tabMessage).
+async function sendMessageToActiveTab(tabId, message, { retries = 12, inject = false } = {}) {
   let lastError = null;
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
-      return await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, message, (resp) => {
-          if (chrome.runtime.lastError) {
-            reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
-            return;
-          }
-          resolve(resp);
-        });
-      });
+      return await MdgErrors.tabMessage(tabId, message, { inject });
     } catch (error) {
       lastError = error;
       await MdgCommon.sleep(220);

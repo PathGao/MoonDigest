@@ -112,7 +112,7 @@ const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 const { state } = t;
 const realRebuild = t.rebuildDerivedContent;
-for (const f of ["setStatus", "setMessage", "setReadingNotice", "renderReadingView", "syncReadingViewPlayback", "rebuildDerivedContent", "logInfo", "logWarn"]) t[f] = () => {};
+for (const f of ["setStatus", "setReadingNotice", "renderReadingView", "syncReadingViewPlayback", "rebuildDerivedContent", "logInfo", "logWarn"]) t[f] = () => {};
 t.byId = stubEl;
 
 // A promise a test resolves when it chooses: the slow side of two overlapping flows.
@@ -332,10 +332,10 @@ const settle = async () => {
   // The one context message (side panel, player ✦): whatever the timing, it answers with the tab's video, settled,
   // and that video's comments.
   {
-    const keep = ["currentSite", "getSettings", "retryAsync", "fetchHotComments", "refreshDerivedContent", "sleep", "ensureUiReady", "enforceNormalPageStateIfNeeded", ...Object.keys(real)];
+    const keep = ["currentSite", "getSettings", "retryAsync", "fetchHotComments", "refreshDerivedContent", "ensureUiReady", "enforceNormalPageStateIfNeeded", ...Object.keys(real)];
     const saved = Object.fromEntries(keep.map((k) => [k, t[k]]));
     const realUrl = t.location.href;
-    Object.assign(t, real, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {}, sleep: async () => {}, ensureUiReady() {}, enforceNormalPageStateIfNeeded() {} });
+    Object.assign(t, real, { getSettings: async () => ({}), retryAsync: (f) => f(), refreshDerivedContent: async () => {}, ensureUiReady() {}, enforceNormalPageStateIfNeeded() {} });
     const [A, B] = ["BV1GJ411x7h7", "BV1xx411c7mD"];
     const go = (id) => (t.location.href = `https://www.bilibili.com/video/${id}/`);
     let metaCalls = [];
@@ -581,8 +581,8 @@ const settle = async () => {
   // sites.selftest.js): a rate-limited file waits once, then the limit reads as one; B站's empty list is asked again
   // once; a logged-out answer from the background is asked again with the page's cookies.
   {
-    const was = Object.fromEntries(["sleep", "retryAsync"].map((k) => [k, t[k]]));
-    Object.assign(t, { sleep: async () => {}, retryAsync: (f) => f() });
+    const was = Object.fromEntries(["retryAsync"].map((k) => [k, t[k]]));
+    Object.assign(t, { retryAsync: (f) => f() });
     const limited = () => Object.assign(new Error("请求失败：429"), { status: 429 });
     const answers = (list) => async () => {
       const next = list.shift();
@@ -726,14 +726,13 @@ const settle = async () => {
   // S1: autoplay changes the video while the dialog is open, so nothing is sent again; 取消 sends nothing again either.
   {
     const realUrl = t.location.href;
-    const saved = Object.fromEntries(["getSettings", "refreshDerivedContent", "sendRuntimeMessage", "confirmOverwriteNote", "setMessage", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
+    const saved = Object.fromEntries(["getSettings", "refreshDerivedContent", "sendRuntimeMessage", "confirmOverwriteNote", "computeCurrentClipSignature"].map((k) => [k, t[k]]));
     const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: true };
-    let sent, messages, onDialog, choice;
+    let sent, onDialog, choice;
     Object.assign(t, {
       getSettings: async () => settings,
       refreshDerivedContent: async () => (state.markdown = "# 视频 A"),
       confirmOverwriteNote: async (path, opts) => (onDialog(path, opts), choice),
-      setMessage: (text) => messages.push(text),
       // An earlier test stubs it; the clip is the page address.
       computeCurrentClipSignature: () => t.location.href,
       sendRuntimeMessage: async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "ai", text: "已更新 AI 问答：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true })
@@ -741,7 +740,7 @@ const settle = async () => {
     Object.assign(state, { site: "bilibili", videoId: "BV1GJ411x7h7", cid: "1", title: "A" });
     const modes = () => sent.map((m) => [m.type, m.mode, m.page.markdown]);
     for (const [switched, pick] of [[true, "full"], [false, ""], [false, "ai"]]) {
-      [sent, messages, choice] = [[], [], pick];
+      [sent, choice] = [[], pick];
       let asked;
       onDialog = (path, opts) => {
         asked = [path, opts.hasAiSection];
@@ -759,11 +758,9 @@ const settle = async () => {
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
         assert.deepStrictEqual({ ...reply }, { ok: true, text: "已更新 AI 问答：p.md" });
       }
-      // J10: the result is the reply's (and the page's), never the popup's status line the next popup shows again.
-      assert.deepStrictEqual(messages, [], "写入 Obsidian writes nothing into the popup's status");
     }
     // G3: the note goes with its subtitle state, which the background's result starts with.
-    [sent, messages, choice] = [[], [], ""];
+    [sent, choice] = [[], ""];
     Object.assign(state, { subtitleFailure: "网络断了", subtitleNeedLogin: false, subtitleWarning: "" });
     await t.sendToObsidian();
     assert.strictEqual(sent[0].page.warning, "字幕抓取失败：网络断了。");
@@ -771,7 +768,6 @@ const settle = async () => {
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, code: "OBSIDIAN_DOWN" });
-    assert.deepStrictEqual(messages, []);
     // Not set up or a wrong key (OBSIDIAN): never the settings page by itself. Before the dialog the popup gets the code
     // (it shows 去设置); after it the page's red notice carries 去设置, which opens the settings page on its click.
     const notices = [];
@@ -829,12 +825,11 @@ const settle = async () => {
     assert.doesNotMatch(source, /请稍后重试/, "a note keeps state only, no instruction");
   }
 
-  // D8: the player ✦ never writes the popup's status line (setMessage); D1: its failure is red on the page.
+  // D1: the player ✦'s failure is red on the page.
   {
-    const saved = Object.fromEntries(["setMessage", "setReadingNotice", "getSettings", "sendRuntimeMessage"].map((k) => [k, t[k]]));
+    const saved = Object.fromEntries(["setReadingNotice", "getSettings", "sendRuntimeMessage"].map((k) => [k, t[k]]));
     const seen = [];
     t.HTMLButtonElement = class {};
-    t.setMessage = (m) => seen.push(["message", m]);
     t.setReadingNotice = (m, o) => seen.push(["notice", m, o?.error]);
     t.getSettings = async () => ({ enablePlayerAiQuickAction: true });
     const click = { preventDefault() {}, stopPropagation() {}, currentTarget: null };
@@ -977,7 +972,7 @@ const settle = async () => {
 
   // The 2026-10-16 scan, group c2 (C67–C146): one assertion per behavior fix.
   {
-    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "sleep", "MdgSites", "setTimeout", "clearTimeout", "history"];
+    const touched = ["setReadingNotice", "setStatus", "sendRuntimeMessage", "getSettings", "refreshDerivedContent", "confirmOverwriteNote", "computeCurrentClipSignature", "settledClip", "getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "normalizeReaderPlayerContainer", "bindReadingViewVideo", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "hasReaderPlayerControlsIssue", "getReaderPlayerControlsState", "seekVideo", "updateReaderFollowState", "byId", "fetchHotComments", "loadAiTurns", "loadTriageExtras", "currentSite", "retryAsync", "MdgSites", "setTimeout", "clearTimeout", "history"];
     const saved = Object.fromEntries(touched.map((k) => [k, t[k]]));
     const savedState = Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(state)).filter(([, d]) => "value" in d).map(([k, d]) => [k, d.value]));
     const notices = [];
@@ -1175,8 +1170,10 @@ const settle = async () => {
     }
     // C140, C141: the first retry waits the full delay, and an HTTP 4xx answer is not retried.
     {
+      // MdgCommon.sleep waits on setTimeout.
       const waits = [];
-      t.sleep = async (ms) => waits.push(ms);
+      const timer = t.setTimeout;
+      t.setTimeout = (f, ms) => (waits.push(ms), setImmediate(f));
       const tries = async (error) => {
         let n = 0;
         await real.retryAsync(async () => {
@@ -1189,6 +1186,7 @@ const settle = async () => {
       assert.deepStrictEqual(waits, [100, 200]);
       assert.strictEqual(await tries(Object.assign(new Error("B站请求失败 HTTP 404"), { status: 404 })), 1, "404");
       assert.strictEqual(await tries(Object.assign(new Error("B站请求失败 HTTP 503"), { status: 503 })), 3, "503");
+      t.setTimeout = timer;
     }
     // C145: a failed comment read is said in the popup's status; C146: an overlapping read's failure keeps the comments
     // the other one got.
@@ -1278,7 +1276,7 @@ const settle = async () => {
   // R18: a subtitle picked in the popup or 专注模式 is read like the first read (pageSubtitleSite): a YouTube 429 waits
   // and retries once, and says the same words.
   {
-    const keep = Object.fromEntries(["fetchOk", "sleep", "currentSite"].map((k) => [k, t[k]]));
+    const keep = Object.fromEntries(["fetchOk", "currentSite"].map((k) => [k, t[k]]));
     const was = { href: t.location.href, hostname: t.location.hostname, ...Object.fromEntries(["site", "videoId", "videoDuration", "fetchRunId", "subtitles"].map((k) => [k, state[k]])) };
     t.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     t.location.hostname = "www.youtube.com";
@@ -1288,7 +1286,6 @@ const settle = async () => {
     state.subtitles = [{ id: "en", lang: "en", url }];
     let calls = 0;
     t.fetchOk = async () => (calls++, Promise.reject(t.httpError(429)));
-    t.sleep = async () => {};
     const err = await t.switchSubtitle(url).catch((e) => e);
     assert.deepStrictEqual([calls, err?.message], [2, t.MdgErrors.TEXT.ytThrottled]);
     Object.assign(t, keep);
@@ -1364,6 +1361,29 @@ const settle = async () => {
     t.standDown();
     assert.deepStrictEqual([observers.length, observers.filter((o) => o.on).length, cleared], [2, 0, [42]]);
     assert.ok(signals.length >= 8 && signals.every(([, signal]) => signal?.aborted), JSON.stringify(signals.map(([type, signal]) => [type, signal?.aborted])));
+  }
+
+  // F3: the 该笔记已存在 box closes on a click outside only when the press began outside too, like download.js's dialog:
+  // a text selection dragged out of the box ends with a click on the overlay and must not cancel.
+  {
+    const on = {};
+    const kid = stubEl();
+    const overlay = stubEl();
+    Object.assign(overlay, { addEventListener: (type, fn) => (on[type] = fn), querySelector: () => kid, querySelectorAll: () => [], remove() {} });
+    const create = t.document.createElement;
+    t.document.createElement = () => overlay;
+    t.document.removeEventListener ??= () => {};
+    let answer = null;
+    t.confirmOverwriteNote("a.md").then((v) => (answer = v));
+    t.document.createElement = create;
+    on.pointerdown?.({ target: kid });
+    on.click({ target: overlay });
+    await new Promise(setImmediate);
+    assert.strictEqual(answer, null, "a drag from inside the box out to the overlay does not cancel");
+    on.pointerdown?.({ target: overlay });
+    on.click({ target: overlay });
+    await new Promise(setImmediate);
+    assert.strictEqual(answer, "", "a click on the overlay cancels");
   }
 
   console.log("content selftest: all passed");

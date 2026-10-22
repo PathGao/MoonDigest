@@ -18,7 +18,7 @@
   // follow-core.js builds these requests (groupCalls, aiRequests); follow.js sends what it built.
   const FOLLOW_CORE = ["triage/follow-core.js"];
   const data = ["data"];
-  const POPUP_PAYLOAD = ["site", "url", "title", "author", "uploadDate", "cover", "duration", "tags", "status", "message", "subtitlePreview", "markdown", "noteWarning", "noteRef", "filename", "subtitleMissing", "srt", "txt", "subtitleOptions"];
+  const POPUP_PAYLOAD = ["site", "url", "title", "author", "uploadDate", "cover", "duration", "tags", "status", "statusError", "subtitlePreview", "markdown", "noteWarning", "noteRef", "filename", "subtitleMissing", "srt", "txt", "subtitleOptions"];
 
   globalThis.MdgMessages = Object.freeze({
     // Settings
@@ -36,7 +36,7 @@
     "open-options": { from: ["content.js", "popup.js", "triage/fav-base.js"], to: "background.js", request: [], response: [] },
     "history-open": { from: ["options.js", "popup.js", "sidepanel.js"], to: "background.js", request: [], response: [] },
     "triage-open": { from: ["badges.js", "options.js", "popup.js"], to: TRIAGE_BG, request: ["hash"], response: data },
-    "ensure-reader-content": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: [] },
+    "ensure-reader-content": { from: ["errors.js"], to: "background.js", request: ["tabId"], response: [] },
     "popup-page-note": { from: ["popup.js"], to: "background.js", request: ["tabId"], response: ["ref", "filename", "content"] },
     "open-reading-view-tab": { from: ["popup.js"], to: "background.js", request: ["url", "tabId"], response: [] },
     "player-ai-quick-action": { from: ["content.js", "popup.js"], to: "background.js", request: ["tabId", "source", "contextRef"], response: [] },

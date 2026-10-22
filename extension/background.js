@@ -77,19 +77,6 @@ async function injectEntry(tabId, entry) {
   await chrome.scripting.executeScript({ target, files: entry.js });
 }
 
-async function sendMessageToTab(tabId, message, options = {}) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, options, (resp) => {
-      if (chrome.runtime.lastError) {
-        // Chrome's words, which MdgErrors.pageSilent says in the user's.
-        reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
-        return;
-      }
-      resolve(resp);
-    });
-  });
-}
-
 async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delayMs = 300) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     if (attempt > 0) {
@@ -100,7 +87,7 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
     }
 
     try {
-      const response = await sendMessageToTab(tabId, {
+      const response = await MdgErrors.tabMessage(tabId, {
         type: "popup-trigger-reading-view",
         readerUrl
       });
@@ -142,7 +129,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
   if (!inViewer) await ensureReaderContentReady(tab.id);
 
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
-  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {}).catch((error) => {
+  const resp = await MdgErrors.tabMessage(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {}).catch((error) => {
     throw MdgErrors.pageSilent(error);
   });
   if (!resp?.ok || !resp.payload) {
@@ -227,9 +214,7 @@ async function popupPageNote(tabId) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.id) throw new Error(MdgErrors.TEXT.noTab);
   const page = await readWebPage(tab);
-  if (page.pageAccess === "failed") throw new Error(MdgErrors.TEXT.pageReadFailed + "：" + page.pageError);
-  if (page.pageAccess === "needPermission") throw new Error(MdgErrors.TEXT.pageGrant);
-  if (page.pageAccess !== "ready") throw new Error(MdgErrors.TEXT.pageUnsupported);
+  if (page.pageAccess !== "ready") throw Object.assign(new Error(MdgErrors.pageText(page)), { code: MdgErrors.pageCode(page.pageAccess) });
   const { aiConversations, obsidianNotePaths } = MdgLimits.KEYS;
   const [settings, stored] = await Promise.all([getMergedSettings(), chrome.storage.local.get([aiConversations, obsidianNotePaths, ...MdgNote.triageExtrasKeys({ url: page.url })])]);
   const turns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], page)?.messages);
@@ -273,7 +258,7 @@ async function videoTabPayload(tabId, opened) {
     let timer = 0;
     const late = new Promise((_, reject) => (timer = setTimeout(() => reject(MdgErrors.pageSilent()), VIDEO_READ_TIMEOUT_MS)));
     try {
-      const resp = await Promise.race([sendMessageToTab(tabId, { type: "popup-refresh" }, { frameId: 0 }), late]);
+      const resp = await Promise.race([MdgErrors.tabMessage(tabId, { type: "popup-refresh" }, { frameId: 0 }), late]);
       if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.pageSilent);
       return resp;
     } catch (error) {
@@ -871,7 +856,7 @@ async function writeAiProviders(items) {
     const normalized = normalizeAiProvider(raw);
     if (!normalized) continue;
     nextList.push(normalized);
-    const incomingKey = String(raw?.apiKey || "").trim();
+    const incomingKey = MdgSettings.normalizeApiKey(raw?.apiKey);
     if (incomingKey) {
       keys[normalized.id] = incomingKey;
     } else if (raw.hasSavedKey === false) {
@@ -1069,8 +1054,10 @@ function supportsThinkingToggle(baseUrl) {
 }
 
 // The one OpenAI-compatible request every AI call sends (the side panel's streamChat, 测试连接, 分拣台's triageChat): POST
-// to chat/completions with the key as Bearer. Thinking is off unless asked, on the platforms that think by default.
-function postChat({ baseUrl, apiKey, signal, thinking = false }, body) {
+// to chat/completions with the key as Bearer (a key pasted with its 「Bearer 」, saved before that was dropped, too).
+// Thinking is off unless asked, on the platforms that think by default.
+function postChat({ baseUrl, apiKey: rawKey, signal, thinking = false }, body) {
+  const apiKey = MdgSettings.normalizeApiKey(rawKey);
   return fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(apiKey && { Authorization: `Bearer ${apiKey}` }) },

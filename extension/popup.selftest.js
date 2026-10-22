@@ -56,6 +56,16 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="" selected disabl
 ctx.render({ markdown: "# t", subtitleOptions: [{ url: "u1", optionLabel: "中文", selected: true }] }, { preserveStatus: true });
 assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected>/, "a loaded track: no placeholder");
 
+// F4: red is the page's statusError, not words in the text: a subtitle failure while the comments still load is no error.
+{
+  let red;
+  ctx.el.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
+  ctx.render({ status: "字幕抓取失败：网络断了，正在读取评论…" });
+  assert.strictEqual(red, false);
+  ctx.render({ status: "读取视频失败：x。", statusError: true });
+  assert.strictEqual(red, true);
+}
+
 // B2: 下载 .md is named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script's filename.
 (async () => {
   const saved = [];
@@ -74,6 +84,12 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   await ctx.el.downloadBtn.on.click();
   vm.runInContext("settingsLoad = null", ctx);
   assert.strictEqual(saved.at(-1), "a.txt");
+  // F7: settings that could not be read stop 下载字幕 in red, never a download in the default format.
+  const send = ctx.chrome.runtime.sendMessage;
+  ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "后台没有回应" });
+  await ctx.el.downloadBtn.on.click();
+  assert.deepStrictEqual([saved.at(-1), ctx.el.status.textContent], ["a.txt", "读取设置失败：后台没有回应"]);
+  ctx.chrome.runtime.sendMessage = send;
 })().catch((e) => (console.error(e), process.exit(1)));
 
 // B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.
@@ -260,6 +276,19 @@ setTimeout(() =>
     const ensured = [];
     ctx.chrome.runtime.sendMessage = async (m) => (ensured.push(m.type), { ok: false, error: T.pageSilent });
     assert.deepStrictEqual([(await ctx.sendToContent({ type: "popup-get-state" })).error, ensured], [T.pageSilent, ["ensure-reader-content"]]);
+    // F6: a web page not granted yet gets 允许读取网页, as in the side panel (MdgErrors.remedies by the background's code);
+    // granted, the page is read again.
+    {
+      const sent = [];
+      ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m.type), { ok: false, error: T.pageGrant, code: "PAGE_GRANT" });
+      ctx.chrome.permissions = { request: async () => true };
+      ctx.el.status.kids = [];
+      await ctx.readWebNote(5);
+      const [button] = ctx.el.status.kids;
+      assert.strictEqual(button?.textContent, "允许读取网页");
+      await button.onclick();
+      assert.deepStrictEqual(sent, ["popup-page-note", "popup-page-note"]);
+    }
     // C135: ⚙ that could not open the settings page says so, as the video page does.
     ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "没有权限" });
     await ctx.el.settingsBtn.on.click();

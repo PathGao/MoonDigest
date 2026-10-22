@@ -7,6 +7,7 @@ if (!globalThis.__MDG_CONTENT_SCRIPT_LOADED__ && (window === window.top || docum
 // The settings until get-settings answers (and if it never does); the background owns the stored settings.
 const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULTS };
 const { formatCompactTimestamp, buildSubtitlePreview, buildSrt, buildTxt, shouldShowHoursInNote, subtitleMismatchWarning } = MdgNote;
+const { sleep } = MdgCommon;
 const { escapeHtml } = MdgErrors;
 
 const MDG_VERSION = chrome.runtime.getManifest().version;
@@ -109,7 +110,8 @@ const state = {
   readingLastInputAt: 0,
   readingProgrammaticScrollUntil: 0,
   statusText: "准备就绪，点击「刷新」开始。",
-  messageText: "",
+  // The popup shows statusText red while this is true: a read that failed, or a settled read with a failed part.
+  statusError: false,
   settings: { ...DEFAULT_SETTINGS }
 };
 
@@ -882,7 +884,6 @@ function resetClipState() {
   state.readingActiveSubtitleIndex = -1;
   state.readingActiveChapterIndex = -1;
 
-  setMessage("");
   if (state.readingViewOpen) {
     renderReadingView();
   }
@@ -984,7 +985,6 @@ async function runRefreshClip() {
   const runId = ++state.fetchRunId;
   let metaLoaded = false;
   try {
-    setMessage("");
     setStatus(META_READING);
     // A read starts clean: the last read's subtitle state and comments must not leak into this one's note.
     Object.assign(state, { subtitleFetchState: "loading", readCode: "", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [], commentsFailure: "" });
@@ -1063,7 +1063,7 @@ async function runRefreshClip() {
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
     await showSubtitle(found, runId);
-    setStatus(state.subtitleWarning + readDoneText());
+    setStatus(state.subtitleWarning + readDoneText(), Boolean(state.commentsFailure));
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
     if (isStaleRunError(error) || runId !== state.fetchRunId) {
@@ -1089,7 +1089,7 @@ async function runRefreshClip() {
     if (state.readingViewOpen) {
       renderReadingView();
     }
-    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${reason}。`);
+    setStatus(`${MdgErrors.TEXT.videoReadFailed}：${reason}。`, true);
     throw error;
   }
 }
@@ -1262,7 +1262,7 @@ function getPopupPayload() {
     duration: state.videoDuration || 0,
     tags: MdgNote.noteTags({ userTags: state.triageExtras?.userTags }, state.settings || DEFAULT_SETTINGS).join(", "),
     status: state.statusText || "",
-    message: state.messageText || "",
+    statusError: state.statusError,
     subtitlePreview: buildSubtitlePreview(state.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
     markdown: state.markdown || "",
     // write-video-note's ref for this note, when the background reads this tab for a write from elsewhere.
@@ -1287,7 +1287,7 @@ function noteRef() {
 // The background (write-video-note) picks the path and writes; this page hands its note to MdgNoteActions and draws
 // the overwrite dialog itself (a content script cannot show the extension pages' <dialog>).
 // Resolves { ok, text, code? }: text is the result for the popup to show (ok: false is red). The result never goes into
-// the popup's status (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
+// the popup's status (statusText): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
   // Turned off in the settings page while the popup that still shows the button was open: the background says so with
@@ -1361,8 +1361,12 @@ function confirmOverwriteNote(filepath, { hasAiSection = false, aiOff = false } 
       }
     };
 
+    // A press and a release both on the overlay, as download.js's dialog: a text selection dragged out of the box
+    // ends with a click on the overlay too.
+    let downOutside = false;
+    overlay.addEventListener("pointerdown", (event) => (downOutside = event.target === overlay));
     overlay.addEventListener("click", (event) => {
-      if (event.target === overlay) {
+      if (downOutside && event.target === overlay) {
         cleanup("");
       }
     });
@@ -1376,12 +1380,9 @@ function confirmOverwriteNote(filepath, { hasAiSection = false, aiOff = false } 
   });
 }
 
-function setStatus(text) {
+function setStatus(text, error = false) {
   state.statusText = String(text || "");
-}
-
-function setMessage(text) {
-  state.messageText = String(text || "");
+  state.statusError = error;
 }
 
 // failure: why the subtitle fetch failed; needLogin: B站 hid them from a logged-out viewer; neither: there are none.
@@ -1407,7 +1408,7 @@ async function showNoSubtitleState(runId, { failure = "", needLogin = false } = 
   setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
   ensureRunActive(runId);
-  setStatus(`${label}。${readDoneText()}${hint}`);
+  setStatus(`${label}。${readDoneText()}${hint}`, Boolean(failure || state.commentsFailure));
 }
 
 // The popup's status after a read, with or without a subtitle: what the note can do, and a comment read that failed.
@@ -3218,7 +3219,7 @@ function buildPlayerAiQuickActionIconSvg() {
 
 // The player ✦ and 专注模式's AI 总结 (source reader): the background opens the side panel on this video. The
 // background checks the ✦ AI 总结按钮 setting (one check for every sender) and answers why when it is off. A failure is red
-// on the page, not setMessage: that is the popup's status line, which would show it long after, maybe over another
+// on the page, not statusText: that is the popup's status line, which would show it long after, maybe over another
 // video. Resolves whether the panel opened.
 async function askSidepanel(source) {
   try {
@@ -3836,7 +3837,7 @@ async function getSettings() {
   const hasAiProvider = await loadHasAiProvider();
   const response = await sendRuntimeMessage({ type: "get-settings" });
   if (!response?.ok) {
-    throw MdgErrors.fromResp(response, "读取设置失败");
+    throw MdgErrors.fromResp(response, MdgErrors.TEXT.settingsReadFailed);
   }
   return { ...DEFAULT_SETTINGS, ...(response.settings || {}), hasAiProvider };
 }
@@ -3920,11 +3921,6 @@ function isRetryableNetworkError(error) {
   const message = rawErrorText(error).toLowerCase();
   return ["failed to fetch", "fetch failed", "networkerror", "net::", "timeout", "timed out", "超时", MdgErrors.TEXT.netDown].some((words) => message.includes(words));
 }
-
-async function sleep(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 
 function readRuntimeVideoDuration() {
   const video = getRuntimeVideoElement();

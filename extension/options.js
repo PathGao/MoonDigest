@@ -244,7 +244,7 @@ async function loadSettings() {
     [settings, providers] = await Promise.all([getSettings(), loadAiProviders()]);
   } catch (error) {
     document.querySelector("main").inert = true;
-    setStatus(`读取设置失败：${error.message || MdgErrors.TEXT.unknown}，${MdgErrors.TEXT.reloadRetry}`, true);
+    setStatus(`${MdgErrors.TEXT.settingsReadFailed}：${error.message || MdgErrors.TEXT.unknown}，${MdgErrors.TEXT.reloadRetry}`, true);
     return;
   }
   void renderStorageLimits();
@@ -1240,7 +1240,7 @@ async function testAiProviderRow(row, sync) {
   const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim();
   const pattern = hostPermissionPattern(baseUrl);
   const asked = pattern ? chrome.permissions.request({ origins: [pattern] }).catch(() => false) : true;
-  const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
+  const apiKey = MdgSettings.normalizeApiKey(row.querySelector(".ai-provider-apikey").value);
   const model = row.querySelector(".ai-provider-model").value.trim();
   const requiresKey = presetOf(row.querySelector(".ai-provider-preset").value).requiresKey;
   showAiProviderStatus(statusNode, "正在测试…");
@@ -1305,7 +1305,7 @@ function collectAiProviders() {
   return Array.from(elements.aiProvidersList.querySelectorAll(".ai-provider-row")).map((row) => {
     const presetSelect = row.querySelector(".ai-provider-preset");
     const preset = presetOf(presetSelect.value);
-    const apiKey = row.querySelector(".ai-provider-apikey").value.trim();
+    const apiKey = MdgSettings.normalizeApiKey(row.querySelector(".ai-provider-apikey").value);
     const baseUrl = row.querySelector(".ai-provider-baseurl").value.trim().replace(/\/+$/, "");
     return {
       id: row.dataset.providerId || generateAiProviderId(),

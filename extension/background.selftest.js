@@ -149,6 +149,13 @@ process.on("exit", (code) => {
     await ctx.probeAiChatCompletion({ baseUrl: url, apiKey: "", model: "m" });
     assert.deepStrictEqual(bodies.map((b) => b.thinking), on ? [{ type: "disabled" }, { type: "disabled" }] : [undefined, undefined], url);
   }
+  // F8: an AI Key pasted with its 「Bearer 」 goes out as one Bearer, like the Obsidian Key (MdgSettings.normalizeApiKey).
+  {
+    const auth = [];
+    ctx.fetch = async (u, init) => (auth.push(init.headers.Authorization), { ok: true });
+    await ctx.probeAiChatCompletion({ baseUrl: "https://ai.test", apiKey: "Bearer sk-1", model: "m" });
+    assert.deepStrictEqual(auth, ["Bearer sk-1"]);
+  }
   ctx.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }];
 
   // 测试连接 in the settings page: the side panel's classification, words and codes, never the raw body or English.
@@ -590,14 +597,15 @@ process.on("exit", (code) => {
       // No main text: the side panel's words.
       const text = page.content;
       page.content = "  ";
-      assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error: `${ctx.MdgErrors.TEXT.pageReadFailed}：没有找到正文` });
+      assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error: `${ctx.MdgErrors.TEXT.pageReadFailed}：没有找到正文`, code: "PAGE_FAILED" });
       page.content = text;
       calls.splice(0);
-      // J18: a page that cannot be read, or is not granted yet, in the side panel's sentence for it.
+      // J18: a page that cannot be read, or is not granted yet, in the side panel's sentence for it, with its code (F6:
+      // the popup offers 允许读取网页 by PAGE_GRANT).
       const realRead = ctx.readWebPage;
-      for (const [pageAccess, error] of [["unsupported", ctx.MdgErrors.TEXT.pageUnsupported], ["needPermission", ctx.MdgErrors.TEXT.pageGrant]]) {
+      for (const [pageAccess, error, code] of [["unsupported", ctx.MdgErrors.TEXT.pageUnsupported, "PAGE_UNSUPPORTED"], ["needPermission", ctx.MdgErrors.TEXT.pageGrant, "PAGE_GRANT"]]) {
         ctx.readWebPage = async () => ({ pageAccess });
-        assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error }, pageAccess);
+        assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error, code }, pageAccess);
       }
       ctx.readWebPage = realRead;
       ctx.getMergedSettings = wasSettings;
@@ -612,14 +620,23 @@ process.on("exit", (code) => {
   }
 
   // The side panel saves the context URL with a conversation, so reader mode and tracking params never reach it.
+  // chrome.tabs.sendMessage answering with reply(message), or with Chrome's error when reply throws.
+  const tabsSend = (reply) => (tabId, message, ...rest) =>
+    Promise.resolve()
+      .then(() => reply(message))
+      .then(rest.at(-1), (e) => {
+        ctx.chrome.runtime.lastError = { message: e.message };
+        rest.at(-1)();
+        delete ctx.chrome.runtime.lastError;
+      });
   const contextFor = async (tabUrl, payload) => {
-    ctx.chrome = { tabs: { get: async () => ({ id: 1, url: tabUrl }) } };
-    ctx.ensureReaderContentReady = async () => {};
     // One request: the page settles its video and answers with the comments.
-    ctx.sendMessageToTab = async (_, { type }) => {
+    const sendMessage = tabsSend(({ type }) => {
       assert.strictEqual(type, "sidepanel-get-context");
       return payload.ok === false ? payload : { ok: true, payload: { url: tabUrl, title: "T", ...payload } };
-    };
+    });
+    ctx.chrome = { runtime: {}, tabs: { get: async () => ({ id: 1, url: tabUrl }), sendMessage } };
+    ctx.ensureReaderContentReady = async () => {};
     return ctx.getAiSidepanelState(1);
   };
   const bili = await contextFor("https://www.bilibili.com/video/BV1xx411c7mD/?p=2&mdg_reader=1&spm_id_from=333.1", {
@@ -635,12 +652,10 @@ process.on("exit", (code) => {
   await assert.rejects(contextFor("https://www.bilibili.com/video/BV1xx411c7mD/", { ok: false, error: "B站限流，请稍后再试" }), /B站限流/);
   // The page did not answer (Chrome's English messaging error): said in our words.
   {
-    const was = ctx.sendMessageToTab;
-    ctx.sendMessageToTab = async () => {
+    ctx.chrome.tabs.sendMessage = tabsSend(() => {
       throw new Error("Could not establish connection. Receiving end does not exist.");
-    };
+    });
     await assert.rejects(ctx.getAiSidepanelState(1), (e) => e.message === ctx.MdgErrors.TEXT.pageSilent && e.code === "PAGE_SILENT");
-    ctx.sendMessageToTab = was;
   }
   // A YouTube conversation read through the open tab asks for its own video: a page now on another one does not answer.
   {
@@ -653,17 +668,17 @@ process.on("exit", (code) => {
   }
   // 专注模式's retries stop once the tab has moved on to another video: its page is never sent this one's address.
   {
-    const was = [ctx.sendMessageToTab, ctx.ensureReaderContentReady];
+    const was = ctx.ensureReaderContentReady;
     const sent = [];
-    ctx.chrome = { tabs: { get: async () => ({ id: 1, url: "https://www.bilibili.com/video/BV1GJ411x7h7" }) } };
-    ctx.ensureReaderContentReady = async () => {};
-    ctx.sendMessageToTab = async (_, m) => {
+    const sendMessage = tabsSend((m) => {
       sent.push(m.readerUrl);
       throw new Error("Could not establish connection. Receiving end does not exist.");
-    };
+    });
+    ctx.chrome = { runtime: {}, tabs: { get: async () => ({ id: 1, url: "https://www.bilibili.com/video/BV1GJ411x7h7" }), sendMessage } };
+    ctx.ensureReaderContentReady = async () => {};
     assert.strictEqual(await ctx.triggerReaderModeInTab(1, "https://www.bilibili.com/video/BV1xx411c7mD?mdg_reader=1", 5, 1), false);
     assert.strictEqual(sent.length, 1, "no retry lands on the other video's page");
-    [ctx.sendMessageToTab, ctx.ensureReaderContentReady] = was;
+    ctx.ensureReaderContentReady = was;
   }
   // AI platforms: a delete sent while a save is pending is not undone by it, and sync keeps no hasSavedKey.
   {

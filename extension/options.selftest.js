@@ -214,7 +214,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const sent = [];
   let answer;
   const page = vm.createContext({
-    URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, hasUnsavedChanges: false,
+    URL, MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, escapeHtml: ctx.MdgErrors.escapeHtml, hasUnsavedChanges: false,
     AI_PRESETS: [{ id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", requiresKey: true }, { id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
     document: { createElement: () => row },
     elements: { aiProvidersList: { appendChild() {}, querySelectorAll: () => [row] } },
@@ -412,7 +412,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const fields = { ".ai-provider-baseurl": "https://api.example.com/v1", ".ai-provider-apikey": "k", ".ai-provider-model": "m", ".ai-provider-preset": "custom" };
   const row = { dataset: {}, querySelector: (sel) => (sel === ".ai-provider-status" ? status : sel === ".ai-provider-test" ? node() : { value: fields[sel] }) };
   const page = vm.createContext({
-    URL, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
+    URL, MdgSettings: ctx.MdgSettings, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
     document: { createElement: node },
     chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) }, runtime: { sendMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true }) } }
   });
