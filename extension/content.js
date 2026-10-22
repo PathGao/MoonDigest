@@ -332,13 +332,15 @@ const PLAYER_RETRY_MS = 500;
 const MIN_PLAYER = { width: 240, height: 120 };
 // The appearance settings focus mode changes itself; a change to them does not touch the note.
 const READER_KEYS = ["readerTheme", "readerFontScale", "readerLetterSpacing", "readerLineHeight", "readerContentWidth", "readerChapterVisible"];
-// 排版's steppers in the settings panel, in order: the control's id, its name, the setting it changes.
+// 排版's steppers in the settings panel, in order: the control's id, its name, the setting it changes (its values are
+// MdgSettings.READER_OPTIONS[settingKey]), where state keeps it, and each value's name.
 const READER_STEPPERS = [
-  { id: ids.readingFontScaleSelect, title: "字号", settingKey: "readerFontScale" },
-  { id: ids.readingLetterSpacingSelect, title: "字间距", settingKey: "readerLetterSpacing" },
-  { id: ids.readingLineHeightSelect, title: "行间距", settingKey: "readerLineHeight" },
-  { id: ids.readingContentWidthSelect, title: "字幕栏宽度", settingKey: "readerContentWidth" }
+  { id: ids.readingFontScaleSelect, title: "字号", settingKey: "readerFontScale", stateKey: "readingFontScale", labels: { xs: "最小", s: "偏小", m: "标准", l: "偏大", xl: "最大" } },
+  { id: ids.readingLetterSpacingSelect, title: "字间距", settingKey: "readerLetterSpacing", stateKey: "readingLetterSpacing", labels: { tighter: "最紧", tight: "偏紧", normal: "标准", relaxed: "偏松", loose: "最松" } },
+  { id: ids.readingLineHeightSelect, title: "行间距", settingKey: "readerLineHeight", stateKey: "readingLineHeight", labels: { compact: "最紧", tight: "偏紧", normal: "标准", relaxed: "偏松", loose: "最松" } },
+  { id: ids.readingContentWidthSelect, title: "字幕栏宽度", settingKey: "readerContentWidth", stateKey: "readingContentWidth", labels: { compact: "最窄", narrow: "偏窄", medium: "标准", wide: "偏宽", full: "最宽" } }
 ];
+const readerStepper = (settingKey) => READER_STEPPERS.find((stepper) => stepper.settingKey === settingKey);
 
 // An extension reload or update leaves the previous copy running in its own isolated world with a
 // dead chrome.runtime. Ask it to stand down; v2.0.0 and older can't and still hold their root.
@@ -363,7 +365,7 @@ function standDown() {
   state.superseded = true;
   // Focus mode moved the page's player into our view; a reload restores the page and mdg_reader reopens focus mode
   // (put back: YouTube drops it from the address soon after load).
-  if (state.readerMode || state.readingViewOpen) {
+  if (state.readerMode) {
     const url = new URL(location.href);
     url.searchParams.set(MdgCommon.READER_PARAM, "1");
     location.replace(url.href);
@@ -438,7 +440,7 @@ function clearReaderModePageState() {
 }
 
 function shouldForceNormalPageState() {
-  return !state.readerMode && !state.readingViewOpen;
+  return !state.readerMode;
 }
 
 function enforceNormalPageStateIfNeeded() {
@@ -1284,9 +1286,8 @@ function noteRef() {
 
 // The background (write-video-note) picks the path and writes; this page hands its note to MdgNoteActions and draws
 // the overwrite dialog itself (a content script cannot show the extension pages' <dialog>).
-// Resolves { ok, text, written?, error?, code? }: text is the result for the popup to show (ok: false is red), written:
-// false when the existing note was left alone (取消, video switched). The result never goes into the popup's status
-// (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
+// Resolves { ok, text, code? }: text is the result for the popup to show (ok: false is red). The result never goes into
+// the popup's status (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
   // Turned off in the settings page while the popup that still shows the button was open: the background says so with
@@ -1318,8 +1319,7 @@ async function sendToObsidian() {
   // take over). A closed Obsidian only gets the red line.
   const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: requestOpenOptions } : null;
   if (onPage) setReadingNotice(r.text, { hideMs: r.ok ? 3000 : 0, error: !r.ok, action: settings });
-  if (r.ok) return { ok: true, text: r.text, ...(!r.done && { written: false }) };
-  return { ok: false, text: r.text, ...(r.reason !== r.text && { error: r.reason }), ...(r.code && { code: r.code }) };
+  return { ok: r.ok, text: r.text, ...(r.code && { code: r.code }) };
 }
 
 let cancelOverwriteNote = null;
@@ -1513,7 +1513,7 @@ function clearReaderFading() {
 }
 
 function finishEnterReaderMode() {
-  if (!state.readingViewOpen || !isReaderMode()) return;
+  if (!state.readingViewOpen) return;
 
   alignReaderViewportToPlayer();
   moveReadingMainInline();
@@ -1657,7 +1657,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
 }
 
 function queueEnsureReaderPlayerMounted() {
-  if (!state.readingViewOpen || !isReaderMode() || state.readingPlayerMountTimer) {
+  if (!state.readingViewOpen || state.readingPlayerMountTimer) {
     return;
   }
   state.readingPlayerMountTimer = window.setTimeout(() => {
@@ -1845,18 +1845,16 @@ function applyReadingViewPresentation() {
   readingView.dataset.lineHeight = state.readingLineHeight;
   readingView.dataset.contentWidth = state.readingContentWidth;
   readingView.dataset.chapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.documentElement.dataset.mdgReaderTheme = state.readingTheme;
-  document.documentElement.dataset.mdgReaderFontScale = state.readingFontScale;
-  document.documentElement.dataset.mdgReaderLetterSpacing = state.readingLetterSpacing;
-  document.documentElement.dataset.mdgReaderLineHeight = state.readingLineHeight;
-  document.documentElement.dataset.mdgReaderContentWidth = state.readingContentWidth;
-  document.documentElement.dataset.mdgReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
-  document.body.dataset.mdgReaderTheme = state.readingTheme;
-  document.body.dataset.mdgReaderFontScale = state.readingFontScale;
-  document.body.dataset.mdgReaderLetterSpacing = state.readingLetterSpacing;
-  document.body.dataset.mdgReaderLineHeight = state.readingLineHeight;
-  document.body.dataset.mdgReaderContentWidth = state.readingContentWidth;
-  document.body.dataset.mdgReaderChapterVisibility = state.readingChapterVisible ? "auto" : "hide";
+  for (const node of [document.documentElement, document.body]) {
+    Object.assign(node.dataset, {
+      mdgReaderTheme: state.readingTheme,
+      mdgReaderFontScale: state.readingFontScale,
+      mdgReaderLetterSpacing: state.readingLetterSpacing,
+      mdgReaderLineHeight: state.readingLineHeight,
+      mdgReaderContentWidth: state.readingContentWidth,
+      mdgReaderChapterVisibility: readingView.dataset.chapterVisibility
+    });
+  }
   const readingChapterVisibleEl = byId(ids.readingChapterVisible);
   if (readingChapterVisibleEl) {
     readingChapterVisibleEl.checked = state.readingChapterVisible;
@@ -1871,68 +1869,21 @@ function updateReaderChapterPresence(hasChapters) {
   document.body.dataset.mdgReaderHasChapters = value;
 }
 
-function getToggleLabel(key, value) {
-  const labels = {
-    fontScale: { xs: "最小", s: "偏小", m: "标准", l: "偏大", xl: "最大" },
-    letterSpacing: { tighter: "最紧", tight: "偏紧", normal: "标准", relaxed: "偏松", loose: "最松" },
-    lineHeight: { compact: "最紧", tight: "偏紧", normal: "标准", relaxed: "偏松", loose: "最松" },
-    contentWidth: { compact: "最窄", narrow: "偏窄", medium: "标准", wide: "偏宽", full: "最宽" }
-  };
-  return labels[key]?.[value] || "标准";
-}
-
-function getReaderStepperConfig(settingKey) {
-  const configs = {
-    readerFontScale: {
-      options: MdgSettings.READER_OPTIONS.readerFontScale,
-      labelKey: "fontScale",
-      getCurrent: () => state.readingFontScale,
-      buildPayload: (value) => ({ readerFontScale: value })
-    },
-    readerLetterSpacing: {
-      options: MdgSettings.READER_OPTIONS.readerLetterSpacing,
-      labelKey: "letterSpacing",
-      getCurrent: () => state.readingLetterSpacing,
-      buildPayload: (value) => ({ readerLetterSpacing: value })
-    },
-    readerLineHeight: {
-      options: MdgSettings.READER_OPTIONS.readerLineHeight,
-      labelKey: "lineHeight",
-      getCurrent: () => state.readingLineHeight,
-      buildPayload: (value) => ({ readerLineHeight: value })
-    },
-    readerContentWidth: {
-      options: MdgSettings.READER_OPTIONS.readerContentWidth,
-      labelKey: "contentWidth",
-      getCurrent: () => state.readingContentWidth,
-      buildPayload: (value) => ({ readerContentWidth: value })
-    }
-  };
-  return configs[settingKey] || null;
-}
-
-function buildReaderStepperControl({
-  id,
-  title,
-  settingKey
-}) {
-  const config = getReaderStepperConfig(settingKey);
-  if (!config) {
-    return "";
-  }
+function buildReaderStepperControl({ id, title, settingKey }) {
+  const { labels } = readerStepper(settingKey);
   return `
     <div id="${id}" class="mdg-reading-stepper">
       <span class="mdg-reading-stepper-title">${escapeHtml(title)}</span>
       <div class="mdg-reading-stepper-buttons" role="group" aria-label="${escapeHtml(title)}">
-        ${config.options
+        ${MdgSettings.READER_OPTIONS[settingKey]
           .map(
             (option, index) => `
           <button
             type="button"
             class="mdg-reading-stepper-btn"
             data-value="${escapeHtml(option)}"
-            aria-label="${escapeHtml(title)} ${escapeHtml(getToggleLabel(config.labelKey, option))}"
-            title="${escapeHtml(getToggleLabel(config.labelKey, option))}"
+            aria-label="${escapeHtml(title)} ${escapeHtml(labels[option] || "标准")}"
+            title="${escapeHtml(labels[option] || "标准")}"
           >${index + 1}</button>
         `
           )
@@ -1958,25 +1909,17 @@ function bindReaderStepperControl(node, settingKey) {
 }
 
 function setReaderPreference(settingKey, nextValue) {
-  const config = getReaderStepperConfig(settingKey);
-  if (!config) {
+  if (!MdgSettings.READER_OPTIONS[settingKey].includes(nextValue) || nextValue === state[readerStepper(settingKey).stateKey]) {
     return;
   }
-
-  const current = config.getCurrent();
-  if (!config.options.includes(nextValue) || nextValue === current) {
-    return;
-  }
-  updateReaderPreferences(config.buildPayload(nextValue), { persist: true });
+  updateReaderPreferences({ [settingKey]: nextValue }, { persist: true });
 }
 
 function renderReaderStepperState(node, settingKey) {
-  const config = getReaderStepperConfig(settingKey);
-  if (!node || !config) {
+  if (!node) {
     return;
   }
-
-  const current = config.getCurrent();
+  const current = state[readerStepper(settingKey).stateKey];
   node.querySelectorAll("[data-value]").forEach((button) => {
     const isActive = button.dataset.value === current;
     button.classList.toggle("is-active", isActive);
@@ -2162,7 +2105,7 @@ function unbindReaderLayout() {
 }
 
 function layoutReaderPlayerHost() {
-  if (!state.readingViewOpen || !isReaderMode()) {
+  if (!state.readingViewOpen) {
     return;
   }
 
@@ -3131,7 +3074,7 @@ function syncPlayerAiQuickActionButton() {
     existing = null;
   }
   const existingWrap = existing?.closest(".mdg-player-ai-wrap");
-  if (!state.settings?.enablePlayerAiQuickAction || !state.settings.hasAiProvider || state.readingViewOpen || isReaderMode()) {
+  if (!state.settings?.enablePlayerAiQuickAction || !state.settings.hasAiProvider || isReaderMode()) {
     removePlayerAiQuickActionButton();
     return;
   }
@@ -3204,7 +3147,7 @@ function bindPlayerAiQuickActionCursorSync(wrap) {
   };
   const showForCursorActivity = () => {
     const node = currentWrap();
-    if (!node || state.readingViewOpen || isReaderMode()) {
+    if (!node || isReaderMode()) {
       node?.classList.remove("is-active");
       return;
     }
@@ -3444,7 +3387,7 @@ function alignReaderViewportToPlayer() {
   const nextTop = Math.max(0, window.scrollY + top - 16);
   window.scrollTo({ top: nextTop, behavior: "auto" });
   window.setTimeout(() => {
-    if (!state.readingViewOpen || !isReaderMode()) {
+    if (!state.readingViewOpen) {
       return;
     }
     window.scrollTo({ top: nextTop, behavior: "auto" });
@@ -3858,55 +3801,18 @@ async function fetchHotComments() {
   return site.fetchComments(ref, state.meta, siteIo());
 }
 
-function toReadableText(value, fallback = "") {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  if (typeof value === "string") {
-    const text = value.trim();
-    if (!text || text === "[object Object]") {
-      return fallback;
-    }
-    return text;
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  try {
-    const json = JSON.stringify(value);
-    if (json && json !== "{}") {
-      return json;
-    }
-  } catch {}
-  const text = String(value);
-  if (!text || text === "[object Object]") {
-    return fallback;
-  }
-  return text;
-}
-
 // A failed fetch in the user's words: a dropped connection is named (fetch's English TypeError becomes TEXT.netDown);
 // codes with their own words (THROTTLED, 62004) read as elsewhere, any other
 // error keeps its own message (「B站请求失败 HTTP 403」 from the background or the page, httpError).
 function fetchErrorText(error) {
-  if (/failed to fetch|networkerror|load failed/i.test(toReadableText(error?.message, ""))) {
+  if (/failed to fetch|networkerror|load failed/i.test(String(error?.message ?? ""))) {
     return MdgErrors.TEXT.netDown;
   }
   return MdgErrors.messageOf(error);
 }
 
-// For logs and retry checks only: the raw message with its code. The page shows MdgErrors.messageOf.
-function rawErrorText(error, fallback = MdgErrors.TEXT.unknown) {
-  const code = toReadableText(error?.code, "");
-  const message = toReadableText(error?.message, "");
-  if (message) {
-    return code ? `${message} (code: ${code})` : message;
-  }
-  if (code) {
-    return `code: ${code}`;
-  }
-  return toReadableText(error, fallback);
-}
+// For logs and retry checks only: the raw message (or the string thrown) with its code. The page shows MdgErrors.messageOf.
+const rawErrorText = (error) => `${typeof error === "string" ? error : error?.message || ""}${error?.code ? ` (code: ${error.code})` : ""}`;
 
 // MV3's promise form; async turns the synchronous throw of a reloaded extension into a rejection too.
 async function sendRuntimeMessage(message) {
@@ -4011,7 +3917,7 @@ function isRetryableNetworkError(error) {
   if (error?.code === "NETWORK") {
     return true;
   }
-  const message = rawErrorText(error, "").toLowerCase();
+  const message = rawErrorText(error).toLowerCase();
   return ["failed to fetch", "fetch failed", "networkerror", "net::", "timeout", "timed out", "超时", MdgErrors.TEXT.netDown].some((words) => message.includes(words));
 }
 

@@ -937,7 +937,7 @@ function renderFollowups() {
     .join("");
   els.followups.querySelectorAll("button").forEach((btn, index) => {
     setDisabledReason(btn, reason, visible[index]);
-    btn.addEventListener("click", () => sendPrompt(visible[index]));
+    btn.addEventListener("click", () => void sendMessage(visible[index]));
     const start = () => startFollowupMarquee(btn);
     const stop = () => btn.classList.remove("is-marquee");
     btn.addEventListener("mouseenter", start);
@@ -974,12 +974,7 @@ function startFollowupMarquee(btn) {
 // The panel's AI 总结 sends at once. The prompt a video switch filled in goes with it, so it is not left in the box.
 function sendSummary(prompt) {
   if (els.input.value.trim() === prompt.trim()) void sendMessage();
-  else sendPrompt(prompt);
-}
-
-// 快捷追问 sends its text as is; the input box and what is typed there stay.
-function sendPrompt(prompt) {
-  void sendMessage(prompt);
+  else void sendMessage(prompt);
 }
 
 function renderPresetPrompts() {
@@ -1046,8 +1041,7 @@ function renderHistoryList() {
 
   els.historyList.querySelectorAll(".sp-history-open").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = String(btn.getAttribute("data-id") || "");
-      loadConversationById(id);
+      void act({ type: "OPEN", id: String(btn.getAttribute("data-id") || "") });
       hideHistoryPopover();
     });
   });
@@ -1102,10 +1096,6 @@ async function saveConversations() {
   });
   state.dispatch({ type: "SAVED_WRITTEN", ...written });
   renderHistoryList();
-}
-
-function loadConversationById(id) {
-  return act({ type: "OPEN", id });
 }
 
 async function deleteConversation(id) {
@@ -1194,16 +1184,9 @@ async function syncLiveContextState() {
   if (ok === FOLLOWED_LIVE_VIDEO) {
     return;
   }
-  const { bound, context, messages } = state.view();
-  if (bound) {
-    updateContextChip();
-    return;
-  }
-  if (!ok || !context || !providers.length || !messages.length) {
-    renderInitialState();
-    return;
-  }
-  renderSuggestions();
+  // A conversation not bound to a video has no messages: its start state.
+  if (state.view().bound) updateContextChip();
+  else renderInitialState();
 }
 
 // A video switch lights up the chip that names the video; the animation fades it back on its own.
@@ -1302,7 +1285,7 @@ function handlePreviousVideoBarClick(event) {
     void act({ type: "PREVIOUS_DISMISSED" });
   } else if (action === "resume") {
     previousVideoExpanded = false;
-    loadConversationById(conversation.id);
+    void act({ type: "OPEN", id: conversation.id });
   } else if (action === "open") {
     void openPreviousVideoUrl(conversation.contextUrl || conversation.contextRef?.url || "");
   }
@@ -1947,9 +1930,6 @@ function clearStreamRuntimeState() {
 }
 
 function renderAssistantMessage(node, raw) {
-  if (!node) {
-    return;
-  }
   node.innerHTML = "";
   const cleanedRaw = stripThinkBlocks(raw);
   const pasteReadyRaw = normalizeMarkdownForSectionPaste(cleanedRaw);
@@ -2134,18 +2114,11 @@ async function openPageNote(ref) {
   return page?.markdown && MdgSites.sameContext(page.url, ref) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
 
-// A caught error's words: its message (or the string thrown), else fallback; never 「{}」 for an Error without words.
 function linkifyAssistantTimestamps(root) {
-  if (!root) {
-    return;
-  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const textNodes = [];
   while (walker.nextNode()) {
     const current = walker.currentNode;
-    if (!(current instanceof Text)) {
-      continue;
-    }
     const parent = current.parentElement;
     if (!parent || parent.closest("a, code, pre, button")) {
       continue;
@@ -2161,11 +2134,9 @@ function linkifyAssistantTimestamps(root) {
     const text = node.textContent || "";
     const fragment = document.createDocumentFragment();
     let lastIndex = 0;
-    let hasMatch = false;
     TIMESTAMP_PATTERN.lastIndex = 0;
     let match;
     while ((match = TIMESTAMP_PATTERN.exec(text))) {
-      hasMatch = true;
       if (match.index > lastIndex) {
         fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
       }
@@ -2181,9 +2152,6 @@ function linkifyAssistantTimestamps(root) {
       });
       fragment.append(button);
       lastIndex = match.index + timestamp.length;
-    }
-    if (!hasMatch) {
-      return;
     }
     if (lastIndex < text.length) {
       fragment.append(document.createTextNode(text.slice(lastIndex)));

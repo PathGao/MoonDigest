@@ -31,7 +31,7 @@ const dialogs = (page, mode, log = []) => ({
   choose: async (p, opts) => (log.push(["ask", p, opts.hasAiSection, opts.aiOff, opts.fullReason].join()), mode)
 });
 const request = () => ({ ref: { id: "r" } });
-const plain = (r) => JSON.parse(JSON.stringify({ ...r, resp: undefined }));
+const plain = (r) => JSON.parse(JSON.stringify(r));
 
 (async () => {
   // askPage → open: the page dialog with the exit's verb, then the same request with pageChoice.

@@ -237,7 +237,7 @@ const chatOn = (context) => {
     await ctx.sendMessage("快捷追问的话");
     messagesEl.querySelectorAll = () => [];
     assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx), retries], [["快捷追问的话"], "还没写完的草稿", 1]);
-    assert.ok(/sendPrompt\(prompt\) \{\n  void sendMessage\(prompt\);/.test(page), "快捷追问 passes its text");
+    assert.ok(page.includes('btn.addEventListener("click", () => void sendMessage(visible[index]));'), "快捷追问 passes its text");
     vm.runInContext("activeStream = null", ctx);
     Object.assign(ctx, { appendUserMessage: realUser, appendAssistantPlaceholder: realPlaceholder });
     ctx.chrome.runtime.connect = realConnect;
@@ -1299,6 +1299,45 @@ const chatOn = (context) => {
     await made.find((el) => el.textContent === ctx.MdgErrors.LABEL.grant).click();
     assert.strictEqual(made[0].textContent, ctx.MdgErrors.TEXT.granted);
     ctx.document.createElement = realCreate;
+  }
+
+  {
+    // A tab event's redraw: a conversation bound to its video redraws its chip, the empty one its start state; a load
+    // that followed another video drew it already.
+    const keep = Object.fromEntries(["loadContextState", "updateContextChip", "renderInitialState", "renderSuggestions"].map((k) => [k, ctx[k]]));
+    const drawn = [];
+    let result;
+    Object.assign(ctx, { loadContextState: async () => result, updateContextChip: () => drawn.push("chip"), renderInitialState: () => drawn.push("start"), renderSuggestions: () => drawn.push("suggestions") });
+    for (const [setup, r] of [[() => state.dispatch({ type: "NEW" }), true], [() => state.dispatch({ type: "NEW" }), false], [() => chatOn(video), true], [() => chatOn(video), "followed"]]) {
+      setup();
+      result = r;
+      await ctx.syncLiveContextState();
+    }
+    assert.deepStrictEqual(drawn, ["start", "start", "chip"]);
+    Object.assign(ctx, keep);
+  }
+
+  {
+    // An answer's timestamps become jump buttons, outside links, code and buttons; the text around them stays.
+    class Text {
+      constructor(text, parent = { closest: () => null }) {
+        Object.assign(this, { textContent: text, parentElement: parent });
+      }
+      replaceWith(fragment) {
+        this.replaced = fragment.parts.map((p) => (p instanceof Text ? p.textContent : `[${p.textContent}]`));
+      }
+    }
+    ctx.Text = Text;
+    ctx.NodeFilter = { SHOW_TEXT: 4 };
+    const nodes = [new Text("看 1:15 和 1:02:03 两处"), new Text("没有时间"), new Text("12:00", { closest: () => ({}) })];
+    Object.assign(ctx.document, {
+      createTreeWalker: () => ({ i: -1, nextNode() { return ++this.i < nodes.length; }, get currentNode() { return nodes[this.i]; } }),
+      createDocumentFragment: () => ({ parts: [], append(p) { this.parts.push(p); } }),
+      createTextNode: (text) => new Text(text)
+    });
+    ctx.linkifyAssistantTimestamps({});
+    assert.deepStrictEqual(nodes.map((n) => n.replaced), [["看 ", "[1:15]", " 和 ", "[1:02:03]", " 两处"], undefined, undefined]);
+    for (const k of ["createTreeWalker", "createDocumentFragment", "createTextNode", "Text", "NodeFilter"]) delete (k in ctx.document ? ctx.document : ctx)[k];
   }
 
   console.log("sidepanel selftest: all passed");

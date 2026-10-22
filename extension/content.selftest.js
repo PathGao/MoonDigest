@@ -104,7 +104,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
-const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry"].map((k) => [k, t[k]]));
+const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
 const realRenderReadingView = t.renderReadingView;
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -752,8 +752,8 @@ const settle = async () => {
       t.location.href = realUrl;
       assert.deepStrictEqual(asked, ["p.md", true]);
       if (switched || !pick) {
-        // The popup learns nothing was written.
-        assert.deepStrictEqual([{ ...reply }, modes()], [{ ok: true, written: false, text: switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled }, [["write-video-note", undefined, "# 视频 A"]]]);
+        // The popup shows why nothing was written.
+        assert.deepStrictEqual([{ ...reply }, modes()], [{ ok: true, text: switched ? t.MdgErrors.TEXT.obsidianVideoSwitched : t.MdgErrors.TEXT.obsidianCancelled }, [["write-video-note", undefined, "# 视频 A"]]]);
       } else {
         // The same note, taken before the dialog, with the mode; the background's words are shown.
         assert.deepStrictEqual(modes(), [["write-video-note", undefined, "# 视频 A"], ["write-video-note", "ai", "# 视频 A"]]);
@@ -770,7 +770,7 @@ const settle = async () => {
     state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
-    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
+    assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual(messages, []);
     // Not set up or a wrong key (OBSIDIAN): never the settings page by itself. Before the dialog the popup gets the code
     // (it shows 去设置); after it the page's red notice carries 去设置, which opens the settings page on its click.
@@ -1228,6 +1228,51 @@ const settle = async () => {
 
     Object.assign(t, saved);
     Object.assign(state, savedState);
+  }
+
+  // 专注模式's 排版 steppers: each setting's buttons, their names, the one pressed, and a click's change.
+  {
+    const built = [["mdg-reading-font-scale-select", "字号", "readerFontScale"], ["mdg-reading-letter-spacing-select", "字间距", "readerLetterSpacing"], ["mdg-reading-line-height-select", "行间距", "readerLineHeight"], ["mdg-reading-content-width-select", "字幕栏宽度", "readerContentWidth"]].map(([id, title, settingKey]) =>
+      [...t.buildReaderStepperControl({ id, title, settingKey }).matchAll(/data-value="([^"]+)"\s+aria-label="([^"]+)"/g)].map((m) => `${m[1]}=${m[2]}`).join(" ")
+    );
+    assert.deepStrictEqual(built, [
+      "xs=字号 最小 s=字号 偏小 m=字号 标准 l=字号 偏大 xl=字号 最大",
+      "tighter=字间距 最紧 tight=字间距 偏紧 normal=字间距 标准 relaxed=字间距 偏松 loose=字间距 最松",
+      "compact=行间距 最紧 tight=行间距 偏紧 normal=行间距 标准 relaxed=行间距 偏松 loose=行间距 最松",
+      "compact=字幕栏宽度 最窄 narrow=字幕栏宽度 偏窄 medium=字幕栏宽度 标准 wide=字幕栏宽度 偏宽 full=字幕栏宽度 最宽"
+    ]);
+    const keep = t.updateReaderPreferences;
+    const was = { readingFontScale: state.readingFontScale, readingContentWidth: state.readingContentWidth };
+    const set = [];
+    t.updateReaderPreferences = (patch, opts) => set.push([patch, opts.persist]);
+    Object.assign(state, { readingFontScale: "m", readingContentWidth: "wide" });
+    for (const [key, value] of [["readerFontScale", "l"], ["readerFontScale", "m"], ["readerFontScale", "huge"], ["readerContentWidth", "full"]]) t.setReaderPreference(key, value);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(set)), [[{ readerFontScale: "l" }, true], [{ readerContentWidth: "full" }, true]]);
+    const buttons = ["compact", "medium", "wide"].map((value) => ({ dataset: { value }, attrs: {}, cls: {}, classList: { toggle(c, on) { this.on = on; } }, setAttribute(k, v) { this.attrs[k] = v; } }));
+    t.renderReaderStepperState({ querySelectorAll: () => buttons }, "readerContentWidth");
+    assert.deepStrictEqual(buttons.map((b) => [b.classList.on, b.attrs["aria-pressed"]]), [[false, "false"], [false, "false"], [true, "true"]]);
+    t.updateReaderPreferences = keep;
+    Object.assign(state, was);
+  }
+
+  // 专注模式's look goes on its view and on <html> and <body> alike (content.css keys on both).
+  {
+    const [html, body, keepById] = [t.document.documentElement, t.document.body, t.byId];
+    const view = { dataset: {} };
+    t.document.documentElement = { dataset: {} };
+    t.document.body = { dataset: {} };
+    t.byId = (id) => (id === "mdg-reading-view" ? view : { checked: null });
+    Object.assign(state, { readingTheme: "dark", readingFontScale: "l", readingLetterSpacing: "tight", readingLineHeight: "loose", readingContentWidth: "wide", readingChapterVisible: false });
+    real.applyReadingViewPresentation();
+    const page = { mdgReaderTheme: "dark", mdgReaderFontScale: "l", mdgReaderLetterSpacing: "tight", mdgReaderLineHeight: "loose", mdgReaderContentWidth: "wide", mdgReaderChapterVisibility: "hide" };
+    assert.deepStrictEqual([{ ...view.dataset }, { ...t.document.documentElement.dataset }, { ...t.document.body.dataset }], [{ theme: "dark", fontScale: "l", letterSpacing: "tight", lineHeight: "loose", contentWidth: "wide", chapterVisibility: "hide" }, page, page]);
+    [t.document.documentElement, t.document.body, t.byId] = [html, body, keepById];
+  }
+
+  // Which failures a read retries: a server error or a dropped connection, never a 4xx or a plain failure.
+  {
+    const cases = [[{ status: 503 }, true], [{ status: 403 }, false], [{ code: "NETWORK" }, true], [new TypeError("Failed to fetch"), true], [new Error("请求超时"), true], ["timed out", true], [new Error(`${t.MdgErrors.TEXT.netDown}：30 秒没有回应`), true], [new Error("HTTP 403"), false], [{}, false], [null, false]];
+    assert.deepStrictEqual(cases.map(([e]) => t.isRetryableNetworkError(e)), cases.map(([, want]) => want));
   }
 
   // R18: a subtitle picked in the popup or 专注模式 is read like the first read (pageSubtitleSite): a YouTube 429 waits
