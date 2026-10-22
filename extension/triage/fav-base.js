@@ -91,7 +91,7 @@ const S = {
   allFolders: [], // every folder on Bilibili
   folders: [], // the ones taking part in triage
   included: [],
-  removedCheck: null, // 已出分拣范围 only: { done, total, what, error } while its folders, then its videos, are checked (what: the pill's 核对… word)
+  removedCheck: null, // 已出分拣范围 only: { error } while its folders, then its videos, are checked (the pill shows the progress)
   mediaId: "",
   folderToken: 0,
   items: [],
@@ -205,7 +205,7 @@ const criteria = () => criteriaFor(S.mediaId);
 // The folder a video is judged under: the open one, or in 所有收藏夹 the first chosen folder (list order) it is in.
 const homeOf = (it) => (S.mediaId === ALL ? S.folders.map((f) => String(f.id)).find((id) => it?.folders?.includes(id)) : String(S.mediaId));
 // What the AI is told about a folder; its 判断标准 is relative to this.
-const folderContext = (id = S.mediaId) => ({ title: folderTitle(id), intro: S.folderIntro[id] || "" });
+const folderContext = (id = S.mediaId) => ({ title: folderName(id), intro: S.folderIntro[id] || "" });
 // Everything a 粗看 or 细看 request about this video carries, taken when its run starts.
 const judgeOf = (it) => {
   const home = homeOf(it);
@@ -214,7 +214,6 @@ const judgeOf = (it) => {
 // A 粗看 or 细看 result remembers the 判断标准 it was made under (loadResults stamps older ones with the folder's
 // current one), so after the criteria change the old results can be redone.
 const isStale = (r, crit = criteria()) => Boolean(r) && (r.criteria ?? crit) !== crit;
-const inFolderOnly = () => S.mediaId && S.mediaId !== ALL && S.mediaId !== REMOVED;
 const judged = () => S.mediaId && S.mediaId !== REMOVED;
 const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && stageOf(it) === "coarse" && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
 const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && stageOf(it) === "fine" && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
@@ -414,10 +413,9 @@ function showBanner(text, btnText, onClick, kind = "") {
   el.banner.hidden = false;
 }
 
-// The AI run rules (aiJudge and the codes that end a run) are runs.js's, shared with 摘读记录; here a B站 limit (细看's
-// subtitles) waits too.
-const { aiSettingsCode, aiEnds } = MdgRuns;
-const aiJudge = () => MdgRuns.aiJudge((r) => THROTTLES[r.code]);
+// The AI run rules (aiJudge and the codes that end a run) are runs.js's, shared with 摘读记录; the run's hold (THROTTLES)
+// makes a B站 limit (细看's subtitles) wait too.
+const { aiSettingsCode, aiEnds, aiJudge } = MdgRuns;
 
 // limit: the 收藏夹设置 row a cut answer asks to raise, 粗看输出上限 (标题粗看 and ✦ AI 打标签) or 细看输出上限.
 function handleAiError(error, code = "", limit = "粗看") {

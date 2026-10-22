@@ -44,12 +44,12 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
 {
   const last = { at: 1, since: 100, map: { a: 500, b: 900 }, v: { a: [{ t: "A1", c: 500, bvid: "BVa1" }], b: [{ t: "B1", c: 900, bvid: "BVb1" }] } };
   const wip = { at: 2, since: 800, map: { a: 950, c: 990 }, v: { a: [{ t: "A2", c: 950, bvid: "BVa2" }, { t: "A1", c: 500, bvid: "BVa1" }], c: [{ t: "C1", c: 990, bvid: "BVc1" }] } };
-  const m = t.withFeedInProgress(last, wip);
+  const m = ctx.TriageUi.withFeedInProgress(last, wip);
   assert.deepStrictEqual({ ...m.map }, { a: 950, b: 900, c: 990 }, "the walk in progress adds newer posts");
   assert.strictEqual(m.since, 100, "since stays the finished walk's");
   assert.deepStrictEqual([...m.v.a.map((x) => x.t)], ["A2", "A1"], "titles merged once each, newest first");
-  assert.strictEqual(t.withFeedInProgress(null, wip), wip, "a first walk is shown as it goes");
-  assert.strictEqual(t.withFeedInProgress(last, undefined), last);
+  assert.strictEqual(ctx.TriageUi.withFeedInProgress(null, wip), wip, "a first walk is shown as it goes");
+  assert.strictEqual(ctx.TriageUi.withFeedInProgress(last, undefined), last);
 }
   assert.strictEqual(t.followStatus("d", D, now, 90, 500), "slow");
   // a feed that does not reach back slowDays cannot tell: 未查
@@ -406,9 +406,6 @@ assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySel
   assert.ok(!/follow-special|data-fw="special-|side-note|只读，在 B站 改/.test(source), "no 特别关注 toggle of its own, no read-only note");
 }
 
-// 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
-assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 3);
-assert.ok(/\.set\(MdgLimits\.followFull\(\{ ai_settings: seed \}\)\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /await chrome\.storage\.sync\.set\(\{ \.\.\.\(Object\.keys\(aiPatch\)\.length \? MdgLimits\.followFull\(\{ ai_settings: ai \}\) : \{\}\), \.\.\.\(followSlowDays \|\| followDeadDays \? days : \{\}\) \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
 
 // The player's T / Esc reach 关注 through 收藏夹's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
@@ -481,7 +478,6 @@ assert.ok(t.aiBlocked("feed", "all") && t.aiBlocked("ups", "out"), "视频投稿
 }
 // B15: 「允许 AI 去掉已有标签」 is kept in follow_ai_settings, as 收藏夹 keeps its own.
 assert.deepStrictEqual(plain(t.withAllowRemove({ batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: false }, true)), { batchSize: 10, intervalSec: 2, newTagMax: 1, allowRemove: true });
-assert.ok(/async setAllowRemove\(on\) \{\s*const next = withAllowRemove\(await aiSettings\(\), on\);\s*try \{\s*await chrome\.storage\.sync\.set\(MdgLimits\.followFull\(\{ ai_settings: next \}\)\);/.test(source), "the AI dialog's switch saves");
 
 // The 关注 tab is 视频投稿 (we read only B站's video posts, which B站 itself calls 视频投稿): no page text says 动态.
 // Comments may; B站 page scripts outside triage/ talk about B站's own 动态 page.
@@ -669,6 +665,21 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual([feedSends(p), F.feed.wait, plain(F.feed.items.map((x) => x.bvid))], [3, false, ["BVb", "BVc"]], "then it loads again by itself");
   }
 
+  // R29: a new search, 未打标签 / 已打标签 or 全部 lists other videos: the count of pages that brought none starts
+  // again, so scrolling to the end loads by itself again.
+  {
+    const p = await followPage({ store: page({ follow_view: { mode: "follow", tab: "feed" } }), handlers: { "follow-feed": () => feed } });
+    const { F, E } = p.FW;
+    const dry = (go) => ((F.feed.dry = 9), go(), F.feed.dry);
+    assert.strictEqual(dry(() => p.click("followMain", "[data-fw-tagstate]", { fwTagstate: "tagged" })), 0);
+    assert.strictEqual(dry(() => p.click("followMain", "[data-fw-all]", {})), 0);
+    F.feed.dry = 9;
+    E.q.value = "x";
+    for (const f of E.q.L.input || []) f({ target: E.q });
+    await p.settle();
+    assert.strictEqual(F.feed.dry, 0);
+  }
+
   // F8 / F10 / F11 / F15: a card pick (X) redraws what counts the selection: 全选 and 清理 in row 3 (drawn in barR), ✦ AI
   // 打标签 in row 4, the bar; the bar has no AI 打标签, its group buttons say how many, a running write is named.
   {
@@ -758,6 +769,24 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual(plain(p.sync), { follow_ai_settings: { batchSize: 10, intervalSec: 9, newTagMax: 4, allowRemove: false } }, "the imported 9 stays; the days are not written");
   }
 
+  // 关注设置, 「允许 AI 去掉已有标签」 and the AI settings they seed: a failed chrome.storage.sync.set says so in red, as
+  // 收藏夹设置 does.
+  {
+    const p = await followPage({ store: page() });
+    assert.strictEqual(await p.FW.aiTags.setAllowRemove(true), true);
+    assert.strictEqual(p.sync.follow_ai_settings.allowRemove, true, "the AI dialog's switch saves");
+    delete p.sync.follow_ai_settings;
+    const failed = `${p.ctx.MdgErrors.TEXT.settingsSaveFailed}：QUOTA`;
+    p.ctx.chrome.storage.sync.set = async () => { throw new Error("QUOTA"); };
+    assert.strictEqual(await p.FW.aiTags.setAllowRemove(true), false);
+    assert.deepStrictEqual(p.toasts.filter((t) => t === failed).length, 2, "the seed and the switch");
+    await p.FW.openSettings();
+    p.$("fwNewMaxInput").value = "4";
+    p.$("fwSettingsDialog").returnValue = "save";
+    for (const f of p.$("fwSettingsDialog").L.close) await f();
+    assert.strictEqual(p.toasts.at(-1), failed);
+  }
+
   // J14: UP 标签 stop at MdgLimits.UP_TAGS, as B站 pages' 「+ UP 标签」: 标签管理 and the picker say why.
   {
     const full = Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, name: `n${i}`, color: "#111" }));
@@ -788,6 +817,23 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     await p.settle();
     assert.deepStrictEqual(plain(p.store.follow_unfollowed.u3.tagIds), ["t1"], "U puts it back");
     assert.ok(p.toasts.includes("已撤销：去掉「科普」"), p.toasts.join("|"));
+    // R23: a failed write is said in red and pushes no U step.
+    const set = p.ctx.chrome.storage.local.set;
+    p.ctx.chrome.storage.local.set = async () => { throw new Error("QUOTA_BYTES quota exceeded"); };
+    const err = console.error;
+    console.error = () => {};
+    for (const f of p.$("followMain").L.click) await f({ button: 0, preventDefault() {}, target: { closest: (sel) => (sel === "[data-untag]" ? chip : null) } });
+    await p.settle();
+    p.ctx.chrome.storage.local.set = set;
+    console.error = err;
+    assert.deepStrictEqual([plain(p.store.follow_unfollowed.u3.tagIds), p.toasts.at(-1).startsWith("保存失败")], [["t1"], true], p.toasts.join("|"));
+    p.key("u");
+    await p.settle();
+    assert.strictEqual(p.toasts.at(-1), p.ctx.MdgErrors.TEXT.noUndo, "no step");
+    // R22: deleting the tag in 标签管理 takes it off the 已取消关注 UP 主's record too; a proposal naming it is dropped.
+    p.FW.AI.proposal = { newTags: [], rows: [{ id: "u1", add: ["id:t1"], remove: [] }], notes: [], errors: [] };
+    assert.ok(await p.FW.manageTags.remove(p.FW.D().tags[0]));
+    assert.deepStrictEqual(plain([p.store.follow_tags, p.store.follow_unfollowed.u3.tagIds, p.FW.D().gone.u3.tagIds, p.FW.AI.proposal]), [[], [], [], null]);
   }
 
   // J8: an empty list says why: the search, else the filters, else the group is empty.

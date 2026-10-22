@@ -50,8 +50,6 @@ function page(o = {}) {
     cap: () => 3,
     full: (n) => `已经有 ${n} 个`,
     fullShort: () => "名额已满",
-    capName: "这里的标签",
-    keepOverCap: true,
     newTagMax: () => 5,
     confirm: async (...a) => (p.asked.push(a), true),
     say: (text, error = false) => p.said.push([text, error]),
@@ -145,7 +143,7 @@ const proposal = (newTags, rows) => ({ newTags: newTags.map((name) => ({ key: na
     assert.strictEqual(UI.aiRoomHint({ tags: [{ id: "x" }], excluded: new Set(), room: 0, full: p.store.noRoom() }), "新建上限是 0，AI 只会用已有标签。");
   }
 
-  // 应用 past the cap. keepOverCap (收藏夹, 关注): every ticked new tag is made. Hard limit (摘读记录): made in order while
+  // 应用 past the cap. Without hardCap (收藏夹, 关注): every ticked new tag is made. Hard limit (摘读记录): made in order while
   // there is room, the rest named up front (notMade) and said after.
   {
     const p = page();
@@ -155,11 +153,19 @@ const proposal = (newTags, rows) => ({ newTags: newTags.map((name) => ({ key: na
     assert.ok(await p.store.apply(prop));
     assert.deepStrictEqual([p.tags.length, p.map.a.length, "gone" in p.map, p.proposal, plain(p.recent.keys)], [4, 3, false, null, ["a"]]);
     assert.strictEqual(p.said.at(-1)[0], `已应用 AI 建议：1 个视频，列表只显示这些${UI.UNDO}`);
-    // U: the item back, the tags it made deleted, 「AI 刚打的」 ended.
+    // U: the item back, the tags it made deleted, 「AI 刚打的」 ended; each deleted tag leaves the page's filters (R19).
+    const made = plain(p.tags.slice(1).map((t) => t.id));
     await p.store.undo();
-    assert.deepStrictEqual(plain([p.tags.map((t) => t.name), p.map, p.recent]), [["旧"], {}, null]);
+    assert.deepStrictEqual(plain([p.tags.map((t) => t.name), p.map, p.recent, p.gone]), [["旧"], {}, null, made]);
+    // R21: a made tag a carrier outside the map still has (关注's 已取消关注) stays.
+    const kept = new Set();
+    const q = page({ uses: (id) => (kept.has(id) ? 1 : 0) });
+    assert.ok(await q.store.apply(proposal(["n1", "n2"], [{ id: "a", add: ["new:n1", "new:n2"], remove: [] }])));
+    kept.add(q.tags[0].id);
+    await q.store.undo();
+    assert.deepStrictEqual(plain([q.tags.map((t) => t.name), q.map, q.gone.length]), [["n1"], {}, 1]);
 
-    const h = page({ keepOverCap: false, who: "记录" });
+    const h = page({ hardCap: "这里的标签", who: "记录" });
     await h.store.createTag("旧");
     const hp = proposal(["n1", "n2", "n3"], [{ id: "a", add: ["new:n1", "new:n3"], remove: [] }]);
     assert.deepStrictEqual(plain([...h.store.notMade(hp).keys]), ["n3"]);

@@ -9,6 +9,8 @@
   const { cleanTagName, nextTagColor, newTagId } = MdgTagCore;
   const { sp } = UI;
   const sameIds = (x = [], y = []) => x.length === y.length && x.every((id) => y.includes(id));
+  // An item's tag ids in map: an item left with none drops out.
+  const setIds = (map, key, ids) => (ids.length ? (map[key] = ids) : delete map[key]);
 
   // ----- U: a page's steps, an array, newest last (收藏夹 keeps its 保留 and B站 writes there too) -----
   // A step is { ask?, blocked?, undo }: ask ([title, body, button]) is confirmed first, blocked() ("" or why) refuses
@@ -61,16 +63,22 @@
   }
 
   // 关注: follow_tags / follow_tag_map, under the lock the background takes for its own follow_* writes (a sync, B站
-  // pages' 「+ UP 标签」). set is the page's write, which says a failure and resolves false.
+  // pages' 「+ UP 标签」). set is the page's write, which says a failure and resolves false. A tag deleted comes off the
+  // 已取消关注 UP 主's follow_unfollowed records in the same write (put gets them as part.gone).
   function follow({ get, put, set }) {
     async function write(fn) {
       let part = null;
       try {
-        await MdgLimits.updateFollow(["tags", "tag_map"], (s) => {
+        await MdgLimits.updateFollow(["tags", "tag_map", "unfollowed"], (s) => {
           const cur = { tags: s.tags || [], map: s.tag_map || {} };
           part = changedParts(cur, fn(cur));
           if (!Object.keys(part).length) return null;
-          return { ...("tags" in part && { tags: part.tags }), ...("map" in part && { tag_map: part.map }) };
+          const removed = new Set(part.tags ? cur.tags.filter((t) => !part.tags.some((x) => x.id === t.id)).map((t) => t.id) : []);
+          const off = (g) => g.tagIds?.some((id) => removed.has(id));
+          if (Object.values(s.unfollowed || {}).some(off)) {
+            part.gone = Object.fromEntries(Object.entries(s.unfollowed).map(([mid, g]) => [mid, off(g) ? { ...g, tagIds: g.tagIds.filter((id) => !removed.has(id)) } : g]));
+          }
+          return { ...("tags" in part && { tags: part.tags }), ...("map" in part && { tag_map: part.map }), ...(part.gone && { unfollowed: part.gone }) };
         }, async (o) => {
           if (!(await set(o))) throw new Error("关注的标签没有存上");
         });
@@ -112,8 +120,8 @@
   // a = { ...a backend, who (视频 | UP 主 | 记录), idPrefix, make?(name, tags) (a new tag; default { id, name, color },
   // plus folder when scoped), scoped (收藏夹: a tag belongs to one folder, its scope), scopeWhy?(scope) ("" or why no
   // tag can be made there), cap(scope), full(n, scope) (why the scope takes no new tag at n), fullShort(scope) (the same
-  // in a few words, 「名额已满」), keepOverCap (AI tags the user confirmed may pass the cap: 收藏夹 and 关注; else 应用
-  // makes none past it and capName, 「摘读记录的标签」, says so), newTagMax(), uses?(id) (carriers the map leaves out:
+  // in a few words, 「名额已满」), hardCap? (摘读记录's 「摘读记录的标签」: 应用 makes no new tag past the cap and says so in
+  // these words; without it the AI tags the user confirmed may pass the cap, as 收藏夹 and 关注), newTagMax(), uses?(id) (carriers the map leaves out:
   // 关注's 已取消关注), restorable?(key) and goneWord (U leaves the others be and says how many), steps? ({ push(step),
   // drop(pred) }: the page's U; else the store keeps its own, store.undo), confirm(title, body, ok, opts), say(text,
   // error?), changed() (a write landed: redraw), undone?(keys) (after U; else changed), tagGone?(id) (a tag deleted: its
@@ -151,6 +159,7 @@
         ask,
         async undo() {
           let skipped = 0;
+          let gone = [];
           const ok = await a.write((cur) => {
             const live = new Set(cur.tags.map((t) => t.id));
             const map = { ...cur.map };
@@ -159,15 +168,15 @@
                 skipped++;
                 continue;
               }
-              const keep = ids.filter((id) => live.has(id));
-              if (keep.length) map[key] = keep;
-              else delete map[key];
+              setIds(map, key, ids.filter((id) => live.has(id)));
             }
+            // Still used: by an item, or by a carrier the map leaves out (关注's 已取消关注).
             const used = new Set(Object.values(map).flat());
-            const tags = created.some((id) => !used.has(id)) ? cur.tags.filter((t) => !created.includes(t.id) || used.has(t.id)) : cur.tags;
-            return { tags, map };
+            gone = created.filter((id) => !used.has(id) && !a.uses?.(id) && cur.tags.some((t) => t.id === id));
+            return { tags: gone.length ? cur.tags.filter((t) => !gone.includes(t.id)) : cur.tags, map };
           });
           if (!ok) return false;
+          for (const id of gone) a.tagGone?.(id);
           if (recentAt) await a.endRecent(recentAt);
           (a.undone || a.changed)(Object.keys(before));
           return `已撤销：${label}${skipped ? `（${skipped} 个${a.goneWord}，标签没改）` : ""}`;
@@ -231,8 +240,7 @@
           const now = TagPicker.applyChange(was.filter((id) => live.has(id)), c);
           if (sameIds(was, now)) continue;
           before[c.key] = [...was];
-          if (now.length) map[c.key] = now;
-          else delete map[c.key];
+          setIds(map, c.key, now);
         }
         return Object.keys(before).length ? { ...cur, map } : cur;
       });
@@ -289,7 +297,7 @@
     });
 
     // The ticked new tags of a proposal against tags, in its order: a name its scope has is that tag; the others are
-    // made while the cap has room (or past it with keepOverCap); the keys of the rest are skipped. 应用 and the review
+    // made while the cap has room (past it without hardCap); the keys of the rest are skipped. 应用 and the review
     // both go by it. scope: where a new tag without its own folder goes.
     function plan(newTags, existing, scope) {
       const tags = [...existing];
@@ -301,7 +309,7 @@
         if (!t.checked || !name) continue;
         const s = t.folder || scope;
         let tag = tagsIn(tags, s).find((x) => x.name === name);
-        if (!tag && !a.scopeWhy?.(s) && (a.keepOverCap || !fullIn(tags, s))) {
+        if (!tag && !a.scopeWhy?.(s) && (!a.hardCap || !fullIn(tags, s))) {
           tag = make(name, tags, s);
           tags.push(tag);
           created.push(tag.id);
@@ -311,8 +319,8 @@
       }
       return { tags, idFor, created, skipped };
     }
-    // Without keepOverCap the review says which ticked new tags 应用 will not make, and why.
-    const notMade = a.keepOverCap ? undefined : (p, scope) => ({ keys: new Set(plan(p.newTags, a.tags(), scope).skipped), why: `${a.capName}最多 ${a.cap(scope)} 个` });
+    // With hardCap the review says which ticked new tags 应用 will not make, and why.
+    const notMade = a.hardCap ? (p, scope) => ({ keys: new Set(plan(p.newTags, a.tags(), scope).skipped), why: `${a.hardCap}最多 ${a.cap(scope)} 个` }) : undefined;
 
     // 应用: the proposal's new tags and every live item's change, in one write; then (only then) the proposal goes, 「AI
     // 刚打的」 shows the changed items and U can take it back. A failed write keeps the proposal and says so in red.
@@ -329,9 +337,7 @@
         const map = { ...cur.map };
         for (const [key, was, after] of changes) {
           before[key] = [...was];
-          const keep = after.filter((id) => ids.has(id));
-          if (keep.length) map[key] = keep;
-          else delete map[key];
+          setIds(map, key, after.filter((id) => ids.has(id)));
         }
         return { tags: made.created.length ? made.tags : cur.tags, map: changes.length ? map : cur.map };
       });
@@ -389,12 +395,11 @@
         p.errors.push(UI.AI_TAG_GONE);
         progress(UI.AI_TAG_GONE);
       }
-      return { proposal, errors: p.errors, error: r.error, code: r.code, busy: r.busy };
+      return { proposal, errors: p.errors, error: r.error, code: r.code };
     }
 
     return {
-      who, tagOf, count, full, room, noRoom, fits, createTag, edit, remove, change, untag, updatedText, openPicker, manage,
-      plan, notMade, apply, runAi, undo: () => undoLast(own, { confirm: a.confirm, say: a.say })
+      full, room, noRoom, fits, createTag, edit, remove, change, untag, updatedText, openPicker, manage, notMade, apply, runAi, undo: () => undoLast(own, { confirm: a.confirm, say: a.say })
     };
   }
 

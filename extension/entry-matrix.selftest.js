@@ -170,6 +170,8 @@ const ALLOW = [
   ["triage/follow.js", "r.code === MdgErrors.CODE.THROTTLED) waitFeed(f)", "B站限流时关注的动态等待倒计时"],
   ["triage/follow.js", "r.code === MdgErrors.CODE.THROTTLED ? { ms: UI.BILI_HOLD_MS", "B站限流时关注的运行等待倒计时"],
   ["content.js", "error.code !== MdgErrors.CODE.THROTTLED ?", "字幕接口自己的 429 换成它的说法，不是补救按钮"],
+  ["content.js", 'return error?.code === "STALE_RUN";', "换了视频的旧运行停下，不报错也没有补救按钮"],
+  ["content.js", 'if (error?.code === "NETWORK") {', "字幕请求断网时自动重试一次，不是补救按钮"],
   // 3b: AI_TRUNCATED is 分拣台's own (打开收藏夹设置 for its 输出上限); the table says 重试 like any other.
   ["triage/fav-ai.js", 'if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code);', "截断只在分拣台：横幅给「打开收藏夹设置」调输出上限"],
   ["triage/fav-ai.js", 'if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code, "细看");', "同上，细看"],
@@ -211,18 +213,27 @@ for (const [f, ls] of Object.entries(lines)) {
   });
 }
 
-// 3b. A code compared or looked up by name in an entry (one of RULES' names quoted, or MdgErrors.CODE.X).
-const names = Object.keys(RULES).filter((k) => /^[A-Z_]+$/.test(k)).join("|");
-const CODE_RE = new RegExp(`["'](${names})["']|\\bCODE\\.[A-Z_]+`);
+// 3b. A code compared or looked up by name in an entry: a code of errors.js or RULES quoted (any quote), MdgErrors.CODE.X,
+// or .code compared with any quoted name (STOPPED…) or a number (B站's -101…). A trailing // comment is not code.
+const names = [...new Set([...Object.keys(RULES), ...Object.keys(E.CODE)])].filter((k) => /^[A-Z_]+$/.test(k)).join("|");
+const Q = "[\"'`]";
+const CODE_RE = new RegExp(`${Q}(${names})${Q}|\\bCODE\\.[A-Z_]+|\\bcode\\s*[!=]==?\\s*(${Q}[A-Z_]+${Q}|-?\\d+)|(${Q}[A-Z_]+${Q}|-?\\d+)\\s*[!=]==?\\s*[\\w.?]*\\bcode\\b`);
+const codeOf = (line) => line.replace(/\s\/\/\s.*$/, "");
 // 3c. isBiliVideoGone in an entry.
 const GONE_RE = /isBiliVideoGone\(/;
 // 3d. 去设置 / 授权 decided next to the shared rule (the line or the 6 before it).
 const REMEDY_RE = /LABEL\.(toSettings|grant)\b|"去设置"/;
-const DECIDED = /remedies\(|\.action\b|action\(|aiSettingsCode\(|grantOrigin\(|includes\("(settings|grant)"\)/;
+const DECIDED = /remedies\(|action\(|aiSettingsCode\(|grantOrigin\(|includes\("(settings|grant)"\)/;
+// The holes these closed, each planted (R44).
+for (const line of ["if (r.code === `AI_AUTH`) showSettings();", "if (resp.code === -101) showRetry();", 'if (-101 === resp?.code) showRetry();', 'if (e.code === "STOPPED") return;']) {
+  check(CODE_RE.test(codeOf(line)), `3b misses: ${line}`);
+}
+check(!CODE_RE.test(codeOf('run(); // was: code === "THROTTLED"')), "3b flags a trailing comment");
+check(!DECIDED.test('btn.dataset.action = "x";'), "3d takes any .action for MdgErrors'");
 for (const [f, ls] of Object.entries(lines)) {
   ls.forEach((line, i) => {
     if (isComment(line)) return;
-    if (CODE_RE.test(line) && !allowed(f, i)) check(false, `3b. an entry decides on a code itself (use MdgErrors.remedies): ${at(f, i)}`);
+    if (CODE_RE.test(codeOf(line)) && !allowed(f, i)) check(false, `3b. an entry decides on a code itself (use MdgErrors.remedies): ${at(f, i)}`);
     if (GONE_RE.test(line) && !allowed(f, i)) check(false, `3c. isBiliVideoGone in an entry (retry is MdgErrors.remedies'): ${at(f, i)}`);
     if (REMEDY_RE.test(line) && !ls.slice(Math.max(0, i - 6), i + 1).some((l) => DECIDED.test(l)) && !allowed(f, i)) check(false, `3d. 去设置 / 授权 not decided by MdgErrors: ${at(f, i)}`);
   });

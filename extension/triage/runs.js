@@ -2,7 +2,7 @@
 // 细看, AI 打标签, 逐个视频笔记, 核对, B站 writes) is a run here, and the progress pill is drawn from one table.
 // - run(job, o): one per job at a time (a second is refused with { busy: the running one's name }, nothing sent).
 //   o.next() gives a step { n = keys.length or 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
-//   it; o.judge(r) says ok | item (this step failed, go on) | retry (send it again now) | wait (count down hold(r), then
+//   it; o.judge(r, hold) says ok | item (this step failed, go on) | retry (send it again now) | wait (count down hold(r), then
 //   send the same step again) | stop. Default: hold(r) ? wait : r.ok ? ok : stop. o.done(step, r) after ok and item;
 //   the count is the sum of their n (failed: the item steps' part of it). The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) and o.alive()
 //   turning false end it at once, in a gap or a countdown; a request in flight still lands and counts. o.plan() (async)
@@ -81,7 +81,7 @@
           for (;;) {
             x = await o.act(step);
             sent = true;
-            v = judge(x);
+            v = judge(x, hold);
             if (v === "wait") await wait(job, hold(x), alive, o.tick);
             if ((v !== "retry" && v !== "wait") || !alive()) break;
           }
@@ -168,14 +168,14 @@
   const AI_THROTTLE_WAITS = 5;
   const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
   // A run's judge of AI answers, by the rule above, with its own counts in a row; any other error fails only this
-  // request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (held(r): the run's hold,
-  // then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
-  function aiJudge(held = (r) => r.code === "AI_THROTTLED") {
+  // request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (the run's hold(r), then
+  // the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
+  function aiJudge() {
     const n = { timeouts: 0, waits: 0 };
-    return (r) => {
+    return (r, hold) => {
       if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return "retry";
       if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) Object.assign(r, aiGaveUp());
-      if (!r.ok && held(r)) return "wait";
+      if (!r.ok && hold(r)) return "wait";
       if (!r.ok && aiEnds(r)) return "stop";
       n.timeouts = n.waits = 0;
       return r.ok ? "ok" : "item";

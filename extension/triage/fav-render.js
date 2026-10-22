@@ -69,7 +69,7 @@ function renderFolderHead() {
   const explain = S.mediaId === REMOVED && `离开了你勾选的所有收藏夹，AI 判断、AI 总结、备注和标签都还留着，${UI.CLEAN_BACKUP.meta}`;
   const meta = UI.headMeta([inFolderView() && UI.syncedText(S.readAt[S.mediaId]), invalid && `${invalid} 个已失效`, explain], S.syncError);
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
-  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderTitle(), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
+  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderName(S.mediaId), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
 }
 
 // What is running, in one place on every tab: runs' pill (PILL's order). done/total draws a bar, act puts a button on
@@ -108,7 +108,7 @@ function renderTabs() {
   const steps = STAGES.map(([key, label]) => tab(key, label, c[key] ? "step" : "step zero", c[key]));
   // Say what the box searches: the open folder (or 所有收藏夹 / 已出分拣范围) and the tab you are on.
   const tabName = Object.fromEntries([...STAGES, ["read", READ_TAB]])[S.tab];
-  UI.setSearchScope(el.searchInput, folderTitle(), tabName);
+  UI.setSearchScope(el.searchInput, folderName(S.mediaId), tabName);
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
   const kindTabs = () => UI.kindTabs("data-kindtab", [["", "全部"], ...KINDS].map(([kind, label]) => [kind, label, kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length]), S.kindFilter);
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
@@ -276,7 +276,8 @@ function renderListHeader(list) {
   // A selection, listed or not, decides alone: no AI-verdict batches beside it (all hidden: its buttons say why).
   const picked = S.selected.size;
   const f = S.classFilter[t];
-  // html is what this step does; the selection's buttons go to its floating bar (selActs).
+  // html is what this step does (阅览 mixes 粗看 guesses with 细看 conclusions: no class-wide batch, only the selection);
+  // the selection's buttons go to its floating bar (selActs).
   let html = "";
   // 所有收藏夹 has no one 判断标准 to show: its runs ask for each folder's first (askAllCriteria).
   const critBtn = all ? "" : criteriaBtn();
@@ -298,7 +299,6 @@ function renderListHeader(list) {
     else html += groupBtn("primary");
   } else if (t === "fine") {
     // A selection gets both buttons; without one 值得留 and 可清理 each get a button, 拿不准 none.
-    html = "";
     const staleN = staleFine().length;
     if (staleN) html += critBtn + redoBtn("redo-fine", "fine", staleN);
     if (!picked) {
@@ -307,13 +307,9 @@ function renderListHeader(list) {
     }
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;
-    html = "";
     // Its progress is in the pill (activityState); a failure stays here.
     if (c?.error) html += `<span class="fail-text">${esc(c.error)}</span>`;
     html += UI.cleanBtn(`data-head="${picked ? "clean-selected" : "clean-removed"}"`, { picked, shown: sel, n: picked ? sel || picked : list.length, busy: favBusyReason(), why: list.length ? "" : MdgErrors.TEXT.noVideosListed });
-  } else if (t === "read") {
-    // 阅览 mixes 粗看 guesses with 细看 conclusions, so no class-wide batch here: only the selection.
-    html = "";
   }
   // 保留 in every tab but 已出分拣范围; 标签… and 移动/复制 in any tab of a single folder (in 已出分拣范围 移动 is 收藏到).
   // 取消收藏 goes last, set apart. A selection the filters hide keeps them, disabled (none).
@@ -544,8 +540,6 @@ function leftText(it) {
 }
 // 原在「A」「B」, or 原在「A」「B」等 N 个 with the whole list in the title; nothing for records from before the origin was kept.
 const originHtml = (it) => UI.originChip("原在", (it.from || []).map((f) => f.title));
-
-const folderTitle = (id = S.mediaId) => folderName(id);
 
 function setFocus(bvid, scroll = true) {
   S.focused = bvid;

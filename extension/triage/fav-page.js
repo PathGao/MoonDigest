@@ -112,11 +112,12 @@ async function applyIncluded(included) {
   await loadFolders();
   recoverRemoved(ticked);
 }
+const sameSet = (x, y) => x.length === y.length && x.every((id) => y.includes(id));
 function followIncluded(changes) {
   const c = changes[K.included];
   if (!c || ownEcho(K.included, c) || !S.allFolders.length) return;
   const included = (c.newValue || []).map(String);
-  if (included.length === S.included.length && included.every((id) => S.included.includes(id))) return;
+  if (sameSet(included, S.included)) return;
   applyIncluded(included);
 }
 
@@ -133,6 +134,7 @@ function followShared(changes) {
     const value = c.newValue ?? structuredClone(empty);
     if (name === "kept") followKept(value);
     else S[name] = value;
+    if (name === "tags") for (const id of [...S.tagFilter]) if (!tagById(id)) tagGone(id);
     changed = true;
   }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
@@ -532,11 +534,12 @@ function bindEvents() {
     renderTagLimit();
     render(); // the batch sizes are on row 3's buttons and 粗看完成's 下一批 marks
     toast(MdgErrors.TEXT.settingsSaved);
-    const included = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
+    const ticked = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
+    // Ticks left as they opened write nothing: a folder choice imported meanwhile (导入设置) stays.
+    if (!S.allFolders.length || sameSet(ticked, ticksShown)) return;
     // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
-    if (S.toviewUnread && S.included.includes(TOVIEW)) included.push(TOVIEW);
-    const same = included.length === S.included.length && included.every((id) => S.included.includes(id));
-    if (S.allFolders.length && !same) {
+    const included = S.toviewUnread && S.included.includes(TOVIEW) ? [...ticked, TOVIEW] : ticked;
+    if (!sameSet(included, S.included)) {
       await storeSet(K.included, included);
       await applyIncluded(included);
     }
@@ -561,7 +564,7 @@ function bindEvents() {
     }
   });
   el.csvBtn.addEventListener("click", () => {
-    MdgDownload.text(`MoonDigest-${MdgCommon.fileName(folderTitle())}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
+    MdgDownload.text(`MoonDigest-${MdgCommon.fileName(folderName(S.mediaId))}-${stamp(new Date(), false)}.csv`, buildCsv(), "text/csv;charset=utf-8");
   });
   el.helpBtn.addEventListener("click", () => el.helpDialog.showModal());
   // A download leaves the page as it was, so the 导出 menu would stay open over it.
@@ -637,6 +640,7 @@ const settingsFields = () => ({
   triageAiRemoveTags: el.aiRemoveTagsInput.checked
 });
 let settingsShown = {};
+let ticksShown = [];
 // firstRun: the first open, before any folder is chosen, asks only for folders.
 function openSettings(scrollToLimits = false, firstRun = false) {
   // Named like the button that opened it: the first run's 选择收藏夹, otherwise ⚙ 收藏夹设置 (the dialog is labelled by it).
@@ -666,6 +670,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.aiRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
   renderTokenHints();
   settingsShown = settingsFields();
+  ticksShown = S.allFolders.map((f) => String(f.id)).filter((id) => S.included.includes(id));
   el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();
   if (scrollToLimits) el.titleMaxInput.scrollIntoView({ block: "center" });
@@ -787,9 +792,11 @@ function onKey(e) {
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
+  // Esc with a popover open (导出) closes only that; the browser does it.
+  if (key === "Escape" && document.querySelector(":popover-open")) return;
   if (key === "Escape" && S.viewing) closeViewer();
   // Esc with nothing else open clears the selection.
-  else if (key === "Escape" && S.selected.size && !document.querySelector(":popover-open")) {
+  else if (key === "Escape" && S.selected.size) {
     S.selected.clear();
     render();
   } else if (map[key]) map[key]();

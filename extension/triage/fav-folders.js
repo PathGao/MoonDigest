@@ -102,7 +102,7 @@ function retireUnchosenFolders() {
     if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
     if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已出分拣范围
     const live = new Set(chosenOtherIds());
-    const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
+    const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(KEYS.triageSnapshotPrefix));
     const gone = keys.map((k) => k.slice(KEYS.triageSnapshotPrefix.length)).filter((id) => !live.has(id));
     if (!gone.length) return;
     const got = await chrome.storage.local.get([K.removed, K.left, ...keys]);
@@ -123,7 +123,7 @@ function retireUnchosenFolders() {
 async function loadIncluded() {
   const got = await chrome.storage.local.get(K.included);
   if (Array.isArray(got[K.included])) return got[K.included];
-  const keys = (await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {});
+  const keys = await MdgLimits.storageKeys(chrome.storage.local);
   // 稍后再看 missing from the list this time (its read failed) is still one of every folder.
   const every = [...S.allFolders.map((f) => String(f.id)), ...(S.toviewUnread ? [TOVIEW] : [])];
   const included = keys.some((k) => k.startsWith(KEYS.triageSnapshotPrefix)) ? [...new Set(every)] : [];
@@ -483,7 +483,7 @@ const checkFailed = (id, error) => `核对「${folderName(id)}」失败：${erro
 const RETRY_REFRESH = "，可点刷新重试";
 async function openRemoved() {
   const token = S.folderToken;
-  const keys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
+  const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
   const got = await chrome.storage.local.get([K.removed, ...keys]);
   if (token !== S.folderToken) return false;
   const rec = got[K.removed] || {};
@@ -601,7 +601,7 @@ async function cleanRemoved(list) {
       for (const map of [rec, S.notes, S.kept, S.analyses, S.titleRes]) delete map[b];
     }
     S.basket = S.basket.filter((x) => !set.has(x.bvid));
-    const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
+    const decisionKeys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
     const decisions = await chrome.storage.local.get(decisionKeys);
     for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
     noteOwnWrites(decisions);
@@ -636,7 +636,7 @@ async function loadResults(token) {
   // Results from before criteria were recorded count as made under this folder's current criteria.
   const stamp = {};
   const stamped = (key, r) => {
-    if (!inFolderOnly() || r.criteria !== undefined) return r;
+    if (!inFolderView() || r.criteria !== undefined) return r;
     stamp[key] = { ...r, criteria: criteria() };
     return stamp[key];
   };

@@ -68,7 +68,7 @@ async function init() {
   if (!onVideoPage) {
     const webPage = /^https?:\/\//i.test(tab?.url || "");
     const reason = webPage ? NOT_VIDEO_PAGE : MdgErrors.TEXT.pageUnsupported;
-    syncTools(null, false, reason);
+    syncTools(null, reason);
     setDisabledReason(el.refreshBtn, reason);
     // An ordinary web page (its URL shows because the icon was clicked: activeTab, which also lets the background read
     // it): AI 总结 opens the side panel, the note's tools take the side panel's note; the video's are hidden (popup.css .web-page).
@@ -114,7 +114,7 @@ function bindEvents() {
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload) return;
-    const settings = await getSettingsFromRuntime();
+    const settings = await (settingsLoad || getSettingsFromRuntime());
     const format = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
     const content =
       format === "txt" ? payload.txt || payload.subtitlePreview || "" : payload.srt || "";
@@ -336,12 +336,12 @@ function render(payload, { preserveStatus = false } = {}) {
 
   el.preview.value = payload.subtitlePreview || "";
   el.preview.hidden = !el.preview.value;
-  syncTools(payload, onVideoPage);
+  syncTools(payload);
 }
 
 // A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.
 // offReason: why nothing works off a video page (NOT_VIDEO_PAGE, or pageUnsupported on a tab that is no web page).
-function syncTools(payload, onVideoPage = true, offReason = NOT_VIDEO_PAGE) {
+function syncTools(payload, offReason = NOT_VIDEO_PAGE) {
   const pageReason = onVideoPage ? "" : offReason;
   const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");

@@ -27,8 +27,10 @@ const state = () => Object.fromEntries(["downloadBtn", "readingViewBtn", "summar
   return [k, b.disabled ? b.title : ""];
 }));
 
-ctx.syncTools(null, false);
+vm.runInContext("onVideoPage = false", ctx);
+ctx.syncTools(null);
 assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页不是支持的视频页"]), "a web page disables every tool");
+vm.runInContext("onVideoPage = true", ctx);
 ctx.syncTools(null);
 assert.deepStrictEqual(new Set(Object.values(state())), new Set([""]), "a video page before its first reply keeps them usable");
 ctx.syncTools({ markdown: "# t", srt: "", txt: "" });
@@ -66,6 +68,12 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   ctx.ensurePayload = async () => ({ title: "标题", srt: "1", filename: "2026-10-14-标题-P2-第二集.md" });
   await ctx.el.downloadBtn.on.click();
   assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md", "2026-10-14-标题-P2-第二集.srt"]);
+  // The format is the settings read when the popup opened (settingsLoad), not read again.
+  vm.runInContext('settingsLoad = Promise.resolve({ downloadFormat: "txt" })', ctx);
+  ctx.ensurePayload = async () => ({ title: "标题", srt: "1", txt: "字幕", filename: "a.md" });
+  await ctx.el.downloadBtn.on.click();
+  vm.runInContext("settingsLoad = null", ctx);
+  assert.strictEqual(saved.at(-1), "a.txt");
 })().catch((e) => (console.error(e), process.exit(1)));
 
 // B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.

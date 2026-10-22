@@ -25,7 +25,7 @@ const keepStep = (bvids) =>
     if (it) S.focused = it.bvid;
     return it ? `已撤销：保留《${shortTitle(it)}》` : `已撤销：批量保留 ${bvids.length} 个`;
   });
-// Patch one folder's decisions even after the user switched away from it; a null value deletes.
+// Patch one folder's decisions even after the user switched away from it; a null value deletes (the open view shows the 保留 again).
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
 function patchDecisions(mediaId, patch) {
@@ -35,6 +35,7 @@ function patchDecisions(mediaId, patch) {
     for (const d of maps) {
       for (const [b, v] of Object.entries(patch)) {
         if (v) d[b] = v;
+        else if (d === S.decisions) unfavGone(b);
         else delete d[b];
       }
     }
@@ -51,6 +52,11 @@ function patchKept(patch) {
     }
   }
   return storeSet(K.kept, S.kept);
+}
+// A 取消收藏 undone or overtaken by a re-favorite on B站: the video's 保留, if any, shows again.
+function unfavGone(bvid) {
+  if (S.kept[bvid]) S.decisions[bvid] = S.kept[bvid];
+  else delete S.decisions[bvid];
 }
 // aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
 // batch: when the batch 取消收藏 that made it started, so 最近取消收藏 can re-favorite that batch in one go.
@@ -118,7 +124,6 @@ async function refavDone({ folders: [f], keys: [bvid] }) {
   await patchDecisions(f, { [bvid]: null });
   renderStatus();
 }
-// 停止 on the pill (as 关注's): what went through stays.
 // A B站 batch write that failed midway: what went through stays.
 const cutShort = (what, done, error, rest = "") => `${what}中断（已完成 ${done} 个${rest}）：${error}`;
 const stopWords = UI.stopWords;
@@ -148,7 +153,7 @@ async function refavGone(gone) {
       if (!it?.folders) return;
       it.folders = [...new Set([...it.folders, f])];
       it.left = (it.left || []).filter((x) => x !== f);
-      if (S.decisions[it.bvid]?.action === "unfav") delete S.decisions[it.bvid];
+      if (S.decisions[it.bvid]?.action === "unfav") unfavGone(it.bvid);
     }
   });
   render();
@@ -311,9 +316,12 @@ const fav = {
     else if (done && all && token === S.folderToken) {
       // As a single 取消收藏 here: the video leaves those folders, and the view once it is in none.
       const at = Date.now();
+      const listed = new Map(list.map((it) => [it.bvid, it]));
       for (const [f, items] of Object.entries(gone)) {
         for (const { bvid } of items) {
-          const it = S.itemMap.get(bvid);
+          // A folder load mid-batch (rebuildAll) may have dropped it from the list: it comes back from the batch's own.
+          let it = S.itemMap.get(bvid);
+          if (!it) setItems([...S.items, (it = listed.get(bvid))]);
           it.folders = it.folders.filter((x) => x !== f);
           it.left = [...new Set([...(it.left || []), f])];
           if (!it.folders.length) S.decisions[bvid] = unfavRecord(it, at, batch);

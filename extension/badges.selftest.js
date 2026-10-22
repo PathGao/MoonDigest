@@ -49,9 +49,9 @@ assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling ta
 }
 
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
+assert.strictEqual(lineParts(s1, { verdict: true, vtags: true }).info.aria, "MoonDigest 分拣，AI 判断 可清理（标题粗看，低置信）");
 assert.deepStrictEqual(plain(s1), {
   label: "AI 可清理",
-  aria: "MoonDigest 分拣，AI 判断 可清理（标题粗看，低置信）",
   verdict: "drop",
   stage: 1,
   low: true,
@@ -84,7 +84,7 @@ const tags = [{ id: "t1", name: "Rust", color: "#f60" }];
 const tagOnly = badgeInfo({ tagIds: ["t1"], tags });
 assert.strictEqual(tagOnly.label, "");
 assert.deepStrictEqual(plain(tagOnly.tags), [{ name: "Rust", color: "#f60" }]);
-assert.strictEqual(tagOnly.aria, "MoonDigest 分拣，视频标签：Rust");
+assert.strictEqual(lineParts(tagOnly, { verdict: true, vtags: true }).info.aria, "MoonDigest 分拣，视频标签：Rust");
 
 const decided = badgeInfo({ title: { verdict: "keep", confidence: "high" }, decision: { action: "unfav", at: 1 } });
 assert.strictEqual(decided.label, "已取消收藏", "a user decision outranks the AI verdict in the label");
@@ -96,7 +96,7 @@ assert.strictEqual(badgeInfo({ title: { verdict: "t-must", confidence: "high" } 
 assert.strictEqual(badgeInfo({ title: { verdict: "unsure" } }).verdict, "unsure");
 // An invalid video is 可清理 like on the triage page, analysed or not; one the AI never judged says 已失效, without 「AI」.
 assert.deepStrictEqual(
-  [badgeInfo({ invalid: true }).verdict, badgeInfo({ invalid: true }).label, badgeInfo({ invalid: true }).aria],
+  [badgeInfo({ invalid: true }).verdict, badgeInfo({ invalid: true }).label, lineParts(badgeInfo({ invalid: true }), { verdict: true, vtags: true }).info.aria],
   ["drop", "已失效", "MoonDigest 分拣，已失效"]
 );
 assert.strictEqual(badgeInfo({ invalid: true, title: { verdict: "keep", reason: "好", confidence: "high" } }).label, "AI 可清理", "judged by the AI: still AI 可清理");
@@ -144,7 +144,8 @@ assert.strictEqual(upHidden("2", "a", { 1: ["a"] }), true);
 assert.strictEqual(upHidden("", "a", { 1: ["a"] }), true, "an unknown author is hidden under a tag");
 
 // ---- the 「+」: which UP a name is (only a reliable mid may be written to), the picker's rows, the storage write ----
-const { faceKey, whoIndex, resolveMid, pickRows, applyUpTag, saveUpTag } = ctx.MdgBadges;
+const { faceKey, whoIndex, resolveMid, pickRows, saveUpTag } = ctx.MdgBadges;
+const { applyUpTag } = ctx.MdgTagCore;
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/face/A69e0c.jpg@96w_96h_1c_1s.webp"), "a69e0c.jpg", "the avatar file, size suffix dropped");
 assert.strictEqual(faceKey("https://i1.hdslb.com/bfs/face/a69e0c.jpg"), "a69e0c.jpg", "follow_people stores the bare URL");
 assert.strictEqual(faceKey("//i0.hdslb.com/bfs/vip/dbe23f.png@40w"), "", "a vip badge is not a face");
@@ -200,7 +201,7 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
   assert.strictEqual(ctx.MdgLimits.UP_TAGS, 50);
   assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "新" })), { why: "已经有 50 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的" });
   assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "n3" }).map), { 9: ["t3"] });
-  assert.ok(/const full = upTagsFull\(up\.tags\);\s*if \(full\) more\.append\(el\("div", "empty", full\)\)/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")), "the picker shows why instead of 新建标签");
+  assert.ok(/const full = upTagsFull\(up\.tags\);\s*if \(full\) more\.append\(elOf\("div", "empty", full\)\)/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")), "the picker shows why instead of 新建标签");
 }
 
 // J3: this page is another origin than the 分拣台: the write goes to the background, which takes the shared lock.
@@ -219,7 +220,8 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
 });
 
 // ---- Per-surface rules (DESIGN 产品决策 · B站 页面上的标记): which page is which, and what each shows ----
-const { SURFACES, surfaceOf, fitCount, biliSaysSeen } = ctx.MdgBadges;
+const { surfaceOf, fitCount, biliSaysSeen } = ctx.MdgBadges;
+const { SURFACES } = ctx.MdgSurfaces;
 const where = (url) => {
   const u = new URL(url);
   return surfaceOf({ host: u.hostname, path: u.pathname, search: u.search });
@@ -442,9 +444,13 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
 
   // Picking 常看 hides the other UPs' cards with a class and is remembered for the session.
   const pick = (id) => bar().listeners.click[0]({ target: bar().querySelectorAll(".mdg-upbar-tag").find((b) => b.dataset.tag === id) });
+  // R42: a pass over the same cards does not work out their authors again.
+  let faces = 0;
+  const q = items[0].querySelector.bind(items[0]);
+  items[0].querySelector = (sel) => (sel.includes("/bfs/face/") && faces++, q(sel));
   pick("t1");
   await settle();
-  assert.deepStrictEqual(hidden(), [false, true, true]);
+  assert.deepStrictEqual([hidden(), faces], [[false, true, true], 0]);
   assert.strictEqual(session["mdg-up-filter"], "t1");
   assert.deepStrictEqual(bar().querySelectorAll(".mdg-upbar-tag").filter((b) => b.attrs["aria-pressed"] === "true").map((b) => b.dataset.tag), ["t1"]);
   // A card loaded later by infinite scroll is filtered too.
@@ -474,11 +480,12 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
 
   // 「+N」: every chip fits in a wide box; a narrow one keeps whole chips and counts the rest (ResizeObserver refit).
   // The room is the box's own width with every chip laid out (the chips wrap, so that is the room the card gives it).
+  const resize = (...targets) => resized.forEach((f) => f(targets.map((target) => ({ target }))));
   const ups = chipAfter(homeAuthor);
   const room = { set w(v) { ups.cw = v; ups.x = 0; Object.assign(homeAuthor.parentNode, { x: 0, w: v }); } };
   const more = ups.querySelector(".mdg-more");
   room.w = 1000;
-  resized.forEach((f) => f());
+  resize(homeAuthor.parentNode);
   await settle();
   assert.ok(more.classList.contains("mdg-off"), "all fit: no 「+N」");
   assert.strictEqual(more.dataset.names, "常看、游戏", "「+N」 lists every tag on hover or focus");
@@ -487,22 +494,26 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   // one chip + 「+1」 + the button = 66 fits.
   ups.querySelectorAll(".mdg-up")[1].w = 60;
   room.w = 70;
-  resized.forEach((f) => f());
+  resize(homeAuthor.parentNode);
   await settle();
   assert.deepStrictEqual(ups.querySelectorAll(".mdg-up").map((c) => c.classList.contains("mdg-off")), [false, true], "the chip that doesn't fit hides whole");
   assert.strictEqual(more.textContent, "+1");
   assert.ok(!more.classList.contains("mdg-off"));
   room.w = 1000;
-  resized.forEach((f) => f());
+  resize(homeAuthor.parentNode);
   await settle();
   assert.ok(more.classList.contains("mdg-off") && !ups.querySelectorAll(".mdg-up")[1].classList.contains("mdg-off"), "room again: all chips back");
   // In a line of text the parent's edge bounds the box even when the box itself lays out wider (BewlyCat's names).
   Object.assign(homeAuthor.parentNode, { x: 0, w: 70 });
-  resized.forEach((f) => f());
+  resize(homeAuthor.parentNode);
   await settle();
   assert.strictEqual(more.textContent, "+1", "the parent's edge is the limit, not the box's own width");
+  // R42: a container that changed size refits only its own boxes.
   room.w = 1000;
-  resized.forEach((f) => f());
+  resize(list);
+  await settle();
+  assert.strictEqual(more.textContent, "+1", "another container's resize leaves this box as it was");
+  resize(homeAuthor.parentNode);
   await settle();
 
   // 「在 B站页面显示 UP 标签」 off: every box and the filter bar go; on again, they come back.
@@ -1037,6 +1048,8 @@ async function incremental() {
     setTimeout: (f) => setTimeout(f, 0),
     clearTimeout,
     requestAnimationFrame: (f) => (frames++, setTimeout(f, 0)),
+    innerWidth: 1400,
+    innerHeight: 900,
     cancelAnimationFrame: clearTimeout,
     NodeFilter: { SHOW_TEXT: 4 },
     console,
@@ -1127,4 +1140,36 @@ async function incremental() {
   listen.forEach((l) => l({ triage_analysis_BV1eS4y157Ey: { newValue: store.triage_analysis_BV1eS4y157Ey } }, "local"));
   await settle();
   assert.match(plain.querySelector(".mdg-badge")?.textContent || "", /AI 值得留/);
+
+  // R40: 保留 and a tag in the 分拣台 redraw the line under the title (keyed by what it shows).
+  store.triage_kept = { [BV]: { action: "keep", at: 1 } };
+  store.triage_tags = [{ id: "t1", name: "Rust", color: "#f60" }];
+  store.triage_video_tags = { [BV]: ["t1"] };
+  listen.forEach((l) => l({ triage_kept: { newValue: store.triage_kept }, triage_video_tags: { newValue: store.triage_video_tags } }, "local"));
+  await settle();
+  assert.match(doc.querySelector(".mdg-line")?.textContent || "", /已保留.*Rust/);
+
+  // R41: our pop coming and going on hover reads no card again; R43: hovering a mark with nothing to say hides it.
+  doc.body = body;
+  store.triage_analysis_BV1Q541167Qg = { status: "done", verdict: "keep", reason: "", oneLiner: "" };
+  listen.forEach((l) => l({ triage_analysis_BV1Q541167Qg: { newValue: store.triage_analysis_BV1Q541167Qg } }, "local"));
+  await settle();
+  const quiet = card("BV1Q541167Qg");
+  add(recs, quiet);
+  await settle();
+  let hrefs = 0;
+  for (const a of recs.querySelectorAll("a")) {
+    const get = a.getAttribute.bind(a);
+    a.getAttribute = (k) => (k === "href" && hrefs++, get(k));
+  }
+  const over = (t) => doc.listeners.mouseover.forEach((f) => f({ target: t, composedPath: () => [t] }));
+  over(doc.querySelector(".mdg-line"));
+  const pop = body.childNodes.at(-1);
+  assert.ok(pop.classList.contains("mdg-pop"), "the line's pop");
+  mutate([{ type: "childList", target: body, addedNodes: [pop], removedNodes: [] }]);
+  over(quiet.querySelector(".mdg-badge"));
+  assert.strictEqual(pop.isConnected, false, "a mark without reasons hides the old pop");
+  mutate([{ type: "childList", target: body, addedNodes: [], removedNodes: [pop] }]);
+  await settle();
+  assert.strictEqual(hrefs, 0, "no card read again");
 }
