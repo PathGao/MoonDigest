@@ -54,6 +54,7 @@ const listeners = { message: [], storage: [] };
 const ctx = vm.createContext({
   console,
   structuredClone,
+  AbortController,
   URL,
   URLSearchParams,
   TextEncoder,
@@ -103,7 +104,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
-const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground"].map((k) => [k, t[k]]));
+const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry"].map((k) => [k, t[k]]));
 const realRenderReadingView = t.renderReadingView;
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -1227,6 +1228,97 @@ const settle = async () => {
 
     Object.assign(t, saved);
     Object.assign(state, savedState);
+  }
+
+  // R18: a subtitle picked in the popup or 专注模式 is read like the first read (pageSubtitleSite): a YouTube 429 waits
+  // and retries once, and says the same words.
+  {
+    const keep = Object.fromEntries(["fetchOk", "sleep", "currentSite"].map((k) => [k, t[k]]));
+    const was = { href: t.location.href, hostname: t.location.hostname, ...Object.fromEntries(["site", "videoId", "videoDuration", "fetchRunId", "subtitles"].map((k) => [k, state[k]])) };
+    t.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    t.location.hostname = "www.youtube.com";
+    t.currentSite = () => t.MdgSites.matchSite(t.location.href); // the real one (a test above stubs it)
+    Object.assign(state, { site: "youtube", videoId: "dQw4w9WgXcQ", videoDuration: 0, fetchRunId: 7 });
+    const url = "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en";
+    state.subtitles = [{ id: "en", lang: "en", url }];
+    let calls = 0;
+    t.fetchOk = async () => (calls++, Promise.reject(t.httpError(429)));
+    t.sleep = async () => {};
+    const err = await t.switchSubtitle(url).catch((e) => e);
+    assert.deepStrictEqual([calls, err?.message], [2, t.MdgErrors.TEXT.ytThrottled]);
+    Object.assign(t, keep);
+    Object.assign(t.location, { href: was.href, hostname: was.hostname });
+    for (const k of ["site", "videoId", "videoDuration", "fetchRunId", "subtitles"]) state[k] = was[k];
+  }
+
+  // R17: a video change while 专注模式 is open resets the clip, not the view: the player mount retry still finishes the
+  // entry, and the controls hover stays on the same player (稍后再看 plays the next video in place).
+  {
+    const names = ["finishEnterReaderMode", "ensureReaderPlayerMounted", "refreshClip", "checkUrlChange", "computeCurrentClipSignature", "resetClipState", "getRuntimeVideoElement", "findReaderPlayerHost", "setReaderPlayerControlsVisible", "queueEnsureReaderPlayerMounted"];
+    const keep = Object.fromEntries(names.map((k) => [k, t[k]]));
+    const was = { href: t.location.href, pathname: t.location.pathname, readerPhase: state.readerPhase, sig: state.currentClipSignature };
+    Object.assign(t, { checkUrlChange: real.checkUrlChange, computeCurrentClipSignature: real.computeCurrentClipSignature, resetClipState: real.resetClipState });
+    let finished = 0;
+    t.finishEnterReaderMode = () => finished++;
+    t.ensureReaderPlayerMounted = async () => true;
+    t.refreshClip = () => Promise.resolve();
+    Object.assign(state, { readerPhase: "entering", readingPlayerRetries: 0 });
+    state.currentClipSignature = t.computeCurrentClipSignature();
+    real.scheduleReaderPlayerRetry();
+    t.location.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
+    t.checkUrlChange();
+    await settle();
+    assert.strictEqual(finished, 1, "the mount retry finishes the entry");
+
+    t.location.href = "https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7";
+    t.location.pathname = "/list/watchlater";
+    const host = { isConnected: true, addEventListener() {}, removeEventListener() {}, classList: { contains: () => false, add() {}, remove() {} }, getAttribute: () => null };
+    Object.assign(t, { findReaderPlayerHost: () => host, setReaderPlayerControlsVisible() {}, queueEnsureReaderPlayerMounted() {} });
+    state.readerPhase = "open";
+    state.readingPlayerHost = host;
+    t.bindReaderPlayerControlsHover(host);
+    state.currentClipSignature = t.computeCurrentClipSignature();
+    t.location.href = "https://www.bilibili.com/list/watchlater?bvid=BV1xx411c7mD";
+    t.checkUrlChange();
+    await settle();
+    assert.strictEqual(state.readingControlsHoverHost, host, "the hover stays bound");
+    t.unbindReaderPlayerControlsHover();
+    Object.assign(t, keep);
+    Object.assign(t.location, { href: was.href, pathname: was.pathname });
+    Object.assign(state, { readerPhase: was.readerPhase, currentClipSignature: was.sig, readingPlayerHost: null });
+  }
+
+  // F3: a copy standing down outside 专注模式 stops its page listeners, observers and URL watcher. Last: it cannot restart.
+  {
+    const observers = [];
+    const signals = [];
+    const cleared = [];
+    t.MutationObserver = class {
+      constructor() {
+        this.on = true;
+        observers.push(this);
+      }
+      observe() {}
+      disconnect() {
+        this.on = false;
+      }
+    };
+    const listen = (type, fn, opts) => signals.push([type, opts?.signal]);
+    t.addEventListener = listen;
+    t.document.addEventListener = listen;
+    t.setInterval = () => 42;
+    t.clearInterval = (id) => cleared.push(id);
+    t.removePlayerAiQuickActionButton = () => {};
+    state.playerAiQuickActionObserver = null;
+    t.bindNormalPageStateGuard();
+    t.startUrlWatcher();
+    t.bindPlayerAiQuickActionLayoutEvents();
+    t.startPlayerAiQuickActionObserver();
+    t.bindReaderSettingsDismiss();
+    state.readerPhase = "off";
+    t.standDown();
+    assert.deepStrictEqual([observers.length, observers.filter((o) => o.on).length, cleared], [2, 0, [42]]);
+    assert.ok(signals.length >= 8 && signals.every(([, signal]) => signal?.aborted), JSON.stringify(signals.map(([type, signal]) => [type, signal?.aborted])));
   }
 
   console.log("content selftest: all passed");

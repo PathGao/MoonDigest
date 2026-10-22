@@ -218,6 +218,8 @@
       // What a save merges into the stored list: SidepanelState.mergeSaved(stored, saved, unsaved).
       unsaved: { created: new Set(s.unsaved.created), deleted: new Set(s.unsaved.deleted) },
       previousId: s.previousId,
+      // Where the input's draft is kept while another conversation shows (the draft effect's from / to).
+      draftKey: draftKey(s),
       // The 历史对话 list: the shown video's conversations (the history page lists all of them).
       get history() {
         return s.saved.filter((c) => c.id === id || MdgSites.isConversationOf(c, context));
@@ -535,12 +537,13 @@
         return [...(event.id && event.id === s.conv.id ? setConv(s) : []), { type: "save" }];
       }
       // The stored list changed (the history page deletes conversations too). The shown one deleted there is dropped
-      // like a delete here, so the next question cannot save it back; a reply in flight saves it again. One saved later
-      // (another window's panel on the same conversation) takes its messages, so the next save here keeps them.
+      // like a delete here, with a reply in flight too, so neither the next question nor that reply can save it back.
+      // One saved later (another window's panel on the same conversation) takes its messages, so the next save here
+      // keeps them.
       case "SAVED_CHANGED": {
         const stored = (list) => Array.isArray(list) && list.some((item) => item?.id === s.conv.id);
         s.saved = mergeSaved(event.list, s.saved, s.unsaved);
-        if (s.conv.id && !s.streaming && stored(event.previous) && !stored(event.list)) {
+        if (s.conv.id && stored(event.previous) && !stored(event.list)) {
           return setConv(s);
         }
         const mine = s.conv.id ? s.saved.find((item) => item.id === s.conv.id) : null;

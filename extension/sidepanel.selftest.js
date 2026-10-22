@@ -156,14 +156,55 @@ const chatOn = (context) => {
     await ctx.sendMessage();
     assert.strictEqual(loads, 0, "a saved web conversation does not even load its context");
     // C339: the tab leaves the video while the context loads, so the panel shows another conversation: the question is
-    // not asked there, and it waits in the box.
+    // not asked there. R14: it waits as its own conversation's draft, not in the other one's box.
     state.dispatch({ type: "NEW" });
     show(video);
+    const videoDraft = view().draftKey;
     ctx.ensureCurrentContextForSend = async () => (loads++, show(web("b")), true);
     vm.runInContext('els.input.value = "q"', ctx);
     await ctx.sendMessage();
-    assert.deepStrictEqual([loads, ...errors, vm.runInContext("els.input.value", ctx)], [1, "q"]);
+    assert.deepStrictEqual([loads, ...errors, vm.runInContext("els.input.value", ctx), vm.runInContext("drafts", ctx).get(videoDraft)], [1, "", "q"]);
     assert.deepStrictEqual(drawn, ["q", "-q"], "the question shows while the context loads and goes when it is not asked");
+    vm.runInContext("drafts.clear()", ctx);
+    {
+      // R14: another saved conversation opened while the context loads; the question is back in its own one's box.
+      const conv = (id, bv) => ({ id, contextUrl: `https://www.bilibili.com/video/${bv}`, contextTitle: id, contextRef: { site: "bilibili", videoId: bv, url: `https://www.bilibili.com/video/${bv}` }, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }], updatedAt: 1 });
+      state.dispatch({ type: "SAVED_CHANGED", list: [conv("A", "BV1xx411c7mD"), conv("B", "BV1GJ411x7h7")] });
+      const realHydrate = ctx.hydratePinnedConversationContext;
+      ctx.hydratePinnedConversationContext = async () => true;
+      await ctx.act({ type: "OPEN", id: "A" });
+      let release;
+      ctx.ensureCurrentContextForSend = () => new Promise((r) => (release = r));
+      vm.runInContext('els.input.value = "question for A"', ctx);
+      const sending = ctx.sendMessage();
+      await new Promise((r) => setImmediate(r));
+      await ctx.act({ type: "OPEN", id: "B" });
+      release(true);
+      await sending;
+      assert.strictEqual(vm.runInContext("els.input.value", ctx), "", "not in B's box");
+      await ctx.act({ type: "OPEN", id: "A" });
+      assert.strictEqual(vm.runInContext("els.input.value", ctx), "question for A");
+      vm.runInContext('els.input.value = ""', ctx);
+      ctx.hydratePinnedConversationContext = realHydrate;
+    }
+    {
+      // R15: the load a send waits on ends on another conversation (the tab followed the next video): nothing is said
+      // on that one, from a saved conversation or a new one, even when the load then fails.
+      const [realLoad, realReset] = [ctx.loadContextState, ctx.resetConversationView];
+      const said = [];
+      ctx.resetConversationView = (html) => said.push(html);
+      ctx.loadContextState = async () => (await ctx.act({ type: "NEW" }), false);
+      ctx.ensureCurrentContextForSend = real.ensureCurrentContextForSend;
+      const before = errors.length;
+      for (const open of [() => ctx.act({ type: "OPEN", id: "A" }), () => (state.dispatch({ type: "NEW" }), show(video))]) {
+        await open();
+        vm.runInContext('els.input.value = "q2"', ctx);
+        await ctx.sendMessage();
+      }
+      assert.deepStrictEqual([errors.slice(before), said], [[], []]);
+      vm.runInContext('els.input.value = ""', ctx);
+      Object.assign(ctx, { loadContextState: realLoad, resetConversationView: realReset });
+    }
     // J9: no enabled platform: the conversation and the typed text stay, and 去设置 opens the settings page only when
     // clicked, as every other entry does.
     let resets = 0;
@@ -189,8 +230,13 @@ const chatOn = (context) => {
     state.dispatch({ type: "NEW" });
     show(video);
     vm.runInContext('els.input.value = "还没写完的草稿"; els.modelSelect.value = "p"', ctx);
+    // R16: a newer turn takes the older turns' 重试 away (RETRY only replaces the latest failed turn), as a redraw does.
+    const messagesEl = vm.runInContext("els.messages", ctx);
+    let retries = 0;
+    messagesEl.querySelectorAll = (sel) => (sel === ".sp-msg-retry" ? [{ remove: () => retries++ }] : []);
     await ctx.sendMessage("快捷追问的话");
-    assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx)], [["快捷追问的话"], "还没写完的草稿"]);
+    messagesEl.querySelectorAll = () => [];
+    assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx), retries], [["快捷追问的话"], "还没写完的草稿", 1]);
     assert.ok(/sendPrompt\(prompt\) \{\n  void sendMessage\(prompt\);/.test(page), "快捷追问 passes its text");
     vm.runInContext("activeStream = null", ctx);
     Object.assign(ctx, { appendUserMessage: realUser, appendAssistantPlaceholder: realPlaceholder });
@@ -264,6 +310,11 @@ const chatOn = (context) => {
       assert.deepStrictEqual([copied, saved, asked.map((a) => a.join())], [["# 视频笔记"], [["V.md", "# 视频笔记"]], ["u,true,true,复制", "u,true,true,下载"]]);
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => ""), [ask[0]]);
       assert.deepStrictEqual([saved.length, shown.at(-1)], [1, ["已取消下载", undefined]]);
+      // R12: another conversation shown during the dialog: nothing copied or downloaded, and said so (not red).
+      for (const [fn, text] of [[ctx.copyCurrentConversationMarkdown, ctx.MdgErrors.TEXT.convSwitchedCopy], [ctx.downloadCurrentConversation, ctx.MdgErrors.TEXT.convSwitchedDownload]]) {
+        assert.deepStrictEqual(await run(fn, () => (state.dispatch({ type: "NEW" }), "open")), [ask[0]]);
+        assert.deepStrictEqual([copied.length, saved.length, shown.at(-1)], [1, 1, [text, undefined]]);
+      }
       delete ctx.navigator.clipboard;
       [ctx.chrome.runtime.sendMessage, ctx.MdgDownload] = was;
     }
@@ -576,6 +627,28 @@ const chatOn = (context) => {
     realRenderHistoryList();
     assertInert(els.historyList.innerHTML, "history list");
     assertInert(els.previousVideoBar.innerHTML, "previous video");
+  }
+
+  // R13: init reads the 上一个视频 id and the saved list at once; an id read first keeps the bar until the list says
+  // whether its conversation is still there.
+  {
+    const was = [ctx.chrome.storage.session.get, ctx.chrome.storage.local.get];
+    let release;
+    ctx.chrome.storage.session.get = async () => ({ mdg_sp_previous_video_conversation: "stored" });
+    ctx.chrome.storage.local.get = () => new Promise((r) => (release = r));
+    const reads = Promise.all([ctx.loadSavedConversations(), ctx.loadPreviousVideoConversationId()]);
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(view().previousId, "stored", "kept while the saved list is unread");
+    release({ [vm.runInContext("CONVERSATIONS_STORAGE_KEY", ctx)]: [...view().saved, { id: "stored", contextUrl: "https://example.com/stored", isVideoContext: false, updatedAt: 1, messages: [{ role: "user", content: "q" }] }] });
+    await reads;
+    ctx.renderPreviousVideoBar(); // renderHistoryList's, stubbed here
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(view().previousId, "stored", "its conversation is still saved");
+    state.dispatch({ type: "PREVIOUS_LOADED", id: "gone" });
+    ctx.renderPreviousVideoBar();
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(view().previousId, "", "a conversation not in the read list is dismissed");
+    [ctx.chrome.storage.session.get, ctx.chrome.storage.local.get] = was;
   }
 
   // Without subtitles the intro says why in the video page's sentence (MdgErrors.subtitleMissing).

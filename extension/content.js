@@ -100,17 +100,11 @@ const state = {
   readingVideoEventsBound: false,
   readingLayoutBound: false,
   uiEventsBound: false,
-  runtimeEventsBound: false,
-  settingsWatcherBound: false,
-  normalPageStateGuardBound: false,
-  urlWatcherStarted: false,
   playerAiQuickActionObserver: null,
-  playerAiQuickActionLayoutBound: false,
   playerAiQuickActionSyncTimer: 0,
   playerAiQuickActionCursorHideTimer: 0,
   playerAiQuickActionSubmitting: false,
   playerAiQuickActionSuppressedUntil: 0,
-  readingDocumentClickBound: false,
   readingFollowPaused: false,
   readingLastInputAt: 0,
   readingProgrammaticScrollUntil: 0,
@@ -353,6 +347,8 @@ document.dispatchEvent(new Event("mdg-content-superseded"));
 document.dispatchEvent(new Event("boc-content-superseded"));
 const predecessorStillRunning = Boolean(document.getElementById(ids.root));
 document.addEventListener("mdg-content-superseded", standDown, { once: true });
+// What a superseded copy stops (standDown): the page listeners, observers and the URL watcher hang off this signal.
+const life = new AbortController();
 
 init();
 
@@ -373,6 +369,7 @@ function standDown() {
     location.replace(url.href);
     return;
   }
+  life.abort();
   removePlayerAiQuickActionButton();
   document.getElementById(ids.root)?.remove();
 }
@@ -389,6 +386,7 @@ function init() {
 
   bindRuntimeEvents();
   bindSettingsWatcher();
+  bindReaderSettingsDismiss();
   bindNormalPageStateGuard();
   bindPlayerAiQuickActionLayoutEvents();
   startUrlWatcher();
@@ -451,25 +449,16 @@ function enforceNormalPageStateIfNeeded() {
 }
 
 function bindNormalPageStateGuard() {
-  if (state.normalPageStateGuardBound) {
-    return;
-  }
-  state.normalPageStateGuardBound = true;
-
   const observer = new MutationObserver(() => {
     enforceNormalPageStateIfNeeded();
   });
+  life.signal.addEventListener("abort", () => observer.disconnect());
   observer.observe(document.documentElement, { attributes: true, attributeFilter: READER_PAGE_ATTRS });
   observer.observe(document.body, { attributes: true, attributeFilter: [...READER_PAGE_ATTRS, READING_ACTIVE] });
   enforceNormalPageStateIfNeeded();
 }
 
 function bindRuntimeEvents() {
-  if (state.runtimeEventsBound) {
-    return;
-  }
-  state.runtimeEventsBound = true;
-
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") {
       return false;
@@ -563,11 +552,9 @@ function bindRuntimeEvents() {
 }
 
 function bindSettingsWatcher() {
-  if (state.settingsWatcherBound || !chrome.storage?.onChanged) {
+  if (!chrome.storage?.onChanged) {
     return;
   }
-  state.settingsWatcherBound = true;
-
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "sync" && areaName !== "local") {
       return;
@@ -698,7 +685,6 @@ function buildUiHtml() {
 }
 
 function bindUiEvents() {
-  const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingAutoScroll = byId(ids.readingAutoScroll);
   const readingThemeSelect = byId(ids.readingThemeSelect);
@@ -750,31 +736,6 @@ function bindUiEvents() {
 
   byId(ids.readingSubtitleSelect).addEventListener("change", onReadingSubtitleChange);
 
-  if (!state.readingDocumentClickBound) {
-    document.addEventListener("click", (e) => {
-      if (!state.readingSettingsExpanded) return;
-      const settingsPanel = document.getElementById(ids.readingSettingsPanel);
-      const settingsBtnEl = document.getElementById(ids.readingSettingsBtn);
-      if (!settingsPanel || !settingsBtnEl) {
-        return;
-      }
-      if (!settingsPanel.contains(e.target) && !settingsBtnEl.contains(e.target)) {
-        state.readingSettingsExpanded = false;
-        renderReaderPanels();
-      }
-    });
-    document.addEventListener("keydown", (e) => {
-      if (MdgTyping.composing(e) || e.key !== "Escape" || !state.readingSettingsExpanded) return;
-      // Esc in Bilibili's own fields (the comment box, the danmaku box) is theirs; in the panel's own controls it closes it.
-      const from = e.composedPath?.()[0] || e.target;
-      if (MdgTyping.typingIn(e) && !document.getElementById(ids.readingSettingsPanel)?.contains(from)) return;
-      state.readingSettingsExpanded = false;
-      renderReaderPanels();
-      document.getElementById(ids.readingSettingsBtn)?.focus();
-    });
-    state.readingDocumentClickBound = true;
-  }
-
   bindReaderManualScroll(transcriptList);
   bindReaderManualScroll(chapterList);
   chapterList.addEventListener("pointerdown", () => noteManualReaderInteraction());
@@ -790,11 +751,32 @@ function bindUiEvents() {
   });
   chapterList.addEventListener("click", onReadingChapterClick);
   transcriptList.addEventListener("click", onReadingTranscriptClick);
-  readingView.addEventListener("transitionend", () => {
-    if (!state.readingViewOpen) {
-      stopReadingViewSync();
+}
+
+// The settings panel closes on a click outside it or Esc; on the document, so bound once (bindUiEvents runs again
+// whenever the root is recreated).
+function bindReaderSettingsDismiss() {
+  document.addEventListener("click", (e) => {
+    if (!state.readingSettingsExpanded) return;
+    const settingsPanel = document.getElementById(ids.readingSettingsPanel);
+    const settingsBtnEl = document.getElementById(ids.readingSettingsBtn);
+    if (!settingsPanel || !settingsBtnEl) {
+      return;
     }
-  });
+    if (!settingsPanel.contains(e.target) && !settingsBtnEl.contains(e.target)) {
+      state.readingSettingsExpanded = false;
+      renderReaderPanels();
+    }
+  }, { signal: life.signal });
+  document.addEventListener("keydown", (e) => {
+    if (MdgTyping.composing(e) || e.key !== "Escape" || !state.readingSettingsExpanded) return;
+    // Esc in Bilibili's own fields (the comment box, the danmaku box) is theirs; in the panel's own controls it closes it.
+    const from = e.composedPath?.()[0] || e.target;
+    if (MdgTyping.typingIn(e) && !document.getElementById(ids.readingSettingsPanel)?.contains(from)) return;
+    state.readingSettingsExpanded = false;
+    renderReaderPanels();
+    document.getElementById(ids.readingSettingsBtn)?.focus();
+  }, { signal: life.signal });
 }
 
 // Wheel, touch and keys are always the reader's. A bare scroll event may be our own, so it counts only outside the
@@ -814,16 +796,12 @@ function guardProgrammaticScroll(ms) {
 }
 
 function startUrlWatcher() {
-  if (state.urlWatcherStarted) {
-    return;
-  }
-  state.urlWatcherStarted = true;
-
-  window.setInterval(checkUrlChange, 1200);
+  const timer = window.setInterval(checkUrlChange, 1200);
+  life.signal.addEventListener("abort", () => window.clearInterval(timer));
   // Both sites navigate in place (B站's next part or next 稍后再看 video too); the Navigation API sees each URL change
   // at once, the interval is the fallback. YouTube's own event comes when its page has switched.
-  window.navigation?.addEventListener("currententrychange", checkUrlChange);
-  document.addEventListener("yt-navigate-finish", checkUrlChange);
+  window.navigation?.addEventListener("currententrychange", checkUrlChange, { signal: life.signal });
+  document.addEventListener("yt-navigate-finish", checkUrlChange, { signal: life.signal });
 }
 
 function checkUrlChange() {
@@ -899,11 +877,8 @@ function resetClipState() {
   state.srt = "";
   state.txt = "";
   state.currentClipSignature = computeCurrentClipSignature();
-  stopReadingViewSync();
   state.readingActiveSubtitleIndex = -1;
   state.readingActiveChapterIndex = -1;
-  state.readingVideoEl = null;
-  stopReaderPlayerObserver();
 
   setMessage("");
   if (state.readingViewOpen) {
@@ -1188,7 +1163,7 @@ async function switchSubtitle(url) {
   const runId = state.fetchRunId;
   const switchId = ++subtitleSwitchId;
   try {
-    const got = await MdgSites.loadFirstTrack(currentSite(), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
+    const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), runId), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
     if (switchId !== subtitleSwitchId) return;
     if (!got.track) throw got.error;
     await showSubtitle(got, runId);
@@ -3118,20 +3093,18 @@ function startPlayerAiQuickActionObserver() {
     subtree: true
   });
   state.playerAiQuickActionObserver = observer;
+  life.signal.addEventListener("abort", () => observer.disconnect());
 }
 
 function bindPlayerAiQuickActionLayoutEvents() {
-  if (state.playerAiQuickActionLayoutBound) {
-    return;
-  }
   const schedule = () => schedulePlayerAiQuickActionSync(80);
-  window.addEventListener("resize", schedule, { passive: true });
-  window.addEventListener("scroll", schedule, { passive: true });
-  window.addEventListener("pageshow", schedule, { passive: true });
-  document.addEventListener("fullscreenchange", schedule);
-  document.addEventListener("webkitfullscreenchange", schedule);
-  window.visualViewport?.addEventListener?.("resize", schedule, { passive: true });
-  state.playerAiQuickActionLayoutBound = true;
+  const opts = { passive: true, signal: life.signal };
+  window.addEventListener("resize", schedule, opts);
+  window.addEventListener("scroll", schedule, opts);
+  window.addEventListener("pageshow", schedule, opts);
+  document.addEventListener("fullscreenchange", schedule, opts);
+  document.addEventListener("webkitfullscreenchange", schedule, opts);
+  window.visualViewport?.addEventListener?.("resize", schedule, opts);
 }
 
 // Throttled, not debounced, like the focus-mode player observer: danmaku mutate the page nonstop, and a debounce
