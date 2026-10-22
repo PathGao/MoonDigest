@@ -38,6 +38,15 @@ for (const f of PS.pageCode) {
 assert.strictEqual(badgeInfo({}), null, "no data, no mark");
 assert.strictEqual(badgeInfo({ analysis: { status: "error", error: "x" } }), null, "failed analysis alone is not a mark");
 assert.strictEqual(badgeInfo({ tagIds: ["gone"], tags: [] }), null, "dangling tag ids are not a mark");
+// J13: a 收藏夹 page shows its own folder's tags, as the 分拣台 does; elsewhere a name two folders share shows once.
+{
+  const tags = [{ id: "a1", name: "学习", color: "#1", folder: "1" }, { id: "a2", name: "学习", color: "#2", folder: "2" }, { id: "b2", name: "游戏", color: "#3", folder: "2" }];
+  const names = (o) => badgeInfo({ tagIds: ["a1", "a2", "b2"], tags, ...o })?.tags.map((t) => t.name) || [];
+  assert.deepStrictEqual(names({ folder: "1" }), ["学习"]);
+  assert.deepStrictEqual(names({ folder: 2 }), ["学习", "游戏"]);
+  assert.deepStrictEqual(names({}), ["学习", "游戏"], "same-name tags merged off a 收藏夹 page");
+  assert.strictEqual(badgeInfo({ tagIds: ["b2"], tags, folder: "1" }), null, "another folder's tag alone is no mark there");
+}
 
 const s1 = badgeInfo({ title: { verdict: "drop", reason: "标题党", confidence: "low" } });
 assert.deepStrictEqual(plain(s1), {
@@ -184,24 +193,26 @@ assert.strictEqual(r.tags, pt, "an existing name is reused, not duplicated");
 assert.deepStrictEqual(plain(r.map), { 9: ["a"] }, "and stays on");
 assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty name writes nothing");
 
+// J14: UP 标签 stop at MdgLimits.UP_TAGS, as 摘读记录's at READING_TAGS: a new name is refused with why, an existing one
+// is still switched on.
+{
+  const full = Array.from({ length: ctx.MdgLimits.UP_TAGS }, (_, i) => ({ id: `t${i}`, name: `n${i}` }));
+  assert.strictEqual(ctx.MdgLimits.UP_TAGS, 50);
+  assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "新" })), { why: "已经有 50 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的" });
+  assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "n3" }).map), { 9: ["t3"] });
+  assert.ok(/const full = upTagsFull\(up\.tags\);\s*if \(full\) more\.append\(el\("div", "empty", full\)\)/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")), "the picker shows why instead of 新建标签");
+}
+
+// J3: this page is another origin than the 分拣台: the write goes to the background, which takes the shared lock.
 (async () => {
-  const db = { follow_tags: pt, follow_tag_map: { 1: ["a"] } };
-  const sets = [];
-  const local = { get: async (k) => Object.fromEntries(k.map((x) => [x, db[x]])), set: async (o) => (sets.push(Object.keys(o)), Object.assign(db, o)) };
-  db.follow_tag_map = { 1: ["a"], 5: ["b"] }; // written by the triage page after this tab last read it
-  await saveUpTag(local, "1", { toggle: "b" });
-  assert.deepStrictEqual(plain(db.follow_tag_map), { 1: ["a", "b"], 5: ["b"] }, "reads fresh: another page's write survives");
-  assert.deepStrictEqual(sets, [["follow_tag_map"]], "a toggle writes only follow_tag_map");
-  await saveUpTag(local, "1", { create: "新" });
-  assert.deepStrictEqual(sets[1], ["follow_tags", "follow_tag_map"]);
-  assert.strictEqual(db.follow_tags.at(-1).name, "新");
-  assert.strictEqual(await saveUpTag(local, "1", { toggle: "nope" }), null);
-  assert.strictEqual(sets.length, 2, "nothing written for a tag that is gone");
-  // Two quick clicks: the second reads after the first one's write, so both toggles stay.
-  const slow = { get: async (k) => (await new Promise((r) => setTimeout(r, 5)), local.get(k)), set: async (o) => (await new Promise((r) => setTimeout(r, 5)), local.set(o)) };
-  db.follow_tag_map = {};
-  await Promise.all([saveUpTag(slow, "2", { toggle: "a" }), saveUpTag(slow, "3", { toggle: "a" })]);
-  assert.deepStrictEqual(plain(db.follow_tag_map), { 2: ["a"], 3: ["a"] }, "overlapping writes keep both");
+  const sent = [];
+  ctx.chrome = { runtime: { sendMessage: async (m) => (sent.push(plain(m)), { ok: true, data: { tags: pt, map: { 1: ["a"] }, id: "a" } }) } };
+  const r = await saveUpTag("1", { toggle: "a" });
+  assert.deepStrictEqual(sent, [{ type: "follow-up-tag", mid: "1", op: { toggle: "a" } }]);
+  assert.deepStrictEqual(plain(r.map), { 1: ["a"] });
+  ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "x" });
+  assert.strictEqual(await saveUpTag("1", { toggle: "a" }), null);
+  delete ctx.chrome;
 })().catch((e) => {
   console.error(e);
   process.exit(1);
@@ -578,7 +589,12 @@ async function plusPage() {
     addEventListener: (t, f) => (winL[t] ||= []).push(f),
     removeEventListener: (t, f) => winL[t]?.includes(f) && winL[t].splice(winL[t].indexOf(f), 1),
     chrome: {
-      runtime: { id: "x", sendMessage: async () => {}, getURL: (p) => p },
+      // The background's follow-up-tag (follow-bg.js followUpTag): applyUpTag on what is stored, the changed keys written.
+      runtime: { id: "x", sendMessage: async (m) => (m.type === "follow-up-tag" ? win.chrome.storage.local.get(["follow_tags", "follow_tag_map"]).then(async (got) => {
+        const r = ctx.MdgTagCore.applyUpTag(got.follow_tags, got.follow_tag_map, m.mid, m.op);
+        if (r?.map) await win.chrome.storage.local.set(r.tags !== got.follow_tags ? { follow_tags: r.tags, follow_tag_map: r.map } : { follow_tag_map: r.map });
+        return { ok: true, data: r };
+      }) : undefined), getURL: (p) => p },
       storage: {
         sync: { get: async (d) => ({ ...d, showBiliTriageBadges: false }) },
         local: {
@@ -809,7 +825,7 @@ async function surfacePages() {
   // marks (the lines above the player have them). An UP's space there: nothing read, nothing drawn.
   Object.assign(store, {
     triage_analysis_BV1GJ411x7h7: { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" },
-    triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0" }],
+    triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0", folder: "5" }],
     triage_video_tags: { BV1GJ411x7h7: ["t"] }
   });
   const vsync = { showBiliVerdicts: true };
@@ -893,7 +909,7 @@ async function surfacePages() {
   // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
   Object.assign(store, {
     triage_analysis_BV1GJ411x7h7: { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" },
-    triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0" }],
+    triage_tags: [{ id: "t", name: "收藏标签", color: "#0f0", folder: "5" }],
     triage_video_tags: { BV1GJ411x7h7: ["t"] }
   });
   const hoverPop = async (verdicts) => {
@@ -917,7 +933,7 @@ async function surfacePages() {
   off.listen.forEach((f) => f({ showBiliTriageBadges: { newValue: false } }, "sync"));
   await new Promise((r) => setTimeout(r, 30));
   assert.strictEqual(off.doc.querySelector(".mdg-badge"), null, "marks off");
-  store.triage_tags = [...store.triage_tags, { id: "n", name: "新标签", color: "#00f" }];
+  store.triage_tags = [...store.triage_tags, { id: "n", name: "新标签", color: "#00f", folder: "5" }];
   store.triage_video_tags = { BV1GJ411x7h7: ["n"] };
   off.listen.forEach((f) => f({ triage_video_tags: { newValue: store.triage_video_tags } }, "local"));
   off.sync.showBiliTriageBadges = true;

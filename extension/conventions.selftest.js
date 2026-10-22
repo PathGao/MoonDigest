@@ -266,13 +266,14 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
   }
   section("5a. 整份写视频备注（该用 MdgLimits.saveVideoNote）", hits, "allow");
 
-  // 5b. follow-bg.js writes its follow_* keys through followUpdate (its queue in the worker; ARCHITECTURE). A write names
-  // them through MdgLimits (KEYS.follow, followFull, followPrefix); a follow_ literal is 2a's.
+  // 5b. follow-bg.js writes its follow_* keys through followUpdate (MdgLimits.updateFollow, under the Web Lock the
+  // 分拣台 takes too; ARCHITECTURE). A write names them through MdgLimits (KEYS.follow, followFull, followPrefix); a
+  // follow_ literal is 2a's.
   const f = "triage/follow-bg.js";
   const text = lines[f].join("\n");
-  const def = text.indexOf("function followUpdate(");
+  const def = text.indexOf("const followUpdate = (names, fn) => MdgLimits.updateFollow(");
   if (def < 0) throw new Error(`${f} has no followUpdate: update check 5b`);
-  const body = [def, closeOf(text, text.indexOf("{", def))];
+  const body = [def, text.indexOf("\n", def)];
   const raw = [];
   for (const m of text.matchAll(/chrome\.storage\.local\.(?:set|remove)\(/g)) {
     const open = m.index + m[0].length - 1;

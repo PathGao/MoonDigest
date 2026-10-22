@@ -421,7 +421,7 @@ assert.ok(source.includes(`pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: c
 
 // 关注设置 and the AI settings it seeds: a failed chrome.storage.sync.set says so, as 收藏夹设置 does.
 assert.strictEqual((source.match(/chrome\.storage\.sync\.set\(/g) || []).length, 3);
-assert.ok(/\.set\(MdgLimits\.followFull\(\{ ai_settings: seed \}\)\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /try \{\s*await chrome\.storage\.sync\.set\(\{ \.\.\.MdgLimits\.followFull\(\{ ai_settings: ai \}\), \.\.\.days \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
+assert.ok(/\.set\(MdgLimits\.followFull\(\{ ai_settings: seed \}\)\)\.catch\(\(e\) => toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source) && /await chrome\.storage\.sync\.set\(\{ \.\.\.\(Object\.keys\(aiPatch\)\.length \? MdgLimits\.followFull\(\{ ai_settings: ai \}\) : \{\}\), \.\.\.\(followSlowDays \|\| followDeadDays \? days : \{\}\) \}\);\s*\} catch \(e\) \{\s*return toast\(`\$\{MdgErrors\.TEXT\.settingsSaveFailed\}：/.test(source), "both writes catch");
 
 // The player's T / Esc reach 关注 through 收藏夹's one message listener (modeKeys), as page keys do.
 assert.ok(!/addEventListener\("message"/.test(source), "follow.js has no message listener of its own");
@@ -525,7 +525,7 @@ console.log("follow selftest: all passed");
 
 // ----- 关注 through the page: fav-*.js, triage.js and follow.js (as triage.html loads them) on a stub DOM -----
 // setup(ctx) runs before follow.js. FW is what follow.js keeps to itself and the tests read or drive.
-async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) {
+async function followPage({ store = {}, sync = {}, handlers = {}, setup = () => {} } = {}) {
   const els = new Map();
   // An element: what the code sets is kept, listeners per type (fire); anything else is a no-op.
   function elem(id = "") {
@@ -574,7 +574,10 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
           set: async (o) => void Object.assign(store, structuredClone(o)),
           remove: async (keys) => [].concat(keys).forEach((k) => delete store[k])
         },
-        sync: { get: async (d) => ({ ...d }), async set() {} },
+        sync: {
+          get: async (d) => (Array.isArray(d) || typeof d === "string" ? Object.fromEntries([].concat(d).filter((k) => k in sync).map((k) => [k, structuredClone(sync[k])])) : { ...d, ...structuredClone(Object.fromEntries(Object.entries(sync).filter(([k]) => d && k in d))) }),
+          set: async (o) => void Object.assign(sync, structuredClone(o))
+        },
         onChanged: { addListener() {} }
       }
     }
@@ -593,7 +596,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   Object.assign(ctx.MoonTriage, { toast, askConfirm });
   setup(ctx);
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
-  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, D: () => D, relationRun, pushWriteUndo, render, refollow, regroup, pickSide, aiTags, AI };\n})()`, ctx);
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, D: () => D, relationRun, pushWriteUndo, render, refollow, regroup, pickSide, aiTags, AI, manageTags, openSettings };\n})()`, ctx);
   const settle = async (n = 30) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
   };
@@ -604,7 +607,7 @@ async function followPage({ store = {}, handlers = {}, setup = () => {} } = {}) 
   };
   const key = (k) => ctx.onKey({ key: k, target: { closest: () => null }, preventDefault() {} });
   const click = (id, sel, dataset) => ($(id).L.click || []).forEach((f) => f({ button: 0, preventDefault() {}, target: { closest: (s) => (s === sel ? { dataset, closest: () => null } : null) } }));
-  return { ctx, FW: ctx.FW, $, winL, sent, toasts, asked, picks, store, settle, until, key, click };
+  return { ctx, FW: ctx.FW, $, winL, sent, toasts, asked, picks, store, sync, settle, until, key, click };
 }
 
 const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
@@ -744,6 +747,60 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     // K1: none of the selection can take it: the count is the selection's, never 0, off with why.
     p.FW.render();
     assert.ok(E.sel.innerHTML.includes('aria-label="取消关注选中的 1 个" disabled title="选中的都已取消关注"'), E.sel.innerHTML);
+  }
+
+  // J11: ✦ AI 打标签 with no UP 主 here is off and says why, as 收藏夹's in an empty folder.
+  {
+    const p = await followPage({ store: page() });
+    const { F } = p.FW;
+    assert.ok(!/data-fw="ai"[^>]* disabled/.test(p.$("fwAiSlot").innerHTML), p.$("fwAiSlot").innerHTML);
+    F.side = "g:-10";
+    p.FW.render();
+    assert.ok(/data-fw="ai"[^>]* disabled title="这个分组没有 UP 主"/.test(p.$("fwAiSlot").innerHTML), p.$("fwAiSlot").innerHTML);
+  }
+
+  // J10: 关注设置 writes only the fields changed in it, over what is stored: a value imported meanwhile stays.
+  {
+    const p = await followPage({ store: page(), sync: { follow_ai_settings: { batchSize: 10, intervalSec: 2, newTagMax: 3, allowRemove: false } } });
+    await p.FW.openSettings();
+    assert.strictEqual(p.$("fwNewMaxInput").value, 3);
+    p.sync.follow_ai_settings = { ...p.sync.follow_ai_settings, intervalSec: 9 };
+    p.$("fwNewMaxInput").value = "4";
+    p.$("fwSettingsDialog").returnValue = "save";
+    for (const f of p.$("fwSettingsDialog").L.close) await f();
+    assert.deepStrictEqual(plain(p.sync), { follow_ai_settings: { batchSize: 10, intervalSec: 9, newTagMax: 4, allowRemove: false } }, "the imported 9 stays; the days are not written");
+  }
+
+  // J14: UP 标签 stop at MdgLimits.UP_TAGS, as B站 pages' 「+ UP 标签」: 标签管理 and the picker say why.
+  {
+    const full = Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, name: `n${i}`, color: "#111" }));
+    const p = await followPage({ store: page({ follow_tags: full }) });
+    const why = "已经有 50 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的";
+    assert.strictEqual(p.FW.manageTags.addReason("新"), why);
+    assert.strictEqual(await p.FW.manageTags.add("新"), null);
+    assert.deepStrictEqual([p.store.follow_tags.length, p.toasts.at(-1)], [50, why]);
+    p.click("followMain", "[data-pick]", { pick: "u1" });
+    assert.deepStrictEqual([p.picks.at(-1).canCreate, p.picks.at(-1).empty], [false, why]);
+    assert.strictEqual((await p.picks.at(-1).create("n3")).id, "t3", "an existing name is still that tag");
+  }
+
+  // J15 / J18: an 已取消关注 UP 主's chips come off with a click, as 收藏夹's 已出分拣范围 videos'; U puts them back with
+  // 收藏夹's wording.
+  {
+    const p = await followPage({ store: page({ follow_tags: [{ id: "t1", name: "科普", color: "#111" }], follow_unfollowed: { u3: { at: sec - DAY, source: "app", name: "丙", tagIds: ["t1"] } } }) });
+    const { F, E } = p.FW;
+    F.side = "out";
+    p.FW.render();
+    assert.ok(/data-untag="t1" aria-label="去掉标签 科普"/.test(E.list.innerHTML), E.list.innerHTML);
+    const card = { dataset: { mid: "u3" } };
+    const chip = { dataset: { untag: "t1" }, closest: (sel) => (sel === "[data-mid]" ? card : null) };
+    for (const f of p.$("followMain").L.click) await f({ button: 0, preventDefault() {}, target: { closest: (sel) => (sel === "[data-untag]" ? chip : null) } });
+    await p.settle();
+    assert.deepStrictEqual([plain(p.store.follow_unfollowed.u3.tagIds), p.toasts.at(-1)], [[], "已去掉「科普」 · U 撤销"]);
+    p.key("u");
+    await p.settle();
+    assert.deepStrictEqual(plain(p.store.follow_unfollowed.u3.tagIds), ["t1"], "U puts it back");
+    assert.ok(p.toasts.includes("已撤销：去掉「科普」"), p.toasts.join("|"));
   }
 
   // J8: an empty list says why: the search, else the filters, else the group is empty.
@@ -990,20 +1047,32 @@ const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to
     assert.strictEqual(env.proposal, null, "the proposal naming the deleted tag is not kept");
     assert.deepStrictEqual(env.progress, ["运行期间删除了建议用到的标签，请重新运行"]);
   }
-  // C420: a tag change applies to what storage holds now (badges.js may have written since D was read), one at a time.
+  // C420 / J3: a tag change applies to what storage holds now, one at a time, under the Web Lock the background takes for
+  // its own follow_* writes (a sync, B站 pages' 「+ UP 标签」): neither loses the other's change.
   {
-    const code = slice("let tagWrites", "const changeTags");
+    const code = slice("// follow_tags and follow_tag_map are written by", "const changeTags");
     const store = { follow_tag_map: { b: ["t9"] }, follow_tags: [] };
-    const chrome = { storage: { local: { get: async (keys) => Object.fromEntries(keys.map((k) => [k, store[k]])) } } };
-    const write = async (o) => (await new Promise((r) => setImmediate(r)), Object.assign(store, o), true);
+    const tick = () => new Promise((r) => setImmediate(r));
+    const chrome = { storage: { local: { get: async (keys) => (await tick(), Object.fromEntries(keys.map((k) => [k, store[k]]))), set: async (o) => (await tick(), Object.assign(store, o)) } } };
+    const write = async (o) => (await tick(), Object.assign(store, o), true);
     const D = { map: {} }; // stale: does not have b's tag yet
-    // limits.js against this storage: the page reads and writes the key through MdgLimits.followGet / followFull.
-    const lim = vm.createContext({ chrome });
-    lim.globalThis = lim;
-    vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), lim);
-    const fns = new Function("chrome", "write", "D", "MdgLimits", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D, lim.MdgLimits);
-    const [one] = await Promise.all([fns.setTagMap((m) => ({ ...m, a: ["t1"] })), fns.setTagMap((m) => ({ ...m, c: ["t2"] }))]);
-    assert.deepStrictEqual(plain(store.follow_tag_map), { b: ["t9"], a: ["t1"], c: ["t2"] }, "neither write loses the other's or badges.js's");
+    // One lock manager for both contexts, as the extension's origin has; each context loads its own limits.js.
+    const held = new Map();
+    const navigator = { locks: { request: (name, fn) => { const run = (held.get(name) || Promise.resolve()).then(fn); held.set(name, run.catch(() => {})); return run; } } };
+    const limits = () => {
+      const lim = vm.createContext({ chrome, navigator });
+      lim.globalThis = lim;
+      vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), lim);
+      return lim.MdgLimits;
+    };
+    const bg = limits();
+    const fns = new Function("chrome", "write", "D", "MdgLimits", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D, limits());
+    const [one] = await Promise.all([
+      fns.setTagMap((m) => ({ ...m, a: ["t1"] })),
+      bg.updateFollow(["tag_map"], (s) => ({ tag_map: { ...s.tag_map, z: ["t3"] } })),
+      fns.setTagMap((m) => ({ ...m, c: ["t2"] }))
+    ]);
+    assert.deepStrictEqual(plain(store.follow_tag_map), { b: ["t9"], a: ["t1"], z: ["t3"], c: ["t2"] }, "neither write loses the other's or the background's");
     assert.deepStrictEqual(plain(one.prev), { b: ["t9"] });
     assert.strictEqual(D.map, store.follow_tag_map);
   }

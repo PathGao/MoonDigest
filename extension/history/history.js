@@ -27,8 +27,9 @@ let triageVideoTags = {}; // bvid → 分拣台 tag ids
 // Records unmarked here that have nothing else left: kept on the list until the page reloads, so a row does not
 // vanish under the cursor (record key → its last mark).
 const unmarked = new Map();
-// Records whose marks changed here: the 星标 and tag filters keep showing them until the page reloads, for the same reason.
-const touched = new Set();
+// Records whose 星标 changed here: the 星标 filter keeps showing them until the page reloads, for the same reason (星标
+// has no U). A tag edit leaves the tag filters at once, as on the 分拣台; U brings the record back.
+const starEdited = new Set();
 let starFilter = false;
 let tagState = ""; // 第 2 行 "" | "untagged" | "tagged", on the record's own tags (the tag row's), as the 分拣台's
 const tagFilter = new Set();
@@ -137,7 +138,6 @@ function editItems(m, refs, change) {
   const items = { ...m.items };
   for (const [key, ref] of Object.entries(refs)) {
     const item = change({ star: 0, tags: [], ...(items[key] || unmarked.get(key)) }, key);
-    touched.add(key);
     if (item.star || item.tags.length) items[key] = { ...item, ref, at: item.at || Date.now(), updatedAt: Date.now() };
     else {
       if (items[key]) unmarked.set(key, { ...items[key], ...item, ref });
@@ -148,6 +148,7 @@ function editItems(m, refs, change) {
 }
 const toggleStar = (g) => {
   const on = !g.mark?.star;
+  starEdited.add(readingKey(g));
   return saveMarks((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
 };
 
@@ -159,7 +160,7 @@ async function untag(g, id) {
   let before = {};
   const saved = await saveMarks((m) => ((before = tagsBefore(m, [key])), editItems(m, refs, (item) => ({ ...item, tags: item.tags.filter((t) => t !== id) }))));
   if (!saved) return;
-  pushTagUndo(before, refs, `去掉「${name}」`);
+  pushTagUndo(before, refs, UI.untagStep(name));
   setStatus(UI.untagged(name));
 }
 
@@ -367,7 +368,10 @@ const aiTags = {
   // READING_TAGS is a hard limit: the review says up front which ticked new tags 应用 will not create (newTagPlan).
   notMade: (p) => ({ keys: new Set(newTagPlan(p.newTags, marks.tags).skipped), why: `摘读记录的标签最多 ${MdgLimits.READING_TAGS} 个` })
 };
+// Why ✦ AI 打标签 cannot open: no record to tag and nothing running or pending, as 收藏夹's in an empty folder.
+const aiReason = (all = groupByVideo(conversations)) => (AI.run || AI.proposal || all.some(readingKey) ? "" : NO_RECORDS);
 async function openAi() {
+  if (aiReason()) return setStatus(aiReason());
   if (!AI.run) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
   await aiSettings();
   TagDialogs.ai.open(aiTags);
@@ -530,6 +534,7 @@ function renderTags(g) {
   return own.length || triage.length || plus ? `<div class="chips">${[...own, ...triage].join("")}${plus}</div>` : "";
 }
 
+const NO_RECORDS = "还没有摘读记录";
 const SETTINGS_BTN = UI.gearBtn('data-f="settings"', "摘读记录设置");
 // Rows 2 and 3 of the head, 全选 and the selection bar; a focused control there gets focus back after the redraw.
 function renderHead(all, groups) {
@@ -540,15 +545,17 @@ function renderHead(all, groups) {
   const anyTag = visibleGroups({ tags: [] }, all);
   const tagN = visibleGroups({ tagged: "" }, all);
   els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false, tagged: "" }, all).length, !starFilter && !recentFilter && !tagState)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + UI.tagStateGroup((k) => `data-f="tagstate:${k}"`, (k) => tagN.filter((g) => (g.mark?.tags?.length > 0) === (k === "tagged")).length, tagState) + recent);
-  els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: anyTag.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" })).join(""));
+  // As the 分拣台's row 4: only the tags the listed records carry, and the ones turned on (so they can be turned off).
+  const carrying = (id) => anyTag.filter((g) => g.mark?.tags?.includes(id)).length;
+  els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.filter((t) => carrying(t.id) || tagFilter.has(t.id)).map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: carrying(t.id), on: tagFilter.has(t.id), what: "记录" })).join(""));
   // 「选中的 N 个」 counts records, as the dialog's 选中 does.
   const picked = aiRecords("selected").size || recordsOf(all.filter((g) => selected.has(g.key))).size;
-  els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: Boolean(AI.run), pending: Boolean(AI.proposal), picked }) + SETTINGS_BTN;
+  els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: Boolean(AI.run), pending: Boolean(AI.proposal), picked, aiReason: aiReason(all) }) + SETTINGS_BTN;
   const filtered = filtersOn();
   UI.setSearchScope(els.search, MdgErrors.LABEL.history, [starFilter && "星标", recentFilter && UI.AI_RECENT, ...[...tagFilter].map((id) => tagOf(id)?.name)].filter(Boolean).join(" · "));
   els.searchCount.textContent = UI.resultCount(els.search.value.trim() || filtered, groups.length);
   const shown = shownPicks(groups);
-  els.selectAllSlot.innerHTML = UI.selectAllBox('data-f="select-all"', groups.length, shown.length, MdgErrors.TEXT.noVideosListed);
+  els.selectAllSlot.innerHTML = UI.selectAllBox('data-f="select-all"', groups.length, shown.length, "这里没有列出记录");
   // The bar's buttons act on the listed selected records and say how many; when the search and filters hide every
   // selected one they count all of them, off with selbar's none, as on the 分拣台.
   const n = shown.length || selected.size;
@@ -573,7 +580,7 @@ function visibleGroups({ star = starFilter, recent = recentFilter, tagged = tagS
   const words = searchWords(els.search.value);
   // 星标 and the tag chips narrow the list; several tags are ANDed, as on the 分拣台.
   const recentKeys = new Set(recent ? AI.recent?.keys : []);
-  const groups = all.filter((g) => (!recent || recentKeys.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!star || g.mark?.star) && (!tagged || (g.mark?.tags?.length > 0) === (tagged === "tagged")) && [...tags].every((id) => g.mark?.tags?.includes(id)))));
+  const groups = all.filter((g) => (!recent || recentKeys.has(readingKey(g))) && (!star || g.mark?.star || starEdited.has(readingKey(g))) && (!tagged || (g.mark?.tags?.length > 0) === (tagged === "tagged")) && [...tags].every((id) => g.mark?.tags?.includes(id)));
   if (!words.length) return groups;
   // As the 分拣台's search: every word somewhere in the record, any case.
   return groups.filter((g) =>
@@ -660,9 +667,9 @@ const entryOf = (key) => [...els.list.querySelectorAll(".entry")].find((e) => e.
 function render() {
   const groups = visibleGroups();
   const allGroups = groupByVideo(conversations);
-  // Records of web pages are not videos: counted on their own.
-  const videos = allGroups.filter((g) => g.context.videoId).length;
-  const pages = allGroups.length - videos;
+  // Records of web pages are not videos: counted on their own. A video's parts are one video, as for 星标, tags and 备注.
+  const videos = new Set(allGroups.filter((g) => g.context.videoId).map((g) => readingKey(g) || g.key)).size;
+  const pages = allGroups.filter((g) => !g.context.videoId).length;
   const { counted, starred } = MdgLimits.conversationCounts(conversations, marks);
   els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${counted}/${MdgLimits.AI_CONVERSATIONS}${starred ? `，星标 ${starred} 段不计` : ""}`;
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
@@ -709,7 +716,7 @@ function render() {
         </article>`;
       }).join("")
     : allGroups.length ? `<p class="empty">${UI.noMatch(els.search.value, filtersOn(), "记录")}</p>`
-    : UI.emptyState("还没有摘读记录", "在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。");
+    : UI.emptyState(NO_RECORDS, "在侧边栏提问，或在分拣台细看、写备注后，会按视频和网页记在这里。");
   rendering = false;
   // 继续问 on a record that is not a video: off with why, the page's one way (setReason).
   for (const b of els.list.querySelectorAll("[data-no-video]")) setReason(b, MdgErrors.TEXT.notVideo);
@@ -993,19 +1000,24 @@ const settingsDialog = $("readingSettingsDialog");
 UI.fillSetRows(settingsDialog);
 UI.clampNumbers(settingsDialog);
 settingsDialog.querySelector("[data-open-options]").addEventListener("click", () => chrome.runtime.openOptionsPage());
+// 摘读记录设置's fields as the values they store; settingsShown is what they held when the dialog opened (as 收藏夹设置's).
+const settingsFields = () => normAi({ batchSize: $("rsBatchInput").value, intervalSec: $("rsIntervalInput").value, newTagMax: $("rsNewMaxInput").value, allowRemove: $("rsRemoveInput").checked });
+let settingsShown = {};
 async function openSettings() {
   const s = await aiSettings();
   $("rsBatchInput").value = s.batchSize;
   $("rsIntervalInput").value = s.intervalSec;
   $("rsNewMaxInput").value = s.newTagMax;
   $("rsRemoveInput").checked = s.allowRemove;
+  settingsShown = settingsFields();
   settingsDialog.returnValue = "";
   settingsDialog.showModal();
 }
 settingsDialog.addEventListener("close", async () => {
   if (settingsDialog.returnValue !== "save") return;
-  const next = normAi({ batchSize: $("rsBatchInput").value, intervalSec: $("rsIntervalInput").value, newTagMax: $("rsNewMaxInput").value, allowRemove: $("rsRemoveInput").checked });
-  if (await saveAiSettings(next)) setStatus(MdgErrors.TEXT.settingsSaved);
+  // Only the fields changed since the dialog opened, over what is stored now: a setting imported meanwhile keeps its value.
+  const patch = UI.changedFields(settingsFields(), settingsShown);
+  if (!Object.keys(patch).length || (await saveAiSettings({ ...(await aiSettings()), ...patch }))) setStatus(MdgErrors.TEXT.settingsSaved);
 });
 // AI conversations only: triage analyses and notes are other features' data and stay. A starred record's are kept too
 // (星标 keeps a record with its conversations); its own 删除 AI 对话 still deletes them.

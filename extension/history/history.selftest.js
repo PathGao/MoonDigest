@@ -78,6 +78,28 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
 (async () => {
   await vm.runInContext(`(async () => {\n${source}\n})()`, ctx);
   assert.deepStrictEqual(lsData, { mdg_ai_selected_provider: "b" }, "the old localStorage key is moved on load");
+  // J11 / J18: with no record, ✦ AI 打标签 is off and says why, as 收藏夹's in an empty folder (I says it too); 全选 says
+  // nothing is listed without calling the records videos.
+  {
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    const kept = { ...store };
+    const realOpen = ctx.TagDialogs.ai.open;
+    for (const k of Object.keys(store)) delete store[k];
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await pause(350);
+    assert.ok(/data-f="ai"[^>]* disabled title="还没有摘读记录"/.test(els.tagActs.innerHTML), els.tagActs.innerHTML);
+    let opened = 0;
+    ctx.TagDialogs.ai.open = () => opened++;
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
+    await pause(20);
+    assert.deepStrictEqual([opened, els.status.textContent], [0, "还没有摘读记录"]);
+    assert.ok(els.selectAllSlot.innerHTML.includes('disabled title="这里没有列出记录"'), els.selectAllSlot.innerHTML);
+    ctx.TagDialogs.ai.open = realOpen;
+    Object.assign(store, kept);
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await pause(350);
+  }
+
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const fire = (t, e = {}) => (L.search[t] || []).forEach((f) => f(e));
   // the search box renders once typing stops, never on each pinyin keystroke.
@@ -497,6 +519,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await reload();
     const p1 = `${videoKey}c1`;
     const p2 = `${videoKey}c2`;
+    // J18: the header counts videos by record (MdgLimits.readingKeyOf), as 星标, tags and 备注 do: P1 and P2 are one video.
+    assert.match(els.count.textContent, /^3 个视频、1 个网页 · /);
 
     // 「+ 标签」 ends the tags line, after the chips, and is there alone without tags; with no 备注, 「✎ 备注」 is in the
     // body where the 备注 would show.
@@ -605,9 +629,15 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     assert.deepStrictEqual([count(STAR_N), count(TAG_N)], [1, 3]);
     await search("一篇文章");
     assert.deepStrictEqual([count(STAR_N), count(ALL_N), count(TAG_N)], [0, html.split("<article").length - 1, 1], "the search scopes every count");
+    // J5: row 4 lists only the tags the listed records carry (乙 is on the video, searched away), and a tag turned on.
+    assert.ok(!els.tagRow.innerHTML.includes("按标签筛选 乙"), els.tagRow.innerHTML);
+    await filter("tag:t2");
+    assert.ok(els.tagRow.innerHTML.includes("按标签筛选 乙 0"), els.tagRow.innerHTML);
+    await filter("tag:t2");
     await search("");
     await filter("star");
-    assert.deepStrictEqual([count(STAR_N), count(TAG_N)], [1, 2], "星标 scopes the tag counts, not its own");
+    // J21: the page tagged here is not starred: tag edits keep nothing under 星标 (only a 星标 click does).
+    assert.deepStrictEqual([count(STAR_N), count(TAG_N)], [1, 1], "星标 scopes the tag counts, not its own");
     await filter("star");
     await filter(`tag:${tag.id}`);
     assert.deepStrictEqual([count(STAR_N), count(ALL_N), count(TAG_N)], [1, 3, 3], "a tag scopes row 2, not its own count");
@@ -622,9 +652,16 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     // The tag filter and the search find the tagged records; the export carries the tags and 星标.
     await filter(`tag:${tag.id}`);
     assert.ok(entry(videoKey) && entry(pageKey) && !entry("untagged"), html);
+    // J21: under a tag filter, a record whose tag comes off leaves the list at once, as on the 分拣台; U brings it back.
+    const off = { dataset: { untag: tag.id }, closest: (sel) => (sel === ".entry" ? { dataset: { key: pageKey } } : off) };
+    L.list.click.forEach((f) => f({ target: off }));
+    await wait(20);
+    assert.ok(!entry(pageKey) && entry(videoKey), html);
+    press("u");
+    await wait(20);
+    assert.ok(entry(pageKey) && els.status.textContent === "已撤销：去掉「读过」", els.status.textContent);
     await filter(`tag:${tag.id}`);
-    // 未打标签 / 已打标签 as on the 分拣台, by the record's own tags; 全部 clears them. (Records tagged on this page stay
-    // listed until it reloads, as under the other filters.)
+    // 未打标签 / 已打标签 as on the 分拣台, by the record's own tags; 全部 clears them.
     await filter("tagstate:untagged");
     assert.ok(entry("untagged") && /data-f="tagstate:untagged" aria-pressed="true">未打标签 \d+</.test(els.stateRow.innerHTML), els.stateRow.innerHTML);
     await filter("tagstate:tagged");
@@ -889,6 +926,15 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     for (const f of L.readingSettingsDialog.close) await f();
     assert.deepStrictEqual(plain(sync), { [RS]: { batchSize: 1, intervalSec: 0, newTagMax: 2, allowRemove: true } }, "only 摘读记录's key changes");
     assert.ok(!sent.some((m) => m.type === "triage-settings-save"), "the 收藏夹's settings are not written");
+    // J10: a value imported elsewhere while the dialog is open is kept: saving writes only the fields changed in it.
+    L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "settings" } }) } }));
+    await wait(20);
+    sync[RS] = { ...sync[RS], intervalSec: 9 };
+    els.rsNewMaxInput.value = "3";
+    els.readingSettingsDialog.returnValue = "save";
+    for (const f of L.readingSettingsDialog.close) await f();
+    assert.deepStrictEqual(plain(sync[RS]), { batchSize: 1, intervalSec: 9, newTagMax: 3, allowRemove: true }, "the imported 9 stays");
+    sync[RS] = { batchSize: 1, intervalSec: 0, newTagMax: 2, allowRemove: true };
     sent.length = 0;
     await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: true });
     assert.deepStrictEqual(plain(sent.filter((m) => m.type === "triage-reading-ai-tag").map((m) => [m.items.length, m.maxNewTags])), [[1, 2], [1, 1]], "batches of the stored size, within the stored cap");

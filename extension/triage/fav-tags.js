@@ -32,7 +32,7 @@ function writeVideoTags(bvid, ids) {
   if (ids.length) S.videoTags[bvid] = ids;
   else delete S.videoTags[bvid];
 }
-function setVideoTags(bvid, ids, prev) {
+function setVideoTags(bvid, ids, prev, label = MdgErrors.LABEL.tagEdit) {
   const same = ids.length === prev.length && ids.every((id) => prev.includes(id));
   if (same) return false;
   writeVideoTags(bvid, ids);
@@ -42,7 +42,7 @@ function setVideoTags(bvid, ids, prev) {
       writeVideoTags(bvid, prev);
       saveVideoTags();
       S.focused = bvid;
-      return "已撤销：标签修改";
+      return `已撤销：${label}`;
     })
   );
   return true;
@@ -52,7 +52,7 @@ function setVideoTags(bvid, ids, prev) {
 function removeVideoTag(bvid, id) {
   const prev = (S.videoTags[bvid] || []).filter((x) => tagById(x));
   const name = tagById(id)?.name;
-  if (!setVideoTags(bvid, prev.filter((x) => x !== id), prev)) return;
+  if (!setVideoTags(bvid, prev.filter((x) => x !== id), prev, UI.untagStep(name))) return;
   render();
   toast(UI.untagged(name));
 }

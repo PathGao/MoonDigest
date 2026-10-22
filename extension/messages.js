@@ -106,6 +106,7 @@
     "follow-group-rename": { from: FOLLOW, to: FOLLOW_BG, request: ["id", "name"], response: data },
     "follow-group-delete": { from: FOLLOW, to: FOLLOW_BG, request: ["id"], response: data },
     "follow-ai-tag": { from: FOLLOW_CORE, to: FOLLOW_BG, request: ["instruction", "mids", "tags", "maxNewTags", "allowRemove", "aiProviderId"], response: data },
+    "follow-up-tag": { from: ["badges.js"], to: FOLLOW_BG, request: ["mid", "op"], response: data },
 
     // The 分拣台 player frame (viewer-frame.js, a content script in B站's page) to the 分拣台 page: window.postMessage
     "mdg-viewer-key": { from: ["triage/viewer-frame.js"], to: "triage/shared.js", request: ["key"], response: [] },

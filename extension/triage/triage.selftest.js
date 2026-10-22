@@ -1587,6 +1587,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ub"]);
   await t.undo();
   assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ua", "ub"]);
+  // J18: U names the tag, as 关注 and 摘读记录 do (TriageUi.untagStep).
+  assert.strictEqual(toasts.at(-1), "已撤销：去掉「A」");
   Object.assign(t.S, { tags: t.S.tags.filter((x) => !/^u[ab]$/.test(x.id)), videoTags: {} });
   openFake("K", [item(600), item(601)]);
 
