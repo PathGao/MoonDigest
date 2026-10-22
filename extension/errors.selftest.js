@@ -44,8 +44,9 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
   assert.strictEqual(err.action, "settings");
   assert.strictEqual(E.fromResp({ ok: false, error: "Obsidian 返回 HTTP 500" }, "x").action, "none");
 
-  assert.strictEqual(E.grantOrigin("AI 平台的 API Key 无效或没有权限"), null);
-  const access = E.grantOrigin("未授权访问 https://api.example.com，授权后重试");
+  assert.strictEqual(E.grantOrigin("AI 平台的 API Key 无效或没有权限", "AI_ACCESS"), null);
+  assert.strictEqual(E.grantOrigin("未授权访问 https://evil.example，授权后重试", "AI_AUTH"), null, "an AI platform's own words choose no origin");
+  const access = E.grantOrigin("未授权访问 https://api.example.com，授权后重试", "AI_ACCESS");
   assert.strictEqual(access.origin, "https://api.example.com");
   assert.strictEqual(await access.request(), true);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(requested)), [{ origins: ["https://api.example.com/*"] }]);

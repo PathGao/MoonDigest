@@ -201,11 +201,15 @@
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
 
-  // Error code → what the page shows. action: "settings" (去设置), "login" (去登录); any other code is "none".
-  // text replaces the background's words for the code. Numbers are B站's own codes, passed through.
+  // Error code (or a situation without one: PAGE_*, SUBTITLE_*) → what every entry shows: text replaces the background's
+  // words; action is the button beside the error, "settings" (去设置), "grant" (授权), "grantPage" (允许读取网页) or
+  // "login" (去登录); retry: false where no second try can help (otherwise 重试). remedies() reads it; the entries
+  // (entry-matrix.selftest.js lists them) render what it says and decide nothing of their own. Numbers are B站's own codes.
+  // A gone video's sentence is LABEL.videoGone (sites.js says it); no text here, so a -404 from another B站 call keeps its words.
+  const GONE = { retry: false };
   const CODES = Object.freeze({
-    // The AI platform errors after which every request fails alike: 分拣台 stops its run on them, and both it and the
-    // side panel offer 去设置 (an unreachable platform or a timeout may be a wrong base URL or model).
+    // The AI platform errors after which every request fails alike: 分拣台 stops its run on them, and every entry offers
+    // 去设置 (an unreachable platform or a timeout may be a wrong base URL or model).
     AI_AUTH: { action: "settings" },
     AI_QUOTA: { action: "settings" },
     AI_SETUP: { action: "settings" },
@@ -213,18 +217,35 @@
     AI_TIMEOUT: { action: "settings" },
     // No access to the AI provider's origin yet (noAccess): every request fails alike, so 分拣台 stops its run; the fix
     // is 授权 (grantOrigin reads the origin from the words), not the settings page.
-    AI_ACCESS: {},
+    AI_ACCESS: { action: "grant" },
     // 分拣台 only: the model's answer hit the output limit (max_tokens); its banner offers 打开收藏夹设置.
     AI_TRUNCATED: {},
     // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
     AI_GAVE_UP: { action: "settings" },
+    // AI_THROTTLED (a run waits, the side panel offers 重试) and AI_STALLED (the platform did answer: 重试 only) are
+    // not listed: 重试 alone.
     // Obsidian itself is unusable (not set up, off, wrong key): every write fails alike and the fix is in the settings
     // page. OBSIDIAN_DOWN (closed, plugin off, timeout) also fails every write, but the settings page cannot fix it.
     OBSIDIAN: { action: "settings" },
     NOT_LOGGED_IN: { action: "login", text: TEXT.biliLogin },
     [-101]: { action: "login", text: TEXT.biliLogin },
     THROTTLED: { text: TEXT.biliThrottled },
-    62004: { text: TEXT.biliReviewing }
+    62004: { text: TEXT.biliReviewing },
+    // Deleted or hidden on B站 (MdgSites.isBiliVideoGone's codes; entry-matrix.selftest.js keeps both lists equal).
+    [-404]: GONE,
+    62002: GONE,
+    62012: GONE,
+    // A web page by background.js readWebPage's pageAccess (pageCode): read failed (timeout, no main text: TEXT.pageReadFailed),
+    // not granted yet (TEXT.pageGrant), or a tab nothing can read (chrome://, extension pages: TEXT.pageUnsupported).
+    // The background says these sentences itself, without a code.
+    PAGE_FAILED: {},
+    PAGE_GRANT: { action: "grantPage", retry: false },
+    PAGE_UNSUPPORTED: { retry: false },
+    // Why a video has no subtitle (subtitleCode; the sentence is subtitleMissing): a failed fetch and 未登录 may pass on
+    // a second read, a video without subtitles does not.
+    SUBTITLE_FAILED: {},
+    SUBTITLE_LOGIN: {},
+    SUBTITLE_NONE: { retry: false }
   });
 
   // The table's codes by name, for the files that write or compare one (CODE.THROTTLED, not "THROTTLED").
@@ -232,7 +253,14 @@
   // The HTTP status a timed-out request carries (background.js fetchWithTimeout); obsidianError reads it as OBSIDIAN_DOWN.
   const TIMEOUT_STATUS = 408;
 
+  // What helps, in the order the buttons stand: the action, then "retry". An entry whose own button already runs the
+  // step again (分拣台's and 摘读记录's runs, a 写入 Obsidian button, the popup's 刷新) leaves "retry" to that button.
+  const remedies = (code) => [...(CODES[code]?.action ? [CODES[code].action] : []), ...(CODES[code]?.retry === false ? [] : ["retry"])];
   const action = (code) => CODES[code]?.action || "none";
+  const pageCode = (pageAccess) => ({ failed: CODE.PAGE_FAILED, needPermission: CODE.PAGE_GRANT, unsupported: CODE.PAGE_UNSUPPORTED })[pageAccess] || "";
+  // Why a video has no subtitle ({ subtitleNeedLogin, subtitleFailure }, as subtitleMissing takes it) as a SUBTITLE_ code.
+  const subtitleCode = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
+    subtitleNeedLogin ? CODE.SUBTITLE_LOGIN : subtitleFailure ? CODE.SUBTITLE_FAILED : CODE.SUBTITLE_NONE;
 
   // A background reply { ok: false, error, code? } in the user's words.
   function text(resp, fallback = TEXT.unknown) {
@@ -254,7 +282,9 @@
 
   // The background's noAccess sentence (hostPermissionError, 测试连接): an upgraded install lacks the AI provider's
   // origin. request() must run in a click handler: permissions.request needs the user gesture, the worker cannot ask.
-  function grantOrigin(message) {
+  // Only for a code whose remedy is 授权 (AI_ACCESS): words an AI platform returns must not choose which origin is asked for.
+  function grantOrigin(message, code) {
+    if (action(code) !== "grant") return null;
     const origin = /未授权访问 (https?:\/\/[^\s，]+)/.exec(String(message || ""))?.[1];
     return origin ? { origin, request: () => chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false) } : null;
   }
@@ -284,5 +314,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, text, messageOf, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, subtitleCode, text, messageOf, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();

@@ -438,7 +438,7 @@ async function runAi({ instruction, scope, allowRemove }) {
 
 // What a run's stop offers, as the 分拣台's banner: 授权 for a missing access permission, 去设置 for a setup error.
 function aiRemedy({ error, code }) {
-  const access = MdgErrors.grantOrigin(error);
+  const access = MdgErrors.grantOrigin(error, code);
   if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && setStatus(MdgErrors.TEXT.granted) };
   return MdgRuns.aiSettingsCode(code) ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
 }
@@ -904,7 +904,7 @@ async function saveToObsidian(group) {
   } catch (error) {
     // Not set up or a wrong key: 去设置, opened only on its click. A closed Obsidian only gets the red line.
     const settings = error?.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
-    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${error?.message || error}`, true, settings);
+    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, true, settings);
   } finally {
     writing.delete(group.key);
     render();

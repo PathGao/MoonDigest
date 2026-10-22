@@ -163,7 +163,7 @@
   // same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
   // row at most, then ends the run as AI_GAVE_UP.
   const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && MdgErrors.action(code) === "settings";
-  const aiEnds = (r) => aiSettingsCode(r.code) || r.code === "AI_ACCESS";
+  const aiEnds = (r) => aiSettingsCode(r.code) || MdgErrors.action(r.code) === "grant";
   const AI_TIMEOUT_TRIES = 2;
   const AI_THROTTLE_WAITS = 5;
   const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });

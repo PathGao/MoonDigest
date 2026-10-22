@@ -42,8 +42,8 @@ const state = {
   selectedSubtitleLang: "",
   subtitleBody: [],
   subtitleFetchState: "idle",
-  // The failed read (subtitleFetchState error) found the video deleted or hidden on B站: no 重试 brings it back.
-  videoGone: false,
+  // The failed read's code (subtitleFetchState error): B站's -404 says the video is gone, and MdgErrors.remedies whether 重试 helps.
+  readCode: "",
   subtitleFailure: "",
   // B站 listed no subtitle because it saw a logged-out viewer (MdgSites.loadSubtitle's needLogin): not a failure.
   subtitleNeedLogin: false,
@@ -887,7 +887,7 @@ function resetClipState() {
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
   state.subtitleFetchState = "idle";
-  state.videoGone = false;
+  state.readCode = "";
   state.subtitleWarning = "";
   state.subtitleFailure = "";
   state.subtitleNeedLogin = false;
@@ -1010,7 +1010,7 @@ async function runRefreshClip() {
     setMessage("");
     setStatus(META_READING);
     // A read starts clean: the last read's subtitle state and comments must not leak into this one's note.
-    Object.assign(state, { subtitleFetchState: "loading", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [], commentsFailure: "" });
+    Object.assign(state, { subtitleFetchState: "loading", readCode: "", subtitleFailure: "", subtitleNeedLogin: false, subtitleWarning: "", hotComments: [], commentsFailure: "" });
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1108,7 +1108,7 @@ async function runRefreshClip() {
     }
     resetClipState();
     state.subtitleFetchState = "error";
-    state.videoGone = MdgSites.isBiliVideoGone(error?.code);
+    state.readCode = error?.code ?? "";
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1229,7 +1229,7 @@ function noTrackText() {
   }
   // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
   if (state.subtitleFetchState === "error") {
-    return state.videoGone ? MdgErrors.LABEL.videoGone : MdgErrors.TEXT.videoReadFailed;
+    return MdgSites.isBiliVideoGone(state.readCode) ? MdgErrors.LABEL.videoGone : MdgErrors.TEXT.videoReadFailed;
   }
   return MdgErrors.subtitleMissing(state);
 }
@@ -1313,10 +1313,8 @@ function noteRef() {
 // (setMessage): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
   state.settings = await getSettings();
-  // Turned off in the settings page while the popup that still shows the button was open.
-  if (!state.settings.obsidianEnabled) {
-    return { ok: false, text: MdgErrors.TEXT.obsidianOff };
-  }
+  // Turned off in the settings page while the popup that still shows the button was open: the background says so with
+  // its OBSIDIAN code, so the popup offers 去设置 as on every other entry.
   await refreshDerivedContent();
   // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
   if (!state.markdown) {
@@ -1831,9 +1829,10 @@ function renderReadingView() {
   state.readingActiveChapterIndex = -1;
 }
 
-// 专注模式's 重试 under an empty transcript: a failed read or subtitle, not a video that is gone (no read brings it back).
+// 专注模式's 重试 under an empty transcript, as MdgErrors.remedies says for the failed read or the missing subtitle: not
+// for a video that is gone or has no subtitles (no read brings them back).
 function readingRetryShown() {
-  return !state.videoGone && (state.subtitleFetchState === "error" || Boolean(state.subtitleFailure) || state.subtitleNeedLogin);
+  return MdgErrors.remedies(state.subtitleFetchState === "error" ? state.readCode : MdgErrors.subtitleCode(state)).includes("retry");
 }
 
 function getReadingTranscriptPlaceholderText() {

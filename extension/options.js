@@ -1430,7 +1430,7 @@ async function testAiProviderRow(row, sync) {
     return;
   }
   showAiProviderStatus(statusNode, `失败：${MdgErrors.text(resp)}`, true);
-  const access = MdgErrors.grantOrigin(resp?.error);
+  const access = MdgErrors.grantOrigin(resp?.error, resp?.code);
   if (access) {
     const grant = document.createElement("button");
     grant.type = "button";
