@@ -25,7 +25,11 @@ const el = {
 
 const NOT_VIDEO_PAGE = MdgErrors.TEXT.notVideoPage;
 const WEB_PAGE_STATUS = "网页：AI 总结在侧边栏读正文";
+const WEB_PAGE_READING = "正在读取网页…";
 let latestPayload = null;
+// On a web page: its note from the background (popup-page-note), { ref, filename, markdown }; null until read or when
+// the page cannot be read (the note's tools are disabled with the reason).
+let webNote = null;
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
 // Only for when get-settings fails.
@@ -60,14 +64,14 @@ async function init() {
   if (!onVideoPage) {
     syncTools(null, false);
     setDisabledReason(el.refreshBtn, NOT_VIDEO_PAGE);
-    // An ordinary web page (its URL shows before the grant because the icon was clicked: activeTab): AI 总结 opens the
-    // side panel, which reads it; the video's tools are hidden (popup.css .web-page), the page note is the side panel's.
+    // An ordinary web page (its URL shows because the icon was clicked: activeTab, which also lets the background read
+    // it): AI 总结 opens the side panel, the note's tools take the side panel's note; the video's are hidden (popup.css .web-page).
     if (/^https?:\/\//i.test(tab?.url || "")) {
       document.body.classList.add("web-page");
       setDisabledReason(el.summaryBtn, "");
       setText(el.videoTitle, tab.title || tab.url);
       setText(el.videoMeta, new URL(tab.url).hostname);
-      setStatus(WEB_PAGE_STATUS);
+      await readWebNote(tab.id);
       return;
     }
     setStatus(NOT_VIDEO_PAGE);
@@ -87,7 +91,8 @@ function bindEvents() {
   });
 
   el.copyBtn.addEventListener("click", async () => {
-    const payload = await ensurePayload();
+    // A web page's tools are disabled until its note is read.
+    const payload = onVideoPage ? await ensurePayload() : webNote;
     if (!payload) return; // the status says why the page did not answer
     if (!payload.markdown) {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
@@ -118,7 +123,7 @@ function bindEvents() {
   });
 
   el.mdBtn.addEventListener("click", async () => {
-    const payload = await ensurePayload();
+    const payload = onVideoPage ? await ensurePayload() : webNote;
     if (!payload) return;
     if (!payload.markdown) {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
@@ -132,6 +137,11 @@ function bindEvents() {
   el.sendBtn.addEventListener("click", async () => {
     setStatus(MdgErrors.TEXT.obsidianWriting, false, true);
     setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
+    if (!onVideoPage) {
+      const { text, ok } = await writeWebNote().finally(() => setBusy(el.sendBtn, false));
+      setStatus(text, !ok);
+      return;
+    }
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     // The page answers with the result's words (text); without them the message never reached it.
     const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.text(resp)}`);
@@ -209,6 +219,41 @@ function bindEvents() {
     if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.history) });
     window.close();
   });
+}
+
+// The web page's note, read once as the popup opens; a page that cannot be read disables the tools with the reason.
+async function readWebNote(tabId) {
+  const tools = [el.copyBtn, el.mdBtn, el.sendBtn];
+  tools.forEach((button) => setDisabledReason(button, WEB_PAGE_READING));
+  setStatus(WEB_PAGE_READING, false, true);
+  const resp = await sendToRuntime({ type: "popup-page-note", tabId }).catch((error) => ({ ok: false, error: error.message }));
+  if (!resp?.ok) {
+    const reason = MdgErrors.text(resp);
+    tools.forEach((button) => setDisabledReason(button, reason));
+    setStatus(reason, true);
+    return;
+  }
+  webNote = { ref: resp.ref, filename: resp.filename, markdown: resp.content };
+  tools.forEach((button) => setDisabledReason(button, ""));
+  setStatus(WEB_PAGE_STATUS);
+}
+
+// 写入 Obsidian of a web page, as the side panel writes it: the background picks the path, an existing note asks here.
+// Resolves { ok, text } for the status.
+async function writeWebNote() {
+  const request = { type: "write-video-note", ref: webNote.ref, page: { markdown: webNote.markdown } };
+  const send = (message) => sendToRuntime(message).catch((error) => ({ ok: false, error: error.message }));
+  let resp = await send(request);
+  if (resp?.ok && resp.ask) {
+    const mode = await MdgOverwriteDialog.choose(resp.path, { hasAiSection: resp.hasAiSection, fullReason: resp.fullReason });
+    if (!mode) return { ok: true, text: MdgErrors.TEXT.obsidianCancelled };
+    resp = await send({ ...request, mode });
+  }
+  if (resp?.ok) return { ok: true, text: resp.text };
+  const error = MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
+  // Not set up or a wrong key: the settings page, as the side panel does.
+  if (error.action === "settings") void sendToRuntime({ type: "open-options" }).catch(() => {});
+  return { ok: false, text: `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}` };
 }
 
 async function refreshFromTab(force = false) {

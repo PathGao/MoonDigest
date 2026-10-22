@@ -312,7 +312,7 @@ function pageReason(context) {
     case "unsupported":
       return "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页";
     case "failed":
-      return `读取网页失败：${context.pageError}`;
+      return `${MdgErrors.TEXT.pageReadFailed}：${context.pageError}`;
     default:
       return "打开这个网页后才能继续问";
   }
@@ -2118,9 +2118,7 @@ async function pageNote(context, turns) {
   if (context?.isVideoContext !== false || context.pageAccess !== "ready") return null;
   const resp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
   const settings = resp?.ok && resp.settings ? resp.settings : MdgSettings.DEFAULTS;
-  const extrasRef = { url: context.url };
-  const { userTags, starred } = MdgNote.triageExtras(await chrome.storage.local.get(MdgNote.triageExtrasKeys(extrasRef)), extrasRef);
-  return { filename: MdgNote.buildNoteFilename(context, settings), content: MdgNote.buildPageNote({ ...context, userTags, starred }, settings, turns) };
+  return MdgNote.buildPageNoteFile(context, settings, turns, await chrome.storage.local.get(MdgNote.triageExtrasKeys({ url: context.url })));
 }
 
 // The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.

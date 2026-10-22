@@ -206,9 +206,9 @@
 
   // The newest saved conversation for this video part. Bilibili parts have their own cid: the exact key wins. Without
   // it (a conversation saved before cid was recorded, or a ref that knows only the BV) the part number decides, so P1
-  // never takes P2's conversation, as in the side panel.
-  function pickConversation(conversations, { site = "", videoId = "", cid = "", pageIndex = 1 } = {}) {
-    const key = MdgSites.buildContextKey({ site, videoId, cid });
+  // never takes P2's conversation, as in the side panel. A web page (no videoId) has only its exact page: key.
+  function pickConversation(conversations, { site = "", videoId = "", cid = "", pageIndex = 1, url = "" } = {}) {
+    const key = MdgSites.buildContextKey({ site, videoId, cid, url });
     if (!key) {
       return null;
     }
@@ -216,6 +216,7 @@
     const page = Number(pageIndex) || 1;
     const all = Array.isArray(conversations) ? conversations : [];
     const newest = (list) => list.sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0))[0] || null;
+    if (!videoId) return newest(all.filter((item) => item?.contextKey === key));
     return (
       (cid && newest(all.filter((item) => item?.contextKey === key))) ||
       newest(all.filter((item) => String(item?.contextKey || "").startsWith(prefix) && (!cid || item.contextKey === prefix) && (Number(item.contextRef?.pageIndex) || 1) === page))
@@ -1105,6 +1106,13 @@
     return `${ai ? `${markdown}\n\n${ai}` : markdown}\n`;
   }
 
+  // A web page's note file, the one the side panel and the popup copy, download and write to Obsidian. stored:
+  // chrome.storage.local with triageExtrasKeys({ url }), for its 标签 and 星标.
+  function buildPageNoteFile(page, settings, turns, stored) {
+    const { userTags, starred } = triageExtras(stored, { url: page.url });
+    return { filename: buildNoteFilename(page, settings), content: buildPageNote({ ...page, userTags, starred }, settings, turns) };
+  }
+
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
   // Obsidian only; the note written or downloaded keeps it.
   const buildAiContext = (meta, body, settings, ref) =>
@@ -1115,6 +1123,7 @@
     noteTags,
     buildAiContext,
     buildPageNote,
+    buildPageNoteFile,
     noteMetaOf,
     subtitleMismatchWarning,
     noteSubtitleWarning,

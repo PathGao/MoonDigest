@@ -49,6 +49,8 @@
     obsidianWriteFailed: "Local REST API 写入失败",
     // Any failed write to Obsidian, on every entry (popup, video page, side panel, 摘读记录, 分拣台); 「：原因」 follows.
     obsidianFailed: "写入 Obsidian 失败",
+    // A web page whose main text could not be read (readWebPage failed): the side panel and the popup lead its reason with this.
+    pageReadFailed: "读取网页失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 摘读记录, 分拣台); 「：原因」 follows.
