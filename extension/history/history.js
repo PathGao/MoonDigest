@@ -115,24 +115,9 @@ function triageTagsOf(g) {
   const tags = (triageVideoTags[g.context.videoId] || []).map((id) => triageTagById.get(id)).filter(Boolean);
   return tags.filter((t, i) => tags.findIndex((x) => x.name === t.name) === i);
 }
-const fullReason = () => (marks.tags.length >= MdgLimits.READING_TAGS ? `已经有 ${marks.tags.length} 个标签了，先在「${UI.tagManage}」里删掉不用的` : "");
 // What a mark keeps of its record, refreshed at each write: enough to list it after its conversations are gone.
 const refOf = (g) => ({ site: g.context.site || "", videoId: g.context.videoId || "", url: g.context.url || "", title: g.title === g.context.videoId ? "" : g.title });
 
-// Every write goes through MdgLimits.updateReadingMarks; the list is drawn from what was written.
-async function saveMarks(edit) {
-  try {
-    marks = await MdgLimits.updateReadingMarks(edit);
-    stored[MARKS_KEY] = marks;
-    dropStaleProposal();
-    return true;
-  } catch (error) {
-    setStatus(`保存失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
-    return false;
-  } finally {
-    render();
-  }
-}
 // Changes the marks of records (refs: record key → ref); a record left with no 星标 and no tag is dropped from storage.
 function editItems(m, refs, change) {
   const items = { ...m.items };
@@ -146,102 +131,73 @@ function editItems(m, refs, change) {
   }
   return { ...m, items };
 }
-const toggleStar = (g) => {
+// Every marks write goes through MdgLimits.updateReadingMarks (tag-store.js); the list is drawn from what was written. A
+// record's address is the listed one's, else the one its mark kept.
+const marksDb = MdgTagStore.marks({
+  get: () => marks,
+  put(m) {
+    marks = m;
+    stored[MARKS_KEY] = m;
+    dropStaleProposal();
+  },
+  edit(m, keys, change) {
+    const live = aiLive();
+    return editItems(m, Object.fromEntries(keys.map((key) => [key, live.get(key) || m.items[key]?.ref || unmarked.get(key)?.ref])), change);
+  },
+  fail: (error) => setStatus(`保存失败：${error?.message || MdgErrors.TEXT.unknown}`, true)
+});
+// 摘读记录's tags: one list for every record, at most READING_TAGS, a hard limit (AI 打标签's 应用 makes none past it).
+const tagStore = MdgTagStore.create({
+  ...marksDb,
+  who: "记录",
+  idPrefix: "rt",
+  cap: () => MdgLimits.READING_TAGS,
+  full: (n) => `已经有 ${n} 个标签了，先在「${UI.tagManage}」里删掉不用的`,
+  fullShort: () => `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个`,
+  capName: "摘读记录的标签",
+  keepOverCap: false,
+  newTagMax: () => AI.settings.newTagMax,
+  confirm: (...a) => UI.askConfirm(...a),
+  say: (text, error) => setStatus(text, error),
+  changed: () => render(),
+  tagGone: (id) => tagFilter.delete(id),
+  setProposal: (p) => setAiProposal(p),
+  live: () => aiLive(),
+  // This batch replaces the last one; the list shows it to look over.
+  async markRecent(keys, at) {
+    AI.recent = { at, keys };
+    recentFilter = true;
+    await chrome.storage.local.set({ [AI_RECENT]: AI.recent }).catch(() => {});
+  },
+  async endRecent(at) {
+    if (AI.recent?.at === at) await clearRecent();
+  }
+});
+const toggleStar = async (g) => {
   const on = !g.mark?.star;
   starEdited.add(readingKey(g));
-  return saveMarks((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
+  await marksDb.update((m) => editItems(m, { [readingKey(g)]: refOf(g) }, (item) => ({ ...item, star: on ? Date.now() : 0 })));
+  render();
 };
-
-// A card's tag chip: a click takes the tag off that record, one U step, as on the 分拣台.
-async function untag(g, id) {
-  const key = readingKey(g);
-  const name = tagOf(id)?.name || "";
-  const refs = { [key]: refOf(g) };
-  let before = {};
-  const saved = await saveMarks((m) => ((before = tagsBefore(m, [key])), editItems(m, refs, (item) => ({ ...item, tags: item.tags.filter((t) => t !== id) }))));
-  if (!saved) return;
-  pushTagUndo(before, refs, UI.untagStep(name));
-  setStatus(UI.untagged(name));
-}
-
-// A tag by name: the one that has it, or a new one while there is room; null (and why, in red) otherwise.
-async function createTag(value) {
-  const name = MdgTagCore.cleanTagName(value);
-  let tag = null;
-  const why = UI.tagNameError(name, []) || (!marks.tags.some((t) => t.name === name) && fullReason());
-  if (why) return setStatus(why, true), null;
-  await saveMarks((m) => {
-    tag = m.tags.find((t) => t.name === name);
-    if (tag || m.tags.length >= MdgLimits.READING_TAGS) return m;
-    tag = { id: MdgTagCore.newTagId("rt"), name, color: MdgTagCore.nextTagColor(m.tags) };
-    return { ...m, tags: [...m.tags, tag] };
-  });
-  return tag;
-}
 
 // The shared picker (tag-picker.js) for one record (under its 「+ 标签」) or the selected ones (a modal). Closing saves.
 function openPicker(groups, anchor = "") {
-  const refs = Object.fromEntries(groups.map((g) => [readingKey(g), refOf(g)]).filter(([key]) => key));
-  const targets = Object.keys(refs);
-  if (!targets.length) return;
-  TagPicker.open({
-    title: UI.pickTitle(groups.length, groups[0].title, ""),
-    targets,
-    idsOf: (key) => (marks.items[key]?.tags || []).filter(tagOf),
-    tags: () => marks.tags,
-    get canCreate() {
-      return !fullReason();
-    },
-    create: createTag,
-    get empty() {
-      return fullReason();
-    },
-    anchor,
-    async onClose(changes) {
-      if (!changes.length) return;
-      const changed = Object.fromEntries(changes.map((c) => [c.key, refs[c.key]]));
-      let before = {};
-      const saved = await saveMarks((m) => {
-        before = tagsBefore(m, Object.keys(changed));
-        return editItems(m, changed, (item, key) => ({ ...item, tags: TagPicker.applyChange(item.tags, changes.find((c) => c.key === key)) }));
-      });
-      if (saved) pushTagUndo(before, changed, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, "记录") : null });
-    }
-  });
+  const targets = [...new Set(groups.map(readingKey).filter(Boolean))];
+  if (targets.length) tagStore.openPicker({ title: UI.pickTitle(groups.length, groups[0].title, ""), targets, anchor });
 }
 
 // 标签管理 (tag-dialogs.js): one list for every record, videos and web pages alike.
-const tagCount = (id) => Object.values(marks.items).filter((item) => item.tags?.includes(id)).length;
-const manageTags = {
-  who: "记录",
+const manageTags = tagStore.manage({
   hint: () => `摘读记录的标签，视频和网页共用，最多 ${MdgLimits.READING_TAGS} 个。`,
   tags: () => marks.tags,
-  count: tagCount,
-  addReason: (value) => fullReason() || UI.tagNameError(MdgTagCore.cleanTagName(value), marks.tags),
-  add: createTag,
-  edit(t, field, value) {
-    const { tag, why } = UI.editedTag(t, field, value, marks.tags.filter((x) => x.id !== t.id));
-    if (why) setStatus(why, true);
-    return Boolean(tag) && saveMarks((m) => ({ ...m, tags: m.tags.map((x) => (x.id === t.id ? tag : x)) }));
-  },
-  async remove(t) {
-    // As the 分拣台's: the confirm dialog is a second modal over 标签管理.
-    if (!(await UI.askConfirm(...UI.deleteTagAsk(t, tagCount(t.id), "记录"), "删除", { danger: true }))) return;
-    tagFilter.delete(t.id);
-    // As the 分拣台: deleting a tag drops the tag steps, which cannot bring it back.
-    undoSteps.length = 0;
-    await saveMarks((m) => {
-      const carrying = Object.fromEntries(Object.entries(m.items).filter(([, item]) => item.tags?.includes(t.id)).map(([key, item]) => [key, item.ref]));
-      return editItems({ ...m, tags: m.tags.filter((x) => x.id !== t.id) }, carrying, (item) => ({ ...item, tags: item.tags.filter((id) => id !== t.id) }));
-    });
-  }
-};
+  scope: () => undefined
+});
 
 // ---------- ✦ AI 打标签 (tag-dialogs.js), as 关注's: the proposal waits in memory until 应用 writes it in one marks write ----------
 const { readingAiHistory: AI_HISTORY, readingAiSettings: AI_SETTINGS, readingAiProposal: AI_PROPOSAL, readingAiRecent: AI_RECENT } = MdgLimits.KEYS;
 const { normAi, followAiSettings, withAllowRemove, searchWords, hasWords } = FollowCore;
-// run: { stopping } while a run goes; recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed.
-const AI = { excluded: new Set(), history: [], proposal: null, run: null, settings: normAi(), recent: null };
+// recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed. A run is runs' "ai".
+const AI = { excluded: new Set(), history: [], proposal: null, settings: normAi(), recent: null };
 let recentFilter = false;
 // The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's).
 function setAiProposal(p) {
@@ -311,7 +267,6 @@ function aiItem(key, parts, excluded) {
   const item = { id: key, title: g.title, site: siteOf(g), currentTags: tagsOf(g).map((t) => t.name).filter((name) => !excluded.has(name)) };
   return turns.length ? { ...item, turns: aiExcerpt(turns) } : { ...item, oneLiner: parts.find((x) => x.analysis)?.analysis.oneLiner || "", note: g.note?.text || "" };
 }
-const aiRoom = () => Math.min(AI.settings.newTagMax, Math.max(0, MdgLimits.READING_TAGS - marks.tags.length));
 // Records that exist now (live), with what their marks keep (refOf).
 const aiLive = () => new Map(groupByVideo(conversations).filter(readingKey).map((g) => [readingKey(g), refOf(g)]));
 // A proposal naming a deleted tag no longer fits: dropped, not applied.
@@ -342,98 +297,78 @@ const aiTags = {
     const n = aiRecords(scope).size;
     return n ? `${n} 个记录${UI.batchesText(Math.ceil(n / AI.settings.batchSize))}` : "作用范围里没有记录";
   },
-  room: aiRoom,
-  roomHint: () => UI.aiRoomHint({ tags: marks.tags, excluded: AI.excluded, room: aiRoom(), full: `摘读记录的标签已满 ${MdgLimits.READING_TAGS} 个` }) + "<br>每批数量、间隔和新建上限在「摘读记录设置」里改。",
+  room: () => tagStore.room(),
+  roomHint: () => UI.aiRoomHint({ tags: marks.tags, excluded: AI.excluded, room: tagStore.room(), full: tagStore.noRoom() }) + "<br>每批数量、间隔和新建上限在「摘读记录设置」里改。",
   blocked: () => "",
   history: () => AI.history,
   allowRemove: () => AI.settings.allowRemove,
   // As 关注: the switch is a setting, kept for the next run.
   setAllowRemove: async (on) => saveAiSettings(withAllowRemove(await aiSettings(), on)),
-  running: () => Boolean(AI.run),
+  running: () => aiRunning(),
   proposal: () => AI.proposal,
   run: runAi,
-  stop() {
-    if (AI.run) AI.run.stopping = true;
-  },
-  stopping: () => Boolean(AI.run?.stopping),
+  stop: () => runs.stop("ai"),
+  stopping: () => Boolean(runs.get("ai")?.stopping),
   discard() {
     setAiProposal(null);
     render();
   },
-  apply: applyAi,
-  map: () => Object.fromEntries(Object.entries(marks.items).map(([key, item]) => [key, item.tags || []])),
+  apply: () => tagStore.apply(AI.proposal),
+  map: marksDb.map,
   live: aiLive,
   tagName: (id) => tagOf(id)?.name,
   check: RECENT_CHECK,
-  // READING_TAGS is a hard limit: the review says up front which ticked new tags 应用 will not create (newTagPlan).
-  notMade: (p) => ({ keys: new Set(newTagPlan(p.newTags, marks.tags).skipped), why: `摘读记录的标签最多 ${MdgLimits.READING_TAGS} 个` })
+  // READING_TAGS is a hard limit: the review says up front which ticked new tags 应用 will not create.
+  notMade: (p) => tagStore.notMade(p)
 };
 // Why ✦ AI 打标签 cannot open: no record to tag and nothing running or pending, as 收藏夹's in an empty folder.
-const aiReason = (all = groupByVideo(conversations)) => (AI.run || AI.proposal || all.some(readingKey) ? "" : NO_RECORDS);
+const aiReason = (all = groupByVideo(conversations)) => (aiRunning() || AI.proposal || all.some(readingKey) ? "" : NO_RECORDS);
 async function openAi() {
   if (aiReason()) return setStatus(aiReason());
-  if (!AI.run) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
+  if (!aiRunning()) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
   await aiSettings();
   TagDialogs.ai.open(aiTags);
 }
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and records.
-// The 分拣台's run rules (MdgRuns.aiJudge): an AI 429 waits and a timeout sends the batch again; a setup or access error
-// ends the run with 去设置 or 授权 on the status line; any other fails its batch.
+// The 分拣台's run (tag-store.js): an AI 429 waits and a timeout sends the batch again; a setup or access error ends the
+// run with 去设置 or 授权 on the status line; any other fails its batch. starting: reading the settings before it.
 const runs = MdgRuns.create({ hold: (r) => (r.code === "AI_THROTTLED" ? MdgRuns.AI_HOLD : null) });
+let starting = false;
+const aiRunning = () => starting || Boolean(runs.get("ai"));
 async function runAi({ instruction, scope, allowRemove }) {
   const records = aiRecords(scope);
-  if (AI.run || !records.size) return;
-  const run = (AI.run = { stopping: false });
+  if (aiRunning() || !records.size) return;
+  starting = true;
   render();
-  const cfg = await aiSettings();
+  const cfg = await aiSettings().finally(() => (starting = false));
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
   chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
   const excluded = new Set(marks.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = marks.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const items = [...records].map(([key, parts]) => aiItem(key, parts, excluded));
-  const opts = { tags: marks.tags, map: aiTags.map(), maxNewTags: aiRoom(), excluded, scope: new Set(records.keys()) };
-  const total = Math.ceil(items.length / cfg.batchSize);
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
-  let answered = 0;
-  let i = 0;
-  const res = await runs.run("ai", {
-    total,
-    gap: cfg.intervalSec * 1000,
-    alive: () => !run.stopping,
-    tick: () => runs.get("ai")?.wait && aiProgress(`${runs.get("ai").wait}第 ${i} 批…`),
-    next: () => (i < total ? { i: i++ } : null),
-    act: ({ i }) => {
-      aiProgress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
-      const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * cfg.batchSize, (i + 1) * cfg.batchSize), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
-      return chrome.runtime.sendMessage(request).catch((error) => ({ ok: false, error: error.message }));
-    },
-    judge: MdgRuns.aiJudge(),
-    done({ i }, x) {
-      if (x.ok) return answered++, UI.mergeAiBatch(p, x.data, opts);
-      p.errors.push(`第 ${i + 1} 批失败：${MdgErrors.text(x, MdgErrors.TEXT.unknown)}`);
-    }
+  const opts = { tags: marks.tags, map: marksDb.map(), maxNewTags: tagStore.room(), excluded, scope: new Set(records.keys()) };
+  const running = tagStore.runAi({
+    R: runs,
+    job: "ai",
+    total: Math.ceil(items.length / cfg.batchSize),
+    request: (i, p) => ({ type: "triage-reading-ai-tag", instruction, items: items.slice(i * cfg.batchSize, (i + 1) * cfg.batchSize), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() }),
+    merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    send: (msg) => chrome.runtime.sendMessage(msg).catch((error) => ({ ok: false, error: error.message })),
+    intervalMs: cfg.intervalSec * 1000,
+    progress: aiProgress
   });
-  if (res.error) p.errors.push(`第 ${i} 批失败：${res.error}`);
-  if (run.stopping) p.errors.push(MdgErrors.LABEL.stopped);
-  // A new tag no record uses starts unticked, as on the 分拣台.
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(UI.aiRef.new(t.key)));
-  // A tag deleted during the run is still named by the batches before it.
-  if (answered && !UI.aiProposalOk(p, tagOf)) {
-    answered = 0;
-    p.errors.push(UI.AI_TAG_GONE);
-  }
-  setAiProposal(answered ? p : null);
-  AI.run = null;
+  const r = await running;
+  setAiProposal(r.proposal);
   render();
-  aiProgress(answered ? "" : p.errors.join("；"));
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
+  const last = r.errors.at(-1);
   // A stop for a setup or access error says so with its remedy, the dialog open or not, as the 分拣台's banner.
-  if (res.error) setStatus(answered ? p.errors.at(-1) : UI.aiTagsFailed(p.errors.at(-1)), true, aiRemedy(res));
+  if (r.error) setStatus(r.proposal ? last : UI.aiTagsFailed(last), true, aiRemedy(r));
   else if (open) return;
-  else if (answered) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
-  else setStatus(UI.aiTagsFailed(p.errors.at(-1)), true);
+  else if (r.proposal) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
+  else setStatus(UI.aiTagsFailed(last), true);
 }
 
 // What a run's stop offers, as the 分拣台's banner: 授权 for a missing access permission, 去设置 for a setup error.
@@ -441,89 +376,6 @@ function aiRemedy({ error, code }) {
   const access = MdgErrors.grantOrigin(error, code);
   if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && setStatus(MdgErrors.TEXT.granted) };
   return MdgRuns.aiSettingsCode(code) ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
-}
-
-// The ticked new tags against the tags there are, in the proposal's order: a name a tag has is that tag; the others are
-// created while READING_TAGS has room, and the keys of the rest are skipped. 应用 and the review both go by it.
-function newTagPlan(newTags, existing) {
-  const tags = [...existing];
-  const idFor = {};
-  const created = [];
-  const skipped = [];
-  for (const t of newTags) {
-    const name = MdgTagCore.cleanTagName(t.name);
-    if (!t.checked || !name) continue;
-    let tag = tags.find((x) => x.name === name);
-    if (!tag && tags.length < MdgLimits.READING_TAGS) {
-      tag = { id: MdgTagCore.newTagId("rt"), name, color: MdgTagCore.nextTagColor(tags) };
-      tags.push(tag);
-      created.push(tag.id);
-    }
-    if (tag) idFor[t.key] = tag.id;
-    else skipped.push(t.key);
-  }
-  return { tags, idFor, created, skipped };
-}
-
-// 应用: the checked new tags (within READING_TAGS, newTagPlan) and every listed record's change, in one marks write. A
-// failed write keeps the proposal.
-async function applyAi() {
-  const p = AI.proposal;
-  if (!p) return;
-  setAiProposal(null);
-  const live = aiLive();
-  let changes = [];
-  let created = [];
-  let full = 0;
-  let before = {};
-  const saved = await saveMarks((m) => {
-    const plan = newTagPlan(p.newTags, m.tags);
-    const { tags, idFor } = plan;
-    created = plan.created;
-    full = plan.skipped.length;
-    const map = Object.fromEntries(Object.entries(m.items).map(([key, item]) => [key, item.tags || []]));
-    changes = UI.aiChanges(p, map, live, (key) => idFor[key]);
-    const after = new Map(changes.map(([key, , ids]) => [key, ids.filter((id) => tags.some((t) => t.id === id))]));
-    before = tagsBefore(m, changes.map(([key]) => key));
-    return editItems({ ...m, tags }, Object.fromEntries(changes.map(([key]) => [key, live.get(key)])), (item, key) => ({ ...item, tags: after.get(key) }));
-  });
-  if (!saved) return setAiProposal(p);
-  const n = changes.length;
-  // This batch replaces the last one; the list shows it to look over.
-  recentFilter = n > 0;
-  if (n) {
-    AI.recent = { at: Date.now(), keys: changes.map(([key]) => key) };
-    await chrome.storage.local.set({ [AI_RECENT]: AI.recent }).catch(() => {});
-  }
-  if (n || created.length) pushTagUndo(before, Object.fromEntries(changes.map(([key]) => [key, live.get(key)])), `AI 打标签（${n} 个记录）`, { ask: n > 1 ? UI.undoAsk("ai", n, "记录") : null, created, recentAt: n ? AI.recent.at : 0 });
-  render();
-  setStatus(`${UI.aiApplied(n, "记录", created.length)}${full ? `；${full} 个新标签没有建：${fullReason()}` : ""}`);
-}
-
-// ---------- U 撤销, as the 分拣台's tag steps: one per tag save (the tag picker, AI 打标签's 应用), kept on this page ----------
-// A step puts its records' tags back as they were (tags deleted since stay off) and deletes the tags it created that no
-// record carries any more, in one marks write.
-const undoSteps = [];
-// The tags of keys in the marks m, before a write changes them.
-const tagsBefore = (m, keys) => Object.fromEntries(keys.map((key) => [key, [...(m.items[key]?.tags || [])]]));
-function pushTagUndo(before, refs, label, { ask = null, created = [], recentAt = 0 } = {}) {
-  undoSteps.push({ before, refs, label, ask, created, recentAt });
-  if (undoSteps.length > MdgLimits.TRIAGE_UNDO_STEPS) undoSteps.shift();
-}
-async function undo() {
-  const top = undoSteps.at(-1);
-  if (!top) return setStatus(MdgErrors.TEXT.noUndo);
-  if (top.ask && !(await UI.askConfirm(...top.ask))) return;
-  undoSteps.pop();
-  const saved = await saveMarks((m) => {
-    const live = new Set(m.tags.map((t) => t.id));
-    const out = editItems(m, top.refs, (item, key) => ({ ...item, tags: top.before[key].filter((id) => live.has(id)) }));
-    const used = new Set(Object.values(out.items).flatMap((item) => item.tags || []));
-    return { ...out, tags: out.tags.filter((t) => !top.created.includes(t.id) || used.has(t.id)) };
-  });
-  if (!saved) return void undoSteps.push(top);
-  if (top.recentAt && AI.recent?.at === top.recentAt) await clearRecent();
-  setStatus(`已撤销：${top.label}`);
 }
 
 // Own tags come off with a click (U puts them back); the 分拣台's are read-only here, dashed. 「+ 标签」 ends the line.
@@ -550,7 +402,7 @@ function renderHead(all, groups) {
   els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.filter((t) => carrying(t.id) || tagFilter.has(t.id)).map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: carrying(t.id), on: tagFilter.has(t.id), what: "记录" })).join(""));
   // 「选中的 N 个」 counts records, as the dialog's 选中 does.
   const picked = aiRecords("selected").size || recordsOf(all.filter((g) => selected.has(g.key))).size;
-  els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: Boolean(AI.run), pending: Boolean(AI.proposal), picked, aiReason: aiReason(all) }) + SETTINGS_BTN;
+  els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: aiRunning(), pending: Boolean(AI.proposal), picked, aiReason: aiReason(all) }) + SETTINGS_BTN;
   const filtered = filtersOn();
   UI.setSearchScope(els.search, MdgErrors.LABEL.history, [starFilter && "星标", recentFilter && UI.AI_RECENT, ...[...tagFilter].map((id) => tagOf(id)?.name)].filter(Boolean).join(" · "));
   els.searchCount.textContent = UI.resultCount(els.search.value.trim() || filtered, groups.length);
@@ -765,7 +617,7 @@ async function load() {
   AI.recent = all[AI_RECENT] || null;
   if (!AI.recent?.keys?.length) recentFilter = false;
   // The proposal in memory (maybe edited in the review) wins over the stored one.
-  if (!AI.proposal && !AI.run) AI.proposal = all[AI_PROPOSAL] || null;
+  if (!AI.proposal && !aiRunning()) AI.proposal = all[AI_PROPOSAL] || null;
   dropStaleProposal();
   conversations = (all[KEY] || []).filter((c) => c?.id && Array.isArray(c.messages));
   analyses = {};
@@ -881,7 +733,7 @@ els.list.addEventListener("click", (event) => {
   const key = entry.dataset.key;
   const group = groupByVideo(conversations).find((g) => g.key === key);
   const act = target.dataset.act;
-  if (target.dataset.untag && group) void untag(group, target.dataset.untag);
+  if (target.dataset.untag && group) void tagStore.untag(readingKey(group), target.dataset.untag);
   else if (act === "pick") {
     target.checked ? selected.add(key) : selected.delete(key);
     render();
@@ -963,7 +815,7 @@ els.filters.addEventListener("click", (event) => {
 // I, U and / as on the 分拣台: not while typing or with a dialog open.
 document.addEventListener("keydown", (e) => {
   if (MdgTyping.composing(e) || MdgTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
-  const run = { i: openAi, u: undo, "/": () => els.search.focus() }[e.key.toLowerCase()];
+  const run = { i: openAi, u: tagStore.undo, "/": () => els.search.focus() }[e.key.toLowerCase()];
   if (!run) return;
   e.preventDefault();
   void run();

@@ -11,9 +11,9 @@ const {
   ALL, STATUS, withFeedInProgress, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers,
   sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, visibleUps,
   SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, feedOrdered, feedCounts, feedList, feedLeaving,
-  withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
+  stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
   keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
-  aiRoomHint, syncView
+  syncView
 } = globalThis.FollowCore;
 
 // ---------- page ----------
@@ -161,54 +161,50 @@ const write = T.store;
 // A batch confirm's list, as 收藏夹's.
 const names = (mids) => UI.confirmList(mids.map(nameOf));
 
-// follow_tags and follow_tag_map are written by the background too (a sync, B站 pages' 「+ UP 标签」), and D catches up only
-// on the redraw a second later: a change applies to what storage holds now, under the lock the background takes too
-// (MdgLimits.updateFollow). Resolves { prev, next }.
-async function updateStored(name, empty, change) {
-  let r = null;
-  await MdgLimits.updateFollow([name], (s) => {
-    const prev = s[name] || empty;
-    r = { prev, next: change(prev) };
-    return { [name]: r.next };
-  }, write);
-  return r;
-}
-async function setTagMap(change) {
-  const r = await updateStored("tag_map", {}, change);
-  D.map = r.next;
-  derive();
-  return r;
-}
-async function saveTags(change) {
-  const r = await updateStored("tags", [], change);
-  D.tags = r.next;
-  derive();
-  return r;
-}
-const changeTags = (mids, add, remove) => setTagMap((map) => withTags(map, mids, add, remove));
-// 关注's undo steps live in fav-*.js (S.modeUndo, apart from 收藏夹's): U in 关注 undoes only these.
-function pushTagUndo(before, label, { ask = null, created = [], recentAt = 0 } = {}) {
-  T.pushUndo({
-    kind: "mode",
-    tags: true, // dropped when a tag is deleted
-    ask,
-    undo: async () => {
-      const followed = new Set(following());
-      const gone = Object.keys(before).filter((m) => !followed.has(m)).length;
-      const { next: map } = await setTagMap((m) => restoreTags(m, before, new Set(D.tags.map((t) => t.id)), followed));
-      const used = new Set(Object.values(map).flat());
-      if (created.some((id) => !used.has(id))) await saveTags((tags) => tags.filter((t) => !created.includes(t.id) || used.has(t.id)));
-      if (recentAt && D.recent?.at === recentAt) {
-        D.recent = null;
-        F.recentFilter = false;
-        await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
-      }
-      render();
-      return `已撤销：${label}${gone ? `（${gone} 个已取消关注，标签没改）` : ""}`;
-    }
-  });
-}
-const { newUpTag: newTag, upTagsFull } = MdgTagCore;
+// 关注's tags (tag-store.js does the work): follow_tags / follow_tag_map, written by the background too (a sync, B站
+// pages' 「+ UP 标签」), so a change applies to what storage holds now, under the lock both take. At most
+// MdgLimits.UP_TAGS, as B站 pages' 「+ UP 标签」; an AI 打标签 the user confirmed may go past it, as 收藏夹's.
+const tagStore = MdgTagStore.create({
+  ...MdgTagStore.follow({
+    get: () => D,
+    put({ tags, map }) {
+      if (tags) D.tags = tags;
+      if (map) D.map = map;
+      derive();
+    },
+    set: (o) => write(o)
+  }),
+  who: WHO,
+  make: (name, tags) => MdgTagCore.newUpTag(name, tags),
+  cap: () => MdgLimits.UP_TAGS,
+  full: (n) => MdgTagCore.upFullText(n),
+  fullShort: () => `UP 标签已满 ${MdgLimits.UP_TAGS} 个`,
+  keepOverCap: true,
+  newTagMax: () => AI.settings.newTagMax,
+  // An 已取消关注 UP 主 keeps its tags in its follow_unfollowed record: it carries the tag too.
+  uses: (id) => Object.values(D.gone).filter((g) => g.tagIds?.includes(id)).length,
+  // U leaves UP 主 unfollowed since be: their tags went into that record.
+  restorable: (mid) => following().includes(mid),
+  goneWord: "已取消关注",
+  steps: { push: (step) => T.pushUndo({ ...step, kind: "mode" }), drop: (pred) => T.dropModeUndo(pred) },
+  confirm: (...a) => askConfirm(...a),
+  say: (text, error) => toast(text, error),
+  changed: () => (F.mode === "follow" ? render() : renderViewerUp()),
+  tagGone: (id) => F.tags.delete(id),
+  setProposal: (p) => setAiProposal(p),
+  live: () => new Set(following()),
+  async markRecent(mids, at) {
+    D.recent = { at, mids };
+    F.recentFilter = true;
+    await write(MdgLimits.followFull({ ai_recent: D.recent }));
+  },
+  async endRecent(at) {
+    if (D.recent?.at !== at) return;
+    D.recent = null;
+    F.recentFilter = false;
+    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
+  }
+});
 // An 已取消关注 UP 主's tags are kept in its follow_unfollowed record (follow-bg.js moves them there when it leaves):
 // change(ids) edits them there. Resolves the ids before, or null when the record is gone.
 async function setGoneTags(mid, change) {
@@ -1150,58 +1146,12 @@ settingsDialog.addEventListener("close", async () => {
 });
 
 // ----- 标签管理 (tag-dialogs.js) -----
-const manageTags = {
-  who: WHO,
+const manageTags = tagStore.manage({
   hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
   tags: () => D.tags,
-  // Everyone the tag is on, 已取消关注 UP 主 too: deleting it takes it off them all (UI.withoutTag).
-  count: (id) => UI.tagUses(D.map, id),
-  addReason: (value) => upTagsFull(D.tags) || UI.tagNameError(cleanTagName(value), D.tags),
-  async add(value) {
-    const t = await addTag(value);
-    if (t) render();
-    return t;
-  },
-  edit: editTag,
-  remove: (t) => deleteTag(t.id)
-};
+  scope: () => undefined
+});
 const openManage = () => TagDialogs.manage.open(manageTags);
-// The tag of that name, or a new one while MdgLimits.UP_TAGS has room (null, and why, past it), as B站 pages' 「+ UP 标签」.
-// overCap: an AI 打标签 the user confirmed may go past it, as 收藏夹's; 标签管理 then says to delete some.
-async function addTag(name, overCap = false) {
-  name = cleanTagName(name);
-  if (!name) return null;
-  let t = null;
-  let why = "";
-  await saveTags((tags) => {
-    if ((t = tags.find((x) => x.name === name))) return tags;
-    why = !overCap && upTagsFull(tags);
-    return why ? tags : [...tags, (t = newTag(name, tags))];
-  });
-  if (why) toast(why, true);
-  return t || null;
-}
-// A rename, rule or color edit from 标签管理 (shared.js editedTag, as 收藏夹's saveTagEdit).
-async function editTag(old, field, value) {
-  const { tag, why } = UI.editedTag(old, field, value, D.tags.filter((x) => x.id !== old.id));
-  if (why) toast(why, true);
-  if (!tag) return false;
-  await saveTags((tags) => tags.map((x) => (x.id === old.id ? tag : x)));
-  render();
-  return true;
-}
-async function deleteTag(id) {
-  const t = tagOf(id);
-  const n = UI.tagUses(D.map, id);
-  // The confirm dialog is a second modal; the tag dialog stays open under it.
-  if (!(await askConfirm(...UI.deleteTagAsk(t, n, WHO), "删除", { danger: true }))) return;
-  await setTagMap((map) => UI.withoutTag(map, id));
-  await saveTags((tags) => tags.filter((x) => x.id !== id));
-  // As 收藏夹: tag steps undone now would work on a tag that is gone.
-  T.dropModeUndo((step) => step.tags);
-  F.tags.delete(id);
-  render();
-}
 
 // ----- 打标签 (one UP from its card, or the selection): the shared picker, tag-picker.js -----
 // A modal for the UP 主 cards and the selection; anchored (the 视频投稿 card's or the viewer line's 「+ 标签」, a CSS selector
@@ -1215,39 +1165,26 @@ function openPick(mids, anchor = "") {
   pick.anchor = anchor;
   pick.keep = anchor && F.feed ? new Set(feedList(F.feed.items, D, feedF(), null).filter((it) => it.mid === mids[0]).map((it) => it.bvid)) : null;
   const n = pick.keep?.size || 0;
-  TagPicker.open({
+  tagStore.openPicker({
     title: UI.pickTitle(mids.length, upName(mids[0]), WHO),
     note: n ? `这里有这个 UP 主的 ${n} 个视频` : "",
     targets: mids,
-    idsOf: (m) => liveTags(m, D),
-    tags: () => D.tags,
-    get canCreate() {
-      return !upTagsFull(D.tags);
-    },
-    get empty() {
-      return upTagsFull(D.tags);
-    },
-    create: addTag,
     anchor,
-    onClose: pickClosed
+    done: pickClosed
   });
   if (anchor) render();
 }
-async function pickClosed(changes) {
+// One close is one save and one undo step (tag-store.js), as 收藏夹's picker.
+async function pickClosed(saving) {
   const { keep, mids, anchor } = pick;
   pick.anchor = "";
   pick.keep = null;
-  // One close is one save and one undo step, as 收藏夹's picker.
-  if (changes.length) {
-    const { prev } = await setTagMap((map) => changes.reduce((m, c) => withTags(m, [c.key], c.add, c.remove), map));
-    const before = tagsOf(prev, changes.map((c) => c.key));
-    pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });
-  }
+  const changed = await saving;
   if (F.mode !== "follow") return renderViewerUp();
   render();
   const left = anchor && F.tab === "feed" && F.feed ? feedLeaving(F.feed.items, D, feedF(), keep).length : 0;
-  const msg = left ? `「${upName(mids[0])}」的 ${left} 个视频已移出当前筛选` : changes.length ? "标签已更新" : "";
-  if (msg) toast(`${msg}${UI.UNDO}`);
+  if (left) toast(`「${upName(mids[0])}」的 ${left} 个视频已移出当前筛选${UI.UNDO}`);
+  else if (changed) toast(tagStore.updatedText(changed));
 }
 
 // T: with the viewer open, the playing video's UP (its 「UP 标签」 line), as 收藏夹's T tags the playing video; else the
@@ -1344,8 +1281,8 @@ const aiTags = {
     { value: "selected", label: UI.scopeLabel.selected, n: followedOf([...F.sel]).length, shown: aiScopeMids("selected").length }
   ],
   scopeText: aiScopeText,
-  room: () => AI.settings.newTagMax,
-  roomHint: () => `${aiRoomHint(D.tags, AI.excluded, AI.settings.newTagMax)}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
+  room: () => tagStore.room(),
+  roomHint: () => `${UI.aiRoomHint({ tags: D.tags, excluded: AI.excluded, room: tagStore.room(), full: tagStore.noRoom() })}<br>每批数量、间隔和新建上限在「关注设置」里改。`,
   blocked: () => aiBlocked(F.tab, F.side),
   history: () => AI.history,
   allowRemove: () => AI.settings.allowRemove,
@@ -1370,7 +1307,7 @@ const aiTags = {
     setAiProposal(null);
     renderAiState();
   },
-  apply: () => applyAi(),
+  apply: () => tagStore.apply(AI.proposal),
   map: () => D.map,
   live: () => new Set(following()),
   tagName: (id) => tagOf(id)?.name
@@ -1385,67 +1322,28 @@ async function runAi({ instruction, scope, allowRemove }) {
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const opts = { tags: D.tags, map: D.map, maxNewTags: AI.settings.newTagMax, excluded, scope: new Set(mids) };
+  const opts = { tags: D.tags, map: D.map, maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
-  // The same run loop as 收藏夹 (fav-*.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
-  const running = T.runAiBatches({
+  // The same run as 收藏夹's (tag-store.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
+  const running = tagStore.runAi({
     R: runs,
     job: "follow-ai",
     total: batches.length,
     request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
     merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    send,
     intervalMs,
     progress: (text) => (progress(text), renderSync()),
-    // 收藏夹设置's 粗看输出上限 does not apply here (triageAiCommand).
-    limitHint: false
+    // 收藏夹设置's 粗看输出上限 does not apply here (triageAiCommand): no limitHint.
+    onError: T.aiError
   });
   renderAiState();
-  let { proposal, errors } = await running;
-  // A tag deleted during the run is still named by the batches before it: dropped as a stored one is (derive), as 收藏夹's.
-  if (proposal && !UI.aiProposalOk(proposal, tagOf)) {
-    proposal = null;
-    errors.push(UI.AI_TAG_GONE);
-    progress(errors.at(-1));
-  }
+  const { proposal, errors } = await running;
   setAiProposal(proposal);
-
   renderAiState();
   const open = TagDialogs.ai.isOpen(aiTags);
   if (open) TagDialogs.ai.render(aiTags);
   else toast(proposal ? UI.AI_TAGS_DONE : UI.aiTagsFailed(errors.at(-1)), !proposal);
-}
-
-
-async function applyAi() {
-  const p = AI.proposal;
-  if (!p) return;
-  const had = new Set(D.tags.map((t) => t.id));
-  const idFor = {};
-  for (const t of p.newTags) if (t.checked && cleanTagName(t.name)) idFor[t.key] = (await addTag(t.name, true))?.id;
-  const created = Object.values(idFor).filter((id) => id && !had.has(id));
-  setAiProposal(null);
-  let changes = [];
-  const { prev } = await setTagMap((cur) => {
-    changes = UI.aiChanges(p, cur, new Set(following()), (key) => idFor[key]);
-    const map = { ...cur };
-    for (const [mid, , after] of changes) {
-      if (after.length) map[mid] = after;
-      else delete map[mid];
-    }
-    return map;
-  });
-  const n = changes.length;
-  const before = tagsOf(prev, changes.map(([mid]) => mid));
-  // This batch replaces the last one; the list shows it to look over.
-  F.recentFilter = n > 0;
-  if (n) {
-    D.recent = { at: Date.now(), mids: changes.map(([mid]) => mid) };
-    await write(MdgLimits.followFull({ ai_recent: D.recent }));
-  }
-  if (n || created.length) pushTagUndo(before, `AI 打标签（${n} 个 UP 主）`, { ask: n > 1 ? UI.undoAsk("ai", n, WHO) : null, created, recentAt: n ? D.recent.at : 0 });
-  render();
-  // Only new tags: no UP 主 changed, so the list stays as it was.
-  toast(UI.aiApplied(n, WHO, created.length));
 }
 
 // ---------- events ----------
@@ -1556,12 +1454,11 @@ main.addEventListener("click", async (e) => {
   if (untag) {
     const mid = untag.closest("[data-mid]").dataset.mid;
     const name = tagOf(untag.dataset.untag)?.name;
-    if (rows.get(mid)?.gone) await untagGone(mid, untag.dataset.untag, name);
+    if (!rows.get(mid)?.gone) await tagStore.untag(mid, untag.dataset.untag);
     else {
-      const { prev } = await changeTags([mid], [], [untag.dataset.untag]);
-      pushTagUndo(tagsOf(prev, [mid]), UI.untagStep(name));
+      await untagGone(mid, untag.dataset.untag, name);
+      toast(UI.untagged(name));
     }
-    toast(UI.untagged(name));
     return render();
   }
   const pk = t.closest("[data-pick]");

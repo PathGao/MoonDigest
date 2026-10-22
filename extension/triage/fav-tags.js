@@ -1,61 +1,55 @@
 "use strict";
-// 收藏夹's tags, 判断标准 and 标签管理.
+// 收藏夹's tags (where they live and what a folder allows; tag-store.js does the rest), 判断标准 and 标签管理.
 
-// ---------- tags ----------
-const saveTags = () => storeSet(K.tags, S.tags);
-
-// Why the folder takes no new tag: it has tagLimit() already ("" while it has room).
-function tagCapReason(folder = S.mediaId) {
-  const n = S.tags.filter((t) => t.folder === String(folder)).length;
-  return n >= tagLimit() ? `这个收藏夹已经有 ${n} 个标签了，先删掉不用的，或在${SETTINGS_NAME}里调高上限` : "";
-}
-
-// Returns the folder's tag with this name, creating it if needed; the color comes from the palette in turn.
-// null (with a toast) outside a folder or when the folder already has tagLimit() tags, unless overCap: an AI 打标签 the
-// user confirmed may go past the cap, and 标签管理 then says to delete some.
-function createTag(name, folder = S.mediaId, { overCap = false } = {}) {
-  name = cleanTagName(name);
-  if (!name) return toast(UI.tagNameError(name, []), true), null;
-  if (folder === ALL || folder === REMOVED || !folder) return toast(FOLDER_ONLY, true), null;
-  const own = S.tags.filter((t) => t.folder === String(folder));
-  const existing = own.find((t) => t.name === name);
-  if (existing) return existing;
-  const full = !overCap && tagCapReason(folder);
-  if (full) return toast(full, true), null;
-  const tag = { id: newTagId(), name, color: UI.nextTagColor(own), folder: String(folder) };
-  S.tags.push(tag);
-  saveTags();
-  return tag;
-}
-
-function writeVideoTags(bvid, ids) {
-  if (ids.length) S.videoTags[bvid] = ids;
-  else delete S.videoTags[bvid];
-}
-function setVideoTags(bvid, ids, prev, label = MdgErrors.LABEL.tagEdit) {
-  const same = ids.length === prev.length && ids.every((id) => prev.includes(id));
-  if (same) return false;
-  writeVideoTags(bvid, ids);
-  saveVideoTags();
-  pushUndo(
-    pageStep("tags", 1, "", () => {
-      writeVideoTags(bvid, prev);
-      saveVideoTags();
-      S.focused = bvid;
-      return `已撤销：${label}`;
-    })
-  );
-  return true;
-}
-
-// A tag's chip on the card takes it off that video in one click; U puts it back.
-function removeVideoTag(bvid, id) {
-  const prev = (S.videoTags[bvid] || []).filter((x) => tagById(x));
-  const name = tagById(id)?.name;
-  if (!setVideoTags(bvid, prev.filter((x) => x !== id), prev, UI.untagStep(name))) return;
-  render();
-  toast(UI.untagged(name));
-}
+// ---------- tags (tag-store.js) ----------
+// A tag belongs to one folder: made only there, at most tagLimit() per folder (收藏夹设置); an AI 打标签 the user
+// confirmed may go past it, and 标签管理 then says to delete some.
+const tagsDb = MdgTagStore.local({
+  keys: { tags: K.tags, map: K.videoTags },
+  get: () => ({ tags: S.tags, map: S.videoTags }),
+  put({ tags, map }) {
+    if (tags) S.tags = tags;
+    if (map) S.videoTags = map;
+  },
+  save: (patch) => (noteOwnWrites(patch), store(patch))
+});
+const tagStore = MdgTagStore.create({
+  ...tagsDb,
+  who: "视频",
+  idPrefix: "t",
+  scoped: true,
+  scopeWhy: (folder) => (!folder || folder === ALL || folder === REMOVED ? FOLDER_ONLY : ""),
+  cap: () => tagLimit(),
+  full: (n) => `这个收藏夹已经有 ${n} 个标签了，先删掉不用的，或在${SETTINGS_NAME}里调高上限`,
+  fullShort: (folder) => `${folder === ALL ? "各收藏夹" : ""}名额已满`,
+  keepOverCap: true,
+  newTagMax: () => S.settings.triageAiNewTagMax,
+  steps: { push: (step) => pushUndo({ kind: "tags", ...step }), drop: (pred) => (S.undo = S.undo.filter((e) => !pred(e))) },
+  confirm: (...a) => askConfirm(...a),
+  say: (text, error) => toast(text, error),
+  changed: () => render(),
+  undone(bvids) {
+    if (bvids.length === 1) S.focused = bvids[0];
+    render();
+    setFocus(S.focused);
+  },
+  tagGone(id) {
+    S.tagFilter.delete(id);
+    pruneAiProposals();
+  },
+  setProposal: (p) => (S.ai.proposal = p),
+  live: () => S.itemMap,
+  // This batch replaces the folder's last one; the list shows it to look over.
+  markRecent(bvids, at) {
+    S.aiRecent[String(S.mediaId)] = { at, bvids };
+    S.aiRecentFilter = true;
+    saveAiRecent();
+  },
+  // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
+  endRecent(at) {
+    for (const [folder, r] of Object.entries(S.aiRecent)) if (r.at === at) endAiRecent(folder);
+  }
+});
 
 // 「AI 刚打的」 of the open folder (a Set of bvids); empty in 所有收藏夹 and 已出分拣范围.
 // Asked per video while filtering, so the set is built once per list (lists are replaced, never changed in place).
@@ -79,59 +73,23 @@ function endAiRecent(folder = String(S.mediaId)) {
 function openPicker(bvids, anchor = "", home = null) {
   bvids = [].concat(bvids).filter((b) => home || S.itemMap.has(b));
   if (!bvids.length || (!home && S.mediaId === REMOVED)) return;
-  const bvid = bvids[0];
-  const folders = home?.folders || pickerFolders(bvid);
-  const one = folders.length === 1;
-  TagPicker.open({
-    title: UI.pickTitle(bvids.length, shortTitle(home?.item || S.itemMap.get(bvid)), "视频"),
+  tagStore.openPicker({
+    title: UI.pickTitle(bvids.length, shortTitle(home?.item || S.itemMap.get(bvids[0])), "视频"),
     targets: bvids,
-    // Every tag of the video, so saving keeps the ones of other folders the picker does not list.
-    idsOf: (b) => (S.videoTags[b] || []).filter((id) => tagById(id)),
-    tags: () => S.tags.filter((t) => folders.includes(t.folder)),
-    // Read at each redraw: a tag made here may fill the folder; full, no 新建「…」 and the empty list says why.
-    get canCreate() {
-      return one && !tagCapReason(folders[0]);
-    },
-    create: (name) => createTag(name, folders[0]),
-    get empty() {
-      // "" leaves tag-picker.js's own 「输入名称后回车新建标签」.
-      return !one ? "在具体收藏夹里新建标签" : tagCapReason(folders[0]);
-    },
+    scopes: home?.folders || pickerFolders(bvids[0]),
     anchor,
-    onClose: savePicked
+    async done(saving) {
+      const n = await saving;
+      if (n) toast(tagStore.updatedText(n));
+      render();
+      setFocus(S.focused, true);
+    }
   });
 }
 
 // The picker's tags: the open folder's; in 所有收藏夹 those of the folders the video is in. New tags need one folder.
 function pickerFolders(bvid) {
   return inFolderView() ? [String(S.mediaId)] : (S.itemMap.get(bvid)?.folders || []).map(String);
-}
-
-// Several videos changed (标签… on a selection) are one undo step too.
-function savePicked(changes) {
-  if (changes.length === 1) {
-    const [c] = changes;
-    const prev = (S.videoTags[c.key] || []).filter((id) => tagById(id));
-    if (setVideoTags(c.key, TagPicker.applyChange(prev, c), prev)) toast(`标签已更新${UNDO}`);
-  } else if (changes.length) {
-    const prevs = {};
-    for (const c of changes) {
-      prevs[c.key] = (S.videoTags[c.key] || []).filter((id) => tagById(id));
-      writeVideoTags(c.key, TagPicker.applyChange(prevs[c.key], c));
-    }
-    saveVideoTags();
-    const n = Object.keys(prevs).length;
-    pushUndo(
-      pageStep("tagsMany", n, "tags", () => {
-        for (const [b, prev] of Object.entries(prevs)) writeVideoTags(b, prev);
-        saveVideoTags();
-        return `已撤销：${n} 个视频的标签修改`;
-      })
-    );
-    toast(`${changes.length} 个视频的标签已更新${UNDO}`);
-  }
-  render();
-  setFocus(S.focused, true);
 }
 
 // The viewer's 「视频标签」 line: the playing video's tags and 「+ 标签 T」; a tag opens the picker too. 关注 then draws
@@ -217,60 +175,18 @@ async function startJudging(title, verb, items, start) {
 }
 
 // ---------- 标签管理 (tag-dialogs.js): the open folder's tags ----------
-const tagCounts = () => {
-  const counts = {};
-  for (const ids of Object.values(S.videoTags)) for (const id of ids) counts[id] = (counts[id] || 0) + 1;
-  return counts;
-};
-const manageTags = {
-  who: "视频",
+const manageTags = tagStore.manage({
   hint: () => `这里是这个收藏夹的标签，最多 ${tagLimit()} 个（在${SETTINGS_NAME}里改）。`,
   reason: () => (inFolderView() ? "" : FOLDER_ONLY),
   tags: () => (inFolderView() ? viewTags() : []),
-  count: (id) => tagCounts()[id] || 0,
-  addReason: (value) => tagCapReason() || UI.tagNameError(cleanTagName(value), viewTags()),
-  add(value) {
-    const t = createTag(value);
-    if (t) render();
-    return t;
-  },
-  edit: (t, field, value) => saveTagEdit(t, field, value),
-  remove: (t) => deleteTag(t.id)
-};
+  scope: () => String(S.mediaId)
+});
 const openManage = () => TagDialogs.manage.open(manageTags);
-
-// A rename, rule or color edit from 标签管理 (shared.js editedTag); false (and nothing saved) for an empty or duplicate name.
-function saveTagEdit(t, field, value) {
-  const { tag, why } = UI.editedTag(t, field, value, S.tags.filter((x) => x !== t && x.folder === t.folder));
-  if (why) toast(why, true);
-  if (!tag) return false;
-  delete t.rule;
-  Object.assign(t, tag);
-  saveTags();
-  render();
-  return true;
-}
-
-async function deleteTag(id) {
-  const t = tagById(id);
-  const n = UI.tagUses(S.videoTags, id);
-  const ok = await askConfirm(...UI.deleteTagAsk(t, n, "视频"), "删除", { danger: true });
-  if (!ok) return;
-  S.tags = S.tags.filter((x) => x.id !== id);
-  S.videoTags = UI.withoutTag(S.videoTags, id);
-  S.tagFilter.delete(id);
-  // A tag step undone now would put the deleted tag's id back on its videos.
-  S.undo = S.undo.filter((e) => e.kind !== "tags" && e.kind !== "tagsMany" && e.kind !== "aiApply");
-  saveTags();
-  saveVideoTags();
-  pruneAiProposals();
-  render();
-}
 
 const saveAiProposals = () => storeSet(K.aiProposals, S.ai.proposals);
 // A proposal naming a deleted tag no longer fits; it is dropped rather than applied.
 function pruneAiProposals() {
-  const fits = Object.entries(S.ai.proposals).filter(([, p]) => UI.aiProposalOk(p, (id) => Boolean(tagById(id))));
+  const fits = Object.entries(S.ai.proposals).filter(([, p]) => tagStore.fits(p));
   if (fits.length === Object.keys(S.ai.proposals).length) return;
   S.ai.proposals = Object.fromEntries(fits);
   saveAiProposals();

@@ -54,7 +54,7 @@
   // tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but addReason.
   // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
   // (its row html).
-  const TAG_TEXT = { title: UI.tagManage, saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "添加", addLabel: "添加标签" };
+  const TAG_TEXT = { title: UI.tagManage, saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "新建", addLabel: MdgErrors.LABEL.newTag };
   let man = null;
   const rows = $("tagsRows");
   const newInput = $("newTagInput");
@@ -91,10 +91,10 @@
     const id = target.closest(".tag-row")?.dataset.id;
     return id && man.tags().find((t) => String(t.id) === id);
   };
-  // 添加 is off with why while the name cannot be added, updated as you type; Enter follows it, the typed text stays.
+  // 新建 is off with why while the name cannot be added, updated as you type; Enter follows it, the typed text stays.
   const addWhy = () => man.reason?.() || man.addReason(newInput.value);
   const syncAdd = () => UI.setReason($("addTagBtn"), addWhy());
-  // A second 添加 (a double click, Enter twice) before the first one's answer would create the name twice.
+  // A second 新建 (a double click, Enter twice) before the first one's answer would create the name twice.
   let adding = false;
   async function addTag() {
     if (adding || addWhy()) return;

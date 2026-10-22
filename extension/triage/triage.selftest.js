@@ -104,16 +104,23 @@ Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), ask
 // The picker as 收藏夹 opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
 let po = null;
 ctx.TagPicker.open = (o) => (po = o);
-function pickWith(bvid, fn, anchor) {
+async function pickWith(bvid, fn, anchor) {
   po = null;
   t.openPicker(bvid, anchor);
   if (!po) return false;
   const sets = new Map(po.targets.map((k) => [k, new Set(po.idsOf(k))]));
   const before = new Map([...sets].map(([k, s]) => [k, [...s]]));
   fn(sets);
-  po.onClose(ctx.TagPicker.changesOf(before, sets));
+  await po.onClose(ctx.TagPicker.changesOf(before, sets));
   return true;
 }
+// 收藏夹's tags go through its tag store (tag-store.js): these stand for the page's own functions it replaced.
+const tagStore = () => vm.runInContext("tagStore", ctx);
+const createTag = (name, folder = t.S.mediaId) => tagStore().createTag(name, folder);
+const saveTagEdit = (tag, field, value) => tagStore().edit(tag, field, value);
+const tagNow = (tag) => t.S.tags.find((x) => x.id === tag.id);
+const applyAi = () => vm.runInContext("aiTags", ctx).apply();
+const room = () => tagStore().room(t.S.mediaId);
 const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper: "up", duration: 61 });
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -1199,7 +1206,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(prop.newTags.map((x) => x.name)), ["n1", "n2", "n3", "n4", "n5", "n6"]);
   assert.deepStrictEqual(plain(prop.rows), [{ id: "BV600", add: ["new:n1", "id:a"], remove: [] }]);
   t.S.ai.proposal = prop;
-  t.applyAiProposal();
+  await applyAi();
   assert.deepStrictEqual(plain(t.S.tags.map((x) => x.name)), ["旧", "别处", "n1", "n2", "n3", "n4", "n5", "n6"]);
   assert.ok(t.S.tags.slice(2).every((x) => Object.keys(x).join() === "id,name,color,folder" && x.folder === "K"), "new tags belong to the open folder, no rule");
   t.S.tags = t.S.tags.filter((x) => x.name !== "n6"); // the cap tests below count from 6 tags in K
@@ -1207,13 +1214,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
   // 管理: a rule is saved trimmed and capped at 80, an empty one removed; 批量打 sends { name, rule } for every tag.
   const ruled = t.S.tags[0];
-  assert.ok(t.saveTagEdit(ruled, "rule", `  ${"讲".repeat(90)} `) && ruled.rule.length === 80);
-  assert.ok(t.saveTagEdit(ruled, "rule", "  讲老技术的  ") && ruled.rule === "讲老技术的");
+  assert.ok((await saveTagEdit(ruled, "rule", `  ${"讲".repeat(90)} `)) && tagNow(ruled).rule.length === 80);
+  assert.ok((await saveTagEdit(ruled, "rule", "  讲老技术的  ")) && tagNow(ruled).rule === "讲老技术的");
   assert.deepStrictEqual(plain(store[t.K.tags][0]), { id: "a", name: "旧", color: "#111", folder: "K", rule: "讲老技术的" });
-  assert.ok(!t.saveTagEdit(ruled, "name", "n1") && ruled.name === "旧", "a duplicate name is refused");
+  assert.ok(!(await saveTagEdit(ruled, "name", "n1")) && tagNow(ruled).name === "旧", "a duplicate name is refused");
   // Names are cleaned as 关注 and the AI clean them: no commas or 顿号, at most 12 characters.
-  assert.ok(!t.saveTagEdit(ruled, "name", "n1、") && ruled.name === "旧", "a cleaned duplicate is refused too");
-  assert.ok(t.saveTagEdit(ruled, "name", " 旧, ") && ruled.name === "旧");
+  assert.ok(!(await saveTagEdit(ruled, "name", "n1、")) && tagNow(ruled).name === "旧", "a cleaned duplicate is refused too");
+  assert.ok((await saveTagEdit(ruled, "name", " 旧, ")) && tagNow(ruled).name === "旧");
   assert.strictEqual(t.TriageUi.previewId({ newTags: [{ key: "k", name: "旧，", checked: true }] }, "k", t.viewTags()), "a", "an edited AI name matches the cleaned tag");
   Object.assign(t.S, { tab: "read", aiHistory: [] });
   handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
@@ -1304,12 +1311,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     handlers["triage-ai-command"] = () => ({ ok: true, data: {} });
   }
   t.S.settings.triageAiNewTagMax = 2;
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 2, "分拣设置 caps AI new tags below the folder's room");
+  assert.strictEqual(room(), 2, "分拣设置 caps AI new tags below the folder's room");
   t.S.settings.triageAiNewTagMax = 0;
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0, "0 = AI only uses existing tags");
+  assert.strictEqual(room(), 0, "0 = AI only uses existing tags");
   t.S.settings.triageAiNewTagMax = 5;
-  t.saveTagEdit(ruled, "rule", " ");
-  assert.ok(!("rule" in ruled));
+  await saveTagEdit(tagNow(ruled), "rule", " ");
+  assert.ok(!("rule" in tagNow(ruled)));
   t.S.ai.proposal = null;
 
   // 标签管理 then ✦ AI 打标签 on the tag row (the sidebar has neither); AI 打标签 says when a run or a proposal is pending; I always opens its section.
@@ -1360,34 +1367,34 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
 
   // Cap: 10 tags per folder. Creating an 11th is refused, a same-name one is reused; 批量打's room shrinks to 0.
-  for (const n of ["c1", "c2", "c3", "c4"]) assert.ok(t.createTag(n));
+  for (const n of ["c1", "c2", "c3", "c4"]) assert.ok((await createTag(n)));
   assert.strictEqual(t.viewTags().length, 10);
   toasts.length = 0;
-  assert.strictEqual(t.createTag("c5"), null);
+  assert.strictEqual((await createTag("c5")), null);
   assert.ok(/已经有 10 个标签/.test(toasts.at(-1)) && !t.S.tags.some((x) => x.name === "c5"));
-  assert.strictEqual(t.createTag("c1").folder, "K", "an existing name is still found at the cap");
+  assert.strictEqual((await createTag("c1")).folder, "K", "an existing name is still found at the cap");
   // K16: at the cap 标签管理's 添加 says why before the click, and the picker offers no 新建「…」, its empty list says why.
   assert.ok(/已经有 10 个标签/.test(manageTags.addReason("c9")), manageTags.addReason("c9"));
   t.openPicker(t.S.items[0].bvid);
   assert.ok(!po.canCreate && /已经有 10 个标签/.test(po.empty), po.empty);
   po = null;
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 0);
+  assert.strictEqual(room(), 0);
   assert.ok(aiTags.roomHint().includes("名额已满"));
   // The cap comes from 分拣设置: raising it lets c5 in, lowering it keeps existing tags but refuses new ones.
   t.S.settings.triageTagLimit = 11;
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 1);
-  assert.ok(t.createTag("c5"));
+  assert.strictEqual(room(), 1);
+  assert.ok((await createTag("c5")));
   t.S.settings.triageTagLimit = 3;
-  assert.strictEqual(t.createTag("c6"), null);
+  assert.strictEqual((await createTag("c6")), null);
   assert.strictEqual(t.viewTags().length, 11, "lowering the cap deletes nothing");
   t.S.settings.triageTagLimit = 10;
   t.S.tags = t.S.tags.filter((x) => !/^c\d$/.test(x.name));
   assert.deepStrictEqual([manageTags.addReason(""), manageTags.addReason("c1"), manageTags.addReason("c1x")], ["标签名不能为空", "", ""]);
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 4);
-  const long = t.createTag("入门，进阶一二三四五六七八九十");
+  assert.strictEqual(room(), 4);
+  const long = (await createTag("入门，进阶一二三四五六七八九十"));
   assert.strictEqual(long.name, "入门进阶一二三四五六七八");
-  assert.strictEqual(t.createTag(" 入门进阶一二三四五六七八 ").id, long.id);
-  assert.strictEqual(t.createTag("、"), null, "a name that cleans to nothing is refused");
+  assert.strictEqual((await createTag(" 入门进阶一二三四五六七八 ")).id, long.id);
+  assert.strictEqual((await createTag("、")), null, "a name that cleans to nothing is refused");
   t.S.tags = t.S.tags.filter((x) => x !== long);
   assert.ok(aiTags.roomHint().includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
@@ -1397,15 +1404,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("K", [item(710)]);
     t.S.tags = [{ id: "p0", name: "p0", color: C[0], folder: "K" }, { id: "p2", name: "p2", color: C[2], folder: "K" }, { id: "q", name: "q", color: C[1], folder: "Z" }];
     t.S.videoTags = { BV710: ["p0"] };
-    const p1 = t.createTag("p1");
+    const p1 = (await createTag("p1"));
     assert.strictEqual(p1.color, C[1], "not C[2] (two tags → third color), which p2 has");
-    assert.ok(t.saveTagEdit(p1, "color"));
-    assert.strictEqual(p1.color, C[2]);
+    assert.ok(await saveTagEdit(p1, "color"));
+    assert.strictEqual(tagNow(p1).color, C[2]);
     assert.deepStrictEqual([manageTags.count("p0"), manageTags.count("p1")], [1, 0], "标签管理 counts the videos per tag");
 
     // The picker saves once on close, as one undo step, on top of what changed meanwhile.
     toasts.length = 0;
-    assert.ok(pickWith("BV710", (sets) => {
+    assert.ok(await pickWith("BV710", (sets) => {
       t.TagPicker.toggle(sets, "p2");
       t.S.videoTags.BV710 = ["p0", p1.id]; // AI 批量打 or another tab, while the picker is open
     }));
@@ -1414,7 +1421,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(toasts, ["标签已更新 · U 撤销"]);
     await t.undo();
     assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["p0", p1.id]);
-    assert.ok(pickWith("BV710", () => {}) && t.S.undo.length === 0, "closing without a change saves nothing");
+    assert.ok(await pickWith("BV710", () => {}) && t.S.undo.length === 0, "closing without a change saves nothing");
 
     // The viewer line: the playing video's tags and 「+ 标签 T」, which opens the picker under it.
     const play = (b) => ((t.S.viewing = b), (t.S.viewer = t.viewerOf(b)), t.renderViewerTags());
@@ -1512,9 +1519,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   };
   assert.deepStrictEqual(plain(preview(gp).tally), ["+ A 2", "+ B 1", "+ C 1", "− A 1"]);
   t.S.ai.proposal = gp;
-  t.applyAiProposal();
+  await applyAi();
   assert.deepStrictEqual([plain(t.S.aiRecent.K.bvids), t.S.aiRecentFilter], [["BV700", "BV701", "BV702"], true], "applying shows the batch");
-  t.writeVideoTags("BV701", ["gb"]); // an edit made after the batch
+  t.S.videoTags = { ...t.S.videoTags, BV701: ["gb"] }; // an edit made after the batch
   vm.runInContext("__realAsk = askConfirm; __asked = 0; __answer = false; askConfirm = async () => (__asked++, __answer)", ctx);
   await t.undo();
   assert.ok(vm.runInContext("__asked", ctx) === 1 && t.S.aiRecent.K, "U on a batch asks first; 取消 keeps it");
@@ -1543,13 +1550,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(preview(t.S.ai.proposal).tally), ["+ A 1", "+ F 1"], "no entry for a cleared name");
   t.S.ai.proposal.newTags[1].checked = false;
   toasts.length = 0;
-  t.applyAiProposal();
+  await applyAi();
   const batchA = t.S.undo.at(-1);
-  assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.kind, batchA.ask]), [["BV722"], "aiApply", null], "only BV722 changed: one video, so U does not ask");
+  assert.deepStrictEqual(plain([t.S.aiRecent.K.bvids, batchA.tags, batchA.ask]), [["BV722"], true, null], "only BV722 changed: one video, so U does not ask");
   assert.ok(toasts.some((x) => x.includes("1 个视频")), toasts.join());
   // Nothing to change: no undo step.
   t.S.ai.proposal = { newTags: [], notes: [], errors: [], rows: [{ id: "BV721", add: ["id:na"], remove: [] }] };
-  t.applyAiProposal();
+  await applyAi();
   assert.strictEqual(t.S.undo.at(-1), batchA, "a batch that changed nothing pushes no undo");
   // Another tab ran batch B and deleted tag nb since: U on A keeps B's 「AI 刚打的」 and does not bring the deleted tag back.
   t.S.aiRecent.K = { at: t.S.aiRecent.K.at + 1, bvids: ["BV723"] };
@@ -1583,7 +1590,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // A card's tag chip takes that tag off the video in one click, and U puts it back.
   openFake("K", [item(710)]);
   Object.assign(t.S, { tags: [{ id: "ua", name: "A", color: "#1", folder: "K" }, { id: "ub", name: "B", color: "#2", folder: "K" }], videoTags: { BV710: ["ua", "ub"] } });
-  vm.runInContext("removeVideoTag", ctx)("BV710", "ua");
+  await tagStore().untag("BV710", "ua");
   assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ub"]);
   await t.undo();
   assert.deepStrictEqual(plain(t.S.videoTags.BV710), ["ua", "ub"]);
@@ -1595,13 +1602,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // U after 批量打 restores the tags and video tags.
   const beforeApply = plain([t.S.tags, t.S.videoTags]);
   t.S.ai.proposal = { newTags: [{ key: "z", name: "z", checked: true }], rows: [{ id: "BV600", add: ["new:z"], remove: [] }], notes: [], errors: [] };
-  t.applyAiProposal();
+  await applyAi();
   const z = t.S.tags.find((x) => x.name === "z" && x.folder === "K");
   assert.ok(z && t.S.videoTags.BV600.includes(z.id));
   await t.undo();
   assert.deepStrictEqual(plain([t.S.tags, t.S.videoTags]), beforeApply);
   t.S.tags = t.S.tags.filter((x) => x.folder !== "K" || x.id === "a");
-  assert.strictEqual(vm.runInContext("aiNewTagRoom()", ctx), 5, "at most 5 even with 9 left");
+  assert.strictEqual(room(), 5, "at most 5 even with 9 left");
 
   // 所有收藏夹: same-name tags of the chosen folders merge into one chip that filters across folders;
   // 管理 and 批量打 ask for a folder; the picker offers only the video's folders' tags.
@@ -1629,7 +1636,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.query = "y";
   assert.deepStrictEqual(plain(t.S.items.filter((it) => t.passFilter(it)).map((it) => it.bvid)), ["BV2"], "search by tag name");
   t.S.query = "";
-  assert.strictEqual(t.createTag("新"), null, "no new tag outside a folder");
+  assert.strictEqual((await createTag("新")), null, "no new tag outside a folder");
   assert.ok(manageTags.reason().includes("先打开一个具体收藏夹") && !manageTags.tags().length);
   // 重复收藏 (所有收藏夹 only, right after 全部): videos in more than one chosen folder; gone at 0 and outside 所有收藏夹.
   {
@@ -1676,7 +1683,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const prop = t.S.ai.proposals.all;
     assert.deepStrictEqual(plain(prop.newTags), [{ key: "A/新", name: "新", checked: true, folder: "A", where: "甲" }, { key: "B/新", name: "新", checked: true, folder: "B", where: "乙" }]);
     assert.strictEqual(t.S.ai.proposal, prop, "kept under 所有收藏夹");
-    t.applyAiProposal();
+    await applyAi();
     const made = t.S.tags.filter((x) => x.name === "新");
     assert.deepStrictEqual(plain(made.map((x) => x.folder)), ["A", "B"]);
     assert.deepStrictEqual(plain(t.S.videoTags.BV3.map((id) => t.S.tags.find((x) => x.id === id).folder)), ["A", "B"], "a video in two folders is tagged in both");
@@ -1762,11 +1769,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, saved);
   }
   t.S.mediaId = "A";
-  pickWith("BV1", (sets) => t.TagPicker.toggle(sets, "xa"));
+  await pickWith("BV1", (sets) => t.TagPicker.toggle(sets, "xa"));
   assert.deepStrictEqual(plain(t.S.videoTags.BV1), ["yb"], "unticking 甲's x keeps 乙's y");
   // A 批量打 proposal skips a video that left the folder since.
   t.S.ai.proposal = { newTags: [], rows: [{ id: "BV1", add: ["id:xa"], remove: [] }, { id: "BV2", add: ["id:xa"], remove: [] }], notes: [], errors: [] };
-  t.applyAiProposal();
+  await applyAi();
   assert.deepStrictEqual(plain([t.S.videoTags.BV1, t.S.videoTags.BV2]), [["yb", "xa"], ["xb", "yb"]]);
   Object.assign(t.S, { tags: [], videoTags: {}, folders: [] });
   openFake("K", [item(600), item(601)]);
@@ -2341,7 +2348,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.ai.proposals = {};
     let calls = 0;
     handlers["triage-ai-command"] = async (m) => {
-      if (++calls === 2) await t.deleteTag("b");
+      if (++calls === 2) await tagStore().remove(tagStore().tagOf("b"));
       return { ok: true, data: { assignments: { [m.items[0].bvid]: { add: ["留"] } } } };
     };
     toasts.length = 0;
@@ -4001,7 +4008,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     openFake("M", [item(901), item(902)]);
     Object.assign(t.S, { tags: [{ id: "ma", name: "甲", color: "#111", folder: "M" }, { id: "mb", name: "乙", color: "#222", folder: "M" }], videoTags: { BV901: ["ma"] } });
-    pickWith(["BV901", "BV902"], (sets) => t.TagPicker.toggle(sets, "mb"));
+    await pickWith(["BV901", "BV902"], (sets) => t.TagPicker.toggle(sets, "mb"));
     assert.deepStrictEqual(plain(po.targets), ["BV901", "BV902"]);
     assert.deepStrictEqual(plain(t.S.videoTags), { BV901: ["ma", "mb"], BV902: ["mb"] });
     assert.strictEqual(t.S.undo.length, 1, "one step for the batch");
@@ -4087,7 +4094,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     const R = vm.runInContext("runs", ctx);
     handlers["test-ai-646"] = () => (R.stop("ai646"), { ok: false, error: "AI 回复格式不对" });
-    const { proposal, errors } = await t.runAiBatches({ job: "ai646", total: 3, request: () => ({ type: "test-ai-646" }), merge() {}, intervalMs: 0, progress() {} });
+    const { proposal, errors } = await tagStore().runAi({ R, job: "ai646", total: 3, request: () => ({ type: "test-ai-646" }), merge() {}, send: t.send, intervalMs: 0, progress() {} });
     assert.ok(!proposal && errors.at(-1) === "已手动停止，还没有批次完成", JSON.stringify(errors));
   }
 
@@ -4109,7 +4116,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t.S, { tags: [{ id: "x650", name: "旧", color: "#111", folder: "C650" }], videoTags: {} });
     t.S.settings.triageTagLimit = 1;
     t.S.ai.proposals.C650 = { newTags: [{ key: "k", name: "新", checked: true }], rows: [{ id: "BV650", add: ["new:k", "id:x650"], remove: [] }], notes: [], errors: [] };
-    t.applyAiProposal();
+    await applyAi();
     const made = t.S.tags.find((x) => x.name === "新");
     assert.ok(made && made.folder === "C650", "past the folder's cap");
     assert.deepStrictEqual(plain(t.S.videoTags.BV650), [made.id, "x650"].sort((a, b) => plain(t.S.videoTags.BV650).indexOf(a) - plain(t.S.videoTags.BV650).indexOf(b)));

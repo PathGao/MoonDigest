@@ -255,9 +255,6 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 // ----- tagging from 动态: deferred removal (the picker itself is tag-picker.selftest.js) -----
 {
   const D = { ...base(), tags: [{ id: "g", name: "游戏" }, { id: "s", name: "生活" }], map: { b: ["g"] } };
-  // what the picker's close saves: an UP left with no tag leaves the map
-  assert.deepStrictEqual(plain(t.withTags(D.map, ["a"], ["s"], [])), { b: ["g"], a: ["s"] });
-  assert.deepStrictEqual(plain(t.withTags(D.map, ["b"], [], ["g"])), {}, "unticking the last tag drops the UP from the map");
   const U = { side: "all", tagState: "untagged" };
 
   // 未打标签: tagging 「a」 with the picker open keeps a's cards until it closes
@@ -289,14 +286,6 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(/if \(syncing && F\.order\) list = keptOrder\(list, F\.order\);/.test(source) && /function fromTop\(\) \{[^}]*F\.order = null;/.test(source), "kept while syncing, sorted again on a new list or sort");
   assert.strictEqual(t.stepIn(["a", "b"], "gone", -1), "a", "a current card that left the list: back to the top");
 
-  const before = t.tagsOf({ a: ["x"], b: ["y"] }, ["a", "n"]);
-  assert.deepStrictEqual(plain(before), { a: ["x"], n: [] });
-  const now = { a: ["x", "z"], b: ["y", "w"], n: ["x"] };
-  const all = new Set(["a", "b", "n"]);
-  assert.deepStrictEqual(plain(t.restoreTags(now, before, new Set(["x", "y", "z", "w"]), all)), { a: ["x"], b: ["y", "w"] }, "b's later edit stays");
-  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x", "dead"] }, new Set(["x"]), all)), { a: ["x"] }, "a tag deleted since stays gone");
-  // Unfollowed since: their tags went into the 已取消关注 record; U leaves them out instead of a ghost entry.
-  assert.deepStrictEqual(plain(t.restoreTags({}, { a: ["x"], g: ["x"] }, new Set(["x"]), all)), { a: ["x"] }, "an UP unfollowed since is skipped");
 }
 
 // One keydown handler for the page (收藏夹's onKey, fav-*.js): follow.js hands it its keys, and 收藏夹 knows no 关注 ids.
@@ -366,7 +355,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
 {
   assert.ok(source.includes('else if (act === "ai") openAi();') && source.includes('else if (act === "tags") openManage();'), "each button its own dialog");
   assert.ok(source.includes("const openManage = () => TagDialogs.manage.open(manageTags);") && /async function openAi\(\) \{[^}]*\}\s*TagDialogs\.ai\.open\(aiTags\);/.test(source));
-  assert.ok(/const manageTags = \{\s*who: WHO/.test(source) && /const aiTags = \{\s*who: WHO[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
+  assert.ok(/const manageTags = tagStore\.manage\(/.test(source) && /who: WHO,/.test(source) && /const aiTags = \{\s*who: WHO[\s\S]*?manage: manageTags,/.test(source), "关注's adapters, linked");
   assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
 }
 
@@ -387,8 +376,6 @@ assert.ok(/if \(!\/\^follow\(&\|\$\)\/\.test\(h\)\) return false;\s*history\.rep
 assert.ok(/if \(up \|\| tag\) \{\s*const side = !tag && rows\.has\(up\) && outKind\(rows\.get\(up\)\) \? "out" : "all";[\s\S]*?F\.tab = "ups";\s*F\.side = side;[\s\S]*?F\.status = F\.tagState = F\.source = F\.kind = F\.q = "";[\s\S]*?F\.tags = new Set\(tag && /.test(source), "followHash clears the filters for up and tag");
 assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySelector\("\.fw-up\.focused"\)\?\.scrollIntoView\(\{ block: "center" \}\);/.test(source), "followHash makes the UP current, centered");
 
-// 标签… on 2+ UP 主 is one step that asks before U, with 收藏夹's words (shared.js undoAsk).
-assert.ok(source.includes(`pushTagUndo(before, MdgErrors.LABEL.tagEdit, { ask: changes.length > 1 ? UI.undoAsk("tags", changes.length, WHO) : null });`), "pickClosed asks for 2+");
 
 // B站 writes and U (DESIGN 产品决策 · 改 B站 的操作和撤销): a single 重新关注 has no confirm and U unfollows again with its 已取消关注 record; batch
 // 特别关注 is one step that asks before U; single 取消关注 keeps its confirm.
@@ -1014,68 +1001,9 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
   assert.ok(t.syncView({ at: 1, added: [], removed: [], partial: { read: 1, total: 2 } }, [], names).warn, "partial with nothing new still shows");
   assert.strictEqual(t.syncView({ at: 1, added: [], removed: [] }, [], names), null);
 }
-// The AI dialog's room line (C462).
-{
-  const tags = [{ id: "x" }, { id: "y" }];
-  assert.strictEqual(t.aiRoomHint(tags, new Set(["x"]), 0), "新建上限是 0，AI 只会用没点掉的已有标签。");
-  assert.strictEqual(t.aiRoomHint([], new Set(), 0), "新建上限是 0，AI 打不了标签。", "no tags and no room: nothing to tag with");
-  assert.strictEqual(t.aiRoomHint(tags, new Set(), 0), "新建上限是 0，AI 只会用已有标签。");
-}
 // Page code run with stubs: the slice between two markers of follow.js.
 const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)));
 (async () => {
-  // F2 / C464: a tag deleted while AI 打标签 runs drops the proposal at the end, as 收藏夹's does.
-  {
-    const code = slice("async function runAi(", "\n}\n") + "\n}";
-    const env = { proposal: "unset", toasts: [], progress: [] };
-    const D = { tags: [{ id: "t1", name: "科普" }, { id: "t2", name: "游戏" }], map: {} };
-    const T = {
-      store() {},
-      async runAiBatches() {
-        D.tags = D.tags.filter((x) => x.id !== "t2"); // deleted in 标签管理 meanwhile
-        return { proposal: { rows: [{ add: ["id:t2"], remove: [] }], newTags: [] }, errors: [] };
-      }
-    };
-    const UI = { ...ctx.TriageUi, aiHistoryAdd: (h) => h };
-    const runAi = new Function("env", "D", "T", "UI", `const AI = { excluded: new Set(), settings: { batchSize: 10, intervalSec: 1, newTagMax: 0 }, history: [] };
-      const aiScopeMids = () => ["1"]; const aiRunning = () => false; const AI_HISTORY_KEY = "k"; const runs = {}; const aiTags = {};
-      const TagDialogs = { ai: { progress: (a, text) => env.progress.push(text), isOpen: () => false, render() {} } };
-      const tagOf = (id) => D.tags.find((x) => x.id === id); const aiRequests = () => ({ batches: [{}], intervalMs: 0 });
-      const setAiProposal = (p) => (env.proposal = p); const renderAiState = () => {}; const renderSync = () => {}; const toast = (m) => env.toasts.push(m);
-      ${code}; return runAi;`)(env, D, T, UI);
-    await runAi({ instruction: "x", scope: "filter", allowRemove: false });
-    assert.strictEqual(env.proposal, null, "the proposal naming the deleted tag is not kept");
-    assert.deepStrictEqual(env.progress, ["运行期间删除了建议用到的标签，请重新运行"]);
-  }
-  // C420 / J3: a tag change applies to what storage holds now, one at a time, under the Web Lock the background takes for
-  // its own follow_* writes (a sync, B站 pages' 「+ UP 标签」): neither loses the other's change.
-  {
-    const code = slice("// follow_tags and follow_tag_map are written by", "const changeTags");
-    const store = { follow_tag_map: { b: ["t9"] }, follow_tags: [] };
-    const tick = () => new Promise((r) => setImmediate(r));
-    const chrome = { storage: { local: { get: async (keys) => (await tick(), Object.fromEntries(keys.map((k) => [k, store[k]]))), set: async (o) => (await tick(), Object.assign(store, o)) } } };
-    const write = async (o) => (await tick(), Object.assign(store, o), true);
-    const D = { map: {} }; // stale: does not have b's tag yet
-    // One lock manager for both contexts, as the extension's origin has; each context loads its own limits.js.
-    const held = new Map();
-    const navigator = { locks: { request: (name, fn) => { const run = (held.get(name) || Promise.resolve()).then(fn); held.set(name, run.catch(() => {})); return run; } } };
-    const limits = () => {
-      const lim = vm.createContext({ chrome, navigator });
-      lim.globalThis = lim;
-      vm.runInContext(fs.readFileSync(path.join(__dirname, "../limits.js"), "utf8"), lim);
-      return lim.MdgLimits;
-    };
-    const bg = limits();
-    const fns = new Function("chrome", "write", "D", "MdgLimits", `const derive = () => {}; ${code}; return { setTagMap };`)(chrome, write, D, limits());
-    const [one] = await Promise.all([
-      fns.setTagMap((m) => ({ ...m, a: ["t1"] })),
-      bg.updateFollow(["tag_map"], (s) => ({ tag_map: { ...s.tag_map, z: ["t3"] } })),
-      fns.setTagMap((m) => ({ ...m, c: ["t2"] }))
-    ]);
-    assert.deepStrictEqual(plain(store.follow_tag_map), { b: ["t9"], a: ["t1"], z: ["t3"], c: ["t2"] }, "neither write loses the other's or the background's");
-    assert.deepStrictEqual(plain(one.prev), { b: ["t9"] });
-    assert.strictEqual(D.map, store.follow_tag_map);
-  }
   // C455 / C456: 删除分组 waits for a running 关注 batch, so no undo step is left for a group that is gone.
   {
     const code = slice("async function deleteGroup(", "\n}\n") + "\n}";

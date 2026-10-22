@@ -9,9 +9,10 @@
 //   4. A reply's words reach the page through MdgErrors.text / fromResp (a. no `x.error || "兜底"` of its own), and a
 //      thrown Error has Chinese words (b. no English-only Error that e.message would show).
 //   5. A shared record is read-modified-written through its module's serial writer: 视频备注 only through
-//      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b).
+//      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b), the pages' tags only
+//      through MdgTagStore (c).
 //   6. Page paths and the file-name rule are MdgCommon's (ARCHITECTURE: common.js).
-// Fails on any hit of 1, 2a, 2b, 3c, 3d and 6. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
+// Fails on any hit of 1, 2a, 2b, 3c, 3d, 5c and 6. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
 // line that matches no hit (its reason no longer holds). Sections marked (允许) only list.
 // Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, vendor/ (third-party code), every dev/ folder and dev-sidepanel/ (mocks, the
 // build script and its generated index.html), *.mjs, messages.js (the message list, messages.selftest.js), and per check
@@ -281,6 +282,42 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
     raw.push(hitAt(f, text.slice(0, m.index).split("\n").length - 1));
   }
   section("5b. follow-bg.js 不经 followUpdate 写 follow_* 键", raw, "allow");
+
+  // 5c. The pages' tags go through MdgTagStore (triage/tag-store.js, the one allowed module: its backends are the only
+  // page code that writes a tag key, and its steps the only tag U steps). A page file (triage/ and history/ but the
+  // worker's *-bg.js) may not write the tag list or the item → tags map: KEYS.triageTags / triageVideoTags under any
+  // name, KEYS.readingMarks (MdgLimits.updateReadingMarks), follow_tags / follow_tag_map (MdgLimits.updateFollow names,
+  // followFull keys; updateFollow's names must be a list of literals); nor cap an undo stack of its own (MdgLimits.TRIAGE_UNDO_STEPS).
+  const tagHits = [];
+  const pageFiles = files.filter((f) => /^(triage|history)\/[^/]+\.js$/.test(f) && f !== "triage/tag-store.js" && !f.endsWith("-bg.js"));
+  const textOf = (f) => lines[f].map((l) => (isComment(l) ? "" : l)).join("\n");
+  // The key's names, from every page file: 收藏夹's fav-*.js share one global scope (K.tags is fav-base.js's).
+  const all = pageFiles.map(textOf).join("\n");
+  const names = ["(?:MdgLimits\\.)?KEYS\\.(?:triageTags|triageVideoTags|readingMarks)"];
+  for (const m of all.matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*(?:MdgLimits\.)?KEYS\.(?:triageTags|triageVideoTags|readingMarks)\b/g)) names.push(`\\b${m[1]}`);
+  for (const m of all.matchAll(/\{([^{}]*)\}\s*=\s*(?:MdgLimits\.)?KEYS\b/g)) {
+    for (const own of m[1].matchAll(/\b(triageTags|triageVideoTags|readingMarks)\b(?:\s*:\s*([\w$]+))?/g)) names.push(`\\b${own[2] || own[1]}`);
+  }
+  // A field of a key table (const K = { tags: KEYS.triageTags }) as K.tags.
+  for (const m of all.matchAll(/([\w$]+)\s*:\s*(?:MdgLimits\.)?KEYS\.(?:triageTags|triageVideoTags|readingMarks)\b/g)) {
+    const table = [...all.slice(0, m.index).matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*\{/g)].at(-1);
+    if (table) names.push(`\\b${table[1]}\\.${m[1]}\\b`);
+  }
+  for (const f of pageFiles) {
+    const key = `(?:${names.join("|")})`;
+    // An object key ({ [K.tags]: … }) or a key-and-value call (storeSet(K.tags, …); a get's fallback is a read).
+    const write = new RegExp(`\\[\\s*${key}\\s*\\]\\s*:|(?<![gG]et)\\(\\s*${key}\\s*,`);
+    lines[f].forEach((line, i) => {
+      if (isComment(line)) return;
+      if (write.test(line)) tagHits.push(hitAt(f, i, "  （标签键）"));
+      if (/\bupdateReadingMarks\(/.test(line)) tagHits.push(hitAt(f, i, "  （摘读记录的标签和星标）"));
+      // updateFollow's names as a list of literals, so this can read them.
+      const follow = /\bupdateFollow\(\s*(\[[^\]]*\])?/.exec(line);
+      if ((follow && !/^\[\s*(["'][\w]+["']\s*,?\s*)*\]$/.test(follow[1] || "")) || /\bupdateFollow\(\s*\[[^\]]*["'](?:tags|tag_map)["']/.test(line) || /followFull\(\{[^}]*\b(?:tags|tag_map)\s*:/.test(line)) tagHits.push(hitAt(f, i, "  （follow_tags / follow_tag_map）"));
+      if (/\bTRIAGE_UNDO_STEPS\b/.test(line)) tagHits.push(hitAt(f, i, "  （自己的撤销栈）"));
+    });
+  }
+  section("5c. 页面不经 MdgTagStore 写标签键或自建撤销栈", tagHits, "any");
 }
 
 // 6. What common.js holds is not written again: an extension page's path for getURL (MdgCommon.PAGES; a page's own

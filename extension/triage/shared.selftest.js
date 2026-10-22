@@ -352,12 +352,13 @@ assert.strictEqual(UI.aiTagsFailed("x"), "AI 打标签没有成功：x");
   assert.deepStrictEqual([UI.previewId(p, "A/科普", tags), UI.previewId(p, "B/科普", tags)], ["new:A/科普", "b1"]);
 }
 
-// Both modes take the proposal functions from here and keep no copy of their own; the review page's counts
-// (changes before 应用, the tally, 用在 N 个) are tag-dialogs.js's alone, from the adapter's map / live / tagName.
-for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.text(PS.favorites)], ["关注", ["mergeAiBatch", "aiChanges"], PS.text(PS.follow)], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"], PS.read("triage/tag-dialogs.js")]]) {
+// Every mode takes the proposal functions from here and keeps no copy of its own: the modes merge answers, tag-store.js
+// applies them; the review page's counts (changes before 应用, the tally, 用在 N 个) are tag-dialogs.js's alone, from the
+// adapter's map / live / tagName.
+for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favorites)], ["关注", ["mergeAiBatch"], PS.text(PS.follow)], ["摘读记录", ["mergeAiBatch"], PS.read("history/history.js")], ["tag-store.js", ["aiChanges"], PS.read("triage/tag-store.js")], ["tag-dialogs.js", ["aiChanges", "aiTally", "previewId"], PS.read("triage/tag-dialogs.js")]]) {
   for (const fn of [...fns, "aiTally", "previewId"]) assert.ok(!new RegExp(`(function|const|let) ${fn}\\b`).test(src), `${file} has its own ${fn}`);
   for (const fn of fns) assert.ok(src.includes(`UI.${fn}(`), `${file} calls the shared ${fn}`);
-  if (file !== "tag-dialogs.js") assert.ok(!/UI\.(aiTally|previewId)\(|\b(changes|tally|uses): \(p/.test(src), `${file} counts the review itself`);
+  if (!file.endsWith(".js")) assert.ok(!/UI\.(aiTally|previewId)\(|\b(changes|tally|uses): \(p/.test(src), `${file} counts the review itself`);
 }
 
 // Keys from the viewer frame: only that frame, only B站's origin, only T / Esc.
@@ -416,12 +417,15 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.
   assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
   assert.deepStrictEqual([...UI.undoAsk("tags", 3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
-  // follow.js's page part is not in a harness; it must go through the same functions.
-  const follow = PS.text(PS.follow);
-  assert.ok(follow.includes("UI.editedTag(") && follow.includes("UI.withoutTag("), "关注 edits and deletes tags with the shared functions");
+  // The pages' tags go through tag-store.js, which uses these (its own selftest drives it); no page edits, deletes or
+  // counts tags itself.
+  const store = PS.read("triage/tag-store.js");
+  assert.ok(["UI.editedTag(", "UI.withoutTag(", "UI.tagUses("].every((f) => store.includes(f)), "tag-store.js edits, deletes and counts with the shared functions");
+  for (const [who, src] of [["收藏夹", PS.text(PS.favorites)], ["关注", PS.text(PS.follow)], ["摘读记录", PS.read("history/history.js")]]) {
+    assert.ok(!/UI\.(editedTag|withoutTag|tagUses)\(/.test(src), `${who} handles tags itself`);
+  }
   // H2: 标签管理's count and the delete confirm count every key the delete takes the tag off (关注: 已取消关注 too).
   assert.strictEqual(UI.tagUses({ x: ["a", "b"], y: ["a"], z: ["b"] }, "a"), 2);
-  assert.ok(follow.split("UI.tagUses(D.map, id)").length === 3 && !/following\(\)\.filter\(\(m\) => rows\.get\(m\)\?\.tagIds\.includes\(id\)\)/.test(follow), "关注 counts the whole tag map");
 }
 
 // 全选: none / some / all of what is listed → unchecked / mixed / checked. Nothing listed: 「全选」 with no number, disabled
@@ -495,7 +499,8 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch", "aiChanges"], PS.
   // U's confirm: the same words in both units.
   assert.deepStrictEqual([...UI.undoAsk("ai", 3, "UP 主")], ["撤销这次 AI 打标签？", "<p>这次 AI 打标签改过的 3 个 UP 主，标签都改回 AI 打之前，包括你之后又改过的。</p>", "撤销"]);
   assert.deepStrictEqual([...UI.undoAsk("keep", 2, "视频")], ["撤销批量保留？", "<p>上一步保留了 2 个视频，撤销后它们不再标为保留。</p>", "撤销"]);
-  both("UI.undoAsk(", "asks before undoing with undoAsk");
+  // Tag steps are tag-store.js's (both modes and 摘读记录); 收藏夹's 保留 asks the same way.
+  for (const [f, s] of [["tag-store.js", src("tag-store.js")], modes[0]]) assert.ok(s.includes("UI.undoAsk("), `${f}: asks before undoing with undoAsk`);
   neither(/撤销这次 AI 打标签？|撤销批量[^ ]*？/, "writes its own undo confirm");
 
   // The selection bar.

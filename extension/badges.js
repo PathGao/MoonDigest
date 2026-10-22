@@ -755,7 +755,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       const b = el("button", "opt");
       b.type = "button";
       b.dataset.new = "";
-      b.append(el("span", "ck", "+"), el("span", "nm", "新建标签"));
+      b.append(el("span", "ck", "+"), el("span", "nm", LABEL.newTag));
       more.append(b);
     }
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.

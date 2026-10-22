@@ -461,9 +461,8 @@ function tagChips() {
   }
   return chips;
 }
-// How many new tags 批量打 may propose: at most triageAiNewTagMax, within the folder's room.
+// Tags per folder (收藏夹设置); only creating a new one is refused past it.
 const tagLimit = () => S.settings.triageTagLimit;
-const aiNewTagRoom = (folder = S.mediaId) => Math.max(0, Math.min(S.settings.triageAiNewTagMax, tagLimit() - S.tags.filter((t) => t.folder === String(folder)).length));
 const FOLDER_ONLY = "标签按收藏夹分开，先打开一个具体收藏夹";
 // A video's tags in the open view. A tag belongs to one folder and stays there when the video moves, so a folder shows
 // only its own; 所有收藏夹 those of the video's folders (as the picker) and of the ones it was just unfavorited from;
