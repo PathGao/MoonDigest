@@ -661,6 +661,27 @@ const settle = async () => {
       assert.deepStrictEqual([state.subtitleFetchState, derives], ["ready", 1]);
       t.refreshDerivedContent = derived;
     }
+    // J8: a video deleted or hidden on B站 says 视频已失效 and gets no 重试 (no read brings it back); a limit keeps 重试,
+    // and so do a subtitle failure and 未登录.
+    {
+      const site = t.currentSite;
+      for (const [code, gone] of [[-404, true], [62012, true], ["THROTTLED", false]]) {
+        t.currentSite = () => ({ ...site(), fetchMeta: async () => Promise.reject(Object.assign(new Error("x"), { code })) });
+        await assert.rejects(t.runRefreshClip());
+        state.subtitleBody = [];
+        assert.deepStrictEqual([state.subtitleFetchState, t.readingRetryShown(), t.noTrackText() === t.MdgErrors.LABEL.videoGone], ["error", !gone, gone], String(code));
+      }
+      t.currentSite = site;
+      await t.runRefreshClip();
+      assert.strictEqual(state.videoGone, false, "a new read starts clean");
+      for (const extra of [{ subtitleFailure: "超时" }, { subtitleNeedLogin: true }]) {
+        const keys = ["subtitleFetchState", "subtitleFailure", "subtitleNeedLogin"];
+        const was = Object.fromEntries(keys.map((k) => [k, state[k]]));
+        Object.assign(state, { subtitleFetchState: "empty", subtitleFailure: "", subtitleNeedLogin: false, ...extra });
+        assert.strictEqual(t.readingRetryShown(), true, JSON.stringify(extra));
+        Object.assign(state, was);
+      }
+    }
 
     loads = 0;
     const popupSelect = (url) => new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-select-subtitle", url }, {}, resolve)));

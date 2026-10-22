@@ -245,7 +245,8 @@ async function popupPageNote(tabId) {
   if (!tab?.id) throw new Error(MdgErrors.TEXT.noTab);
   const page = await readWebPage(tab);
   if (page.pageAccess === "failed") throw new Error(MdgErrors.TEXT.pageReadFailed + "：" + page.pageError);
-  if (page.pageAccess !== "ready") throw new Error("这个页面不能读取");
+  if (page.pageAccess === "needPermission") throw new Error(MdgErrors.TEXT.pageGrant);
+  if (page.pageAccess !== "ready") throw new Error(MdgErrors.TEXT.pageUnsupported);
   const { aiConversations } = MdgLimits.KEYS;
   const [settings, stored] = await Promise.all([getMergedSettings(), chrome.storage.local.get([aiConversations, ...MdgNote.triageExtrasKeys({ url: page.url })])]);
   const turns = MdgNote.buildConversationTurns(MdgNote.pickConversation(stored[aiConversations], page)?.messages);
@@ -693,7 +694,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "ai-sidepanel-resolve-page-ref") {
     resolveAiSidepanelPageRef(message.contextRef || {})
       .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
     return true;
   }
 
@@ -1286,8 +1287,9 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
       postStreamAbort(port, getAbortMeta?.());
       return;
     }
-    // A connection dropped mid-reply is a TypeError ("network error").
-    const err = e instanceof TypeError ? triageError(AI_NETWORK_TEXT, "AI_NETWORK") : e;
+    // A connection dropped mid-reply is a TypeError ("network error"). The platform did answer, so it is a stall
+    // (only 重试), not AI_NETWORK (去设置: maybe a wrong address).
+    const err = e instanceof TypeError ? triageError(MdgErrors.TEXT.aiDropped, "AI_STALLED") : e;
     port.postMessage({ type: "error", error: String(err?.message || err), ...(err?.code && { code: err.code }) });
   }
 }

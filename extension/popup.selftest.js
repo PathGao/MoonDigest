@@ -152,11 +152,15 @@ setTimeout(() => (async () => {
   ctx.MdgDownload = download;
   ctx.bindEvents = () => {};
   body.classes.clear();
+  // J18: a tab nothing can be read from is said as the side panel and the background say it (pageUnsupported); on a
+  // web page only the video tools say notVideoPage.
+  assert.strictEqual(ctx.el.readingViewBtn.title, why);
   ctx.getActiveTab = async () => ({ id: 1, url: "chrome://extensions/" });
   await ctx.init();
-  assert.strictEqual(ctx.el.status.textContent, why);
-  assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, why], "刷新 is disabled and says why");
-  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title, body.classes.has("web-page")], [true, why, false], "not on a page the side panel cannot read");
+  const cannot = T.pageUnsupported;
+  assert.strictEqual(ctx.el.status.textContent, cannot);
+  assert.deepStrictEqual([ctx.el.refreshBtn.disabled, ctx.el.refreshBtn.title], [true, cannot], "刷新 is disabled and says why");
+  assert.deepStrictEqual([ctx.el.summaryBtn.disabled, ctx.el.summaryBtn.title, body.classes.has("web-page")], [true, cannot, false], "not on a page the side panel cannot read");
   vm.runInContext("onVideoPage = true", ctx);
 })().catch((e) => (console.error(e), process.exit(1))));
 

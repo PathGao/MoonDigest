@@ -100,6 +100,30 @@ process.on("exit", (code) => {
   assert.strictEqual(out.at(-1).code, "AI_STALLED");
   assert.strictEqual(ctx.MdgErrors.action("AI_STALLED"), "none");
 
+  // J16: a connection that drops mid-reply (a TypeError from the body) is a stall too: the platform did answer.
+  {
+    const dropping = streamingFetch([{ after: 0, chunk: sse({ content: "半句" }) }]);
+    ctx.fetch = async (url, init) => {
+      const resp = await dropping(url, init);
+      const reader = resp.body.getReader();
+      let reads = 0;
+      resp.body.getReader = () => ({ read: () => (reads++ ? Promise.reject(new (vm.runInContext("TypeError", ctx))("network error")) : reader.read()) });
+      return resp;
+    };
+    out = await chat();
+    assert.deepStrictEqual([out.at(-1).type, out.at(-1).error, out.at(-1).code], ["error", ctx.MdgErrors.TEXT.aiDropped, "AI_STALLED"]);
+  }
+
+  // J17: a failed page-ref resolve passes its code, so the side panel stops asking about a gone video.
+  {
+    const realResolve = ctx.resolveAiSidepanelPageRef;
+    ctx.resolveAiSidepanelPageRef = async () => {
+      throw Object.assign(new Error(ctx.MdgErrors.LABEL.videoGone), { code: -404 });
+    };
+    assert.deepStrictEqual({ ...(await ask({ type: "ai-sidepanel-resolve-page-ref", contextRef: {} })) }, { ok: false, error: ctx.MdgErrors.LABEL.videoGone, code: -404 });
+    ctx.resolveAiSidepanelPageRef = realResolve;
+  }
+
   // No response at all ends with the first-response error, not a generic network error.
   ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
   out = await chat();
@@ -502,6 +526,13 @@ process.on("exit", (code) => {
       assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error: `${ctx.MdgErrors.TEXT.pageReadFailed}：没有找到正文` });
       page.content = text;
       calls.splice(0);
+      // J18: a page that cannot be read, or is not granted yet, in the side panel's sentence for it.
+      const realRead = ctx.readWebPage;
+      for (const [pageAccess, error] of [["unsupported", ctx.MdgErrors.TEXT.pageUnsupported], ["needPermission", ctx.MdgErrors.TEXT.pageGrant]]) {
+        ctx.readWebPage = async () => ({ pageAccess });
+        assert.deepStrictEqual({ ...(await ask({ type: "popup-page-note", tabId: 1 })) }, { ok: false, error }, pageAccess);
+      }
+      ctx.readWebPage = realRead;
       ctx.getMergedSettings = wasSettings;
     }
     page = { ...page, content: "  " };

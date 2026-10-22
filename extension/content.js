@@ -42,6 +42,8 @@ const state = {
   selectedSubtitleLang: "",
   subtitleBody: [],
   subtitleFetchState: "idle",
+  // The failed read (subtitleFetchState error) found the video deleted or hidden on B站: no 重试 brings it back.
+  videoGone: false,
   subtitleFailure: "",
   // B站 listed no subtitle because it saw a logged-out viewer (MdgSites.loadSubtitle's needLogin): not a failure.
   subtitleNeedLogin: false,
@@ -885,6 +887,7 @@ function resetClipState() {
   state.selectedSubtitleLang = "";
   state.subtitleBody = [];
   state.subtitleFetchState = "idle";
+  state.videoGone = false;
   state.subtitleWarning = "";
   state.subtitleFailure = "";
   state.subtitleNeedLogin = false;
@@ -1105,6 +1108,7 @@ async function runRefreshClip() {
     }
     resetClipState();
     state.subtitleFetchState = "error";
+    state.videoGone = MdgSites.isBiliVideoGone(error?.code);
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1225,7 +1229,7 @@ function noTrackText() {
   }
   // Only reading the video itself sets error (a subtitle failure is subtitleMissing below).
   if (state.subtitleFetchState === "error") {
-    return MdgErrors.TEXT.videoReadFailed;
+    return state.videoGone ? MdgErrors.LABEL.videoGone : MdgErrors.TEXT.videoReadFailed;
   }
   return MdgErrors.subtitleMissing(state);
 }
@@ -1790,9 +1794,8 @@ function renderReadingView() {
   }
 
   if (transcriptItems.length === 0) {
-    const failed = state.subtitleFetchState === "error" || Boolean(state.subtitleFailure) || state.subtitleNeedLogin;
     transcriptList.innerHTML = `<div class="mdg-reading-empty">${escapeHtml(getReadingTranscriptPlaceholderText())}${
-      failed ? `<button type="button" class="mdg-reading-retry">${MdgErrors.LABEL.retry}</button>` : ""
+      readingRetryShown() ? `<button type="button" class="mdg-reading-retry">${MdgErrors.LABEL.retry}</button>` : ""
     }</div>`;
   } else {
     transcriptList.innerHTML = transcriptItems
@@ -1826,6 +1829,11 @@ function renderReadingView() {
   updateReadingTranscriptTailSpacer();
   state.readingActiveSubtitleIndex = -1;
   state.readingActiveChapterIndex = -1;
+}
+
+// 专注模式's 重试 under an empty transcript: a failed read or subtitle, not a video that is gone (no read brings it back).
+function readingRetryShown() {
+  return !state.videoGone && (state.subtitleFetchState === "error" || Boolean(state.subtitleFailure) || state.subtitleNeedLogin);
 }
 
 function getReadingTranscriptPlaceholderText() {

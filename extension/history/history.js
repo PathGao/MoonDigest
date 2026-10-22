@@ -594,9 +594,18 @@ function renderSummary(g) {
 
 // A web page's record (not a video, with an http(s) address): 继续问 goes on in the page's own tab.
 const isWebPage = (g) => !g.context.videoId && /^https?:\/\//i.test(g.context.url || "");
+// A video the background reads only from its open page (YouTube: MdgSites pageOnly): 继续问 goes on in its tab too.
+const readsFromPage = (g) => isWebPage(g) || Boolean(g.context.videoId && MdgSites.SITES[g.context.site]?.pageOnly);
+// The tab showing the record: a video by site and id (any time or list parameter), a page by its URL without #.
+function showsRecord(g, url) {
+  if (!url) return false;
+  if (!g.context.videoId) return MdgSites.buildContextKey({ url }) === MdgSites.buildContextKey({ url: g.context.url });
+  const ref = MdgSites.parseRef(url);
+  return ref?.site === g.context.site && ref.id === g.context.videoId;
+}
 
-// 继续问 on a web page: the side panel reads the page from its tab, so it opens on this window inside the click
-// (sidePanel.open needs the gesture), then the page's tab in this window is focused, or opened, and the panel asked for
+// 继续问 on a web page or a page-only video: the side panel reads it from its tab, so it opens on this window inside the
+// click (sidePanel.open needs the gesture), then its tab in this window is focused, or opened, and the panel asked for
 // the conversation as a video's is (askSidepanel).
 function askAboutPage(group) {
   const opening = chrome.sidePanel.open({ windowId: OWN_TAB?.windowId });
@@ -604,9 +613,9 @@ function askAboutPage(group) {
   void (async () => {
     try {
       await opening;
-      const key = MdgSites.buildContextKey({ url: group.context.url });
-      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => t.url && MdgSites.buildContextKey({ url: t.url }) === key);
-      const tab = found ? await chrome.tabs.update(found.id, { active: true }) : await chrome.tabs.create({ url: group.context.url, windowId: OWN_TAB?.windowId });
+      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => showsRecord(group, t.url));
+      const url = group.context.videoId ? MdgSites.videoUrl(group.context) : group.context.url;
+      const tab = found ? await chrome.tabs.update(found.id, { active: true }) : await chrome.tabs.create({ url, windowId: OWN_TAB?.windowId });
       await MdgLimits.askSidepanel({ tabId: tab.id, contextRef: group.context });
       setStatus("");
     } catch (error) {
@@ -919,7 +928,7 @@ els.list.addEventListener("click", (event) => {
   }
   else if (act === "star" && group) void toggleStar(group);
   else if (act === "tags" && group) openPicker([group], `.entry[data-key="${CSS.escape(key)}"] .tag-plus`);
-  else if (act === "ask" && group && isWebPage(group)) askAboutPage(group);
+  else if (act === "ask" && group && readsFromPage(group)) askAboutPage(group);
   else if (act === "ask" && group) {
     // The side panel continues the video's latest conversation, the same request triage's 问 AI sends.
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
