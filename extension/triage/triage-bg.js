@@ -764,7 +764,7 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     const json = await triageAiJson(res);
     const choice = json.choices?.[0];
     // Cut at the output limit, with or without a partial answer: the page offers 调大输出上限.
-    if (choice?.finish_reason === "length") throw triageError("模型输出被截断", "AI_TRUNCATED");
+    if (choice?.finish_reason === "length") throw triageError(MdgErrors.TEXT.aiTruncated, "AI_TRUNCATED");
     return { content: choice?.message?.content, model: provider.model };
   });
 }
@@ -1158,10 +1158,6 @@ function triageRegisterDnr() {
     .catch((e) => console.warn("[triage] DNR 规则注册失败", e));
 }
 
-// Answers the messages whose type starts with prefix from handlers[type](message): { ok: true, data } or
-// { ok: false, error, code? }. Other types are left to the other listeners. Returns the listener.
-// Only the extension's own pages are answered, so a script in a B站 or YouTube page cannot write to the account, spend
-// AI tokens or save settings; webTypes are the ones its content scripts send (badges.js).
 // 观看进度 turned 关 drops its history; the ticked folders or their snapshots changed make the next read recount.
 function triageStorageChanged(changes, area) {
   const c = area === "sync" && changes.seenShow;
@@ -1172,22 +1168,29 @@ function triageStorageChanged(changes, area) {
   }
 }
 
-function triageListen(prefix, handlers, webTypes = []) {
+// A message from one of the extension's own pages (not a content script in a B站 or YouTube page).
+const fromExtensionPage = (sender) => String(sender?.url || "").startsWith(chrome.runtime.getURL(""));
+
+// Answers the types in handlers: handlers[type](message, sender), called at once (sidePanel.open needs the click), its
+// result as reply(result) ({ ok: true, data } by default), a throw as { ok: false, error, code? }. Other types are left
+// to the other listeners; one under prefix (triage-, follow-) without a handler is answered as unknown. Returns the listener.
+// Only the extension's own pages are answered, so a script in a B站 or YouTube page cannot write to the account, spend
+// AI tokens, send a key elsewhere or save settings; webTypes are the ones its content scripts send (messages.selftest.js
+// checks them against messages.js and the manifest).
+function triageListen(prefix, handlers, webTypes = [], reply = (data) => ({ ok: true, data })) {
   const listener = (message, sender, sendResponse) => {
     const type = message?.type;
-    if (typeof type !== "string" || !type.startsWith(prefix)) return false;
-    const handler = handlers[type];
-    if (!handler) {
-      sendResponse({ ok: false, error: `未知消息类型 ${type}` });
+    if (typeof type !== "string") return false;
+    if (!Object.hasOwn(handlers, type)) {
+      if (prefix && type.startsWith(prefix)) sendResponse({ ok: false, error: `未知消息类型 ${type}` });
       return false;
     }
-    if (!String(sender?.url || "").startsWith(chrome.runtime.getURL("")) && !webTypes.includes(type)) {
+    if (!webTypes.includes(type) && !fromExtensionPage(sender)) {
       sendResponse({ ok: false, error: `网页不能发送 ${type}` });
       return false;
     }
-    Promise.resolve()
-      .then(() => handler(message))
-      .then((data) => sendResponse({ ok: true, data }))
+    new Promise((resolve) => resolve(handlers[type](message, sender)))
+      .then((r) => sendResponse(reply(r)))
       .catch((e) => sendResponse({ ok: false, error: e?.message || String(e), ...(e?.code ? { code: e.code } : {}) }));
     return true;
   };

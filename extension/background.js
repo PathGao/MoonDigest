@@ -446,133 +446,86 @@ async function resolveAiSidepanelPageRef(contextRef) {
   };
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || typeof message !== "object") {
-    return false;
-  }
+// What each message answers, registered with triageListen at the end of this file (after its importScripts): the
+// handler's object is the reply, a throw is { ok: false, error, code? }. Only the extension's own pages are answered,
+// a content script only the types listed there.
+const BACKGROUND_HANDLERS = {
+  "get-settings": async (_message, sender) => {
+    const settings = await getMergedSettings();
+    // A video page writes to Obsidian through obsidian.js, so it never needs the key.
+    if (!fromExtensionPage(sender)) delete settings.obsidianApiKey;
+    return { ok: true, settings };
+  },
 
-  if (message.type === "get-settings") {
-    getMergedSettings()
-      .then((settings) => sendResponse({ ok: true, settings }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+  // A video page saves only 专注模式's look (content.js persistReaderSettings).
+  "save-settings": (message, sender) => {
+    const settings = message.settings || {};
+    if (!fromExtensionPage(sender) && Object.keys(settings).some((k) => !MdgSettings.READER_KEYS.includes(k))) throw new Error("网页只能保存专注模式的设置");
+    return saveSettings(settings).then(() => ({ ok: true }), (error) => ({ ok: false, error: error.message, field: error.field }));
+  },
 
-  if (message.type === "save-settings") {
-    saveSettings(message.settings || {})
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, field: error.field }));
-    return true;
-  }
+  "settings-export": () => exportSettings().then((file) => ({ ok: true, file })),
+  "settings-import": (message) => importSettings(message.file).then((file) => ({ ok: true, file })),
 
-  if (message.type === "settings-export" || message.type === "settings-import") {
-    (message.type === "settings-export" ? exportSettings() : importSettings(message.file))
-      .then((file) => sendResponse({ ok: true, file }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
-  // The content script's isolated world cannot reach the player API; a
-  // MAIN-world read can, and chrome.scripting is not subject to the page CSP.
-  // Only the watch page's own content script may ask, and only for its tab.
-  if (message.type === "yt-player-response") {
+  // The content script's isolated world cannot reach the player API; a MAIN-world read can, and chrome.scripting is not
+  // subject to the page CSP. Only the watch page's own content script may ask, and only for its tab.
+  "yt-player-response": (_message, sender) => {
     const tabId = sender?.tab?.id;
-    if (!tabId || !/^https:\/\/www\.youtube\.com\//.test(String(sender.url || ""))) {
-      sendResponse({ ok: false, error: "not a YouTube tab" });
-      return false;
-    }
-    chrome.scripting
+    if (!tabId || !/^https:\/\/www\.youtube\.com\//.test(String(sender.url || ""))) return { ok: false, error: "not a YouTube tab" };
+    return chrome.scripting
       .executeScript({
         target: { tabId },
         world: "MAIN",
         func: () => document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
       })
-      .then((results) => sendResponse({ ok: true, data: results?.[0]?.result ?? null }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+      .then((results) => ({ ok: true, data: results?.[0]?.result ?? null }));
+  },
 
   // The popup's 复制 Markdown, 下载 .md and 写入 Obsidian on a web page: its note as the side panel builds it, with the
   // page's latest conversation. Only an extension page asks (no sender tab): the tab is read through activeTab.
-  if (message.type === "popup-page-note") {
-    if (sender?.tab) {
-      sendResponse({ ok: false, error: MdgErrors.TEXT.unknown });
-      return false;
-    }
-    popupPageNote(Number(message.tabId) || 0)
-      .then((note) => sendResponse({ ok: true, ...note }))
-      .catch((error) => sendResponse({ ok: false, error: error.message || MdgErrors.TEXT.unknown }));
-    return true;
-  }
+  "popup-page-note": (message, sender) => {
+    if (sender?.tab) throw new Error(MdgErrors.TEXT.unknown);
+    return popupPageNote(Number(message.tabId) || 0).then((note) => ({ ok: true, ...note }));
+  },
 
-  if (message.type === "ensure-reader-content") {
-    ensureReaderContentReady(Number(message.tabId) || 0)
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+  "ensure-reader-content": (message) => ensureReaderContentReady(Number(message.tabId) || 0).then(() => ({ ok: true })),
 
   // 摘读记录, as 分拣台 (triage-open): the popup, the side panel and the settings page focus an open one.
-  if (message.type === "history-open") {
-    focusOrOpenPage(chrome.runtime.getURL(MdgCommon.PAGES.history))
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+  "history-open": () => focusOrOpenPage(chrome.runtime.getURL(MdgCommon.PAGES.history)).then(() => ({ ok: true })),
 
   // Focuses a settings page that is already open, as the side panel and 摘读记录 do (no caller asks for a section).
-  if (message.type === "open-options") {
-    chrome.runtime
-      .openOptionsPage()
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+  "open-options": () => chrome.runtime.openOptionsPage().then(() => ({ ok: true })),
 
-  if (message.type === "player-ai-quick-action") {
+  "player-ai-quick-action": async (message, sender) => {
     const tabId = Number(message.tabId || sender?.tab?.id || 0) || 0;
-    if (!tabId) {
-      sendResponse({ ok: false, error: MdgErrors.TEXT.noTab });
-      return false;
-    }
-
+    if (!tabId) throw new Error(MdgErrors.TEXT.noTab);
+    // Before any await: sidePanel.open needs the click that sent the message.
     const openPromise = openAiSidepanelForTab(tabId);
     // Awaited once settings load; without a handler now, a fast rejection is reported as uncaught.
     openPromise.catch(() => {});
-    getMergedSettings()
-      .then(async (settings) => {
-        // The setting hides the player button (no source); the popup's and 专注模式's AI 总结 are always available.
-        if (!["popup", "reader"].includes(message.source) && !settings.enablePlayerAiQuickAction) {
-          throw new Error("✦ AI 总结按钮未开启");
-        }
-        await openPromise;
-        // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
-        // asks that frame for it (getAiSidepanelState with frameId).
-        const viewer = sender?.frameId && message.contextRef;
-        await MdgLimits.askSidepanel({
-          tabId,
-          prompt: MdgSettings.normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt),
-          contextRef: viewer ? message.contextRef : null,
-          frameId: viewer ? sender.frameId : 0
-        });
-        sendResponse({ ok: true });
-      })
-      .catch((error) => sendResponse({ ok: false, error: error.message || MdgErrors.TEXT.unknown }));
-    return true;
-  }
+    const settings = await getMergedSettings();
+    // The setting hides the player button (no source); the popup's and 专注模式's AI 总结 are always available.
+    if (!["popup", "reader"].includes(message.source) && !settings.enablePlayerAiQuickAction) {
+      throw new Error("✦ AI 总结按钮未开启");
+    }
+    await openPromise;
+    // From 分拣台's viewer frame: the tab is 分拣台, so the panel takes the video by reference like 问 AI, and
+    // asks that frame for it (getAiSidepanelState with frameId).
+    const viewer = sender?.frameId && message.contextRef;
+    await MdgLimits.askSidepanel({
+      tabId,
+      prompt: MdgSettings.normalizePlayerAiQuickPrompt(settings.playerAiQuickPrompt),
+      contextRef: viewer ? message.contextRef : null,
+      frameId: viewer ? sender.frameId : 0
+    });
+    return { ok: true };
+  },
 
-  if (message.type === "open-reading-view-tab") {
+  "open-reading-view-tab": async (message) => {
     const url = String(message.url || "").trim();
     const tabId = Number(message.tabId || 0) || 0;
-    if (!url) {
-      sendResponse({ ok: false, error: "缺少视频地址" });
-      return false;
-    }
-    if (!tabId) {
-      sendResponse({ ok: false, error: MdgErrors.TEXT.noTab });
-      return false;
-    }
-
+    if (!url) throw new Error("缺少视频地址");
+    if (!tabId) throw new Error(MdgErrors.TEXT.noTab);
     let readerUrl = "";
     try {
       const parsed = new URL(url);
@@ -582,110 +535,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       parsed.searchParams.set(MdgCommon.READER_PARAM, "1");
       readerUrl = parsed.toString();
     } catch (error) {
-      sendResponse({ ok: false, error: error.message || "专注模式的地址无效" });
-      return false;
+      throw new Error(error.message || "专注模式的地址无效");
     }
+    await ensureReaderContentReady(tabId);
+    // After MdgErrors.TEXT.readerStartFailed on the page.
+    if (!(await triggerReaderModeInTab(tabId, readerUrl))) throw MdgErrors.pageSilent();
+    return { ok: true };
+  },
 
-    ensureReaderContentReady(tabId)
-      .then(() => triggerReaderModeInTab(tabId, readerUrl))
-      .then((triggered) => {
-        if (!triggered) {
-          // After MdgErrors.TEXT.readerStartFailed on the page.
-          throw MdgErrors.pageSilent();
-        }
-        sendResponse({ ok: true });
-      })
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === "fetch-json") {
+  "fetch-json": (message) => {
     const url = typeof message.url === "string" ? message.url : "";
     // The proxy carries the user's cookies, so it only serves the video sites.
-    if (!MdgSites.isAllowedFetchUrl(url)) {
-      sendResponse({ ok: false, error: "URL not allowed" });
-      return false;
-    }
+    if (!MdgSites.isAllowedFetchUrl(url)) return { ok: false, error: "URL not allowed" };
     // The same request, timeout and words as 分拣台 and the side panel (triageBiliGetJson, one try); the page retries.
-    triageBiliGetJson(url)
-      .then((data) => sendResponse({ ok: true, data }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code, status: error.status }));
-    return true;
-  }
+    return triageBiliGetJson(url).then(
+      (data) => ({ ok: true, data }),
+      (error) => ({ ok: false, error: error.message, code: error.code, status: error.status })
+    );
+  },
 
   // The settings page validates both fields before it asks.
-  if (message.type === "test-obsidian-connection") {
-    testObsidianConnection(String(message.baseUrl || "").trim(), String(message.apiKey || "").trim()).then(sendResponse);
-    return true;
-  }
+  "test-obsidian-connection": (message) => testObsidianConnection(String(message.baseUrl || "").trim(), String(message.apiKey || "").trim()),
 
-  if (message.type === "ai-providers-list") {
-    loadAiProviders()
-      .then((items) => sendResponse({ ok: true, providers: items }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+  "ai-providers-list": () => loadAiProviders().then((providers) => ({ ok: true, providers })),
+  "ai-providers-save": (message) => saveAiProviders(message.providers || []).then((providers) => ({ ok: true, providers })),
+  "ai-providers-delete": (message) => deleteAiProvider(String(message.providerId || "")).then((providers) => ({ ok: true, providers })),
 
-  if (message.type === "ai-providers-save") {
-    saveAiProviders(message.providers || [])
-      .then((items) => sendResponse({ ok: true, providers: items }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === "ai-providers-delete") {
-    deleteAiProvider(String(message.providerId || ""))
-      .then((items) => sendResponse({ ok: true, providers: items }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
-
-  if (message.type === "ai-providers-test") {
-    const baseUrl = String(message.baseUrl || "").trim();
+  // A saved platform's key goes to the address in the message, so only the settings page may ask.
+  "ai-providers-test": async (message) => {
     const providerId = String(message.providerId || "").trim();
-    const model = String(message.model || "").trim();
-    Promise.resolve()
-      .then(async () => {
-        const directApiKey = String(message.apiKey || "").trim();
-        if (directApiKey) {
-          return directApiKey;
-        }
-        if (!providerId) {
-          return "";
-        }
-        const keys = await loadAiProviderKeys();
-        return String(keys[providerId] || "").trim();
-      })
-      .then((apiKey) => testAiConnection({ baseUrl, apiKey, model, requiresKey: message.requiresKey }))
-      .then((resp) => sendResponse(resp))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+    const apiKey = String(message.apiKey || "").trim() || (providerId ? String((await loadAiProviderKeys())[providerId] || "").trim() : "");
+    return testAiConnection({ baseUrl: String(message.baseUrl || "").trim(), apiKey, model: String(message.model || "").trim(), requiresKey: message.requiresKey });
+  },
 
-  if (message.type === "ai-sidepanel-get-state") {
-    const tabId = Number(message.tabId || 0) || 0;
-    getAiSidepanelState(tabId, { refresh: message.refresh === true, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") })
-      .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
-    return true;
-  }
-
-  if (message.type === "ai-sidepanel-resolve-context") {
-    resolveAiSidepanelContext(message.contextRef || {})
-      .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
-    return true;
-  }
-
-  if (message.type === "ai-sidepanel-resolve-page-ref") {
-    resolveAiSidepanelPageRef(message.contextRef || {})
-      .then((payload) => sendResponse({ ok: true, payload }))
-      .catch((error) => sendResponse({ ok: false, error: error.message, code: error.code }));
-    return true;
-  }
-
-  return false;
-});
+  "ai-sidepanel-get-state": (message) =>
+    getAiSidepanelState(Number(message.tabId || 0) || 0, { refresh: message.refresh === true, frameId: Number(message.frameId) || 0, videoId: String(message.videoId || "") }).then(
+      (payload) => ({ ok: true, payload })
+    ),
+  "ai-sidepanel-resolve-context": (message) => resolveAiSidepanelContext(message.contextRef || {}).then((payload) => ({ ok: true, payload })),
+  "ai-sidepanel-resolve-page-ref": (message) => resolveAiSidepanelPageRef(message.contextRef || {}).then((payload) => ({ ok: true, payload }))
+};
 
 chrome.runtime.onConnect.addListener((port) => {
   if (!port || port.name !== MdgCommon.CHAT_PORT) {
@@ -1162,11 +1051,14 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
 }
 
 // The reply's content tokens. An error in a chunk throws (triageAiBodyError), so does a 200 body that is plain JSON with
-// an error instead of SSE lines; the last line is read even without a closing newline.
+// an error instead of SSE lines; the last line is read even without a closing newline. An answer cut at the output limit
+// (finish_reason length) throws AI_TRUNCATED after its tokens, as 分拣台's triageChat does.
 async function* parseOpenAISSE(response, onActivity) {
   if (!response || !response.body) return;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const truncated = () => triageError(MdgErrors.TEXT.aiTruncated, "AI_TRUNCATED");
+  let cut = false;
   let buffer = "";
   let plain = "";
   for (let done = false; !done; ) {
@@ -1183,7 +1075,10 @@ async function* parseOpenAISSE(response, onActivity) {
         continue;
       }
       const data = line.slice(5).trim();
-      if (data === "[DONE]") return;
+      if (data === "[DONE]") {
+        if (cut) throw truncated();
+        return;
+      }
       if (!data) continue;
       let json;
       try {
@@ -1193,8 +1088,9 @@ async function* parseOpenAISSE(response, onActivity) {
       }
       const bodyError = triageAiBodyError(json);
       if (bodyError) throw bodyError;
-      const delta = json?.choices?.[0]?.delta?.content;
-      if (delta) yield String(delta);
+      const choice = json?.choices?.[0];
+      cut ||= choice?.finish_reason === "length";
+      if (choice?.delta?.content) yield String(choice.delta.content);
     }
   }
   let json = null;
@@ -1206,6 +1102,7 @@ async function* parseOpenAISSE(response, onActivity) {
   // A platform or proxy that ignores stream:true answers with one plain completion.
   const whole = json?.choices?.[0]?.message?.content;
   if (whole) yield String(whole);
+  if (cut || json?.choices?.[0]?.finish_reason === "length") throw truncated();
 }
 
 // DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
@@ -1349,3 +1246,6 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 // obsidian.js answers write-video-note and sync-video-note-ai: the background is the only writer to Obsidian.
 // follow-core.js (FollowCore) gives follow-bg.js the page's groupsOf, so an UP's groups are read one way on both sides.
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
+
+// A video page's content script (content.js) sends these; the rest come from the extension's own pages.
+triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "yt-player-response", "fetch-json"], (r) => r);

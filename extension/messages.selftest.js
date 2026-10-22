@@ -8,6 +8,8 @@
 //   3. a sender passes a field the entry does not list;
 //   4. a listed request field is not read by the handler (its branch, and the functions it hands the message to);
 //   5. a builder returns other fields than the entry's payload, or a payload field is read nowhere else.
+//   6. a triageListen's web types (what a content script may send it) differ from the types its file answers that a
+//      content script (manifest.json) sends: one missing breaks that page, one extra lets a web page in.
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -198,6 +200,20 @@ for (const [type, e] of Object.entries(M)) {
     if (!keys.includes(k)) fail(`${type}: payload lists ${k}, ${e.builder} does not return it`);
     const re = new RegExp(`(?<![\\w$])${k}(?![\\w$])`);
     if (!files.some((g) => g !== f && re.test(src[g]))) fail(`${type}: payload field ${k} is read nowhere outside ${f}`);
+  }
+}
+
+// 6. Each triageListen(prefix, HANDLERS, [web types]) against the list: its file's types a content script sends.
+const contentScripts = new Set(JSON.parse(read("manifest.json")).content_scripts.flatMap((g) => g.js).map(path.normalize));
+for (const f of files) {
+  for (const m of src[f].matchAll(/triageListen\(\s*[^,]+,\s*[\w$]+,\s*\[([^\]]*)\]/g)) {
+    const listed = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+    const prefix = /^triageListen\(\s*"([^"]*)"/.exec(m[0])?.[1];
+    const want = Object.entries(M)
+      .filter(([type, e]) => e.to === f && (!prefix || type.startsWith(prefix)) && e.from.some((x) => contentScripts.has(x)))
+      .map(([type]) => type)
+      .sort();
+    if (listed.join() !== want.join()) fail(`${lineOf(f, m.index)}: web types ${listed.join(", ")}; content scripts send ${want.join(", ")}`);
   }
 }
 
