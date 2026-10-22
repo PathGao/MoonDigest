@@ -155,5 +155,32 @@
       }
     };
   }
-  globalThis.MdgRuns = { create, sleep: nap };
+  // An AI 429's wait (hold), for every page that runs AI batches.
+  const AI_HOLD = { ms: 60 * 1000, label: "AI 平台限流卡住" };
+  // AI errors after which every later request fails alike: the AI_ codes MdgErrors.CODES sends to 去设置 (the side panel
+  // offers 去设置 on the same list), plus AI_ACCESS (未授权访问; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
+  // the first one. AI_TIMEOUT sends the
+  // same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
+  // row at most, then ends the run as AI_GAVE_UP.
+  const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && MdgErrors.action(code) === "settings";
+  const aiEnds = (r) => aiSettingsCode(r.code) || r.code === "AI_ACCESS";
+  const AI_TIMEOUT_TRIES = 2;
+  const AI_THROTTLE_WAITS = 5;
+  const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
+  // A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row; any other error fails only this
+  // request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (held(r): the run's hold,
+  // then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
+  function aiJudge(held = (r) => r.code === "AI_THROTTLED") {
+    const n = { timeouts: 0, waits: 0 };
+    return (r) => {
+      if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return "retry";
+      if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) Object.assign(r, aiGaveUp());
+      if (!r.ok && held(r)) return "wait";
+      if (!r.ok && aiEnds(r)) return "stop";
+      n.timeouts = n.waits = 0;
+      return r.ok ? "ok" : "item";
+    };
+  }
+
+  globalThis.MdgRuns = { create, sleep: nap, AI_HOLD, aiSettingsCode, aiEnds, aiJudge };
 })();

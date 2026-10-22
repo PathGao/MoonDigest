@@ -550,10 +550,23 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await filter(`tag:${tag.id}`);
     assert.ok(entry(videoKey) && entry(pageKey) && !entry("untagged"), html);
     await filter(`tag:${tag.id}`);
+    // 未打标签 / 已打标签 as on the 分拣台, by the record's own tags; 全部 clears them. (Records tagged on this page stay
+    // listed until it reloads, as under the other filters.)
+    await filter("tagstate:untagged");
+    assert.ok(entry("untagged") && /data-f="tagstate:untagged" aria-pressed="true">未打标签 \d+</.test(els.stateRow.innerHTML), els.stateRow.innerHTML);
+    await filter("tagstate:tagged");
+    assert.ok(!entry("untagged") && entry(videoKey) && entry(pageKey), html);
+    await filter("all");
+    assert.ok(entry("untagged") && !els.stateRow.innerHTML.includes('aria-pressed="true">已打标签'), els.stateRow.innerHTML);
     await search("读过");
     assert.ok(entry(videoKey) && entry(pageKey), html);
     await search("分拣标签");
     assert.ok(entry(videoKey) && !entry(pageKey), "the search matches 分拣台 tag names too");
+    // As the 分拣台's: every word, each anywhere in the record.
+    await search("星标视频 分拣标签");
+    assert.ok(entry(videoKey) && !entry(pageKey), html);
+    await search("星标视频 没有这个词");
+    assert.ok(!entry(videoKey), html);
     await search("");
     ctx.navigator.clipboard.writeText = async (text) => (copied = text);
     await on(videoKey, "copy");
@@ -798,6 +811,21 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     sent.length = 0;
     await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: true });
     assert.deepStrictEqual(plain(sent.filter((m) => m.type === "triage-reading-ai-tag").map((m) => [m.items.length, m.maxNewTags])), [[1, 2], [1, 1]], "batches of the stored size, within the stored cap");
+    // The 分拣台's run rules (MdgRuns.aiJudge): an AI 429 waits and sends the same batch again, a timeout is sent again
+    // at once; a setup error ends the run with 去设置 on the status line.
+    ctx.MdgRuns.AI_HOLD.ms = 30;
+    const replies = [{ ok: false, code: "AI_THROTTLED", error: "AI 平台限流" }, { ok: false, code: "AI_TIMEOUT", error: "超时" }, { ok: true, data: answer }, { ok: false, code: "AI_AUTH", error: "API Key 不对" }];
+    sent.length = 0;
+    ctx.chrome.runtime.sendMessage = async (msg) => (sent.push(plain(msg)), msg.type === "triage-reading-ai-tag" ? replies.shift() : { ok: true, data: fav });
+    const appended = [];
+    els.status.append = (...nodes) => appended.push(...nodes);
+    ctx.document.createElement = () => ({});
+    await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: true });
+    const batches = sent.filter((m) => m.type === "triage-reading-ai-tag").map((m) => m.items[0].id);
+    assert.deepStrictEqual([batches.length, batches[0] === batches[2], batches[2] !== batches[3]], [4, true, true], "batch 1 sent 3 times, then batch 2");
+    assert.ok(els.status.textContent.includes("API Key 不对") && appended.at(-1).textContent === "去设置", els.status.textContent);
+    ad.discard();
+    delete els.status.append;
     assert.strictEqual(await ad.setAllowRemove(false), true);
     assert.deepStrictEqual([sync[RS].allowRemove, ad.allowRemove()], [false, false], "the switch is stored");
 

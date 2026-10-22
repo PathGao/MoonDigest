@@ -7,7 +7,7 @@
 // wait is read when used: the dev preview's mock sets __TRIAGE_THROTTLE_MS after this script has run.
 const THROTTLES = {
   THROTTLED: { get ms() { return globalThis.__TRIAGE_THROTTLE_MS || 10 * 60 * 1000; }, label: TriageUi.BILI_STUCK },
-  AI_THROTTLED: { ms: 60 * 1000, label: "AI 平台限流卡住" }
+  AI_THROTTLED: MdgRuns.AI_HOLD
 };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
@@ -426,30 +426,10 @@ function showBanner(text, btnText, onClick, kind = "") {
   el.banner.hidden = false;
 }
 
-// AI errors after which every later request fails alike: the AI_ codes MdgErrors.CODES sends to 去设置 (the side panel
-// offers 去设置 on the same list), plus AI_ACCESS (未授权访问; the banner offers the grant). 粗看, 细看 and AI 打标签 stop at
-// the first one. AI_TIMEOUT sends the
-// same request again and ends the run after AI_TIMEOUT_TRIES in a row; AI_THROTTLED waits, AI_THROTTLE_WAITS times in a
-// row at most, then ends the run as AI_GAVE_UP.
-const aiSettingsCode = (code) => String(code || "").startsWith("AI_") && MdgErrors.action(code) === "settings";
-const aiEnds = (r) => aiSettingsCode(r.code) || r.code === "AI_ACCESS";
-const AI_TIMEOUT_TRIES = 2;
-const AI_THROTTLE_WAITS = 5;
-const aiGaveUp = () => ({ ok: false, code: "AI_GAVE_UP", error: `AI 平台持续限流，已等待重试 ${AI_THROTTLE_WAITS} 次，已停止` });
-// A run's judge (runs.js) of AI answers, by the rule above, with its own counts in a row; any other error fails only this
-// request (a video in 细看, a batch in 粗看). "ok"; "retry" (the same request at once); "wait" (THROTTLES[r.code],
-// then the same request); "stop" (r is then AI_GAVE_UP after too many waits); "item" (only this request failed).
-function aiJudge() {
-  const n = { timeouts: 0, waits: 0 };
-  return (r) => {
-    if (!r.ok && r.code === "AI_TIMEOUT" && ++n.timeouts < AI_TIMEOUT_TRIES) return "retry";
-    if (!r.ok && r.code === "AI_THROTTLED" && n.waits++ === AI_THROTTLE_WAITS) Object.assign(r, aiGaveUp());
-    if (!r.ok && THROTTLES[r.code]) return "wait";
-    if (!r.ok && aiEnds(r)) return "stop";
-    n.timeouts = n.waits = 0;
-    return r.ok ? "ok" : "item";
-  };
-}
+// The AI run rules (aiJudge and the codes that end a run) are runs.js's, shared with 摘读记录; here a B站 limit (细看's
+// subtitles) waits too.
+const { aiSettingsCode, aiEnds } = MdgRuns;
+const aiJudge = () => MdgRuns.aiJudge((r) => THROTTLES[r.code]);
 
 // limit: the 收藏夹设置 row a cut answer asks to raise, 粗看输出上限 (标题粗看 and ✦ AI 打标签) or 细看输出上限.
 function handleAiError(error, code = "", limit = "粗看") {
@@ -459,7 +439,7 @@ function handleAiError(error, code = "", limit = "粗看") {
     showBanner(text, MdgErrors.LABEL.grant, async () => {
       if (await access.request()) {
         el.banner.hidden = true;
-        toast("已授权，请重试");
+        toast(MdgErrors.TEXT.granted);
       }
     }, "ai");
   } else if (aiSettingsCode(code)) {
