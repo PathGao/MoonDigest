@@ -180,9 +180,19 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     resp = await write({ ref: p2, conversation: conversation("分"), pageChoice: "open" });
     assert.deepStrictEqual([resp.kind, resp.path, created, muted], ["full", "N/bilibili/分P-P2-第二集.md", ["https://www.bilibili.com/video/BV7/?p=2"], [9]]);
     assert.strictEqual(local[PATHS]["video:bilibili:BV7|c72"].path, "N/bilibili/分P-P2-第二集.md");
-    // Opened but no note there (no subtitles yet, another video): says why, and writes nothing.
+    // M1: a watch-later tab playing this part (its oid is the part's cid) shows it too: read there, nothing opened.
+    created.length = muted.length = 0;
+    openTabs = [{ id: 11, url: "https://www.bilibili.com/list/watchlater?bvid=BV7&oid=c72" }];
+    resp = await write({ ref: { ...p2, cid: "c72" }, conversation: conversation("稍后"), mode: "full" });
+    assert.deepStrictEqual([resp.ok, resp.path, created], [true, "N/bilibili/分P-P2-第二集.md", []]);
+    openTabs = [];
+    // K4: opened on another part (B站 resumes the last watched one) or another video, or without a note: says which, never
+    // 「请先点「刷新」」 (that page has no 刷新), and writes nothing.
+    videoPage = () => ({ ok: true, payload: { url: "https://www.bilibili.com/video/BV7/?p=3", markdown: "# P3 笔记" } });
+    assert.deepStrictEqual(await write({ ref: p2, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: "打开的视频页不是这个视频的 P2" });
     videoPage = () => ({ ok: true, payload: { url: p2.url, markdown: "" } });
-    assert.deepStrictEqual(await write({ ref: { ...p2, videoId: "BV8", url: "" }, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: E.noNoteYet });
+    assert.deepStrictEqual(await write({ ref: { ...p2, videoId: "BV8", url: "" }, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: "打开的视频页不是这个视频的 P2" });
+    assert.deepStrictEqual(await write({ ref: p2, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: `${E.videoReadFailed}：视频页没有给出笔记` });
     videoPage = () => ({ ok: false });
     created.length = muted.length = 0;
   }

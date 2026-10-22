@@ -6,7 +6,7 @@
   // ---- contexts and saved conversations ----
 
   // A video part's key or a web page's (MdgSites.buildContextKey). Conversations saved with the older url: keys get the
-  // page key when they are read (resolveConversationStorageKey).
+  // page key when they are read (MdgSites.conversationKey).
   function buildContextKey(payload) {
     return payload ? MdgSites.buildContextKey(buildConversationContextRef(payload)) : "";
   }
@@ -39,19 +39,6 @@
   // The shown conversation's own video (its saved context), else the shown context's.
   const shownPartUrl = (s) => (s.conv.pinned ? partUrl({ ...s.conv.pinned.contextRef, url: s.conv.pinned.contextUrl }) : partUrl(shown(s)));
 
-  // live: the tab's loaded context. A watch-later tab URL names its part by oid (the part's cid): the payload with that
-  // cid places it; before it arrives the URL reads as P1.
-  function doesTabMatchContextUrl(tabUrl, targetUrl, live = null) {
-    let current = MdgSites.parseRef(tabUrl);
-    const oid = current?.part?.oid;
-    if (oid && live && !live.pending && String(live.cid || "") === oid && live.videoId === current.id) current = MdgSites.parseRef(partUrl(live)) || current;
-    const target = MdgSites.parseRef(targetUrl);
-    if (!current || !target) {
-      return String(tabUrl || "").trim() === String(targetUrl || "").trim();
-    }
-    return current.site === target.site && current.id === target.id && (current.part?.index || 1) === (target.part?.index || 1);
-  }
-
   function normalizeConversations(value) {
     if (!Array.isArray(value)) {
       return [];
@@ -73,7 +60,7 @@
         return {
           id,
           title: normalizeConversationTitle(item?.title, contextTitle, contextRef, contextUrl),
-          contextKey: resolveConversationStorageKey(item?.contextKey, contextRef, contextUrl),
+          contextKey: MdgSites.conversationKey({ contextKey: item?.contextKey, contextRef, contextUrl }),
           contextTitle,
           contextUrl,
           isVideoContext: item?.isVideoContext !== false,
@@ -86,24 +73,6 @@
       })
       .filter(Boolean)
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  }
-
-  function resolveConversationStorageKey(rawKey, contextRef, contextUrl = "") {
-    return buildContextKey(contextRef) || buildContextKey({ url: contextUrl }) || String(rawKey || "").trim();
-  }
-
-  function doesConversationMatchCurrentContext(conversation, currentRef, targetContextKey = "") {
-    if (!conversation) {
-      return false;
-    }
-    const conversationKey = resolveConversationStorageKey(conversation.contextKey, conversation.contextRef, conversation.contextUrl);
-    const targetKey = String(targetContextKey || buildContextKey(currentRef)).trim();
-    if (conversationKey && targetKey && conversationKey === targetKey) {
-      return true;
-    }
-    const conversationUrl = partUrl({ ...conversation.contextRef, url: conversation.contextUrl || conversation.contextRef?.url });
-    const currentUrl = partUrl(currentRef);
-    return Boolean(conversationUrl && currentUrl) && doesTabMatchContextUrl(currentUrl, conversationUrl);
   }
 
   // A multi-part video's conversation saved before its part was known: its page title and URL are looked up once.
@@ -166,10 +135,10 @@
   // first load (or one after a failed read) only adopts, without the AI 总结 fill, and does so at the tab URL already. lastVideoUrl moves when the panel takes the tab's video or a follow
   // load watches it, never on a load that leaves a bound conversation in place.
   function decideFollow({ shownUrl, hasMessages, bound, lastVideoUrl, hasContext }, { stage, toUrl, oid, follow, keyChanged, fillsShown }) {
-    const same = doesTabMatchContextUrl;
+    const same = (a, b) => MdgSites.sameContext(a, b);
     const candidate = Boolean(toUrl) && !fillsShown && (hasMessages ? Boolean(lastVideoUrl) && !same(toUrl, lastVideoUrl) && same(shownUrl, lastVideoUrl) : !same(toUrl, shownUrl));
     if (stage === "tab") {
-      const otherVideo = (url) => MdgSites.parseRef(url)?.id !== MdgSites.parseRef(toUrl)?.id;
+      const otherVideo = (url) => !MdgSites.sameContext(url, toUrl, { anyPart: true });
       const placed = !oid || (otherVideo(shownUrl) && otherVideo(lastVideoUrl));
       if (!hasContext) return toUrl && placed ? { action: "adopt", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
       return follow && placed && candidate ? { action: "follow", lastVideoUrl: toUrl } : { action: "none", lastVideoUrl };
@@ -244,14 +213,14 @@
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
       nonVideo: (pinned || context)?.isVideoContext === false,
       // The conversation's own video is not the one in the tab.
-      mismatch: Boolean(pinned && target) && (!s.live.tabUrl || !doesTabMatchContextUrl(s.live.tabUrl, target, s.live.context)),
+      mismatch: Boolean(pinned && target) && (!s.live.tabUrl || !MdgSites.sameContext(s.live.tabUrl, target, { live: s.live.context })),
       saved: s.saved,
       // What a save merges into the stored list: SidepanelState.mergeSaved(stored, saved, unsaved).
       unsaved: { created: new Set(s.unsaved.created), deleted: new Set(s.unsaved.deleted) },
       previousId: s.previousId,
       // The 历史对话 list: the shown video's conversations (the history page lists all of them).
       get history() {
-        return s.saved.filter((c) => c.id === id || doesConversationMatchCurrentContext(c, context, key));
+        return s.saved.filter((c) => c.id === id || MdgSites.isConversationOf(c, context));
       }
     };
   }
@@ -387,8 +356,9 @@
     return [{ type: "detach", conversationId: s.conv.id, promptIndex: s.conv.messages.length - 1 }, { type: "save" }];
   }
 
-  function restoreLatest(s, ref, key) {
-    const latest = s.saved.find((item) => doesConversationMatchCurrentContext(item, ref, key));
+  // s.saved is newest first: the newest conversation of ref (MdgSites.isConversationOf, as every note's AI 问答 takes it).
+  function restoreLatest(s, ref) {
+    const latest = s.saved.find((item) => MdgSites.isConversationOf(item, ref));
     return latest ? setConv(s, latest) : [];
   }
 
@@ -401,7 +371,7 @@
       s.previousId = previous.id;
       effects.push({ type: "previous", id: previous.id });
     }
-    effects.push(...setConv(s), ...restoreLatest(s, context, buildContextKey(context)));
+    effects.push(...setConv(s), ...restoreLatest(s, context));
     if (!s.conv.messages.length) s.conv.fillEpoch = s.conv.epoch;
     effects.push({ type: "followed" });
     return effects;
@@ -424,7 +394,7 @@
   // another context too, so returning to a video restores its conversation.
   function contextKeyChanges(s, payload) {
     const context = shown(s);
-    const fillsPlaceholder = Boolean(context?.pending && doesTabMatchContextUrl(payload?.url || "", context.url));
+    const fillsPlaceholder = Boolean(context?.pending && MdgSites.sameContext(payload?.url || "", context.url));
     return !fillsPlaceholder && buildContextKey(payload) !== shownKey(s);
   }
 
@@ -436,12 +406,12 @@
       const effects = detach(s);
       const contextRef = buildConversationContextRef(ref);
       const placeholder = buildContextPlaceholder(contextRef);
-      const latest = s.saved.find((item) => doesConversationMatchCurrentContext(item, placeholder, buildContextKey(placeholder)));
+      const latest = s.saved.find((item) => MdgSites.isConversationOf(item, placeholder));
       effects.push(...setConv(s, latest || { id: "", contextKey: "", contextTitle: placeholder.title, contextUrl: placeholder.url, contextRef, messages: [] }));
       effects.push(...resolveIfNeeded(s, false));
       return latest ? effects : [...effects, { type: "fill", prompt }];
     }
-    const latest = s.saved.find((item) => doesConversationMatchCurrentContext(item, s.live.context, s.live.key));
+    const latest = s.saved.find((item) => MdgSites.isConversationOf(item, s.live.context));
     if (latest) {
       return open(s, latest.id);
     }
@@ -486,7 +456,7 @@
           return follow(s, placeholder);
         }
         // Nothing was shown: the video's saved conversation, else the placeholder in the empty one (placed: draw it).
-        const restored = restoreLatest(s, placeholder, s.live.key);
+        const restored = restoreLatest(s, placeholder);
         return restored.length ? restored : [{ type: "placed" }];
       }
       // The tab's context came back: payload, or error when it could not be read.
@@ -516,7 +486,7 @@
           if (s.conv.pinned && !s.conv.resolved && fitsLive(s)) s.conv.resolved = { ...payload };
           return [];
         }
-        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload, key)] : pageRead(s, payload, key);
+        return keyChanged ? [...setConv(s), ...restoreLatest(s, payload)] : pageRead(s, payload, key);
       }
       case "GRANT_DENIED":
         s.conv.autoSend = null;
@@ -671,7 +641,7 @@
       pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
     };
     const title = normalizeConversationTitle(conversation.title, conversation.contextTitle, ref, url);
-    const contextKey = resolveConversationStorageKey(conversation.contextKey, ref, url);
+    const contextKey = MdgSites.conversationKey({ contextKey: conversation.contextKey, contextRef: ref, contextUrl: url });
     const same = title === conversation.title && url === conversation.contextUrl && contextKey === conversation.contextKey && Number(contextRef.pageIndex || 1) === pageIndex && Number(contextRef.pageCount || 0) === pageCount;
     const next = same ? { ...conversation, pageHydrated: true } : { ...conversation, pageHydrated: true, title, contextUrl: url, contextKey, contextRef: ref };
     s.saved = normalizeConversations(s.saved.map((item) => (item.id === id ? next : item)));
@@ -688,7 +658,6 @@
     buildContextKey,
     buildConversationContextRef,
     buildContextPlaceholder,
-    doesTabMatchContextUrl,
     needsConversationPageHydration
   };
 })();

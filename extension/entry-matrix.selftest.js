@@ -50,6 +50,7 @@ const RULES = {
   PAGE_FAILED: ["retry"],
   PAGE_GRANT: ["grantPage"],
   PAGE_UNSUPPORTED: [],
+  PAGE_SILENT: [], // 视频页没有回应，请刷新网页后重试: 重试 fails alike (K5), the sentence says to reload
   SUBTITLE_FAILED: ["retry"],
   SUBTITLE_LOGIN: ["retry"],
   SUBTITLE_NONE: []

@@ -12,7 +12,8 @@
 //      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b), the pages' tags only
 //      through MdgTagStore (c).
 //   6. Page paths and the file-name rule are MdgCommon's (ARCHITECTURE: common.js).
-// Fails on any hit of 1, 2a, 2b, 3c, 3d, 5c and 6. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
+//   7. Tab matching, conversation picking and Chrome's messaging errors are answered once (MdgSites, MdgErrors).
+// Fails on any hit of 1, 2a, 2b, 3c, 3d, 5c, 6 and 7. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
 // line that matches no hit (its reason no longer holds). Sections marked (允许) only list.
 // Scanned: extension/**/*.js and *.html. Not scanned: *.selftest.js, vendor/ (third-party code), every dev/ folder and dev-sidepanel/ (mocks, the
 // build script and its generated index.html), *.mjs, messages.js (the message list, messages.selftest.js), and per check
@@ -332,6 +333,24 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
     });
   }
   section("6. common.js 里有的又写一份", hits, "any");
+}
+
+// 7. A rule two or more entries answer lives once (AGENTS 抽象), and no entry keeps a private copy of it:
+//   a. whether a tab shows a record (a part number, a watch-later oid or a URL without # compared): MdgSites.sameContext;
+//   b. which saved conversation belongs to a video part or page (a filter on contextKey): MdgSites.isConversationOf;
+//   c. Chrome's English messaging errors ("Receiving end does not exist", …): MdgErrors.noReceiver / pageSilent.
+{
+  const hits = [];
+  const compares = (line, part) => new RegExp(`[!=]==[^;]*${part}|${part}[^;]*[!=]==`).test(line);
+  for (const f of files.filter((f) => f.endsWith(".js"))) {
+    lines[f].forEach((line, i) => {
+      if (isComment(line)) return;
+      if (f !== "sites.js" && (compares(line, "\\.part\\??\\.(?:index|oid)\\b") || compares(line, "replace\\(\\/#\\.\\*\\$\\/"))) hits.push(at(f, i) + "  （MdgSites.sameContext）");
+      if (f !== "sites.js" && /\.(?:filter|find|findIndex|some|every)\(.*\bcontextKey\b/.test(line)) hits.push(at(f, i) + "  （MdgSites.isConversationOf）");
+      if (f !== "errors.js" && /Receiving end|establish connection|message port closed|No tab with id|No frame with id/i.test(line)) hits.push(at(f, i) + "  （MdgErrors.noReceiver / pageSilent）");
+    });
+  }
+  section("7. 判断标签页、对话归属、页面没回应又写一份", hits, "any");
 }
 
 let failed = 0;

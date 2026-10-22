@@ -41,9 +41,7 @@ const ctx = vm.createContext({
       lastError: undefined,
       getURL: (p) => p,
       onMessage: { addListener() {} },
-      sendMessage(msg, cb) {
-        Promise.resolve(msg.type === "ai-sidepanel-get-state" ? answer(msg.tabId) : { ok: true }).then(cb);
-      }
+      sendMessage: async (msg) => (msg.type === "ai-sidepanel-get-state" ? answer(msg.tabId) : { ok: true })
     },
     tabs: { query: async () => [activeTab], onActivated: { addListener() {} }, onUpdated: { addListener() {} } },
     storage: { local: { get: async () => ({}), set: async () => {}, remove: async () => {} }, session: { get: async () => ({}), set: async () => {}, remove: async () => {} }, onChanged: { addListener() {} } }
@@ -129,11 +127,13 @@ const chatOn = (context) => {
     const views = [];
     const realReset = ctx.resetConversationView;
     ctx.resetConversationView = (html, opts) => views.push([html, opts.retry]);
-    for (const code of [-404, 62002, "THROTTLED"]) {
+    for (const code of [-404, 62002, "THROTTLED", "PAGE_SILENT"]) {
       answer = async () => ({ ok: false, error: "x", code });
       await ctx.loadContextState({});
     }
-    assert.deepStrictEqual(views, [["视频已失效", false], ["视频已失效", false], ["读取视频失败：B站限流，请稍后再试", true]]);
+    // K5: a page that did not answer (or took no content script) says to reload it, without a 重试 that fails alike.
+    const silent = `读取视频失败：${ctx.MdgErrors.TEXT.pageSilent}`;
+    assert.deepStrictEqual(views, [["视频已失效", false], ["视频已失效", false], ["读取视频失败：B站限流，请稍后再试", true], [silent, false]]);
     ctx.resetConversationView = realReset;
   }
 
@@ -206,9 +206,9 @@ const chatOn = (context) => {
     let asked;
     ctx.showConversationContextNotice = (text, ms, opts) => shown.push([text, opts?.error]);
     ctx.MdgOverwriteDialog = { choose: async (path, opts) => ((asked = [path, opts.hasAiSection, opts.fullReason]), choice()) };
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     // F3: why 整篇覆盖 is off (the video page must be open) reaches the dialog.
-    ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: m.mode, text: `已更新 AI 问答：p.md` } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "先打开视频页" });
+    ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: m.mode, text: `已更新 AI 问答：p.md` } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "先打开视频页" });
     const write = async (pick, tab) => {
       sent.length = 0;
       shown.length = 0;
@@ -229,24 +229,24 @@ const chatOn = (context) => {
     assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.obsidianConvSwitched, undefined]);
     // askPage (a web page with no note, not open): the page dialog first, then the same request with its choice.
     {
-      const was = ctx.sendRuntimeMessage;
-      ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, text: "已写入 Obsidian：网页/x.md" } : { ok: true, askPage: true, url: "https://example.com/x" });
+      const was = ctx.chrome.runtime.sendMessage;
+      ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, text: "已写入 Obsidian：网页/x.md" } : { ok: true, askPage: true, url: "https://example.com/x" });
       ctx.MdgOverwriteDialog.choosePage = async (url) => (url === "https://example.com/x" ? choice() : "wrong");
       assert.strictEqual(await write(() => "open", web("x")), "-,-");
       assert.deepStrictEqual([sent.map((m) => m.pageChoice), shown.at(-1)], [[undefined, "open"], ["已写入 Obsidian：网页/x.md", undefined]]);
       assert.strictEqual(await write(() => "", web("x")), "-", "取消: nothing sent again");
-      ctx.sendRuntimeMessage = was;
+      ctx.chrome.runtime.sendMessage = was;
     }
     // 复制 Markdown and 下载 .md give the note 写入 Obsidian writes: export-note with the conversation on screen, asked
     // about with the button's verb when the page is not open; what comes back is copied or downloaded as is.
     {
-      const was = [ctx.sendRuntimeMessage, ctx.MdgDownload];
+      const was = [ctx.chrome.runtime.sendMessage, ctx.MdgDownload];
       const copied = [];
       const saved = [];
       const asked = [];
       ctx.navigator.clipboard = { writeText: async (t) => copied.push(t) };
       ctx.MdgDownload = { text: (name, text) => saved.push([name, text]) };
-      ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, filename: "V.md", markdown: "# 视频笔记" } : { ok: true, askPage: true, url: "u", video: true });
+      ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, filename: "V.md", markdown: "# 视频笔记" } : { ok: true, askPage: true, url: "u", video: true });
       ctx.MdgOverwriteDialog.choosePage = async (url, isVideo, own, verb) => (asked.push([url, isVideo, own, verb]), choice());
       const run = async (fn, pick) => {
         sent.length = shown.length = 0;
@@ -265,7 +265,7 @@ const chatOn = (context) => {
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => ""), [ask[0]]);
       assert.deepStrictEqual([saved.length, shown.at(-1)], [1, ["已取消下载", undefined]]);
       delete ctx.navigator.clipboard;
-      [ctx.sendRuntimeMessage, ctx.MdgDownload] = was;
+      [ctx.chrome.runtime.sendMessage, ctx.MdgDownload] = was;
     }
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
@@ -275,7 +275,7 @@ const chatOn = (context) => {
     await write(() => "full", video);
     assert.deepStrictEqual(JSON.parse(JSON.stringify(sent[1].page)), { markdown: "# 页面", cover: "c", warning: "未登录 B站，拿不到字幕。" });
     ctx.sendMessageToActiveTab = realTab;
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
 
     // A failed write is red; only not set up or a wrong key (code OBSIDIAN) adds 去设置, which stays up and opens the
     // settings page on its click. A closed Obsidian gets the red line only.
@@ -406,10 +406,10 @@ const chatOn = (context) => {
     // 分拣台's viewer: its AI 总结 names the frame, and the panel asks that frame for the video like a video page, so the
     // track picked in its 专注模式 is what the AI reads, also when picked later. Once the viewer is closed, the video is
     // read like a closed video page's.
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     const asked = [];
     let frame = { ...video, selectedSubtitleId: "en", subtitleMarkdown: "英文字幕" };
-    ctx.sendRuntimeMessage = async (msg) => {
+    ctx.chrome.runtime.sendMessage = async (msg) => {
       asked.push([msg.type, msg.frameId || 0, msg.videoId || ""]);
       if (msg.type === "ai-sidepanel-get-state" && !msg.frameId) return webPage("triage");
       if (msg.type === "ai-sidepanel-get-state") return frame ? { ok: true, payload: frame } : { ok: false, error: "Could not establish connection. Receiving end does not exist." };
@@ -443,7 +443,7 @@ const chatOn = (context) => {
     assert.strictEqual(view().context.subtitleMarkdown, "中文字幕");
     assert.deepStrictEqual(asked, [["ai-sidepanel-get-state", 3, video.videoId], ["ai-sidepanel-resolve-context", 0, ""]]);
     assert.strictEqual(vm.runInContext("viewerFrame", ctx), null);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
   }
 
   {
@@ -459,24 +459,24 @@ const chatOn = (context) => {
 
   // get-settings fails: the defaults stand in, so AI 总结 and the 快捷追问 do not vanish.
   {
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     ctx.document.body = stubEl();
     for (const f of ["renderModelSelect", "renderPresetPrompts", "renderFollowups"]) ctx[f] = () => {};
-    ctx.sendRuntimeMessage = async (msg) => (msg.type === "get-settings" ? Promise.reject(new Error("worker gone")) : { ok: true, providers: [] });
+    ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "get-settings" ? Promise.reject(new Error("worker gone")) : { ok: true, providers: [] });
     await ctx.loadProvidersAndPrefs();
     const prefs = vm.runInContext("aiPrefs", ctx);
     assert.strictEqual(prefs.playerAiQuickPrompt, ctx.MdgSettings.DEFAULTS.playerAiQuickPrompt);
     assert.deepStrictEqual([...prefs.aiPresetPrompts], [...ctx.MdgSettings.DEFAULTS.aiPresetPrompts]);
     // A33: but they are not the user's list, so neither 添加 nor 删除 saves them over it.
     const saves = [];
-    ctx.sendRuntimeMessage = async (msg) => (saves.push(msg.type), { ok: true });
+    ctx.chrome.runtime.sendMessage = async (msg) => (saves.push(msg.type), { ok: true });
     vm.runInContext('els.presetInput.value = "新的"', ctx);
     assert.strictEqual(vm.runInContext("presetAddReason()", ctx), "读取设置失败，暂时不能修改快捷追问");
     await ctx.addPresetPrompt();
     await ctx.removePresetPrompt(0);
     assert.deepStrictEqual(saves, []);
     vm.runInContext("settingsReadFailed = false", ctx);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
   }
 
   // A history conversation whose B站 video was deleted or hidden: said once as such, not as a read error to retry.
@@ -633,20 +633,20 @@ const chatOn = (context) => {
     assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, "当前没有可导出的对话"]);
     // K8: 下载 .md failing to build the note says why in red, not 「没有可下载的对话」.
     await ctx.act({ type: "OPEN", id: "x1" });
-    const realExport = ctx.sendRuntimeMessage;
+    const realExport = ctx.chrome.runtime.sendMessage;
     const said = [];
-    ctx.sendRuntimeMessage = async () => ({ ok: false, error: "读不到" });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "读不到" });
     ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
     await ctx.downloadCurrentConversation();
-    ctx.sendRuntimeMessage = realExport;
+    ctx.chrome.runtime.sendMessage = realExport;
     ctx.showConversationContextNotice = () => {};
     assert.deepStrictEqual(said, [["下载失败：读不到", true]]);
     // A32: during a write a reply starting or ending (which recomputes the buttons) leaves 写入 Obsidian off, and a
     // second write is not started.
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     let finish;
     let writes = 0;
-    ctx.sendRuntimeMessage = (m) => (writes++, new Promise((r) => (finish = () => r({ ok: true, text: "已写入" }))));
+    ctx.chrome.runtime.sendMessage = (m) => (writes++, new Promise((r) => (finish = () => r({ ok: true, text: "已写入" }))));
     els.syncStatus.hidden = false;
     const writing = ctx.saveCurrentConversationToObsidian();
     await new Promise((r) => setImmediate(r));
@@ -659,7 +659,7 @@ const chatOn = (context) => {
     await writing;
     // A38: a manual write that succeeded clears the auto-sync status.
     assert.deepStrictEqual([els.saveConversationBtn.disabled, els.syncStatus.hidden], [false, true]);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
     // A38: another conversation clears it too.
     els.syncStatus.hidden = false;
     await ctx.act({ type: "NEW" });
@@ -716,14 +716,14 @@ const chatOn = (context) => {
       ctx.sendMessage = realSendMessage;
     }
     // 复制 Markdown / 下载 .md of a read page: the page note (body + AI 问答), named like a video note.
-    const realSendNote = ctx.sendRuntimeMessage;
-    ctx.sendRuntimeMessage = async () => ({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, includeDateInFilename: false } });
+    const realSendNote = ctx.chrome.runtime.sendMessage;
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, includeDateInFilename: false } });
     const ready = { ...web("note"), title: "文章", pageAccess: "ready", pageMarkdown: "正文段落" };
     const note = await ctx.pageNote(ready, ctx.MdgNote.buildConversationTurns([{ role: "user", content: "问" }, { role: "assistant", content: "答" }]));
     assert.strictEqual(note.filename, "文章.md");
     assert.ok(note.content.includes("正文段落") && note.content.includes(ctx.MdgNote.AI_SECTION_START), note.content);
     assert.strictEqual(await ctx.pageNote(web("note"), []), null, "no body: the conversation's own note");
-    ctx.sendRuntimeMessage = realSendNote;
+    ctx.chrome.runtime.sendMessage = realSendNote;
     show(video);
     ctx.setStreamingUiState(false);
   }
@@ -748,18 +748,18 @@ const chatOn = (context) => {
     assert.deepStrictEqual([els.presetAddBtn.disabled, els.presetAddBtn.title], [true, `最多 ${ctx.MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`]);
     prefs.aiPresetPrompts = [];
     // A35: save-settings refused the list: it stays as it was, the typed text too, and the reason shows in red.
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     const said = [];
     ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
-    ctx.sendRuntimeMessage = async () => ({ ok: false, error: "同步存储已满" });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "同步存储已满" });
     els.presetInput.value = "再讲讲";
     await ctx.addPresetPrompt();
     assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value, said], [[], "再讲讲", [["保存设置失败：同步存储已满", true]]]);
-    ctx.sendRuntimeMessage = async () => ({ ok: true });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true });
     await ctx.addPresetPrompt();
     assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value], [["再讲讲"], ""]);
     vm.runInContext("aiPrefs.aiPresetPrompts = []", ctx);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
     ctx.showConversationContextNotice = () => {};
   }
 
@@ -848,25 +848,25 @@ const chatOn = (context) => {
   // B3: a failed auto-sync to Obsidian offers 去设置 before 重试 when the fix is in the settings page, like a manual write;
   // a closed Obsidian gets 重试 only.
   {
-    const prev = [ctx.showSyncStatus, ctx.sendRuntimeMessage];
+    const prev = [ctx.showSyncStatus, ctx.chrome.runtime.sendMessage];
     const shown = [];
     ctx.showSyncStatus = (text, opts = {}) => shown.push([Boolean(opts.error), Boolean(opts.settings), Boolean(opts.retry)]);
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "s", contextRef: { site: "bilibili", videoId: "BV1sync" }, messages: [{ role: "user", content: "q" }] }] });
     for (const code of ["OBSIDIAN", "OBSIDIAN_DOWN"]) {
-      ctx.sendRuntimeMessage = async () => ({ ok: false, error: "x", code });
+      ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "x", code });
       await ctx.autoSyncConversation("s");
     }
     assert.deepStrictEqual(shown, [[true, true, true], [true, false, true]]);
-    [ctx.showSyncStatus, ctx.sendRuntimeMessage] = prev;
+    [ctx.showSyncStatus, ctx.chrome.runtime.sendMessage] = prev;
   }
 
   // B4: a failed copy is red, from the export menu and from a reply's own 复制 alike.
   {
-    const prev = [ctx.showConversationContextNotice, ctx.sendRuntimeMessage];
+    const prev = [ctx.showConversationContextNotice, ctx.chrome.runtime.sendMessage];
     const notices = [];
     ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text.split("：")[0], Boolean(opts?.error)]);
     ctx.navigator.clipboard = { writeText: async () => { throw new Error("无法访问剪贴板"); } };
-    ctx.sendRuntimeMessage = async () => ({ ok: true, filename: "x.md", markdown: "x" });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true, filename: "x.md", markdown: "x" });
     await ctx.copyCurrentConversationMarkdown();
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败", true], ["复制失败", true]]);
@@ -881,7 +881,7 @@ const chatOn = (context) => {
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板", true], ["已复制 Markdown", false]]);
     delete ctx.navigator.clipboard;
-    [ctx.showConversationContextNotice, ctx.sendRuntimeMessage] = prev;
+    [ctx.showConversationContextNotice, ctx.chrome.runtime.sendMessage] = prev;
   }
 
   const tick = () => new Promise((r) => setImmediate(r));
@@ -897,17 +897,17 @@ const chatOn = (context) => {
 
   // C318, C319: the AI platform list could not be read: said as that, not as 没有启用的 AI 平台, and init goes on.
   {
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     ctx.renderModelSelect = real.renderModelSelect;
     const settings = { ok: true, settings: ctx.MdgSettings.DEFAULTS };
-    ctx.sendRuntimeMessage = async (m) => (m.type === "ai-providers-list" ? Promise.reject(new Error("后台没回应")) : settings);
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "ai-providers-list" ? Promise.reject(new Error("后台没回应")) : settings);
     await ctx.loadProvidersAndPrefs();
     assert.deepStrictEqual([els.modelSelect.title, ctx.followupBlockReason()], ["读取 AI 平台失败：后台没回应", "读取 AI 平台失败：后台没回应"]);
     els.modelSelect.title = "上一个模型";
-    ctx.sendRuntimeMessage = async (m) => (m.type === "ai-providers-list" ? { ok: true, providers: [] } : settings);
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "ai-providers-list" ? { ok: true, providers: [] } : settings);
     await ctx.loadProvidersAndPrefs();
     assert.strictEqual(els.modelSelect.title, "没有启用的 AI 平台");
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
     vm.runInContext("providers = [{}]; settingsReadFailed = false", ctx);
   }
 
@@ -975,11 +975,11 @@ const chatOn = (context) => {
 
   // C327: a second × during the first one's save removes the prompt it was drawn for, and the first stays removed.
   {
-    const realSend = ctx.sendRuntimeMessage;
+    const realSend = ctx.chrome.runtime.sendMessage;
     const saves = [];
     const pending = [];
     vm.runInContext('aiPrefs.aiPresetPrompts = ["a", "b", "c"]', ctx);
-    ctx.sendRuntimeMessage = (m) => (saves.push([...m.settings.aiPresetPrompts]), new Promise((r) => pending.push(() => r({ ok: true }))));
+    ctx.chrome.runtime.sendMessage = (m) => (saves.push([...m.settings.aiPresetPrompts]), new Promise((r) => pending.push(() => r({ ok: true }))));
     const one = ctx.removePresetPrompt("a");
     const two = ctx.removePresetPrompt("b");
     await tick();
@@ -990,17 +990,17 @@ const chatOn = (context) => {
     await Promise.all([one, two]);
     assert.deepStrictEqual([saves, [...vm.runInContext("aiPrefs", ctx).aiPresetPrompts]], [[["b", "c"], ["c"]], ["c"]]);
     vm.runInContext("aiPrefs.aiPresetPrompts = []", ctx);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
   }
 
   // C328: a conversation whose video is gone is looked up once, not at every open.
   {
-    const realSend = ctx.sendRuntimeMessage;
-    ctx.sendRuntimeMessage = async () => ({ ok: false, error: "啥都木有", code: -404 });
+    const realSend = ctx.chrome.runtime.sendMessage;
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "啥都木有", code: -404 });
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "h", contextRef: { site: "bilibili", videoId: "BV1gone", cid: "c1" }, contextUrl: "https://www.bilibili.com/video/BV1gone", messages: [{ role: "user", content: "q" }] }] });
     await ctx.hydrateConversationPageMetadata();
     assert.strictEqual(view().saved[0].pageHydrated, true);
-    ctx.sendRuntimeMessage = realSend;
+    ctx.chrome.runtime.sendMessage = realSend;
   }
 
   // C331: a menu's button says whether it is open.
@@ -1118,14 +1118,14 @@ const chatOn = (context) => {
 
   // C351: an auto-sync with nothing to do (the video has no note) takes down an earlier failure.
   {
-    const prev = [ctx.hideSyncStatus, ctx.sendRuntimeMessage];
+    const prev = [ctx.hideSyncStatus, ctx.chrome.runtime.sendMessage];
     let hidden = 0;
     ctx.hideSyncStatus = () => hidden++;
-    ctx.sendRuntimeMessage = async () => ({ ok: true });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: true });
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "s2", contextRef: { site: "bilibili", videoId: "BV1sync" }, messages: [{ role: "user", content: "q" }] }] });
     await ctx.autoSyncConversation("s2");
     assert.strictEqual(hidden, 1);
-    [ctx.hideSyncStatus, ctx.sendRuntimeMessage] = prev;
+    [ctx.hideSyncStatus, ctx.chrome.runtime.sendMessage] = prev;
   }
 
   // C357, C358: two timestamps clicked while the tab is elsewhere: only the newer one seeks; 正在跳转… stays until the
@@ -1158,7 +1158,7 @@ const chatOn = (context) => {
     ctx.chrome.tabs.sendMessage = (id, msg, cb) => cb(undefined);
     await ctx.jumpToAssistantTimestamp(5, "0:05");
     ctx.chrome.runtime.lastError = undefined;
-    assert.deepStrictEqual(notices.filter((n) => n[2]).map((n) => n[0]), ["时间跳转失败：请刷新网页后重试", "时间跳转失败：请刷新网页后重试"]);
+    assert.deepStrictEqual(notices.filter((n) => n[2]).map((n) => n[0]), ["时间跳转失败：请刷新网页后重试", `时间跳转失败：${ctx.MdgErrors.TEXT.pageSilent}`], "M3: a page that did not answer says the one sentence");
     ctx.showConversationContextNotice = prevNotice;
     // C363: the tab closed while it loads: said at once, not after 15 seconds as a load timeout.
     ctx.chrome.tabs.get = async () => Promise.reject(new Error("No tab with id: 9"));

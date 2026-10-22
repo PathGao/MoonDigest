@@ -445,17 +445,18 @@ process.on("exit", (code) => {
     [ctx.chrome, ctx.loadAiProviderKeys] = was;
   }
 
-  // L2: a page the content script cannot sync with: the reason only, no instruction (the popup words the failure).
+  // K5: a page the content script cannot be put into: the one sentence of a page that did not answer, which says to
+  // reload, and code PAGE_SILENT, so no entry offers a 重试 that fails alike.
   {
     const was = [ctx.chrome, ctx.injectReaderContent];
     ctx.chrome = { scripting: { executeScript: async () => [{ result: "old" }] } };
     ctx.injectReaderContent = async () => {};
-    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
+    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === ctx.MdgErrors.TEXT.pageSilent && e.code === "PAGE_SILENT");
     // A15: Chrome's error page refuses the injection; the reason stays ours, not Chrome's English.
     ctx.injectReaderContent = async () => {
       throw new Error("Frame with ID 0 is showing error page");
     };
-    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === "扩展脚本未能和当前页面同步");
+    await assert.rejects(ctx.ensureReaderContentReady(1), (e) => e.message === ctx.MdgErrors.TEXT.pageSilent && e.code === "PAGE_SILENT");
     [ctx.chrome, ctx.injectReaderContent] = was;
   }
 
@@ -572,7 +573,7 @@ process.on("exit", (code) => {
     ctx.sendMessageToTab = async () => {
       throw new Error("Could not establish connection. Receiving end does not exist.");
     };
-    await assert.rejects(ctx.getAiSidepanelState(1), (e) => e.message === `视频页没有回应，${ctx.MdgErrors.TEXT.reloadRetry}`);
+    await assert.rejects(ctx.getAiSidepanelState(1), (e) => e.message === ctx.MdgErrors.TEXT.pageSilent && e.code === "PAGE_SILENT");
     ctx.sendMessageToTab = was;
   }
   // A YouTube conversation read through the open tab asks for its own video: a page now on another one does not answer.

@@ -54,8 +54,8 @@ init().catch((error) => {
 
 async function init() {
   bindEvents();
-  const tab = await getActiveTab();
-  onVideoPage = isSupportedSubtitlePage(tab?.url || "");
+  const tab = await MdgSites.activeTab();
+  onVideoPage = Boolean(MdgSites.matchSite(tab?.url || ""));
   settingsLoad = getSettingsFromRuntime();
   settingsLoad.then((settings) => {
     el.sendBtn.hidden = !settings.obsidianEnabled;
@@ -144,7 +144,7 @@ function bindEvents() {
     setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
     if (!onVideoPage) {
       // As the side panel writes it: the background picks the path, an existing note asks here.
-      const r = await MdgNoteActions.run("write", { request: () => ({ ref: webNote.ref, page: { markdown: webNote.markdown } }), send: (m) => sendToRuntime(m) }).finally(() => setBusy(el.sendBtn, false));
+      const r = await MdgNoteActions.run("write", { request: () => ({ ref: webNote.ref, page: { markdown: webNote.markdown } }) }).finally(() => setBusy(el.sendBtn, false));
       setStatus(r.text, !r.ok, false, obsidianSettings(r.code));
       return;
     }
@@ -157,7 +157,7 @@ function bindEvents() {
 
   el.readingViewBtn?.addEventListener("click", async () => {
     // A web page has this disabled (syncTools), so the tab is a video page here.
-    const tab = await getActiveTab();
+    const tab = await MdgSites.activeTab();
     setStatus("正在打开专注模式…", false, true);
     setBusy(el.readingViewBtn, true, "打开中…");
     const prepResp = await sendToContent({ type: "popup-get-state" }).catch((error) => ({ ok: false, error: error.message }));
@@ -167,7 +167,7 @@ function bindEvents() {
       return;
     }
 
-    const resp = await sendToRuntime({
+    const resp = await chrome.runtime.sendMessage({
       type: "open-reading-view-tab",
       url: tab.url,
       tabId: tab.id
@@ -198,12 +198,12 @@ function bindEvents() {
   el.settingsBtn.addEventListener("click", openOptions);
 
   el.summaryBtn.addEventListener("click", async () => {
-    const tab = await getActiveTab();
+    const tab = await MdgSites.activeTab();
     setStatus(MdgErrors.TEXT.sidepanelOpening, false, true);
     setBusy(el.summaryBtn, true, "打开中…");
     // Same path as the player AI button: background opens the side panel and queues the request; the panel shows the
     // video's conversation when it has one, else fills the one-click prompt.
-    const resp = await sendToRuntime({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
+    const resp = await chrome.runtime.sendMessage({ type: "player-ai-quick-action", tabId: tab.id, source: "popup" }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       setBusy(el.summaryBtn, false);
       setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${MdgErrors.text(resp)}`, true);
@@ -213,12 +213,12 @@ function bindEvents() {
   });
 
   el.triageBtn.addEventListener("click", async () => {
-    const r = await sendToRuntime({ type: "triage-open" }).catch(() => null);
+    const r = await chrome.runtime.sendMessage({ type: "triage-open" }).catch(() => null);
     if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.triage) });
     window.close();
   });
   el.historyBtn.addEventListener("click", async () => {
-    const r = await sendToRuntime({ type: "history-open" }).catch(() => null);
+    const r = await chrome.runtime.sendMessage({ type: "history-open" }).catch(() => null);
     if (!r?.ok) await chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.history) });
     window.close();
   });
@@ -230,7 +230,7 @@ async function readWebNote(tabId) {
   tools.forEach((button) => setDisabledReason(button, WEB_PAGE_READING));
   setStatus(WEB_PAGE_READING, false, true);
   setBusy(el.refreshBtn, true);
-  const resp = await sendToRuntime({ type: "popup-page-note", tabId }).catch((error) => ({ ok: false, error: error.message })).finally(() => setBusy(el.refreshBtn, false));
+  const resp = await chrome.runtime.sendMessage({ type: "popup-page-note", tabId }).catch((error) => ({ ok: false, error: error.message })).finally(() => setBusy(el.refreshBtn, false));
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const reason = MdgErrors.text(resp);
@@ -246,7 +246,7 @@ async function readWebNote(tabId) {
 }
 
 async function openOptions() {
-  const resp = await sendToRuntime({ type: "open-options" }).catch((error) => ({ ok: false, error: error.message }));
+  const resp = await chrome.runtime.sendMessage({ type: "open-options" }).catch((error) => ({ ok: false, error: error.message }));
   if (!resp?.ok) setStatus(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(resp)}`, true);
 }
 
@@ -380,13 +380,8 @@ function setBusy(button, busy, label = "") {
   button.setAttribute("aria-busy", String(busy));
 }
 
-async function getActiveTab() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tabs?.[0] || null;
-}
-
 async function sendToContent(message) {
-  const tab = await getActiveTab();
+  const tab = await MdgSites.activeTab();
   const tabId = tab?.id || null;
   // An answer like any other failure: every caller shows it and ends its busy state.
   if (!tabId) {
@@ -397,35 +392,21 @@ async function sendToContent(message) {
   try {
     return await sendMessageToTab(tabId, message);
   } catch (error) {
-    if (shouldRetryAfterInjection(error) && isSupportedSubtitlePage(tab?.url || "")) {
+    if (MdgErrors.noReceiver(error) && MdgSites.matchSite(tab?.url || "")) {
       try {
         await ensureContentScriptReady(tabId);
-        await sleep(80);
+        await MdgCommon.sleep(80);
         return await sendMessageToTab(tabId, message);
       } catch (retryError) {
         error = retryError;
       }
     }
 
-    const normalizedError = normalizeContentErrorMessage(error);
+    // Chrome's English (sendMessageToTab marks it) in the user's words; our own reasons pass through.
+    const normalizedError = MdgErrors.messageOf(MdgErrors.pageSilent(error));
     setStatus(normalizedError, true);
     return { ok: false, error: normalizedError, payload: latestPayload };
   }
-}
-
-// Chrome's own messaging errors (no content script, the page closed the port, the tab went away) are English and all
-// mean the page's copy of the extension did not answer; our own reasons pass through.
-function normalizeContentErrorMessage(error) {
-  if (error?.chrome) return MdgErrors.TEXT.reloadRetry;
-  return String(error?.message || "").trim() || MdgErrors.TEXT.unknown;
-}
-
-function shouldRetryAfterInjection(error) {
-  return String(error?.message || "").includes("Could not establish connection. Receiving end does not exist.");
-}
-
-function isSupportedSubtitlePage(url) {
-  return Boolean(MdgSites.matchSite(url));
 }
 
 async function ensureContentScriptReady(tabId) {
@@ -447,25 +428,9 @@ async function sendMessageToTab(tabId, message) {
   });
 }
 
-async function sleep(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function sendToRuntime(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (resp) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(resp);
-    });
-  });
-}
-
 async function getSettingsFromRuntime() {
   try {
-    const resp = await sendToRuntime({ type: "get-settings" });
+    const resp = await chrome.runtime.sendMessage({ type: "get-settings" });
     if (!resp?.ok) {
       return { ...DEFAULT_SETTINGS };
     }

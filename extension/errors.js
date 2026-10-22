@@ -101,9 +101,13 @@
     noUndo: "没有可撤销的操作",
     // The address answers, but not in JSON as the Local REST API does (another local service): 测试连接, the pre-run check.
     obsidianNotApi: "这个地址不是 Obsidian Local REST API",
-    // The page's copy of the extension does not answer or plays the wrong video (popup, 专注模式, YouTube's player);
-    // alone or after 「原因，」.
+    // Reloading the page helps: it plays the wrong video, its player never got ready, a page did not start (popup,
+    // 专注模式, YouTube's player, 分拣台, the settings page); alone or after 「原因，」. A video page that does not answer
+    // says pageSilent.
     reloadRetry: "请刷新网页后重试",
+    // The video page's copy of the extension did not answer, or could not be put there (code PAGE_SILENT, pageSilent):
+    // the popup, 专注模式, the side panel and the background's writes. Only reloading the page helps.
+    pageSilent: "视频页没有回应，请刷新网页后重试",
     // 摘读记录 and the settings page's AI platform row; followed by 「：原因」.
     deleteFailed: "删除失败",
     // Waiting for the first data: 摘读记录's list, the side panel's chip.
@@ -262,6 +266,8 @@
     // not granted yet (TEXT.pageGrant), or a tab nothing can read (chrome://, extension pages: TEXT.pageUnsupported).
     // The background says these sentences itself, without a code.
     PAGE_FAILED: {},
+    // A video page's content script did not answer (pageSilent): a second try fails alike, reloading the page helps.
+    PAGE_SILENT: { text: TEXT.pageSilent, retry: false },
     PAGE_GRANT: { action: "grantPage", retry: false },
     PAGE_UNSUPPORTED: { retry: false },
     // Why a video has no subtitle (subtitleCode; the sentence is subtitleMissing): a failed fetch and 未登录 may pass on
@@ -312,6 +318,16 @@
     return origin ? { origin, request: () => chrome.permissions.request({ origins: [`${origin}/*`] }).catch(() => false) } : null;
   }
 
+  // Chrome's own English errors when a page's content script is asked (chrome.tabs.sendMessage): none runs there
+  // ("Could not establish connection. Receiving end does not exist."), the page closed the port before answering, the tab
+  // or frame is gone. noReceiver is the one case where injecting the script and asking again can help (each caller keeps
+  // its own retries); pageSilent says any of them, a sender's error it marked chrome: true, or a page that never answered
+  // (no error: a timeout), as TEXT.pageSilent with code PAGE_SILENT, and passes any other error on as it is.
+  const CHROME_SILENT = /Receiving end does not exist|Could not establish connection|message port closed|No tab with id|No frame with id/;
+  const noReceiver = (error) => /Receiving end does not exist/.test(String(error?.message || ""));
+  const pageSilent = (error) =>
+    !error || error.chrome || CHROME_SILENT.test(String(error.message || "")) ? Object.assign(new Error(TEXT.pageSilent, { cause: error }), { code: CODE.PAGE_SILENT }) : error;
+
   // What chrome.runtime calls throw in a content script whose extension was reloaded (badges.js checks
   // chrome.runtime.id instead).
   const reloaded = (error) => /Extension context invalidated/.test(String(error?.message || ""));
@@ -337,5 +353,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, subtitleCode, text, messageOf, fromResp, grantOrigin, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, subtitleCode, text, messageOf, fromResp, grantOrigin, noReceiver, pageSilent, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();
