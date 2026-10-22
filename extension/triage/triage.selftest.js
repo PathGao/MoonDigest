@@ -1248,18 +1248,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // X3: one judge for 粗看, 细看 and AI 打标签 (aiJudge, a run's own counts). An error of this request alone fails only it.
   {
     const steps = (rs) => {
-      const judge = t.aiJudge();
+      const judge = vm.runInContext("aiJudge", ctx)();
       return rs.map((r) => judge({ ...r }));
     };
     const T = { ok: false, code: "AI_TIMEOUT" }, L = { ok: false, code: "AI_THROTTLED" }, own = { ok: false, error: "字幕取不到" };
     assert.deepStrictEqual(steps([T, T]), ["retry", "stop"], "the second timeout in a row ends the run");
     assert.deepStrictEqual(steps([T, { ok: true }, T]), ["retry", "ok", "retry"], "an answer resets the count");
     assert.deepStrictEqual(steps([L, L, L, L, L, L]), ["wait", "wait", "wait", "wait", "wait", "stop"]);
-    const judge = t.aiJudge();
+    const judge = vm.runInContext("aiJudge", ctx)();
     const last = { ...L };
     for (const r of [L, L, L, L, L]) judge({ ...r });
     assert.deepStrictEqual([judge(last), last.code], ["stop", "AI_GAVE_UP"], "the run then ends as AI_GAVE_UP");
-    assert.strictEqual(t.aiJudge()({ ...L }), "wait", "each run counts its own");
+    assert.strictEqual(vm.runInContext("aiJudge", ctx)()({ ...L }), "wait", "each run counts its own");
 
     assert.deepStrictEqual(steps([T, own, T]), ["retry", "item", "retry"], "only this video (粗看: this batch) failed");
     assert.deepStrictEqual(steps([{ ok: false, code: "AI_QUOTA" }]), ["stop"]);

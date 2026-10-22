@@ -191,7 +191,7 @@ function stateRowHtml(t = S.tab) {
     const classes = [...Object.entries(VERDICTS), ...(t === "read" ? [["kept", ACTION_LABEL.keep]] : [])];
     groups.push(group("按 AI 判断筛选", classes.map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
   }
-  groups.push(group("按有没有标签", [["untagged", "未打标签"], ["tagged", "已打标签"]].map(([k, label]) => UI.filterBtn(`data-tagstate="${k}"`, label, cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === (k === "tagged")), S.tagState === k)).join("")));
+  groups.push(UI.tagStateGroup((k) => `data-tagstate="${k}"`, (k) => cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === (k === "tagged")), S.tagState));
   const seenN = cnt("seen", isFinished);
   if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
   // 已出分拣范围 has 已失效 as a tab instead.

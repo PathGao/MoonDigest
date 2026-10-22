@@ -10,6 +10,8 @@
   // The text table: a sentence (TEXT) or a control's name (LABEL) shown on more than one page lives here once. Pages
   // read it; a page's static copy is marked data-text="key" (wording.selftest.js keeps both equal and finds copies).
   const TEXT = Object.freeze({
+    // After 授权 on an AI run's stop (分拣台, 摘读记录).
+    granted: "已授权，请重试",
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
     obsidianDown: "连不上 Obsidian，请确认它已打开并启用了 Local REST API",

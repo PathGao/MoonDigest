@@ -8,7 +8,7 @@ const $ = (id) => document.getElementById(id);
 const { setReason } = MdgErrors;
 $("searchSlot").outerHTML = TriageUi.searchBox("search", "searchCount", TriageUi.searchScope(MdgErrors.LABEL.history));
 const els = { list: $("list"), search: $("search"), searchCount: $("searchCount"), count: $("count"), filters: $("filters"), stateRow: $("stateRow"), selectAllSlot: $("selectAllSlot"), tagRow: $("tagRow"), tagActs: $("tagActs"), selbar: $("selbar"), clearAll: $("clearAll"), status: $("status") };
-els.search.title = "搜索标题、标签、AI 总结、备注和对话内容";
+els.search.title = "搜索标题、作者、标签、AI 总结、备注和对话内容";
 
 let conversations = [];
 let analyses = {}; // bvid → done triage analysis
@@ -25,6 +25,7 @@ const unmarked = new Map();
 // Records whose marks changed here: the 星标 and tag filters keep showing them until the page reloads, for the same reason.
 const touched = new Set();
 let starFilter = false;
+let tagState = ""; // 第 2 行 "" | "untagged" | "tagged", on the record's own tags (the tag row's), as the 分拣台's
 const tagFilter = new Set();
 const selected = new Set();
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
@@ -231,7 +232,7 @@ const manageTags = {
 
 // ---------- ✦ AI 打标签 (tag-dialogs.js), as 关注's: the proposal waits in memory until 应用 writes it in one marks write ----------
 const { readingAiHistory: AI_HISTORY, readingAiSettings: AI_SETTINGS, readingAiProposal: AI_PROPOSAL, readingAiRecent: AI_RECENT } = MdgLimits.KEYS;
-const { normAi, followAiSettings, withAllowRemove } = FollowCore;
+const { normAi, followAiSettings, withAllowRemove, searchWords, hasWords } = FollowCore;
 // run: { stopping } while a run goes; recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed.
 const AI = { excluded: new Set(), history: [], proposal: null, run: null, settings: normAi(), recent: null };
 let recentFilter = false;
@@ -365,8 +366,9 @@ async function openAi() {
 }
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and records.
-// ponytail: one try per batch (no wait-and-resend on an AI 429 or timeout, as the 分拣台's aiJudge does); a setup or
-// access error ends the run, any other fails its batch.
+// The 分拣台's run rules (MdgRuns.aiJudge): an AI 429 waits and a timeout sends the batch again; a setup or access error
+// ends the run with 去设置 or 授权 on the status line; any other fails its batch.
+const runs = MdgRuns.create({ hold: (r) => (r.code === "AI_THROTTLED" ? MdgRuns.AI_HOLD : null) });
 async function runAi({ instruction, scope, allowRemove }) {
   const records = aiRecords(scope);
   if (AI.run || !records.size) return;
@@ -382,20 +384,25 @@ async function runAi({ instruction, scope, allowRemove }) {
   const total = Math.ceil(items.length / cfg.batchSize);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
-  for (let i = 0; i < total && !run.stopping; i++) {
-    for (let t = 0; i && t < cfg.intervalSec * 1000 && !run.stopping; t += 200) await new Promise((r) => setTimeout(r, 200));
-    if (run.stopping) break;
-    aiProgress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
-    const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * cfg.batchSize, (i + 1) * cfg.batchSize), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
-    const r = await chrome.runtime.sendMessage(request).catch((error) => ({ ok: false, error: error.message }));
-    if (r?.ok) {
-      answered++;
-      UI.mergeAiBatch(p, r.data, opts);
-      continue;
+  let i = 0;
+  const res = await runs.run("ai", {
+    total,
+    gap: cfg.intervalSec * 1000,
+    alive: () => !run.stopping,
+    tick: () => runs.get("ai")?.wait && aiProgress(`${runs.get("ai").wait}第 ${i} 批…`),
+    next: () => (i < total ? { i: i++ } : null),
+    act: ({ i }) => {
+      aiProgress(`AI 正在处理第 ${i + 1} / ${total} 批…`);
+      const request = { type: "triage-reading-ai-tag", instruction, items: items.slice(i * cfg.batchSize, (i + 1) * cfg.batchSize), tags, maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length), allowRemove, aiProviderId: aiProviderId() };
+      return chrome.runtime.sendMessage(request).catch((error) => ({ ok: false, error: error.message }));
+    },
+    judge: MdgRuns.aiJudge(),
+    done({ i }, x) {
+      if (x.ok) return answered++, UI.mergeAiBatch(p, x.data, opts);
+      p.errors.push(`第 ${i + 1} 批失败：${MdgErrors.text(x, MdgErrors.TEXT.unknown)}`);
     }
-    p.errors.push(`第 ${i + 1} 批失败：${MdgErrors.text(r, MdgErrors.TEXT.unknown)}`);
-    if (MdgErrors.action(r?.code) === "settings" || r?.code === "AI_ACCESS") break;
-  }
+  });
+  if (res.error) p.errors.push(`第 ${i} 批失败：${res.error}`);
   if (run.stopping) p.errors.push(MdgErrors.LABEL.stopped);
   // A new tag no record uses starts unticked, as on the 分拣台.
   for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(UI.aiRef.new(t.key)));
@@ -408,9 +415,20 @@ async function runAi({ instruction, scope, allowRemove }) {
   AI.run = null;
   render();
   aiProgress(answered ? "" : p.errors.join("；"));
-  if (TagDialogs.ai.isOpen(aiTags)) TagDialogs.ai.render(aiTags);
+  const open = TagDialogs.ai.isOpen(aiTags);
+  if (open) TagDialogs.ai.render(aiTags);
+  // A stop for a setup or access error says so with its remedy, the dialog open or not, as the 分拣台's banner.
+  if (res.error) setStatus(answered ? p.errors.at(-1) : UI.aiTagsFailed(p.errors.at(-1)), true, aiRemedy(res));
+  else if (open) return;
   else if (answered) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
   else setStatus(UI.aiTagsFailed(p.errors.at(-1)), true);
+}
+
+// What a run's stop offers, as the 分拣台's banner: 授权 for a missing access permission, 去设置 for a setup error.
+function aiRemedy({ error, code }) {
+  const access = MdgErrors.grantOrigin(error);
+  if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && setStatus(MdgErrors.TEXT.granted) };
+  return MdgRuns.aiSettingsCode(code) ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
 }
 
 // 应用: the checked new tags (within READING_TAGS) and every listed record's change, in one marks write. A failed write
@@ -502,12 +520,13 @@ function renderHead(all, groups) {
   const recentKeys = new Set(AI.recent?.keys);
   const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: visibleGroups({ recent: false }, all).filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
   const anyTag = visibleGroups({ tags: [] }, all);
-  els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false }, all).length, !starFilter && !recentFilter)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + recent);
+  const tagN = visibleGroups({ tagged: "" }, all);
+  els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false, tagged: "" }, all).length, !starFilter && !recentFilter && !tagState)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + UI.tagStateGroup((k) => `data-f="tagstate:${k}"`, (k) => tagN.filter((g) => (g.mark?.tags?.length > 0) === (k === "tagged")).length, tagState) + recent);
   els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: anyTag.filter((g) => g.mark?.tags?.includes(t.id)).length, on: tagFilter.has(t.id), what: "记录" })).join(""));
   // 「选中的 N 个」 counts records, as the dialog's 选中 does.
   const picked = aiRecords("selected").size || recordsOf(all.filter((g) => selected.has(g.key))).size;
   els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: Boolean(AI.run), pending: Boolean(AI.proposal), picked }) + SETTINGS_BTN;
-  const filtered = starFilter || recentFilter || tagFilter.size > 0;
+  const filtered = starFilter || recentFilter || tagState || tagFilter.size > 0;
   UI.setSearchScope(els.search, MdgErrors.LABEL.history, [starFilter && "星标", recentFilter && UI.AI_RECENT, ...[...tagFilter].map((id) => tagOf(id)?.name)].filter(Boolean).join(" · "));
   els.searchCount.textContent = UI.resultCount(els.search.value.trim() || filtered, groups.length);
   const shown = shownPicks(groups);
@@ -527,16 +546,17 @@ function renderHead(all, groups) {
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
 }
 
-// The listed records. A count leaves out its own group's choice (star, recent or tags) and keeps the rest, the search
+// The listed records. A count leaves out its own group's choice (star, tagged, recent or tags) and keeps the rest, the search
 // too, as the 分拣台's counts do (DESIGN 筛选和计数).
-function visibleGroups({ star = starFilter, recent = recentFilter, tags = tagFilter } = {}, all = groupByVideo(conversations)) {
-  const query = els.search.value.trim().toLowerCase();
+function visibleGroups({ star = starFilter, recent = recentFilter, tagged = tagState, tags = tagFilter } = {}, all = groupByVideo(conversations)) {
+  const words = searchWords(els.search.value);
   // 星标 and the tag chips narrow the list; several tags are ANDed, as on the 分拣台.
   const recentKeys = new Set(recent ? AI.recent?.keys : []);
-  const groups = all.filter((g) => (!recent || recentKeys.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!star || g.mark?.star) && [...tags].every((id) => g.mark?.tags?.includes(id)))));
-  if (!query) return groups;
+  const groups = all.filter((g) => (!recent || recentKeys.has(readingKey(g))) && (touched.has(readingKey(g)) || ((!star || g.mark?.star) && (!tagged || (g.mark?.tags?.length > 0) === (tagged === "tagged")) && [...tags].every((id) => g.mark?.tags?.includes(id)))));
+  if (!words.length) return groups;
+  // As the 分拣台's search: every word somewhere in the record, any case.
   return groups.filter((g) =>
-    [g.title, g.context.title, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...[...tagsOf(g), ...triageTagsOf(g)].map((t) => t.name), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].some((text) => String(text || "").toLowerCase().includes(query))
+    hasWords([g.title, g.context.title, g.context.author, MdgNote.buildTriageSummary(g.analysis), g.note?.text, ...[...tagsOf(g), ...triageTagsOf(g)].map((t) => t.name), ...g.convs.flatMap((c) => (c.messages || []).map((m) => m.content))].filter(Boolean).join("\n"), words)
   );
 }
 
@@ -684,9 +704,13 @@ function render() {
 
 
 // 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
-// error: a failure the user must handle (red).
-function setStatus(text, error = false) {
+// error: a failure the user must handle (red); action: { label, run }, its remedy button after the text.
+function setStatus(text, error = false, action = null) {
   els.status.textContent = text;
+  if (action) {
+    const btn = Object.assign(document.createElement("button"), { type: "button", className: "act-btn", textContent: action.label, onclick: action.run });
+    els.status.append(" ", btn);
+  }
   els.status.classList.toggle("is-error", error);
   if (text.startsWith("正在")) els.status.setAttribute("aria-busy", "true");
   else els.status.removeAttribute("aria-busy");
@@ -872,7 +896,10 @@ els.filters.addEventListener("click", (event) => {
   if (f === "settings") return void openSettings();
   if (f === "recent-done") return void clearRecent();
   if (f === "select-all") UI.toggleAll(visibleGroups().map((g) => g.key), selected);
-  else if (f === "all") starFilter = recentFilter = false;
+  else if (f === "all") {
+    starFilter = recentFilter = false;
+    tagState = "";
+  } else if (f?.startsWith("tagstate:")) tagState = tagState === f.slice(9) ? "" : f.slice(9);
   else if (f === "recent") recentFilter = !recentFilter;
   else if (f === "star") starFilter = !starFilter;
   else if (f?.startsWith("tag:")) {

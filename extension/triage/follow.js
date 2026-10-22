@@ -371,7 +371,7 @@ const sideSelect = () =>
 
 // Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
 const tagStateGroup = (counts, prefix = "") =>
-  UI.stateGroup("按有没有标签", [["untagged", "未打标签"], ["tagged", "已打标签"]].map(([k, label]) => UI.filterBtn(`data-fw-tagstate="${k}"`, prefix + label, counts[k], F.tagState === k)).join(""));
+  UI.tagStateGroup((k) => `data-fw-tagstate="${k}"`, (k) => counts[k], F.tagState, prefix);
 // Row 3 of UP 主: 全部 | 更新状态 | 未打标签 已打标签 | ✦ AI 刚打的 (only while there is one). 待查 always shows.
 function stateRowUps(counts) {
   const anyOn = F.status || F.tagState || F.recentFilter;
