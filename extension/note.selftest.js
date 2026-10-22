@@ -397,20 +397,23 @@ assert.strictEqual(N.upsertAiSection(halfMarked, newSection), `${halfMarked}\n${
 // A23: the next sync replaces only that appended section; the text after the stray start marker stays.
 assert.strictEqual(N.upsertAiSection(`${halfMarked}\n${newSection}\n`, section), `${halfMarked}\n${section}\n`);
 
-// pickConversation: exact part first, then the video without a part; newest wins; other videos never match.
-const conv = (contextKey, updatedAt, pageIndex) => ({ contextKey, updatedAt, messages, ...(pageIndex && { contextRef: { pageIndex } }) });
-const convs = [conv("video:bilibili:BV1|", 1), conv("video:bilibili:BV1|c2", 5, 2), conv("video:bilibili:BV1|c1", 3), conv("video:youtube:BV1|", 9)];
+// pickConversation: the newest conversation of the part or page, by the side panel's rule (MdgSites.isConversationOf;
+// sidepanel-state.selftest.js M2 checks both pick the same over stored shapes). Other videos and parts never match.
+const conv = (contextKey, updatedAt, contextRef) => ({ contextKey, updatedAt, messages, contextRef });
+const bv = (cid, pageIndex = 1) => ({ site: "bilibili", videoId: "BV1", cid, pageIndex });
+const convs = [conv("video:bilibili:BV1|", 1, bv("")), conv("video:bilibili:BV1|c2", 5, bv("c2", 2)), conv("video:bilibili:BV1|c1", 3, bv("c1")), conv("video:youtube:BV1|", 9, { site: "youtube", videoId: "BV1" })];
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
-assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c9" }).updatedAt, 1, "unknown part falls back to the partless conversation");
-// C191: a ref without the cid takes its own part's newest, never P2's (the side panel never shows P2's on P1).
+assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", cid: "c9" }).updatedAt, 3, "a part whose cid changed keeps its conversations");
+// C191: a ref without the cid takes its own part's newest, never P2's.
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1" }).updatedAt, 3, "no cid → newest of the same part");
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV1", pageIndex: 2 }).updatedAt, 5);
-// C192: the exact part wins over a newer conversation saved without one.
-assert.strictEqual(N.pickConversation([...convs, conv("video:bilibili:BV1|", 8)], { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 3);
+// M2 (was C192): the newest of the part, as the side panel shows it, also when it was saved without the cid.
+assert.strictEqual(N.pickConversation([...convs, conv("video:bilibili:BV1|", 8, bv(""))], { site: "bilibili", videoId: "BV1", cid: "c1" }).updatedAt, 8);
 assert.strictEqual(N.pickConversation(convs, { site: "bilibili", videoId: "BV2" }), null);
 assert.strictEqual(N.pickConversation(convs, { site: "youtube", videoId: "" }), null);
-// A web page: its exact page: key, newest; a video's URL-less ref still finds nothing.
-const pages = [...convs, conv("page:https://example.com/a", 2), conv("page:https://example.com/a", 4), conv("page:https://example.com/a?x", 7)];
+// A web page: its page: key (its URL without #), newest; a video's URL-less ref still finds nothing.
+const page = (url, updatedAt) => conv(`page:${url}`, updatedAt, { url, isVideoContext: false });
+const pages = [...convs, page("https://example.com/a", 2), page("https://example.com/a", 4), page("https://example.com/a?x", 7)];
 assert.strictEqual(N.pickConversation(pages, { url: "https://example.com/a#top" }).updatedAt, 4);
 assert.strictEqual(N.pickConversation(pages, { url: "https://example.com/b" }), null);
 assert.strictEqual(N.pickConversation(pages, { site: "bilibili", videoId: "BV1", url: "https://example.com/a" }).updatedAt, 3, "a video keeps its own key");

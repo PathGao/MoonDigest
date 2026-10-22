@@ -455,13 +455,6 @@ function renderSummary(g) {
 const isWebPage = (g) => !g.context.videoId && /^https?:\/\//i.test(g.context.url || "");
 // A video the background reads only from its open page (YouTube: MdgSites pageOnly): 继续问 goes on in its tab too.
 const readsFromPage = (g) => isWebPage(g) || Boolean(g.context.videoId && MdgSites.SITES[g.context.site]?.pageOnly);
-// The tab showing the record: a video by site and id (any time or list parameter), a page by its URL without #.
-function showsRecord(g, url) {
-  if (!url) return false;
-  if (!g.context.videoId) return MdgSites.buildContextKey({ url }) === MdgSites.buildContextKey({ url: g.context.url });
-  const ref = MdgSites.parseRef(url);
-  return ref?.site === g.context.site && ref.id === g.context.videoId;
-}
 
 // 继续问 on a web page or a page-only video: the side panel reads it from its tab, so it opens on this window inside the
 // click (sidePanel.open needs the gesture), then its tab in this window is focused, or opened, and the panel asked for
@@ -472,7 +465,7 @@ function askAboutPage(group) {
   void (async () => {
     try {
       await opening;
-      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => showsRecord(group, t.url));
+      const found = (await chrome.tabs.query({ windowId: OWN_TAB?.windowId })).find((t) => MdgSites.sameContext(t.url, group.context));
       const url = group.context.videoId ? MdgSites.videoUrl(group.context) : group.context.url;
       const tab = found ? await chrome.tabs.update(found.id, { active: true }) : await chrome.tabs.create({ url, windowId: OWN_TAB?.windowId });
       await MdgLimits.askSidepanel({ tabId: tab.id, contextRef: group.context });

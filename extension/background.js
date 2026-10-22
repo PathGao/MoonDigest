@@ -56,12 +56,8 @@ async function ensureReaderContentReady(tabId) {
     return;
   }
 
-  // The reason only: the popup says MdgErrors.TEXT.readerStartFailed in front of it.
-  throw new Error("扩展脚本未能和当前页面同步");
-}
-
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  // Injecting failed too (an error page, a page still loading forever): only reloading it helps, as when it does not answer.
+  throw MdgErrors.pageSilent();
 }
 
 async function probeContentScriptVersion(tabId) {
@@ -92,7 +88,8 @@ async function sendMessageToTab(tabId, message, options = {}) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, options, (resp) => {
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        // Chrome's words, which MdgErrors.pageSilent says in the user's.
+        reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
         return;
       }
       resolve(resp);
@@ -100,18 +97,13 @@ async function sendMessageToTab(tabId, message, options = {}) {
   });
 }
 
-// The video page's content script did not answer: the reason (专注模式), or with what to do (the side panel).
-const PAGE_SILENT = "视频页没有回应";
-const PAGE_SILENT_RETRY = `${PAGE_SILENT}，${MdgErrors.TEXT.reloadRetry}`;
-
 async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delayMs = 300) {
-  const videoId = MdgSites.parseRef(readerUrl)?.id;
   for (let attempt = 0; attempt < retries; attempt += 1) {
     if (attempt > 0) {
-      await sleep(delayMs);
+      await MdgCommon.sleep(delayMs);
       // The tab moved on to another page while we waited: its page must not be sent back to this video.
       const tab = await chrome.tabs.get(tabId).catch(() => null);
-      if (MdgSites.parseRef(tab?.url || "")?.id !== videoId) return false;
+      if (!MdgSites.sameContext(tab?.url || "", readerUrl, { anyPart: true })) return false;
     }
 
     try {
@@ -123,8 +115,7 @@ async function triggerReaderModeInTab(tabId, readerUrl = "", retries = 12, delay
         return true;
       }
     } catch (error) {
-      const message = String(error?.message || "");
-      if (message.includes("Could not establish connection. Receiving end does not exist.")) {
+      if (MdgErrors.noReceiver(error)) {
         try {
           await ensureReaderContentReady(tabId);
         } catch {
@@ -158,9 +149,8 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
   if (!inViewer) await ensureReaderContentReady(tab.id);
 
   // The page settles its current video (joins a run, follows a URL change) and answers with its comments.
-  // Chrome's English messaging errors (no content script, the port closed) all mean the page did not answer.
-  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {}).catch(() => {
-    throw new Error(PAGE_SILENT_RETRY);
+  const resp = await sendMessageToTab(tab.id, { type: "sidepanel-get-context", refresh, videoId }, inViewer ? { frameId } : {}).catch((error) => {
+    throw MdgErrors.pageSilent(error);
   });
   if (!resp?.ok || !resp.payload) {
     throw Object.assign(new Error(MdgErrors.text(resp, "读取当前页面失败")), resp?.code != null ? { code: resp.code } : {});
@@ -260,12 +250,7 @@ async function popupPageNote(tabId) {
 // write's 「打开网页再写」 / 「打开视频页再写」); a failed read then throws its reason.
 async function tabNote(ref, open = false) {
   const video = ref.isVideoContext;
-  const sameVideo = (url) => {
-    const r = MdgSites.parseRef(url);
-    return r?.site === ref.site && r.id === ref.videoId && (r.part?.index || 1) === ref.pageIndex;
-  };
-  const shows = (url) => (video ? sameVideo(url) : String(url || "").replace(/#.*$/, "") === ref.url);
-  let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => shows(t.url));
+  let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => MdgSites.sameContext(t.url, ref));
   if (!tab && !open) return null;
   const opened = !tab;
   if (opened) {
@@ -276,7 +261,9 @@ async function tabNote(ref, open = false) {
   try {
     if (!video) return { page: { markdown: (await popupPageNote(tab.id)).content } };
     const page = (await videoTabPayload(tab.id, opened))?.payload;
-    if (!page?.markdown || !sameVideo(page.url)) throw new Error(MdgErrors.TEXT.noNoteYet);
+    // B站 may open another part than the one asked for (the part it remembers as last watched).
+    if (!MdgSites.sameContext(page?.url, ref)) throw new Error(`打开的视频页不是这个视频${ref.pageIndex > 1 ? `的 P${ref.pageIndex}` : ""}`);
+    if (!page.markdown) throw new Error(`${MdgErrors.TEXT.videoReadFailed}：视频页没有给出笔记`);
     return { page: { markdown: page.markdown, cover: page.cover, warning: page.noteWarning }, ref: page.noteRef };
   } catch (error) {
     if (open) throw error;
@@ -288,14 +275,14 @@ async function tabNote(ref, open = false) {
 async function videoTabPayload(tabId, opened) {
   for (let attempt = 0; ; attempt += 1) {
     let timer = 0;
-    const late = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(PAGE_SILENT)), VIDEO_READ_TIMEOUT_MS)));
+    const late = new Promise((_, reject) => (timer = setTimeout(() => reject(MdgErrors.pageSilent()), VIDEO_READ_TIMEOUT_MS)));
     try {
       const resp = await Promise.race([sendMessageToTab(tabId, { type: "popup-refresh" }, { frameId: 0 }), late]);
-      if (!resp?.ok) throw MdgErrors.fromResp(resp, PAGE_SILENT);
+      if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.pageSilent);
       return resp;
     } catch (error) {
-      if (!opened || attempt >= 20 || !/Receiving end/.test(error.message)) throw error;
-      await sleep(500);
+      if (!opened || attempt >= 20 || !MdgErrors.noReceiver(error)) throw MdgErrors.pageSilent(error);
+      await MdgCommon.sleep(500);
     } finally {
       clearTimeout(timer);
     }
@@ -600,8 +587,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => triggerReaderModeInTab(tabId, readerUrl))
       .then((triggered) => {
         if (!triggered) {
-          // The reason only: the page says MdgErrors.TEXT.readerStartFailed in front of it.
-          throw new Error(PAGE_SILENT);
+          // After MdgErrors.TEXT.readerStartFailed on the page.
+          throw MdgErrors.pageSilent();
         }
         sendResponse({ ok: true });
       })

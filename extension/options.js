@@ -220,7 +220,7 @@ function trackCurrentSection() {
 
 // Exports what is saved, not unsaved edits in the form.
 async function exportSettingsFile() {
-  const resp = await sendRuntimeMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
+  const resp = await chrome.runtime.sendMessage({ type: "settings-export" }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导出失败：${MdgErrors.text(resp)}`, true);
   MdgDownload.text(`MoonDigest设置-${MdgCommon.localDate()}.json`, JSON.stringify(resp.file, null, 2), "application/json");
   setStatus(hasUnsavedChanges ? "已导出已保存的设置，未保存的修改不在文件里" : "已导出设置");
@@ -249,7 +249,7 @@ async function importSettingsFile(file) {
   const dropped = droppedFolders(current, data?.local?.[key]);
   const out = dropped ? `当前勾选的 ${dropped} 个收藏夹在文件里没有勾选：导入后它们的视频会进「已出分拣范围」，取消收藏记录会被删除。` : "";
   if (!confirm(`用「${file.name}」替换当前的全部设置？${lost}${out}已保存的 Key 不变。`)) return;
-  const resp = await sendRuntimeMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
+  const resp = await chrome.runtime.sendMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导入失败：${MdgErrors.text(resp)}`, true);
   // Reload so every control, the AI list and the host-permission banner show the imported values.
   hasUnsavedChanges = false;
@@ -426,7 +426,7 @@ async function saveSettings() {
   setStatus("正在保存…", false, true);
   try {
     const fail = (error) => ({ ok: false, error: error.message });
-    const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload }).catch(fail);
+    const resp = await chrome.runtime.sendMessage({ type: "save-settings", settings: payload }).catch(fail);
     if (!resp?.ok) {
       // A setting too long for Chrome's sync storage: the box it came from is marked, as a validation error is.
       if (elements[resp?.field]) applyValidationError({ field: elements[resp.field], message: resp.error });
@@ -448,7 +448,7 @@ async function saveSettings() {
     }
 
     // AI 平台：list 走 sync、apiKey 走 local
-    const aiResp = await sendRuntimeMessage({ type: "ai-providers-save", providers: aiProvidersPayload }).catch(fail);
+    const aiResp = await chrome.runtime.sendMessage({ type: "ai-providers-save", providers: aiProvidersPayload }).catch(fail);
     if (!aiResp?.ok) {
       syncUnsaved();
       renderSavedState();
@@ -472,7 +472,7 @@ async function saveSettings() {
 }
 
 async function getSettings() {
-  const resp = await sendRuntimeMessage({ type: "get-settings" });
+  const resp = await chrome.runtime.sendMessage({ type: "get-settings" });
   if (!resp?.ok) throw MdgErrors.fromResp(resp);
   return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
 }
@@ -1159,7 +1159,7 @@ async function testConnection() {
   setTestResult("");
   obsidianTest = { target: obsidianTarget(payload), ok: false };
   try {
-    const resp = await sendRuntimeMessage({
+    const resp = await chrome.runtime.sendMessage({
       type: "test-obsidian-connection",
       baseUrl: payload.obsidianApiBaseUrl,
       apiKey: payload.obsidianApiKey
@@ -1204,22 +1204,10 @@ function setBusy(active) {
   if (!active) syncObsidianTest();
 }
 
-function sendRuntimeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (resp) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(resp);
-    });
-  });
-}
-
 // ===== AI 模型平台 =====
 
 async function loadAiProviders() {
-  const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
+  const resp = await chrome.runtime.sendMessage({ type: "ai-providers-list" });
   if (!resp?.ok) throw MdgErrors.fromResp(resp);
   return Array.isArray(resp.providers) ? resp.providers : [];
 }
@@ -1379,7 +1367,7 @@ function addAiProviderRow(item = {}) {
       removeBtn.focus();
       return;
     }
-    const resp = await sendRuntimeMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId }).catch((error) => ({ ok: false, error: error.message }));
+    const resp = await chrome.runtime.sendMessage({ type: "ai-providers-delete", providerId: row.dataset.providerId }).catch((error) => ({ ok: false, error: error.message }));
     if (!resp?.ok) {
       disarm();
       showAiProviderStatus(statusNode, `${MdgErrors.TEXT.deleteFailed}：${MdgErrors.text(resp)}`, true);
@@ -1417,7 +1405,7 @@ async function testAiProviderRow(row, sync) {
   delete row.dataset.edited;
   const resp = !(await asked)
     ? { ok: false, error: MdgErrors.noAccess(pattern.replace(/\/\*$/, "")), code: "AI_ACCESS" }
-    : await sendRuntimeMessage({ type: "ai-providers-test", providerId: savedKeyApplies(row) ? row.dataset.providerId || "" : "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
+    : await chrome.runtime.sendMessage({ type: "ai-providers-test", providerId: savedKeyApplies(row) ? row.dataset.providerId || "" : "", baseUrl, apiKey, model, requiresKey }).catch((error) => ({
         ok: false,
         error: error.message
       }));

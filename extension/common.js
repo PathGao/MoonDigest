@@ -48,5 +48,7 @@
   // The side panel's chat port (chrome.runtime.connect): sidepanel.js opens it, background.js answers it.
   const CHAT_PORT = "sidepanel-chat";
 
-  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, sleep, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
 })();

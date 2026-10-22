@@ -63,7 +63,7 @@ const els = {
 };
 const NOTES_STORAGE_KEY = MdgLimits.KEYS.triageNotes;
 
-const { buildConversationContextRef, doesTabMatchContextUrl, needsConversationPageHydration } = SidepanelState;
+const { buildConversationContextRef, needsConversationPageHydration } = SidepanelState;
 
 // The conversation, its context and the tab's, with every rule about them (sidepanel-state.js). This page does the
 // I/O, runs the effects it returns (act) and draws what view() says.
@@ -166,7 +166,7 @@ function bindEvents() {
     if (message?.type !== "mdg-video-changed") {
       return false;
     }
-    void getActiveTab()
+    void MdgSites.activeTab()
       .then((tab) => {
         if (tab?.id && sender?.tab?.id === tab.id) {
           scheduleLiveContextSync();
@@ -194,7 +194,7 @@ function bindEvents() {
   // Focuses an open 摘读记录 tab instead of a second one, as the popup and the settings page do.
   document.querySelector(".sp-history-manage")?.addEventListener("click", async (event) => {
     event.preventDefault();
-    const r = await sendRuntimeMessage({ type: "history-open" }).catch(() => null);
+    const r = await chrome.runtime.sendMessage({ type: "history-open" }).catch(() => null);
     if (!r?.ok) chrome.tabs.create({ url: chrome.runtime.getURL(MdgCommon.PAGES.history) });
   });
   els.exportBtn.addEventListener("click", toggleExportPopover);
@@ -354,8 +354,8 @@ function syncExportButtons() {
 
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
   const [providersResp, settingsResp] = await Promise.all([
-    sendRuntimeMessage({ type: "ai-providers-list" }).catch((error) => ({ ok: false, error: error.message })),
-    sendRuntimeMessage({ type: "get-settings" }).catch(() => ({ ok: false }))
+    chrome.runtime.sendMessage({ type: "ai-providers-list" }).catch((error) => ({ ok: false, error: error.message })),
+    chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => ({ ok: false }))
   ]);
   const providersRead = Boolean(providersResp?.ok && Array.isArray(providersResp.providers));
   providersError = providersRead ? "" : `读取 AI 平台失败：${MdgErrors.text(providersResp)}`;
@@ -454,7 +454,7 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     return false;
   }
 
-  const activeTab = await getActiveTab().catch(() => null);
+  const activeTab = await MdgSites.activeTab().catch(() => null);
   if (activeTab?.id && request.tabId !== activeTab.id) {
     return false;
   }
@@ -587,9 +587,9 @@ function loadContextState(opts = {}) {
 }
 
 async function readContextState({ refresh = false, silent = false, follow = false }, superseded) {
-  const tab = await getActiveTab();
+  const tab = await MdgSites.activeTab();
   if (superseded()) return contextLoad;
-  const request = tab?.id ? sendRuntimeMessage({ type: "ai-sidepanel-get-state", tabId: tab.id, refresh }).catch((error) => ({ ok: false, error: error.message })) : null;
+  const request = tab?.id ? chrome.runtime.sendMessage({ type: "ai-sidepanel-get-state", tabId: tab.id, refresh }).catch((error) => ({ ok: false, error: error.message })) : null;
   await initReads?.catch(() => {});
   if (superseded()) return contextLoad;
   const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
@@ -693,12 +693,12 @@ async function openCurrentContextUrl() {
   if (!targetUrl) {
     return;
   }
-  const tab = await getActiveTab().catch(() => null);
+  const tab = await MdgSites.activeTab().catch(() => null);
   if (!tab?.id) {
     return;
   }
   try {
-    const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context);
+    const sameVideo = MdgSites.sameContext(tab.url || "", targetUrl, { live: state.view().live.context });
     if (!sameVideo) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await MdgSites.waitTabLoaded(tab.id);
@@ -1070,7 +1070,7 @@ async function hydrateConversationPageMetadata() {
   const candidates = state.view().saved.filter((c) => c.contextRef?.videoId && needsConversationPageHydration(c)).slice(0, 12);
   let changed = false;
   for (const { id, contextRef } of candidates) {
-    const response = await sendRuntimeMessage({
+    const response = await chrome.runtime.sendMessage({
       type: "ai-sidepanel-resolve-page-ref",
       contextRef
     }).catch(() => null);
@@ -1307,8 +1307,8 @@ function handlePreviousVideoBarClick(event) {
 
 async function openPreviousVideoUrl(url) {
   const targetUrl = String(url || "").trim();
-  const tab = await getActiveTab().catch(() => null);
-  if (!targetUrl || !tab?.id || doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context)) {
+  const tab = await MdgSites.activeTab().catch(() => null);
+  if (!targetUrl || !tab?.id || MdgSites.sameContext(tab.url || "", targetUrl, { live: state.view().live.context })) {
     return;
   }
   await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => null);
@@ -1367,7 +1367,7 @@ function editPresetPrompts(change) {
 // save-settings keeps the keys it is not sent. The list changes only once it is saved; a refusal (the sync storage
 // full, say) leaves it and the typed text as they were and says why. False then.
 async function persistAiPresetPrompts(key, prompts) {
-  const resp = await sendRuntimeMessage({ type: "save-settings", settings: { [key]: prompts } }).catch((error) => ({ ok: false, error: error.message }));
+  const resp = await chrome.runtime.sendMessage({ type: "save-settings", settings: { [key]: prompts } }).catch((error) => ({ ok: false, error: error.message }));
   if (!resp?.ok) {
     showConversationContextNotice(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, NOTICE_LONG_MS, { error: true });
     return false;
@@ -1596,8 +1596,8 @@ let viewerFrame = null;
 async function askViewerFrame(contextRef) {
   const frame = viewerFrame;
   if (!frame || frame.videoId !== String(contextRef?.videoId || "")) return null;
-  if ((await getActiveTab().catch(() => null))?.id !== frame.tabId) return null;
-  const resp = await sendRuntimeMessage({ type: "ai-sidepanel-get-state", tabId: frame.tabId, frameId: frame.frameId, videoId: frame.videoId }).catch(() => null);
+  if ((await MdgSites.activeTab().catch(() => null))?.id !== frame.tabId) return null;
+  const resp = await chrome.runtime.sendMessage({ type: "ai-sidepanel-get-state", tabId: frame.tabId, frameId: frame.frameId, videoId: frame.videoId }).catch(() => null);
   // The frame answers for the part it plays; after it moved on to the next part it no longer plays this one.
   if (resp?.ok && resp.payload && buildConversationContextRef(resp.payload).pageIndex === buildConversationContextRef(contextRef).pageIndex) return resp;
   if (viewerFrame === frame) viewerFrame = null;
@@ -1607,7 +1607,7 @@ async function askViewerFrame(contextRef) {
 async function resolveConversationContext(contextRef) {
   const fromViewer = await askViewerFrame(contextRef);
   if (fromViewer) return fromViewer;
-  return sendRuntimeMessage({ type: "ai-sidepanel-resolve-context", contextRef });
+  return chrome.runtime.sendMessage({ type: "ai-sidepanel-resolve-context", contextRef });
 }
 
 // The question sent while its video's content still loads ({ epoch }): drawn at once, so a passive redraw of its
@@ -1974,7 +1974,7 @@ function renderAssistantMessage(node, raw) {
 // built once, before any await. Resolves MdgNoteActions.run's result; nothing is shown here.
 function runNoteAction(kind, isStale) {
   const request = currentNoteRequest();
-  return MdgNoteActions.run(kind, { request: () => request, send: (m) => sendRuntimeMessage(m), isStale });
+  return MdgNoteActions.run(kind, { request: () => request, isStale });
 }
 
 // What the three export buttons send: the conversation on screen, and its page's note when this panel has it (a web
@@ -2012,7 +2012,7 @@ async function autoSyncConversation(conversationId) {
     return;
   }
   try {
-    const resp = await sendRuntimeMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
+    const resp = await chrome.runtime.sendMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
@@ -2105,21 +2105,21 @@ async function saveCurrentConversationToObsidian() {
 // a page without its main text, which get the conversation's own note.
 async function pageNote(context, turns) {
   if (context?.isVideoContext !== false || context.pageAccess !== "ready") return null;
-  const resp = await sendRuntimeMessage({ type: "get-settings" }).catch(() => null);
+  const resp = await chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => null);
   const settings = resp?.ok && resp.settings ? resp.settings : MdgSettings.DEFAULTS;
   return MdgNote.buildPageNoteFile(context, settings, turns, await chrome.storage.local.get(MdgNote.triageExtrasKeys({ url: context.url })));
 }
 
 // The note the popup's 写入 Obsidian would write, when the active tab shows this video; settled like the popup's read.
 async function openPageNote(ref) {
-  const tab = await getActiveTab();
+  const tab = await MdgSites.activeTab();
   const { live } = state.view();
-  if (!ref.videoId || !tab?.id || !live.context || !doesTabMatchContextUrl(live.tabUrl, ref.url, live.context)) {
+  if (!ref.videoId || !tab?.id || !live.context || !MdgSites.sameContext(live.tabUrl, ref, { live: live.context })) {
     return undefined;
   }
   const resp = await sendMessageToActiveTab(tab.id, { type: "popup-refresh" }, 1).catch(() => null);
   const page = resp?.ok ? resp.payload : null;
-  return page?.markdown && doesTabMatchContextUrl(page.url, ref.url) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
+  return page?.markdown && MdgSites.sameContext(page.url, ref) ? { markdown: page.markdown, cover: page.cover, warning: page.noteWarning } : undefined;
 }
 
 // A caught error's words: its message (or the string thrown), else fallback; never 「{}」 for an Error without words.
@@ -2192,7 +2192,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
     return;
   }
 
-  const tab = await getActiveTab().catch(() => null);
+  const tab = await MdgSites.activeTab().catch(() => null);
   if (!tab?.id) {
     showConversationContextNotice(MdgErrors.TEXT.noTab, NOTICE_SHORT_MS, { error: true });
     return;
@@ -2204,7 +2204,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
   // 分拣台 is an extension page: only its viewer frame playing this video seeks, and the tab stays put.
   const inTriage = String(tab.url || "").startsWith(chrome.runtime.getURL("triage/"));
   try {
-    if (!inTriage && !doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context)) {
+    if (!inTriage && !MdgSites.sameContext(tab.url || "", targetUrl, { live: state.view().live.context })) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
       await MdgSites.waitTabLoaded(tab.id);
     }
@@ -2231,7 +2231,7 @@ async function sendMessageToActiveTab(tabId, message, retries = 12) {
       return await new Promise((resolve, reject) => {
         chrome.tabs.sendMessage(tabId, message, (resp) => {
           if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
+            reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
             return;
           }
           resolve(resp);
@@ -2239,15 +2239,10 @@ async function sendMessageToActiveTab(tabId, message, retries = 12) {
       });
     } catch (error) {
       lastError = error;
-      await delay(220);
+      await MdgCommon.sleep(220);
     }
   }
-  // Chrome's words (Receiving end does not exist…) mean the page's copy of the extension did not answer.
-  throw new Error(MdgErrors.TEXT.reloadRetry, { cause: lastError });
-}
-
-function delay(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+  throw MdgErrors.pageSilent(lastError);
 }
 
 function removeCenteredState() {
@@ -2340,19 +2335,3 @@ function syncTurnSpacer() {
   }
 }
 
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab || null;
-}
-
-function sendRuntimeMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (resp) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      resolve(resp);
-    });
-  });
-}

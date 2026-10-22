@@ -14,7 +14,7 @@ const button = () => {
 };
 const body = { classes: new Set() };
 body.classList = { add: (c) => body.classes.add(c), toggle() {} };
-const ctx = vm.createContext({ URL, document: { getElementById: button, body, createElement: () => ({}) } });
+const ctx = vm.createContext({ URL, setTimeout, document: { getElementById: button, body, createElement: () => ({}) }, chrome: { runtime: { sendMessage: async () => ({ ok: true }) }, tabs: { query: async () => [] } } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
@@ -72,16 +72,16 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
 // After B2 (promises only), which stubs MdgDownload too.
 setTimeout(() => (async () => {
   const fetched = [];
+  ctx.chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/post", title: "一篇文章" }];
   Object.assign(ctx, {
     bindEvents() {},
-    getActiveTab: async () => ({ id: 1, url: "https://example.com/post", title: "一篇文章" }),
     getSettingsFromRuntime: async () => ({}),
     refreshFromTab: async () => fetched.push(1)
   });
   // The page's note comes from the background (popup-page-note), which reads the tab through activeTab.
   const asked = [];
   let answer = { ok: true, ref: { url: "https://example.com/post", isVideoContext: false }, filename: "一篇文章.md", content: "---\ntitle: 一篇文章\n---\n\n正文\n" };
-  ctx.sendToRuntime = async (m) => (asked.push(m), typeof answer === "function" ? answer(m) : answer);
+  ctx.chrome.runtime.sendMessage = async (m) => (asked.push(m), typeof answer === "function" ? answer(m) : answer);
   await ctx.init();
   const why = ctx.MdgErrors.TEXT.notVideoPage;
   const T = ctx.MdgErrors.TEXT;
@@ -156,7 +156,7 @@ setTimeout(() => (async () => {
   // J18: a tab nothing can be read from is said as the side panel and the background say it (pageUnsupported); on a
   // web page only the video tools say notVideoPage.
   assert.strictEqual(ctx.el.readingViewBtn.title, why);
-  ctx.getActiveTab = async () => ({ id: 1, url: "chrome://extensions/" });
+  ctx.chrome.tabs.query = async () => [{ id: 1, url: "chrome://extensions/" }];
   await ctx.init();
   const cannot = T.pageUnsupported;
   assert.strictEqual(ctx.el.status.textContent, cannot);
@@ -210,7 +210,7 @@ setTimeout(() =>
     assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：网络断了`);
     // The video page answers OBSIDIAN (not set up, a wrong key): 去设置 here, the settings page only on its click.
     const opened = [];
-    ctx.sendToRuntime = async (m) => (opened.push(m.type), { ok: true });
+    ctx.chrome.runtime.sendMessage = async (m) => (opened.push(m.type), { ok: true });
     ctx.el.status.kids = [];
     ctx.sendToContent = async () => ({ ok: false, text: `${T.obsidianFailed}：Key 不对`, code: "OBSIDIAN" });
     await ctx.el.sendBtn.on.click();
@@ -218,9 +218,10 @@ setTimeout(() =>
     await ctx.el.status.kids[0].onclick();
     assert.deepStrictEqual(opened, ["open-options"]);
     // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
-    Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
+    ctx.sendToContent = async () => ({ ok: true });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: T.pageSilent });
     await ctx.el.readingViewBtn.on.click();
-    assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：视频页没有回应`);
+    assert.strictEqual(ctx.el.status.textContent, `${T.readerStartFailed}：${T.pageSilent}`);
     // 专注模式's state check failing reads like its other failures: the lead, then the reason.
     Object.assign(ctx, { sendToContent: async () => ({ ok: false, error: "网络断了" }) });
     await ctx.el.readingViewBtn.on.click();
@@ -237,15 +238,22 @@ setTimeout(() =>
     assert.strictEqual(ctx.el.status.textContent, T.reloadRetry);
     // No active tab: 写入 Obsidian fails in words and ends its busy state, with no unhandled rejection.
     ctx.sendToContent = sendToContent;
-    ctx.getActiveTab = async () => null;
+    ctx.chrome.tabs.query = async () => [];
     await ctx.el.sendBtn.on.click();
     assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.sendBtn.disabled], [`${T.obsidianFailed}：${T.noTab}`, false]);
-    // Chrome's English messaging errors read as 请刷新网页后重试; the extension's own reasons pass through.
-    ctx.getActiveTab = async () => ({ id: 1, url: "https://example.com/" });
-    ctx.chrome = { runtime: {}, tabs: { sendMessage: (id, m, cb) => ((ctx.chrome.runtime.lastError = { message: "The message port closed before a response was received." }), cb(), delete ctx.chrome.runtime.lastError) } };
-    assert.strictEqual((await ctx.sendToContent({ type: "popup-get-state" })).error, T.reloadRetry);
+    // M3: Chrome's English messaging errors read as the one sentence of a page that did not answer (MdgErrors.pageSilent);
+    // the extension's own reasons pass through.
+    ctx.chrome.tabs.query = async () => [{ id: 1, url: "https://example.com/" }];
+    ctx.chrome.tabs.sendMessage = (id, m, cb) => ((ctx.chrome.runtime.lastError = { message: "The message port closed before a response was received." }), cb(), delete ctx.chrome.runtime.lastError);
+    assert.strictEqual((await ctx.sendToContent({ type: "popup-get-state" })).error, T.pageSilent);
+    // No content script on a video page: inject (ensure-reader-content) and ask again; injecting that fails says the same sentence.
+    ctx.chrome.tabs.query = async () => [{ id: 1, url: "https://www.bilibili.com/video/BV1xx411c7mD/" }];
+    ctx.chrome.tabs.sendMessage = (id, m, cb) => ((ctx.chrome.runtime.lastError = { message: "Could not establish connection. Receiving end does not exist." }), cb(), delete ctx.chrome.runtime.lastError);
+    const ensured = [];
+    ctx.chrome.runtime.sendMessage = async (m) => (ensured.push(m.type), { ok: false, error: T.pageSilent });
+    assert.deepStrictEqual([(await ctx.sendToContent({ type: "popup-get-state" })).error, ensured], [T.pageSilent, ["ensure-reader-content"]]);
     // C135: ⚙ that could not open the settings page says so, as the video page does.
-    ctx.sendToRuntime = async () => ({ ok: false, error: "没有权限" });
+    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "没有权限" });
     await ctx.el.settingsBtn.on.click();
     assert.strictEqual(ctx.el.status.textContent, `${T.settingsOpenFailed}：没有权限`);
     console.log("popup selftest: all passed");

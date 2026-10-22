@@ -1474,16 +1474,63 @@
     };
   }
 
+  // A context's part number: its URL's ?p=, else its pageIndex (a watch-later URL names the part by oid, not ?p=).
+  function partIndex(ref) {
+    const part = parseRef(ref.url)?.part;
+    return (part && !part.oid ? part.index : Number(ref.pageIndex)) || 1;
+  }
+
+  // Whether url (a tab's) shows the context ref names (a context, or its URL): a video by site, id and part (anyPart: any
+  // part of it), a web page by its URL without # (buildContextKey). The one rule of the side panel, the background's
+  // write of a page not open (tabNote) and 摘读记录's 继续问. A watch-later URL names its part by oid, the part's cid:
+  // ref's cid places it, or live (the tab's loaded context) when it has that cid; otherwise it reads as P1.
+  function sameContext(url, ref, { live = null, anyPart = false } = {}) {
+    const target = contextRef(typeof ref === "string" ? { url: ref } : ref);
+    const tab = parseRef(url);
+    if (!tab || !target.videoId) return !tab && !target.videoId && buildContextKey({ url }) === buildContextKey({ url: target.url });
+    if (tab.site !== target.site || tab.id !== target.videoId) return false;
+    if (anyPart) return true;
+    const oid = tab.part?.oid;
+    if (oid && target.cid) return oid === target.cid;
+    const placed = oid && live && !live.pending && String(live.cid || "") === oid && live.videoId === tab.id;
+    return (placed ? partIndex(contextRef(live)) : tab.part?.index || 1) === partIndex(target);
+  }
+
+  // A saved side panel conversation's context: its contextRef (contextSnapshot or its own fields before that), with its
+  // contextUrl when the ref has no URL.
+  function conversationRef(conversation) {
+    const own = conversation?.contextRef || conversation?.contextSnapshot || conversation || {};
+    return contextRef({ ...own, url: own.url || conversation?.contextUrl || "" });
+  }
+
+  // The key a saved conversation belongs to, read from its own context (keys saved as url:<address> by older versions,
+  // or before the cid was known, read as today's); its stored key when its context names nothing.
+  const conversationKey = (conversation) => buildContextKey(conversationRef(conversation)) || String(conversation?.contextKey || "").trim();
+
+  // Whether a saved conversation belongs to the context ref names: a web page's by its key, a video's by site, id and
+  // part, the part by its cid or its number (a part whose cid changed, or was not known when it was saved; a key without
+  // the cid alone never matches another part). The one rule of the side panel (which conversations it restores and lists)
+  // and of every note's AI 问答 (MdgNote.pickConversation): both take the newest.
+  function isConversationOf(conversation, ref) {
+    const own = conversationRef(conversation);
+    const target = contextRef(ref);
+    if (!own.videoId) return Boolean(conversationKey(conversation)) && conversationKey(conversation) === buildContextKey(target);
+    return own.site === target.site && own.videoId === target.videoId && ((own.cid && own.cid === target.cid) || partIndex(own) === partIndex(target));
+  }
+
   // A video page or web page opened or sent elsewhere, once loaded (the background's write of a page not open, the side
   // panel's jump to a time): a tab closed meanwhile is said at once, not after ms as a timeout.
   async function waitTabLoaded(tabId, ms = 15000) {
-    for (const end = Date.now() + ms; ; await new Promise((resolve) => setTimeout(resolve, 250))) {
+    for (const end = Date.now() + ms; ; await MdgCommon.sleep(250)) {
       const tab = await chrome.tabs.get(tabId).catch(() => null);
       if (!tab) throw new Error(MdgErrors.TEXT.tabClosed);
       if (tab.status === "complete") return tab;
       if (Date.now() > end) throw new Error(MdgErrors.TEXT.tabLoadTimeout);
     }
   }
+
+  // The focused window's active tab (the popup's, the side panel's), or null.
+  const activeTab = async () => (await chrome.tabs.query({ active: true, currentWindow: true }))?.[0] || null;
 
   globalThis.MdgSites = {
     SITES,
@@ -1495,6 +1542,10 @@
     isAllowedFetchUrl,
     buildContextKey,
     contextRef,
+    sameContext,
+    conversationKey,
+    isConversationOf,
+    activeTab,
     isBiliVideoGone,
     isLimit,
     BILI_RISK_CODES,

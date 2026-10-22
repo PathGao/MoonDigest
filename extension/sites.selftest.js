@@ -141,6 +141,28 @@ assert.strictEqual(S.buildContextKey({}), "");
 assert.strictEqual(S.buildContextKey({ url: "https://example.com/a?x=1#part" }), "page:https://example.com/a?x=1");
 assert.strictEqual(S.buildContextKey({ site: "bilibili", videoId: "BV1", cid: "9", url: "https://www.bilibili.com/video/BV1" }), "video:bilibili:BV1|9");
 assert.strictEqual(S.buildContextKey(S.contextRef({ url: "https://example.com/a", isVideoContext: false })), "page:https://example.com/a");
+// M1: "does this tab show this record" is one rule (sameContext) for the side panel, the background's tabNote and
+// 摘读记录's 继续问: a video by site, id and part (?p=, or a watch-later oid placed by the ref's cid or the tab's loaded
+// context), a web page by its URL without #.
+{
+  const bv = "https://www.bilibili.com/video/BV1GJ411x7h7/";
+  const wl = (oid) => `https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7&oid=${oid}`;
+  const p2 = { site: "bilibili", videoId: "BV1GJ411x7h7", cid: "c2", pageIndex: 2, url: `${bv}?p=2`, isVideoContext: true };
+  const same = S.sameContext;
+  assert.strictEqual(same(`${bv}?p=2&t=30`, p2), true, "time and list parameters do not count");
+  assert.strictEqual(same(`${bv}?p=3`, p2), false, "another part is not this record (tabNote's 分 P)");
+  assert.strictEqual(same(`${bv}?p=3`, p2, { anyPart: true }), true, "anyPart: any part of the video");
+  assert.strictEqual(same(wl("c2"), p2), true, "a watch-later tab on this part (its oid is the part's cid)");
+  assert.strictEqual(same(wl("c3"), p2), false, "a watch-later tab on another part");
+  assert.strictEqual(same(wl("c2"), `${bv}?p=2`, { live: { site: "bilibili", videoId: "BV1GJ411x7h7", cid: "c2", pageIndex: 2, url: wl("c2") } }), true, "the tab's payload places a URL target");
+  assert.strictEqual(same(wl("c2"), `${bv}?p=2`), false, "without it the watch-later URL reads as P1");
+  assert.strictEqual(same("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1", { site: "youtube", videoId: "dQw4w9WgXcQ" }), true);
+  assert.strictEqual(same("https://example.com/a#top", "https://example.com/a"), true, "a web page by its URL without # (the side panel compared it with #)");
+  assert.strictEqual(same("https://example.com/a#top", { url: "https://example.com/a#x", isVideoContext: false }), true);
+  assert.strictEqual(same("https://example.com/b", "https://example.com/a"), false);
+  assert.strictEqual(same(bv, "https://example.com/a"), false, "a video page never shows a web page's record");
+  assert.strictEqual(same(undefined, { site: "youtube", videoId: "dQw4w9WgXcQ" }), false);
+}
 
 // YouTube URLs
 for (const url of [

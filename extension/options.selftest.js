@@ -188,10 +188,10 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
       setStatus: (text, isError) => log.push([text, isError]),
       markSaved: () => log.push("markSaved"),
       renderStorageLimits: async () => log.push("render"),
-      sendRuntimeMessage: async (m) => {
+      chrome: { runtime: { sendMessage: async (m) => {
         if (fail === "throw") throw new Error("Could not establish connection");
         return m.type === fail ? { ok: false, error: "读取失败" } : { ok: true, settings: {}, providers: [] };
-      }
+      } } }
     });
     vm.runInContext([`async ${fn("loadSettings")}`, `async ${fn("getSettings")}`, `async ${fn("loadAiProviders")}`].join("\n"), page);
     // Only the failure path is set up here: had it gone on to fill the form, the missing elements would throw.
@@ -218,8 +218,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     document: { createElement: () => row },
     elements: { aiProvidersList: { appendChild() {}, querySelectorAll: () => [row] } },
     updateAiProvidersEmptyState() {},
-    chrome: { permissions: { request: async () => true } },
-    sendRuntimeMessage: (m) => (sent.push(m), new Promise((r) => (answer = r)))
+    chrome: { permissions: { request: async () => true }, runtime: { sendMessage: (m) => (sent.push(m), new Promise((r) => (answer = r))) } }
   });
   vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   page.addAiProviderRow({ id: "p1", presetId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", hasSavedKey: true });
@@ -332,11 +331,11 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
       setBusy() {}, setStatus: (text, isError) => log.push([text, isError]), renderFixedPropertyRows() {}, renderNoteSectionRows() {},
       readFormState: () => ({ payload: { folder: "新" }, providers: ["新平台"] }),
       syncUnsaved() {}, renderSavedState() {}, markSaved: () => log.push("markSaved"),
-      sendRuntimeMessage: async (m) => {
+      chrome: { runtime: { sendMessage: async (m) => {
         if (m.type === "save-settings") return { ok: true };
         if (how === "throw") throw new Error(reason);
         return { ok: false, error: reason };
-      }
+      } } }
     });
     vm.runInContext(`async ${fn("saveSettings")}`, page);
     await page.saveSettings();
@@ -359,7 +358,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const page = vm.createContext({
     URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
     document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } },
-    updateAiProvidersEmptyState() {}, updateSavedProviders() {}, sendRuntimeMessage: async () => reply()
+    updateAiProvidersEmptyState() {}, updateSavedProviders() {}, chrome: { runtime: { sendMessage: async () => reply() } }
   });
   vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
   page.addAiProviderRow({ id: "p1" });
@@ -394,8 +393,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const page = vm.createContext({
     URL, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
     document: { createElement: node },
-    chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) } },
-    sendRuntimeMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true })
+    chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) }, runtime: { sendMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true }) } }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
   vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("urlOrigin"), `async ${fn("testAiProviderRow")}`].join("\n"), page);

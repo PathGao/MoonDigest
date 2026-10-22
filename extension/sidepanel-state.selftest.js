@@ -7,7 +7,8 @@ const assert = require("assert");
 
 const ctx = vm.createContext({ console, URL });
 ctx.globalThis = ctx;
-for (const f of ["common.js", "limits.js", "errors.js", "sites.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// note.js for M2: every note's AI 问答 takes the conversation the panel restores.
+for (const f of ["common.js", "limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const S = ctx.SidepanelState;
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const types = (effects) => [...effects].map((e) => e.type);
@@ -402,8 +403,11 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([p.view().id !== "", p.view().mismatch], [true, true], "not following: P2's conversation is not the tab's P3");
   p.load(part(3), { follow: true });
   assert.deepStrictEqual([p.view().id, p.view().context.pageIndex], ["", 3], "following: P3 is another video");
-  assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(3)), true, "the tab's payload places the part");
-  assert.strictEqual(S.doesTabMatchContextUrl(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", part(2)), false, "another part's payload does not");
+  const same = ctx.MdgSites.sameContext;
+  assert.strictEqual(same(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", { live: part(3) }), true, "the tab's payload places the part");
+  assert.strictEqual(same(wl(3), "https://www.bilibili.com/video/BV1ww/?p=3", { live: part(2) }), false, "another part's payload does not");
+  assert.strictEqual(same(wl(3), { site: "bilibili", videoId: "BV1ww", cid: "c3", pageIndex: 3 }), true, "a context's own cid places it without the payload");
+  assert.strictEqual(same(wl(3), { site: "bilibili", videoId: "BV1ww", cid: "c2", pageIndex: 1 }), false, "another cid is another part, not P1");
 }
 
 {
@@ -523,6 +527,46 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.deepStrictEqual([p.view().id, p.view().context.pageAccess], ["pg", undefined], "opened, its page not read yet");
   p.load({ ...page, pageAccess: "ready", pageMarkdown: "正文" }, { follow: true });
   assert.deepStrictEqual([p.view().id, p.view().context.pageAccess, p.view().context.pageMarkdown, p.view().previousId], ["pg", "ready", "正文", ""]);
+}
+
+// M2: which saved conversation belongs to a video part or a web page is one rule (MdgSites.isConversationOf): the panel
+// restores, and every note's AI 问答 (MdgNote.pickConversation) writes, the same newest one. Stored shapes as storage
+// holds them: an old url: key, a part saved before its cid was known (by pageIndex, or only by its URL's ?p=), a part
+// whose cid changed, a web page with a #.
+{
+  const bv = "BV1GJ411x7h7";
+  const msgs = [{ role: "user", content: "q" }, { role: "assistant", content: "a" }];
+  const conv = (id, updatedAt, contextRef, contextUrl, contextKey) => ({ id, updatedAt, createdAt: 1, messages: msgs, contextRef, contextUrl, contextKey, isVideoContext: contextRef.isVideoContext !== false });
+  const part = (n, cid, extra = {}) => ({ site: "bilibili", videoId: bv, cid, pageIndex: n, url: `https://www.bilibili.com/video/${bv}/${n > 1 ? `?p=${n}` : ""}`, ...extra });
+  const pageA = { url: "https://example.com/a", title: "A", isVideoContext: false };
+  const list = [
+    conv("oldUrl", 5, pageA, "https://example.com/a", "url:https://example.com/a"),
+    conv("web", 2, pageA, "https://example.com/a", "page:https://example.com/a"),
+    conv("p1", 3, part(1, "c1"), part(1).url, `video:bilibili:${bv}|c1`),
+    conv("p1NoCid", 7, part(1, ""), part(1).url, `video:bilibili:${bv}|`),
+    conv("p2", 4, part(2, "c2"), part(2).url, `video:bilibili:${bv}|c2`),
+    conv("p2OldCid", 6, part(2, "c2old"), part(2).url, `video:bilibili:${bv}|c2old`),
+    // Saved before the ref kept its part: only its URL says P2.
+    conv("p2ByUrl", 1, { site: "bilibili", videoId: bv }, part(2).url, `video:bilibili:${bv}|`)
+  ];
+  const targets = [
+    ["web page (old url: key, # ignored)", { ...pageA, url: "https://example.com/a#top", pageAccess: "ready", pageMarkdown: "正文" }, "oldUrl"],
+    ["P1: the newest of its part, cid or not", video(bv, part(1, "c1")), "p1NoCid"],
+    ["P2: a conversation under the part's old cid", video(bv, part(2, "c2")), "p2OldCid"],
+    ["P3: nothing of P1 or P2", video(bv, part(3, "c3")), null]
+  ];
+  for (const [name, target, want] of targets) {
+    const p = panel({ tab: null, list });
+    p.load(target, { follow: true });
+    const note = ctx.MdgNote.pickConversation(list, target)?.id || null;
+    assert.deepStrictEqual([p.view().id || null, note], [want, want], name);
+  }
+  // The part number of a conversation known only by its URL.
+  assert.strictEqual(ctx.MdgNote.pickConversation(list.filter((c) => c.id.startsWith("p2ByUrl")), video(bv, part(2, "c2")))?.id, "p2ByUrl");
+  // The panel's 历史对话 list for P2: every conversation of the part, none of P1.
+  const p = panel({ tab: null, list });
+  p.load(video(bv, part(2, "c2")), { follow: true });
+  assert.deepStrictEqual([...p.view().history.map((c) => c.id)].sort(), ["p2", "p2ByUrl", "p2OldCid"]);
 }
 
 console.log("sidepanel-state selftest: all passed");

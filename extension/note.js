@@ -204,23 +204,10 @@
     return turns;
   }
 
-  // The newest saved conversation for this video part. Bilibili parts have their own cid: the exact key wins. Without
-  // it (a conversation saved before cid was recorded, or a ref that knows only the BV) the part number decides, so P1
-  // never takes P2's conversation, as in the side panel. A web page (no videoId) has only its exact page: key.
-  function pickConversation(conversations, { site = "", videoId = "", cid = "", pageIndex = 1, url = "" } = {}) {
-    const key = MdgSites.buildContextKey({ site, videoId, cid, url });
-    if (!key) {
-      return null;
-    }
-    const prefix = key.slice(0, key.indexOf("|") + 1);
-    const page = Number(pageIndex) || 1;
-    const all = Array.isArray(conversations) ? conversations : [];
-    const newest = (list) => list.sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0))[0] || null;
-    if (!videoId) return newest(all.filter((item) => item?.contextKey === key));
-    return (
-      (cid && newest(all.filter((item) => item?.contextKey === key))) ||
-      newest(all.filter((item) => String(item?.contextKey || "").startsWith(prefix) && (!cid || item.contextKey === prefix) && (Number(item.contextRef?.pageIndex) || 1) === page))
-    );
+  // The newest saved conversation of this video part or web page, as the side panel restores it (MdgSites.isConversationOf).
+  function pickConversation(conversations, ref = {}) {
+    const mine = (Array.isArray(conversations) ? conversations : []).filter((item) => MdgSites.isConversationOf(item, ref));
+    return mine.sort((a, b) => (Number(b?.updatedAt) || 0) - (Number(a?.updatedAt) || 0))[0] || null;
   }
 
   function sanitizeMarkdownHeadingText(value) {
