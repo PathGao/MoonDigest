@@ -314,8 +314,9 @@ const openAi = () => TagDialogs.ai.open(aiTags);
 // row; an error that fails every batch alike (aiEnds) ends the run. Returns
 // { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
 // name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder); where() follows
-// the pill's line (another folder's run). progress(text) is the dialog's line, counting down with the pill.
-async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, progress, name = null, where = () => "" }) {
+// the pill's line (another folder's run). progress(text) is the dialog's line, counting down with the pill. limitHint:
+// a cut answer also gets the banner that asks to raise 粗看输出上限 (收藏夹设置's; 关注 runs without it).
+async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, progress, name = null, where = () => "", limitHint = true }) {
   const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
   const p = { newTags: [], rows: [], notes: [], errors: [] };
   let answered = 0;
@@ -332,7 +333,7 @@ async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, 
       if (x.ok) return answered++, merge(p, x.data, i);
       p.errors.push(`${which(i)}失败：${x.error}`);
       // 截断 is reported with what to change.
-      if (x.code === "AI_TRUNCATED") handleAiError(x.error, x.code);
+      if (x.code === "AI_TRUNCATED" && limitHint) handleAiError(x.error, x.code);
     }
   });
 

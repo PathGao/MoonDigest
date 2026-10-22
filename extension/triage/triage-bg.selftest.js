@@ -203,6 +203,17 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const user = sent.messages[1].content;
     assert.ok(user.includes("1|讲 Transformer|B站||问：第一问 答：答 一 问：第二问||\n2|一篇文章|网页|旧||注意力机制|值得 再看"), user);
     assert.ok(sent.messages[0].content.includes("摘读记录整理助手") && sent.messages[0].content.includes("remove 只能填该记录") && sent.providerId === "p", sent.messages[0].content);
+    // 收藏夹设置's 开启思考 and 粗看输出上限 are its own: 摘读记录 and 关注 run thinking off with the automatic cap.
+    {
+      const runs = [];
+      t.triageAiSettings = async () => ({ triageThinking: true, triageTitleMaxTokens: 777 });
+      t.triageChat = async (messages, maxTokens, thinking) => (runs.push([maxTokens, thinking]), { content: '{"new_tags":[],"items":[]}' });
+      const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+      await H["triage-reading-ai-tag"]({ instruction: "x", items: [video], tags: [], maxNewTags: 0 });
+      await H["triage-ai-command"]({ instruction: "x", items: [{ bvid: "BV1", title: "t" }], tags: [], maxNewTags: 0 });
+      assert.deepStrictEqual(runs, [[t.TriageUi.autoMaxTokens("command", 1, false), false], [777, true]]);
+      t.triageAiSettings = async () => ({ triageThinking: false });
+    }
     assert.deepStrictEqual(r, { newTags: ["编程"], assignments: { [video.id]: { add: ["编程"], remove: [] }, [page.id]: { add: ["读过"], remove: ["旧"] } }, note: "好" });
     await assert.rejects(vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-reading-ai-tag"]({ instruction: "x", items: [{ title: "没有 id" }], tags: [] }), /缺少 items/);
     Object.assign(t, { triageChat: was.chat, triageAiSettings: was.settings });

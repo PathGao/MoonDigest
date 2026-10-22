@@ -1114,9 +1114,11 @@
   }
 
   // The note as the AI reads it (video page and background): no hot comments, and no player embed, which is for
-  // Obsidian only; the note written or downloaded keeps it.
+  // Obsidian only; the note written or downloaded keeps it. The note switches that are about the file only do not reach
+  // it: timestamps always (the AI cites them and its replies jump by them), and never the AI 问答 section (the
+  // conversation is sent as the conversation, and the video page's state carries it while the background's does not).
   const buildAiContext = (meta, body, settings, ref) =>
-    buildMarkdown(meta, body, { ...settings, includeHotCommentsInNote: false, playerEmbed: false }, ref);
+    buildMarkdown(meta, body, { ...settings, includeHotCommentsInNote: false, playerEmbed: false, includeTimestampInBody: true, includeAiChatInNote: false }, ref);
 
   globalThis.MdgNote = {
     buildMarkdown,
