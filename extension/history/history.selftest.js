@@ -209,6 +209,17 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   choice = "full";
   await click();
   assert.deepStrictEqual([sent.map((m) => m.mode), els.status.textContent], [[undefined, "full"], "已写入 Obsidian：p.md"]);
+  // askPage (a web page with no note, not open): the page dialog first; its choice goes along with every later send.
+  let pageChoice = "";
+  const writeSend = ctx.chrome.runtime.sendMessage;
+  ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), !m.pageChoice ? { ok: true, askPage: true, url: "https://example.com/x" } : m.mode ? { ok: true, text: "已写入 Obsidian：q.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
+  ctx.MdgOverwriteDialog.choosePage = async (url) => (url === "https://example.com/x" ? pageChoice : "wrong");
+  await click();
+  assert.deepStrictEqual([sent.length, els.status.textContent], [1, "已取消写入 Obsidian，原笔记未被覆盖。"], "取消 sends nothing again");
+  pageChoice = "own";
+  await click();
+  assert.deepStrictEqual([sent.map((m) => [m.pageChoice, m.mode]), els.status.textContent], [[[undefined, undefined], ["own", undefined], ["own", "full"]], "已写入 Obsidian：q.md"]);
+  ctx.chrome.runtime.sendMessage = writeSend;
 
   // B5: each entry offers 复制 Markdown, then 下载 .md, then 写入 Obsidian (hidden while Obsidian is off), like elsewhere.
   const at = (act) => html.indexOf(`data-act="${act}"`);

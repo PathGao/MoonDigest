@@ -167,12 +167,17 @@ async function linkCoverInVault(vault, filepath, content, cover) {
 // latest saved conversation. page: { markdown, cover, warning } from the open video page (warning: its
 // MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
 // not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
-// note and writes a missing one whole.
-// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off) or { path, kind: full | ai | unchanged | conversation, text, title }.
-async function writeVideoNote({ ref: input, mode, conversation, page }) {
+// note and writes a missing one whole. A web page sent without its page is read from a tab that shows it; with none
+// and no note of it yet, the answer is askPage (writing the conversation alone would leave a second note once the page
+// note is written), and the caller sends again with pageChoice "open" (open the page, then write its note) or "own"
+// (the conversation as its own note).
+// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url } or
+// { path, kind: full | ai | unchanged | conversation, text, title }.
+async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice }) {
   const settings = await getMergedSettings();
   const vault = obsidianConfig(settings);
   const ref = MdgSites.contextRef(input);
+  if (!page && !ref.isVideoContext && ref.url) page = (await tabPageNote(ref.url, pageChoice === "open")) || undefined;
   // A web page's key too (page:<url>), so its note is remembered like a video's.
   let key = MdgSites.buildContextKey(ref);
   const { aiConversations } = MdgLimits.KEYS;
@@ -227,10 +232,11 @@ async function writeVideoNote({ ref: input, mode, conversation, page }) {
     }
   } else {
     // A recorded note without its page (YouTube, 分 P, a web page whose tab is closed): asked about like any other, but
-    // only its AI 问答 can change. Without one, a web page's conversation is its own note as it always was.
+    // only its AI 问答 can change. Without one, a web page asks first (askPage) and a video's conversation is its own note.
     const recorded = section && paths[key]?.path;
     const note = recorded ? await readVaultNote(vault, recorded) : null;
     const why = needsPage(ref);
+    if (!note?.exists && !ref.isVideoContext && pageChoice !== "own") return { askPage: true, url: ref.url };
     target = note?.exists
       ? { video: true, path: recorded, note, fullReason: why, body: async () => { throw new Error(why); } }
       : ref.isVideoContext ? standalone(OWN_NOTE, computedPath()) : standalone("", "");

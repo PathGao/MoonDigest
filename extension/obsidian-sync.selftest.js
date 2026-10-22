@@ -44,11 +44,15 @@ const area = (store) => ({
 });
 const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
+// The tabs a write without its page looks in (tabPageNote); created: tabs it opened.
+let openTabs = [];
+const created = [];
+const tabs = new Proxy({ query: async () => openTabs, create: async (t) => (created.push(t.url), { id: 9, status: "complete", ...t }), get: async (id) => ({ id, status: "complete" }) }, { get: (t, k) => t[k] || noop });
 const chrome = {
   runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getURL: (p) => `chrome-extension://mdg/${p}`, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
   permissions: noop,
-  tabs: noop,
+  tabs,
   sidePanel: noop,
   declarativeNetRequest: noop
 };
@@ -229,10 +233,32 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     resp = await write({ ref: webRef, conversation: conversation("历史"), mode: "ai" });
     assert.deepStrictEqual([resp.path, resp.kind], ["N/网页/一篇文章.md", "ai"]);
     assert.ok(vault.get("N/网页/一篇文章.md").includes("### 问：历史") && vault.get("N/网页/一篇文章.md").includes("正文第一段"));
-    // No note recorded for the page: the conversation alone, as before.
+    // No note recorded for the page and no tab shows it: asked first, as writing the conversation alone would leave a
+    // second note once the page's is written; 只写 AI 笔记 (pageChoice own) writes it alone.
     const otherRef = { ...webRef, url: "https://example.com/other", title: "另一篇" };
-    resp = await write({ ref: otherRef, conversation: conversation("别处") });
+    assert.deepStrictEqual(await write({ ref: otherRef, conversation: conversation("别处") }), { ok: true, askPage: true, url: "https://example.com/other" });
+    resp = await write({ ref: otherRef, conversation: conversation("别处"), pageChoice: "own" });
     assert.deepStrictEqual([resp.path, resp.kind, resp.text], ["N/网页/【AI笔记】另一篇.md", "conversation", "已写入 Obsidian：N/网页/【AI笔记】另一篇.md"]);
+    // A tab shows it (#… aside): its page is read there and the page's note is written, nothing asked.
+    const pageNoteOf = ctx.popupPageNote;
+    const read = [];
+    ctx.popupPageNote = async (tabId) => (read.push(tabId), { content: N.buildPageNote({ ...otherRef, pageMarkdown: "另一篇正文" }, sync, []) });
+    openTabs = [{ id: 5, url: "https://example.com/other#top" }];
+    resp = await write({ ref: otherRef, conversation: conversation("开着") });
+    assert.deepStrictEqual([resp.path, resp.kind, read, created], ["N/网页/另一篇.md", "full", [5], []]);
+    assert.ok(vault.get("N/网页/另一篇.md").includes("另一篇正文") && vault.get("N/网页/另一篇.md").includes("### 问：开着"));
+    // 打开网页再写 (pageChoice open): no tab, so one is opened in the background and read.
+    const third = { ...webRef, url: "https://example.com/third", title: "第三篇" };
+    openTabs = [];
+    read.length = 0;
+    resp = await write({ ref: third, conversation: conversation("三"), pageChoice: "open" });
+    assert.deepStrictEqual([resp.path, read, created], ["N/网页/第三篇.md", [9], ["https://example.com/third"]]);
+    // A page that cannot be read once opened says why, and writes nothing.
+    ctx.popupPageNote = async () => {
+      throw new Error("读取网页失败：没有找到正文");
+    };
+    assert.deepStrictEqual(await write({ ref: { ...third, url: "https://example.com/4", title: "四" }, conversation: conversation("四"), pageChoice: "open" }), { ok: false, error: "读取网页失败：没有找到正文" });
+    ctx.popupPageNote = pageNoteOf;
     // The page's note deleted in the vault: auto-sync says so in a page's words.
     vault.delete("N/网页/一篇文章.md");
     resp = await send({ type: "sync-video-note-ai", ref: webRef, conversation: conversation("再问") });
