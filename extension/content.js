@@ -1149,7 +1149,7 @@ function pageSubtitleSite(site, runId) {
       ensureRunActive(runId);
       return site.fetchRaw(track, io).catch((error) => {
         // B站's 429 is THROTTLED already (sites.js biliJson), as on every other entry.
-        throw error?.status === 429 && error.code !== MdgErrors.CODE.THROTTLED ? Object.assign(new Error("字幕接口限流（429），稍后再试"), { status: 429 }) : error;
+        throw error?.status === 429 && error.code !== MdgErrors.CODE.THROTTLED ? Object.assign(new Error(MdgErrors.TEXT.ytThrottled), { status: 429 }) : error;
       });
     }
   };
@@ -1436,7 +1436,7 @@ async function showNoSubtitleState(runId, { failure = "", needLogin = false } = 
 // The popup's status after a read, with or without a subtitle: what the note can do, and a comment read that failed.
 function readDoneText() {
   const comments = state.commentsFailure ? `评论读取失败：${state.commentsFailure}。` : "";
-  return comments + (state.settings.obsidianEnabled ? "读取完成，可以复制、下载或写入 Obsidian。" : "读取完成，可以复制或下载。");
+  return comments + (state.settings.obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {

@@ -21,7 +21,7 @@ const STAGES = [
 const READ_TAB = "阅览全部";
 const NEXT_BATCH = "下一批"; // a step's button and the cards it will send
 // The two AI steps' names, and a run's name: the step, or its redo under a changed 判断标准 (按新标准重新粗看).
-const STEP_NAME = { coarse: "标题粗看", fine: "字幕细看" };
+const STEP_NAME = { coarse: MdgErrors.LABEL.coarseRead, fine: MdgErrors.LABEL.fineRead };
 const runName = (step, redo) => (redo ? `按新标准重新${STEP_NAME[step].slice(2)}` : STEP_NAME[step]);
 // Storage keys. The shared ones come from MdgLimits.KEYS; the rest only this page uses.
 const KEYS = MdgLimits.KEYS;

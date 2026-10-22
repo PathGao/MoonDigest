@@ -4327,5 +4327,7 @@ t.MoonTriage.send({ type: "test-login" }).then((r) => {
     console.error = err;
     t.el.list = list;
     assert.ok(box.innerHTML.includes("分拣台启动失败"), box.innerHTML);
+    // K29: its instruction is the table's one.
+    assert.ok(box.innerHTML.includes(`，${t.MdgErrors.TEXT.reloadRetry}`), box.innerHTML);
   });
 }

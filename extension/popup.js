@@ -24,7 +24,6 @@ const el = {
 };
 
 const NOT_VIDEO_PAGE = MdgErrors.TEXT.notVideoPage;
-const WEB_PAGE_STATUS = "网页：AI 总结在侧边栏读正文";
 const WEB_PAGE_READING = "正在读取网页…";
 let latestPayload = null;
 // On a web page: its note from the background (popup-page-note), { ref, filename, markdown }; null until read or when
@@ -33,6 +32,8 @@ let webNote = null;
 let webTabId = 0; // the web page's tab, which 刷新 reads again; 0 on a video page
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
+// The settings asked for as the popup opens: a web page's read says 写入 Obsidian only when it is on.
+let settingsLoad = null;
 // Only for when get-settings fails.
 const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 const setDisabledReason = MdgErrors.setReason;
@@ -55,7 +56,8 @@ async function init() {
   bindEvents();
   const tab = await getActiveTab();
   onVideoPage = isSupportedSubtitlePage(tab?.url || "");
-  getSettingsFromRuntime().then((settings) => {
+  settingsLoad = getSettingsFromRuntime();
+  settingsLoad.then((settings) => {
     el.sendBtn.hidden = !settings.obsidianEnabled;
     try {
       localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
@@ -238,7 +240,9 @@ async function readWebNote(tabId) {
   }
   webNote = { ref: resp.ref, filename: resp.filename, markdown: resp.content };
   tools.forEach((button) => setDisabledReason(button, ""));
-  setStatus(WEB_PAGE_STATUS);
+  // As the video page says it after its read.
+  const { obsidianEnabled } = await (settingsLoad || getSettingsFromRuntime());
+  setStatus(obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
 }
 
 async function openOptions() {

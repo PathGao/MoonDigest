@@ -701,7 +701,7 @@ async function openCurrentContextUrl() {
     const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context);
     if (!sameVideo) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
-      await waitForTabComplete(tab.id);
+      await MdgSites.waitTabLoaded(tab.id);
     }
     await loadContextState({ silent: true });
   } catch {}
@@ -2206,7 +2206,7 @@ async function jumpToAssistantTimestamp(seconds, label) {
   try {
     if (!inTriage && !doesTabMatchContextUrl(tab.url || "", targetUrl, state.view().live.context)) {
       await chrome.tabs.update(tab.id, { url: targetUrl });
-      await waitForTabComplete(tab.id);
+      await MdgSites.waitTabLoaded(tab.id);
     }
     if (seq !== jumpSeq) return;
     const response = await sendMessageToActiveTab(tab.id, {
@@ -2222,21 +2222,6 @@ async function jumpToAssistantTimestamp(seconds, label) {
     if (seq !== jumpSeq) return;
     showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
   }
-}
-
-async function waitForTabComplete(tabId, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const tab = await chrome.tabs.get(tabId).catch(() => null);
-    if (!tab) {
-      throw new Error("标签页已关闭");
-    }
-    if (tab.status === "complete") {
-      return true;
-    }
-    await delay(250);
-  }
-  throw new Error("视频页面加载超时");
 }
 
 async function sendMessageToActiveTab(tabId, message, retries = 12) {

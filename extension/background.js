@@ -271,11 +271,7 @@ async function tabNote(ref, open = false) {
   if (opened) {
     tab = await chrome.tabs.create({ url: video ? MdgSites.videoUrl(ref) : ref.url, active: false });
     if (video) await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
-    for (const end = Date.now() + 15000; tab?.status !== "complete"; tab = await chrome.tabs.get(tab.id).catch(() => null)) {
-      if (!tab) throw new Error(video ? "视频页已关闭" : "网页标签页已关闭");
-      if (Date.now() > end) throw new Error(video ? "视频页加载超时" : "网页加载超时");
-      await sleep(250);
-    }
+    tab = await MdgSites.waitTabLoaded(tab.id);
   }
   try {
     if (!video) return { page: { markdown: (await popupPageNote(tab.id)).content } };

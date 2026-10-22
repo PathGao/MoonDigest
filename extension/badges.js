@@ -4,7 +4,7 @@
   const { TEXT, LABEL, upTagTitle } = MdgErrors;
   const K = MdgLimits.KEYS;
   const ACTION = { keep: LABEL.kept, unfav: LABEL.unfaved };
-  const STAGE = [INVALID, "标题粗看", "字幕细看"];
+  const STAGE = [INVALID, LABEL.coarseRead, LABEL.fineRead];
   const BVID_RE = /(?:\/video\/|[?&]bvid=)(BV[0-9A-Za-z]{10})/;
 
   function bvidFromHref(href) {
@@ -491,7 +491,7 @@
     };
   }
 
-  const LOCAL_ONLY = "只存在 MoonDigest 里，不改 B站";
+  const LOCAL_ONLY = TEXT.localOnly;
   const UP_TIP = `UP 标签 · ${LOCAL_ONLY}`;
   // Every tag as a chip, then a 「+N」 that fitBoxes shows when they don't all fit; hovering or focusing it lists them all.
   function appendChips(box, list, cls) {
@@ -759,7 +759,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       more.append(b);
     }
     // The chips no longer open the 分拣台; this is the one way there from a B站 page.
-    const go = el("button", "go", "在分拣台「关注」里打开这个 UP ↗");
+    const go = el("button", "go", "在分拣台「关注」里打开这个 UP 主 ↗");
     go.type = "button";
     pick.panel.replaceChildren(head, list, more, go, el("div", "foot", `${LOCAL_ONLY} · Esc 关闭`));
     placePick();

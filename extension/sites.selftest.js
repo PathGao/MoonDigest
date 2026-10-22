@@ -411,7 +411,7 @@ async function ytComments(next, byContinuation) {
   const fallback = await yt.fetchTranscript(ref, t.io);
   eq(t.calls, ["next:dQw4w9WgXcQ", "get_transcript:P1", "get_transcript:t2"]);
   eq(fallback, {
-    track: { id: "transcript", lang: "", label: "English (auto-generated)（文字稿）", url: "https://www.youtube.com/youtubei/v1/get_transcript?params=P1", kind: "transcript", isDefault: false },
+    track: { id: "transcript", lang: "", label: "English (auto-generated)（转写文稿）", url: "https://www.youtube.com/youtubei/v1/get_transcript?params=P1", kind: "transcript", isDefault: false },
     raw: [page1, page2]
   });
   eq(yt.parseSegments(fallback.raw), [{ from: 0, to: 1.5, content: "hello world" }, { from: 2, to: 3, content: "second page" }]);
@@ -422,7 +422,7 @@ async function ytComments(next, byContinuation) {
   const looping = { ...page2, more: { continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "t2" } } } } };
   t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": looping, "get_transcript:t2": looping }, pagePlayer);
   await yt.fetchTracks(ref, {}, t.io);
-  eq((await yt.fetchTranscript(ref, t.io)).track.label, "文字稿（默认语言）");
+  eq((await yt.fetchTranscript(ref, t.io)).track.label, "转写文稿（默认语言）");
   eq(t.calls.filter((call) => call.startsWith("get_transcript")).length, 5);
   // 429 on the transcript stops after one call and keeps its status.
   t = ytIo({ "next:dQw4w9WgXcQ": next, "get_transcript:P1": Object.assign(new Error("请求失败：429"), { status: 429 }) }, pagePlayer);
@@ -432,7 +432,7 @@ async function ytComments(next, byContinuation) {
   // No transcript panel: nothing is fetched.
   t = ytIo({ "next:dQw4w9WgXcQ": watchNext("") }, pagePlayer);
   await yt.fetchTracks(ref, {}, t.io);
-  eq(await yt.fetchTranscript(ref, t.io).then(() => "", (error) => error.message), "该视频没有文字稿");
+  eq(await yt.fetchTranscript(ref, t.io).then(() => "", (error) => error.message), "该视频没有转写文稿");
   eq(t.calls, ["next:dQw4w9WgXcQ"]);
 
   // Caption URLs are built as yt-dlp builds them.
@@ -683,7 +683,7 @@ async function ytComments(next, byContinuation) {
 
   // YouTube's transcript, when the tracks all fail or the video is gated; a failed transcript leaves the gate as the
   // reason. L11: a limit stops there too, no transcript request.
-  const transcript = { track: { id: "transcript", url: "https://x/t", label: "文字稿" }, raw: fit };
+  const transcript = { track: { id: "transcript", url: "https://x/t", label: "转写文稿" }, raw: fit };
   let transcripts = 0;
   f = fake(two, { a: new Error("请求失败：404"), b: new Error("请求失败：404") }, { fetchTranscript: async () => (transcripts++, transcript) });
   got = await load(f);
@@ -693,12 +693,12 @@ async function ytComments(next, byContinuation) {
   eq(transcripts, 1, "a limit asks for no transcript");
   f = fake([], {}, { fetchTranscript: async () => transcript });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).track.id, "transcript");
-  f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
+  f = fake([], {}, { fetchTranscript: async () => Promise.reject(new Error("没有转写文稿")) });
   eq((await load(f, {}, { fresh: true }, { duration: 100, gate: "要登录" })).failure, "要登录");
   // A9: the list failed (no PO token): the transcript still serves; when it fails too, the list's reason stays.
   f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => transcript });
   eq((await load(f)).track?.id, "transcript");
-  f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有文字稿")) });
+  f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有转写文稿")) });
   eq((await load(f)).failure, "YouTube 拒绝了字幕请求");
 
   // step sees every wait: once it throws (the video page's run guard) nothing more is asked.
@@ -744,6 +744,18 @@ async function ytComments(next, byContinuation) {
   eq(S.contextRef(null).pageIndex, 1);
   for (const f of PS.pageCode) {
     assert.ok(!/selectedSubtitleUrl: String\(\w+\.selectedSubtitleUrl/.test(PS.read(f)), `${f} shapes a video context itself; use MdgSites.contextRef`);
+  }
+
+  // K15: one wait for a tab to load (background's write, side panel's jump), one pair of sentences for both.
+  {
+    const T = ctx.MdgErrors.TEXT;
+    chrome.tabs = { get: async () => Promise.reject(new Error("No tab with id: 9")) };
+    await assert.rejects(S.waitTabLoaded(9), (e) => e.message === T.tabClosed);
+    chrome.tabs = { get: async (id) => ({ id, status: "loading" }) };
+    await assert.rejects(S.waitTabLoaded(9, -1), (e) => e.message === T.tabLoadTimeout);
+    chrome.tabs = { get: async (id) => ({ id, status: "complete" }) };
+    eq(await S.waitTabLoaded(9), { id: 9, status: "complete" });
+    delete chrome.tabs;
   }
 
   console.log("sites selftest ok");

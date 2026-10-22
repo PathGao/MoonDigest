@@ -550,9 +550,9 @@ function render() {
     ? groups.map((g) => {
         const site = siteOf(g);
         const turnCount = g.convs.reduce((n, c) => n + MdgNote.buildConversationTurns(c.messages).length, 0);
-        // A video whose title never arrived falls back to its id; show that as 未获取标题 with the id in the meta line.
+        // A video whose title never arrived falls back to its id; show that as 无标题视频 with the id in the meta line.
         const untitled = g.title === g.context.videoId;
-        const label = untitled ? "未获取标题" : g.title;
+        const label = untitled ? MdgErrors.TEXT.untitledVideo : g.title;
         // Only web links: a saved context URL is shown as a link, never as a javascript: or other scheme.
         const title = /^https?:\/\//i.test(g.context.url || "") ? `<a class="title" href="${esc(g.context.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : `<span class="title">${esc(label)}</span>`;
         const only = [g.analysis && "分拣台 AI 总结", g.note && "备注", g.mark?.star && "星标", g.mark?.tags?.length && "标签"].filter(Boolean);

@@ -1147,7 +1147,7 @@ settingsDialog.addEventListener("close", async () => {
 
 // ----- 标签管理 (tag-dialogs.js) -----
 const manageTags = tagStore.manage({
-  hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
+  hint: () => `UP 标签和收藏夹的视频标签分开，${MdgErrors.TEXT.localOnly}。`,
   tags: () => D.tags,
   scope: () => undefined
 });

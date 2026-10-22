@@ -667,7 +667,8 @@ async function plusPage() {
   assert.deepStrictEqual(rows(), ["常看:false", "✓游戏:true"]);
   assert.strictEqual(focused.el?.dataset.id, "b", "focus stays on the row just toggled");
   assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "true", "the rebuilt box's 「+」 still shows the picker open");
-  // A redraw (a follow sync) keeps focus on 「在分拣台「关注」里打开这个 UP」, not on 新建标签.
+  // A redraw (a follow sync) keeps focus on 「在分拣台「关注」里打开这个 UP 主」, not on 新建标签.
+  assert.strictEqual(panel.querySelector(".go").textContent, "在分拣台「关注」里打开这个 UP 主 ↗", "K26: UP 主, as everywhere else");
   panel.querySelector(".go").focus();
   changed.forEach((f) => f({ follow_list: { newValue: store.follow_list } }, "local"));
   await settle();

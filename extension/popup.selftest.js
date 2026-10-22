@@ -87,8 +87,9 @@ setTimeout(() => (async () => {
   const T = ctx.MdgErrors.TEXT;
   assert.deepStrictEqual(fetched, [], "a web page is not read like a video page");
   assert.deepStrictEqual(asked.map((m) => ({ ...m })), [{ type: "popup-page-note", tabId: 1 }]);
-  // F1: an ordinary web page says what it is and what works there; the video tools are hidden, AI 总结 works.
-  assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.videoTitle.textContent, ctx.el.videoMeta.textContent], ["网页：AI 总结在侧边栏读正文", "一篇文章", "example.com"]);
+  // F1: an ordinary web page says what it is; the video tools are hidden, AI 总结 works. K17: once read it says what
+  // the note's exits can do, in the video page's words.
+  assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.videoTitle.textContent, ctx.el.videoMeta.textContent], [T.readDone, "一篇文章", "example.com"]);
   assert.ok(body.classes.has("web-page"), "the video tools are hidden");
   assert.strictEqual(ctx.el.summaryBtn.disabled, false, "AI 总结 opens the side panel on a web page");
   const noteTools = () => [ctx.el.copyBtn, ctx.el.mdBtn, ctx.el.sendBtn].map((b) => (b.disabled ? b.title : ""));

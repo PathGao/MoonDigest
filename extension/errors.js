@@ -108,12 +108,12 @@
     deleteFailed: "删除失败",
     // Waiting for the first data: 摘读记录's list, the side panel's chip.
     loading: "正在加载…",
-    // A known video without a title (摘读记录, the side panel's conversations). 未知视频 is only the side panel's chip
-    // with no video at all (DESIGN 术语表).
+    // A known video without a title (摘读记录, the side panel's conversations; an AI 笔记's file name adds the id).
+    // 未知视频 is only the side panel's chip with no video at all (DESIGN 术语表).
     untitledVideo: "无标题视频",
     // The 备注 box (side panel, 摘读记录, 分拣台).
     notePlaceholder: "一句话备注，回车保存",
-    // 全选 and 清理 with nothing listed (收藏夹, 摘读记录); 关注 says 这里没有列出 UP 主.
+    // 全选 and 清理 with nothing listed (收藏夹); 摘读记录 says 这里没有列出记录, 关注 这里没有列出 UP 主.
     noVideosListed: "这里没有列出视频",
     sidepanelOpening: "正在打开侧边栏…",
     // The popup or the side panel did not start; followed by 「：原因」.
@@ -121,7 +121,18 @@
     // The popup and the video page while the video's info is read.
     videoReading: "正在读取视频信息…",
     // 去设置 / ⚙ that could not open the settings page (video page, popup, 分拣台); followed by 「：原因」.
-    settingsOpenFailed: "打开设置失败"
+    settingsOpenFailed: "打开设置失败",
+    // A tab opened or sent elsewhere that must load first (MdgSites.waitTabLoaded: the background's write of a page
+    // not open, the side panel's jump to a time).
+    tabClosed: "标签页已关闭",
+    tabLoadTimeout: "标签页加载超时",
+    // A note read and ready (the video page's read for the popup, the popup's read of a web page): what its exits can do.
+    readDone: "读取完成，可以复制或下载。",
+    readDoneObsidian: "读取完成，可以复制、下载或写入 Obsidian。",
+    // YouTube's HTTP 429 on a subtitle, after the video page's one wait; B站's is biliThrottled.
+    ytThrottled: "YouTube 限流，请稍后再试",
+    // Tags and 保留 marks are MoonDigest's own (B站 pages' UP tag picker, 关注's 标签管理 and 帮助, 收藏夹's 保留).
+    localOnly: "只存在 MoonDigest 里，不改 B站"
   });
 
   // Names of controls and pages that recur across pages (DESIGN 术语表). A name also appears inside sentences
@@ -187,7 +198,10 @@
     // A B站 page's mark on an invalid video the AI never judged (no 「AI」: it is the snapshot's fact, not a verdict).
     invalid: "已失效",
     // 收藏夹's page for videos that left every checked folder, and its storage row on the settings page.
-    removed: "已出分拣范围"
+    removed: "已出分拣范围",
+    // 收藏夹's two AI steps: a B站 page's mark names the step that judged the video, 分拣台 its buttons and runs.
+    coarseRead: "标题粗看",
+    fineRead: "字幕细看"
   });
 
   // How long a B站 / YouTube read waits for an answer: the background's B站 channel (triage-bg.js triageBiliFetch,
