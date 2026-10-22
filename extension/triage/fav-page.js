@@ -781,6 +781,8 @@ function onKey(e) {
   const t = e.target;
   if ((e.key === "Enter" || e.key === " ") && t.closest?.("button, a")) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  // Esc with a popover open (导出) closes only that, in both modes; the browser does it.
+  if (key === "Escape" && document.querySelector(":popover-open")) return;
   // Before the open-dialog check: the mode decides which of its dialogs own the keys.
   const used = modeKeys?.(key, e);
   if (used != null) return used && e.preventDefault();
@@ -792,8 +794,6 @@ function onKey(e) {
   };
   const nav = { j: 1, ArrowDown: 1, k: -1, ArrowUp: -1 };
   const cardKeys = { d: "unfav", s: "keep", t: "tag", e: "basket", q: "ask", x: "select", o: "open", Enter: "open" };
-  // Esc with a popover open (导出) closes only that; the browser does it.
-  if (key === "Escape" && document.querySelector(":popover-open")) return;
   if (key === "Escape" && S.viewing) closeViewer();
   // Esc with nothing else open clears the selection.
   else if (key === "Escape" && S.selected.size) {

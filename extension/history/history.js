@@ -404,7 +404,8 @@ const SETTINGS_BTN = UI.gearBtn('data-f="settings"', "摘读记录设置");
 // Rows 2 and 3 of the head, 全选 and the selection bar; a focused control there gets focus back after the redraw.
 function renderHead(all, groups) {
   const focused = els.filters.contains(document.activeElement) && document.activeElement.dataset?.f;
-  const stars = visibleGroups({ star: false }, all).filter((g) => g.mark?.star).length;
+  // As the list under 星标: the ones unstarred here stay in it until a reload.
+  const stars = visibleGroups({ star: true }, all).length;
   const recentKeys = new Set(AI.recent?.keys);
   const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: visibleGroups({ recent: false }, all).filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
   const anyTag = visibleGroups({ tags: [] }, all);
