@@ -1160,7 +1160,7 @@ const chatOn = (context) => {
     ctx.showConversationContextNotice = prevNotice;
     // C363: the tab closed while it loads: said at once, not after 15 seconds as a load timeout.
     ctx.chrome.tabs.get = async () => Promise.reject(new Error("No tab with id: 9"));
-    await assert.rejects(ctx.waitForTabComplete(9), /标签页已关闭/);
+    await assert.rejects(ctx.MdgSites.waitTabLoaded(9), (e) => e.message === ctx.MdgErrors.TEXT.tabClosed);
   }
 
   // C329: a save reads the stored list again and changes it by entry: a conversation 摘读记录 deleted after this page

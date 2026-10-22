@@ -446,7 +446,7 @@ const verdictBadge = (b, v, low = v.low) =>
   S.analyzing.has(b)
     ? `<span class="badge running">${ANALYZING}</span>`
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
-const KEEP_TIP = "保留标记只存在 MoonDigest 里，B站收藏夹不变";
+const KEEP_TIP = `保留标记${MdgErrors.TEXT.localOnly}`;
 const DONE_TIP = `已保留：${KEEP_TIP}。\n已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。`;
 
 // What a 细看 judged from, on the card's meta line, in the video page's words: no subtitle (and why), or a subtitle

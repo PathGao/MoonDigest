@@ -1134,17 +1134,17 @@
     async fetchTranscript(ref, io) {
       const params = ytTranscriptParams(await ytNextResponse(ref, io));
       if (!params) {
-        throw new Error("该视频没有文字稿");
+        throw new Error("该视频没有转写文稿");
       }
       const { responses, language } = await ytFetchTranscript(params, io);
       if (!responses.flatMap(ytParseTranscript).length) {
-        throw new Error("文字稿为空");
+        throw new Error("转写文稿为空");
       }
       return {
         track: {
           id: "transcript",
           lang: "",
-          label: language ? `${language}（文字稿）` : "文字稿（默认语言）",
+          label: language ? `${language}（转写文稿）` : "转写文稿（默认语言）",
           url: `${YT_TRANSCRIPT_URL}?params=${encodeURIComponent(params)}`,
           kind: "transcript",
           isDefault: false
@@ -1474,8 +1474,20 @@
     };
   }
 
+  // A video page or web page opened or sent elsewhere, once loaded (the background's write of a page not open, the side
+  // panel's jump to a time): a tab closed meanwhile is said at once, not after ms as a timeout.
+  async function waitTabLoaded(tabId, ms = 15000) {
+    for (const end = Date.now() + ms; ; await new Promise((resolve) => setTimeout(resolve, 250))) {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab) throw new Error(MdgErrors.TEXT.tabClosed);
+      if (tab.status === "complete") return tab;
+      if (Date.now() > end) throw new Error(MdgErrors.TEXT.tabLoadTimeout);
+    }
+  }
+
   globalThis.MdgSites = {
     SITES,
+    waitTabLoaded,
     matchSite,
     parseRef,
     cleanUrl,

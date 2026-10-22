@@ -236,8 +236,6 @@ const DUPLICATES = [
   ["「附带 AI 问答」已关。", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["整篇覆盖会替换全部内容：", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["账号已注销", "triage/follow-bg.js triage/follow.js", "例外：follow-bg.js 里的是 B站 给注销账号的占位名（接口数据，按它认人），follow.js 显示的状态名恰好同字"],
-  ["标题粗看", "badges.js triage/fav-base.js", "待修：C34（badges.js 同一张 STAGE 表）"],
-  ["字幕细看", "badges.js triage/fav-base.js", "待修：C34（badges.js 同一张 STAGE 表）"],
   ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55"],
 ];
 {
@@ -279,7 +277,10 @@ const TERMS = [
   [/视频记录/, "按视频和网页列出总结、备注和对话的页面", "视频记录"],
   [/取关(?!注)/, "不再关注一个 UP 主", "取关"],
   [/侧栏/, "分拣台左边的收藏夹列表或分组列表（只在文档里出现）", "侧栏"],
-  [/BiliDigest/, "扩展的名字", "BiliDigest"]
+  [/BiliDigest/, "扩展的名字", "BiliDigest"],
+  [/未获取标题/, "知道是哪个视频、只是没有标题", "未获取标题"],
+  [/文字稿/, "YouTube 视频下面那份整段文字的字幕", "文字稿"],
+  [/只写了对话/, "侧边栏和摘读记录写成单独一篇 AI 笔记时结果后面的说明", "（视频已失效，只写了对话）"]
 ];
 {
   const design = fs.readFileSync(path.join(__dirname, "../docs/DESIGN.md"), "utf8");

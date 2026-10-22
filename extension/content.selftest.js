@@ -577,7 +577,7 @@ const settle = async () => {
     let site = t.pageSubtitleSite({ fetchRaw: answers([limited(), "raw"]) }, state.fetchRunId);
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
     site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
-    await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === "字幕接口限流（429），稍后再试");
+    await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === t.MdgErrors.TEXT.ytThrottled);
     // B站's 429 is its limit, said as THROTTLED by sites.js biliJson: waited on once, then passed on as it is.
     const biliLimited = () => Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED", status: 429 });
     site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), "raw"]) }, state.fetchRunId);

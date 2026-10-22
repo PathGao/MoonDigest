@@ -422,7 +422,9 @@ assert.strictEqual(
   N.buildAiConversationMarkdown({ context: aiContext, turns: [{ prompt: "# 问一", answer: "答一" }, { prompt: "问二", answer: "答二" }], filename: aiFile, sourcePath: "Clip/视频.md" }),
   `---\ntitle: "【AI笔记】视频_标题"\nsource_title: "视频]标题"\nsource: "[[Clip/视频]]"\nurl: "https://www.bilibili.com/video/BV1GJ411x7h7/"\nauthor: "UP主"\ncreated: "${ctx.MdgCommon.localDate()}"\ntags: [ai_note]\n---\n\n来源：[[Clip/视频|视频］标题]]\n\n## 问一\n\n答一\n\n## 问二\n\n答二\n`
 );
-assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：当前视频"), "no source path → no dangling link");
+assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md" }).includes("来源：无标题视频"), "no source path → no dangling link");
+// K19: an untitled video's AI 笔记 is named as 摘读记录 names it, with its id: two untitled videos, two files.
+assert.deepStrictEqual(["BV1xx411c7mD", "BV1yy411c7mD"].map((videoId) => N.buildAiConversationFilename({ videoId })), ["【AI笔记】无标题视频 BV1xx411c7mD.md", "【AI笔记】无标题视频 BV1yy411c7mD.md"]);
 // 摘读记录's tags (cleaned as note tags) and 星标 go into the AI 笔记 after ai_note.
 assert.ok(N.buildAiConversationMarkdown({ context: {}, turns: [], filename: "x.md", extras: { userTags: ["学 习"], starred: true } }).includes('\ntags: ["ai_note", "学_习"]\nstarred: true\n---'));
 // Triage summary block (triage notes and history-page notes)

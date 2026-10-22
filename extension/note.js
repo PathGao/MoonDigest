@@ -262,8 +262,9 @@
 
   // Standalone AI notes from side panel conversations. context: a conversation's video ref
   // ({ title, url, site, videoId, author }). sourcePath: the video note's vault path, or "" when unknown.
+  // Without a title: 无标题视频 and the id, so two untitled videos' AI 笔记 get two files (DESIGN 术语表).
   function aiSourceTitle(context) {
-    return String(context?.title || "").trim() || "当前视频";
+    return String(context?.title || "").trim() || [MdgErrors.TEXT.untitledVideo, context?.videoId].filter(Boolean).join(" ");
   }
 
   // Multi-P videos: each part's conversation is its own note, named and linked by part.

@@ -270,8 +270,8 @@ process.on("exit", (code) => {
   assert.match(none, /^视频没有字幕。你拿不到/m);
   assert.match(none, /告诉用户：视频没有字幕。/);
   assert.doesNotMatch(none, /抓取失败/);
-  const failed = systemFor({ subtitleFailure: "字幕接口限流（429），稍后再试" });
-  assert.match(failed, /字幕抓取失败：字幕接口限流（429），稍后再试。/);
+  const failed = systemFor({ subtitleFailure: "YouTube 拒绝了字幕请求" });
+  assert.match(failed, /字幕抓取失败：YouTube 拒绝了字幕请求。/);
   assert.match(failed, /以下仅基于简介和评论/);
   assert.doesNotMatch(failed, /这个视频没有字幕/);
   assert.match(failed, /以下是视频简介：\n\n简介/);

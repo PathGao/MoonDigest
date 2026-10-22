@@ -32,7 +32,7 @@ async function init() {
     await start();
   } catch (e) {
     console.error("[triage] start failed", e);
-    el.list.innerHTML = UI.emptyState("分拣台启动失败", `${MdgErrors.text({ error: e?.message })}。刷新网页再试。`);
+    el.list.innerHTML = UI.emptyState("分拣台启动失败", `${MdgErrors.text({ error: e?.message })}，${MdgErrors.TEXT.reloadRetry}。`);
   }
 }
 async function start() {

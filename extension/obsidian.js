@@ -221,7 +221,7 @@ async function resolveNote({ ref: input, mode, conversation, page, pageChoice },
         // A deleted or hidden video has no note to build, recorded or not: a conversation the user writes goes in its
         // own note.
         if (!conversation || !aiOn || !MdgSites.isBiliVideoGone(e.code)) throw e;
-        target = standalone("（视频已失效，只写了对话）", "");
+        target = standalone(OWN_NOTE, "");
       }
     }
   } else {

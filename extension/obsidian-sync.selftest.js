@@ -190,7 +190,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // A deleted B站 video: the user's conversation as its own note; 逐个视频笔记 (no conversation) fails with B站's code.
   gone = true;
   resp = await write({ ref: { ...bili, videoId: "BV9", cid: "" }, conversation: conversation("q") });
-  assert.deepStrictEqual([resp.kind, resp.text], ["conversation", "已写入 Obsidian：N/bilibili/【AI笔记】T.md（视频已失效，只写了对话）"]);
+  assert.deepStrictEqual([resp.kind, resp.text], ["conversation", "已写入 Obsidian：N/bilibili/【AI笔记】T.md（单独的 AI 笔记）"]);
   resp = await send({ type: "triage-write-note", bvid: "BV9", overwrite: false });
   assert.deepStrictEqual(resp, { ok: false, error: "啥都木有", code: -404 });
   // C219: the same for a recorded note: 整篇覆盖 cannot rebuild it, so the conversation is its own note.
