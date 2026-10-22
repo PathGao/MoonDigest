@@ -20,11 +20,11 @@
   // The settings page's table: a row per surface, a column per kind of mark. Most met first: the home page, its header
   // popovers and 动态, then the video page, then the pages one goes to on purpose.
   const ROWS = {
-    card: "首页、搜索",
+    card: "首页、搜索和其他页面", // every page without a row of its own (热门, 分区, 番剧 …)
     popover: "顶栏弹窗（收藏、历史、稍后再看）",
     popfeed: "顶栏动态弹窗",
     feed: "动态页（UP 标签含筛选条）",
-    video: "视频页的推荐和播放列表",
+    video: "视频页的推荐、合集和播放列表",
     owner: "视频页 UP 名字",
     fav: "收藏夹页",
     later: MdgErrors.LABEL.watchLater,

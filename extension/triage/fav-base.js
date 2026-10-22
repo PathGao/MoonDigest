@@ -599,7 +599,9 @@ const sortWords = (sort, dir) => UI.dirWords({ title: "name", play: "count", dur
 const noVideosText = () => (S.mediaId === REMOVED ? `${REMOVED_NAME}里没有视频` : S.mediaId === ALL ? "勾选的收藏夹里都没有视频" : "这个收藏夹没有视频");
 function renderSort() {
   const { sort, dir } = sortOf();
-  const missing = S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
+  // 刷新 fills a missing 播放量 only in a single folder; 所有收藏夹 and 已出分拣范围 just sort those videos last.
+  const fills = S.mediaId !== ALL && S.mediaId !== REMOVED;
+  const missing = fills && S.items.some((it) => !it.invalid && !Number.isFinite(it.play));
   const sorts = missing ? { ...SORTS, play: "播放量（刷新后才有）" } : SORTS;
   el.sortBox.innerHTML = UI.sortControl({ sorts, sort, dir, words: sortWords(sort, dir), selectAttr: "data-sort", dirAttr: "data-sort-dir" });
   // 导出 → 摘录或笔记 and this folder's table: nothing to put in them without videos (a running export stays reachable).

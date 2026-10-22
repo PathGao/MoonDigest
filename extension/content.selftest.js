@@ -266,6 +266,20 @@ const settle = async () => {
     Object.assign(t, prev);
   }
 
+  // K2: a read that settles without subtitles (重试 after a failure) clears the earlier red notice, as one with them does.
+  {
+    const prev = Object.fromEntries(["refreshDerivedContent", "renderReadingView", "moveReadingMainInline", "startReaderPlayerObserver", "setReadingNotice"].map((k) => [k, t[k]]));
+    const seen = [];
+    Object.assign(t, { refreshDerivedContent: async () => {}, renderReadingView() {}, moveReadingMainInline() {}, startReaderPlayerObserver() {}, setReadingNotice: (text) => seen.push(text) });
+    t.stepReader("mark");
+    t.stepReader("enter");
+    seen.splice(0);
+    await t.showNoSubtitleState(state.fetchRunId);
+    assert.deepStrictEqual(seen, [""], "the old read failure is cleared");
+    t.stepReader("close");
+    Object.assign(t, prev);
+  }
+
   // V3: right after our own scroll, only a bare scroll event is taken for ours; wheel, touch and keys are the reader's.
   // A shorter scroll started meanwhile does not cut the window short.
   {

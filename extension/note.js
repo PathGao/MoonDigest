@@ -457,8 +457,6 @@
   }
 
   function getFixedFrontmatterPropertyLines(settings, templateContext = {}) {
-    // Starts with a letter, digit or _: a key like 「- 评分」 would read as a YAML list item and break the block.
-    const customPropertyKeyPattern = /^[\p{L}\p{N}_][\p{L}\p{N}_\-\s]*$/u;
     const systemFields = new Set(FRONTMATTER_FIELDS);
     const rows = Array.isArray(settings?.fixedFrontmatterProperties) ? settings.fixedFrontmatterProperties : [];
     const seenKeys = new Set();
@@ -472,7 +470,7 @@
       if (!key || S.isFixedPropertyRowEffectivelyEmpty(type, value)) {
         return;
       }
-      if (!customPropertyKeyPattern.test(key)) {
+      if (!S.FIXED_PROPERTY_KEY_RE.test(key)) {
         return;
       }
       if (systemFields.has(lowerKey) || seenKeys.has(lowerKey)) {

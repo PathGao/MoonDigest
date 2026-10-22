@@ -707,7 +707,9 @@ const runSync = async () => {
     assert.ok(sent.messages[0].content.includes(`至多 ${t.TriageUi.NUM_SETTINGS.newTagMax[1]} 个`), "maxNewTags is capped at newTagMax's max");
     t.triageChat = async () => ({ content: '{"new_tags":[],"items":[{"i":1,"add":["硬核"' });
     await assert.rejects(ask({ instruction: "x", mids: ["1"] }), /不完整/, "truncated answer");
-    await assert.rejects(ask({ instruction: "x", mids: ["99"] }), /选中的 UP 主都已取消关注/, "every one unfollowed says so, not 缺少 mids");
+    // K13: every one unfollowed says so by the dialog's 作用范围, not 缺少 mids.
+    await assert.rejects(ask({ instruction: "x", mids: ["99"], scope: "selected" }), /^Error: 选中的都已取消关注$/);
+    await assert.rejects(ask({ instruction: "x", mids: ["99"], scope: "filter" }), /^Error: 列出的都已取消关注$/);
     await assert.rejects(ask({ instruction: "x", mids: [] }), /缺少 mids/);
     // The page always sends tags, maxNewTags and allowRemove (follow.js aiRequests); without tags it is refused.
     await assert.rejects(t.followAiTag({ instruction: "x", mids: ["2"] }), /缺少 tags/);

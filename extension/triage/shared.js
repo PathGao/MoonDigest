@@ -617,7 +617,10 @@
   };
   // Settings rows both dialogs have: the same name and hint. Each .set-row contains its input.
   const SET_ROWS = {
+    // 收藏夹's spaces its B站 reads and AI requests (加载, 导出, 粗看, 细看, AI 打标签); 关注's and 摘读记录's only the AI 打标签
+    // batches (关注's 刷新 has its own pace), so they name it that. Both store intervalSec, data-num="interval".
     interval: ["请求间隔（秒）", ""],
+    aiInterval: ["AI 打标签每批间隔（秒）", ""],
     // 收藏夹 stores it as triageAiBatchSize, 关注 in follow_ai_settings.batchSize.
     aiBatch: ["AI 打标签每批数量", `${NUM_SETTINGS.aiBatch[0]}–${NUM_SETTINGS.aiBatch[1]} 个一批。`],
     newTagMax: ["AI 打标签时最多新建几个标签", `${NUM_SETTINGS.newTagMax[0]}–${NUM_SETTINGS.newTagMax[1]}，0 = 只用已有标签。`],

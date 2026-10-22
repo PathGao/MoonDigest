@@ -30,7 +30,7 @@
         <button id="hostPermissionBtn" class="sm" type="button" data-text="grant">授权</button>
       </p>
 
-      <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记<span class="obsidian-only">、写入 Obsidian</span>、手动分拣。<br>配了 AI，再多出 ✦ AI 总结、问答和分拣台的粗看细看。</p>
+      <p id="noAiNote" class="noai" hidden>不配 AI 也能用：读字幕、下载字幕、专注模式、导出笔记<span class="obsidian-only">、写入 Obsidian</span>、手动分拣。<br>配了 AI，再多出 ✦ AI 总结、问答、✦ AI 打标签和分拣台的粗看细看。</p>
 
       <section class="sec" id="basic" data-name="读字幕">
         <div class="sec-head">
@@ -48,7 +48,7 @@
             </div>
           </div>
           <div class="row">
-            <div class="lab"><label class="name" for="includeTimestampInBody">正文保留时间戳</label><p class="hint">复制和下载的字幕正文里，每段前面带 03:12 这样的时间。</p></div>
+            <div class="lab"><label class="name" for="includeTimestampInBody">正文保留时间戳</label><p class="hint">复制<span class="obsidian-only">、写入 Obsidian</span>和下载的字幕正文里，每段前面带 03:12 这样的时间。发给 AI 的始终带。</p></div>
             <div class="ctl"><input id="includeTimestampInBody" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
@@ -95,7 +95,7 @@
           <details class="adv">
             <summary>属性和附加段落</summary>
             <div class="row wide">
-              <div class="lab"><span class="name">自带属性（frontmatter）</span><p class="hint">仅视频笔记：每个视频自动填，勾选的写进笔记开头。网页笔记固定写 <code>title</code> <code>url</code> <code>site</code> <code>author</code> <code>published</code> <code>created</code> <code>tags</code>。</p></div>
+              <div class="lab"><span class="name">自带属性（frontmatter）</span><p class="hint">仅视频笔记：每个视频自动填，勾选的写进笔记开头。网页笔记固定写 <code>title</code> <code>url</code> <code>site</code> <code>author</code> <code>published</code> <code>created</code> <code>tags</code>。在摘读记录里加了星标的，两种笔记都再写 <code>starred: true</code>。</p></div>
               <table class="data">
                 <tbody>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="title" /> <span class="mono">title</span></label></td><td class="rule">视频标题</td></tr>
@@ -111,7 +111,7 @@
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="upload_date" /> <span class="mono">upload_date</span></label></td><td class="rule" data-text="uploadDate">发布日期</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> <span class="mono">subtitle_lang</span></label></td><td class="rule">字幕语言</td></tr>
                   <tr><td><label><input type="checkbox" name="frontmatterField" value="created" /> <span class="mono">created</span></label></td><td class="rule" data-text="exportDate">导出日期</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="tags" /> <span class="mono">tags</span></label></td><td class="rule">默认标签和分拣台给视频打的标签</td></tr>
+                  <tr><td><label><input type="checkbox" name="frontmatterField" value="tags" /> <span class="mono">tags</span></label></td><td class="rule">默认标签，分拣台和摘读记录给视频打的标签</td></tr>
                 </tbody>
               </table>
             </div>
@@ -183,7 +183,7 @@
                 <div class="ctl"><textarea id="webAiSummaryPrompt" rows="2" placeholder="例如：整理这篇网页的内容，输出结构化总结。"></textarea></div>
               </div>
               <div class="row wide">
-                <div class="lab"><label class="name" for="webAiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">网页对话里出现的快捷追问。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。</p></div>
+                <div class="lab"><label class="name" for="webAiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">网页对话里出现的快捷追问。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
                 <div class="ctl"><textarea id="webAiPresetPrompts" rows="4"></textarea></div>
               </div>
             </div>
@@ -347,7 +347,7 @@
             <div class="ctl"><input id="enableDebugLogs" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
-            <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹和关注的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>
+            <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹、关注和摘读记录的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>
             <div class="ctl end"><button id="exportSettingsBtn" class="sm" type="button">导出设置</button></div>
           </div>
           <div class="row">

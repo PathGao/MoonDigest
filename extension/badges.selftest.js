@@ -254,6 +254,8 @@ assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
   "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "feed:--✓✓✓", "video:✓✓✓-✓", "owner:--✓✓-",
   "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "nick:--✓✓-", "space:✓✓--✓"
 ], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
+// K31, K32: card covers every page without a row of its own; video covers the 合集 list beside a video too.
+assert.deepStrictEqual([ROWS.card, ROWS.video], ["首页、搜索和其他页面", "视频页的推荐、合集和播放列表"]);
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
 const all = rulesWith([]);
 assert.ok(Object.keys(SURFACES).every((k) => all[k].ups === allowed(k, "ups") && all[k].seen === allowed(k, "seen")), "nothing off: each surface as offered");

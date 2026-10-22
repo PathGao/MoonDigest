@@ -63,6 +63,14 @@ assert.ok(!fs.readFileSync(path.join(__dirname, "options.html"), "utf8").include
   const hintOf = (id) => new RegExp(`for="${id}">[^\\n]*?</label><p class="hint">([^\\n]*?)</p>`).exec(html)?.[1] || "";
   assert.ok(hintOf("includeHotCommentsInNote").includes("没有字幕的视频关着也带"), hintOf("includeHotCommentsInNote"));
   assert.ok(/复制和下载的笔记用 B站 的图片地址.*写入 Obsidian 时封面存进库里/.test(hintOf("includeCoverInNote")), hintOf("includeCoverInNote"));
+  // K33: the switch reaches notes written to Obsidian too (note.js buildMarkdown); what goes to the AI keeps its times.
+  assert.ok(/写入 Obsidian.*发给 AI 的始终带/.test(hintOf("includeTimestampInBody")), hintOf("includeTimestampInBody"));
+  // K35: the side panel's 管理快捷追问 edits the web prompts too (sidepanel.js presetKey), as the video row says.
+  assert.ok(/for="webAiPresetPrompts"[^\n]*网页对话里出现的快捷追问[^\n]*侧边栏「管理快捷追问」里也能改/.test(html));
+  // K34: every note gets starred: true for a 星标 record, and tags carry 摘读记录's (note.js triageExtras).
+  assert.ok(/<code>starred: true<\/code>/.test(html) && html.includes("分拣台和摘读记录给视频打的标签"));
+  // K36: ✦ AI 打标签 needs an AI too. K37: the file carries 摘读记录设置 (sync mdg_reading_ai_settings_v1).
+  assert.ok(/id="noAiNote"[^\n]*✦ AI 打标签/.test(html) && html.includes("关注和摘读记录的全部设置"));
 }
 // The scripts options.html loads before options.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "options.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
@@ -247,7 +255,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     return { parts, querySelector: (sel) => parts[sel] };
   };
   const page = vm.createContext({ MdgSettings: ctx.MdgSettings, elements: { frontmatterFields: [{ value: "title" }] } });
-  vm.runInContext([constant("CUSTOM_PROPERTY_KEY_PATTERN"), constant("TYPED_PROPERTY_VARS"), constant("FRONTMATTER_DATE_VALUE_RE"), fn("validateFixedFrontmatterProperties"), fn("isCalendarDate")].join("\n"), page);
+  vm.runInContext([constant("TYPED_PROPERTY_VARS"), constant("FRONTMATTER_DATE_VALUE_RE"), fn("validateFixedFrontmatterProperties"), fn("isCalendarDate")].join("\n"), page);
   const check = (key, type, value) => {
     const r = row();
     const v = page.validateFixedFrontmatterProperties([{ key, type, value, row: r }]);
@@ -257,6 +265,10 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual(check("完成", "checkbox", "yes").slice(0, 2), [false, "value"]);
   assert.deepStrictEqual(check("", "text", "x").slice(0, 2), [false, "key"]);
   assert.deepStrictEqual(check("title", "text", "x"), [false, "key", "该属性名与自带属性重复，请换一个名称"]);
+  // K3: a name note.js would leave out (MdgSettings.FIXED_PROPERTY_KEY_RE, one rule for both) is refused with why.
+  assert.deepStrictEqual(check("-评分", "text", "x"), [false, "key", "属性名不能以短横线开头，笔记里会被读成列表"]);
+  assert.deepStrictEqual(check("评分@", "text", "x"), [false, "key", "属性名只能包含文字、数字、空格、下划线和短横线"]);
+  assert.strictEqual(check("评-分", "text", "x")[0], true);
   assert.deepStrictEqual(check("日期", "date", "2026-02-30").slice(0, 2), [false, "value"]);
   assert.deepStrictEqual(check("日期", "date", "2026-13-01").slice(0, 2), [false, "value"]);
   assert.strictEqual(check("日期", "date", "2028-02-29")[0], true);

@@ -154,7 +154,7 @@
               <div class="set-row"><div><label class="name" for="fwDeadInput">多少天没投稿算断更</label><p class="hint">要比慢更的天数大。</p></div><input id="fwDeadInput" type="number" data-num="deadDays" step="1" /></div>
             </div>
           </section>
-          <!-- Grouped as 收藏夹设置: 标签, then 请求和 AI 参数 (请求间隔 paces the B站 reads too). -->
+          <!-- Grouped as 收藏夹设置: 标签, then 请求和 AI 参数. Here the interval spaces only the AI 打标签 batches, not 刷新. -->
           <div class="settings-ai">
             <section class="set-group">
               <h3>标签</h3>
@@ -167,7 +167,7 @@
               <h3 data-text="aiParams">请求和 AI 参数</h3>
               <p class="dialog-hint" data-text="aiParamsHint">一般不用改。AI 平台在设置页。</p>
               <div class="set-card">
-                <div class="set-row" data-set-row="interval"><input id="fwIntervalInput" type="number" data-num="interval" step="1" /></div>
+                <div class="set-row" data-set-row="aiInterval"><input id="fwIntervalInput" type="number" data-num="interval" step="1" /></div>
                 <div class="set-row" data-set-row="aiBatch"><input id="fwBatchInput" type="number" data-num="aiBatch" step="1" /></div>
               </div>
             </section>

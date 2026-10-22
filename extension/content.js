@@ -1426,6 +1426,8 @@ async function showNoSubtitleState(runId, { failure = "", needLogin = false } = 
     renderReadingView();
     startReaderPlayerObserver();
     syncReadingViewPlayback(true);
+    // The read settled: an earlier read's red failure no longer applies (showSubtitle does the same with its warning).
+    setReadingNotice("");
   }
   setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
