@@ -797,6 +797,27 @@ const runSync = async () => {
     vm.runInContext("followSlowUntil = 0; followHoldUntil = 0; FOLLOW_CFG.slowGapMs = 0", ctx);
   }
 
+  // ---------- J3: follow_* writes take the Web Lock the 分拣台 takes; B站 pages' 「+ UP 标签」 is written here ----------
+  {
+    const names = [];
+    t.navigator = { locks: { request: (name, fn) => (names.push(name), fn()) } };
+    await vm.runInContext('followUpdate(["jobs"], () => null)', ctx);
+    assert.deepStrictEqual(names, ["mdg-follow"], "under the lock the 分拣台 takes");
+    local = { follow_tags: [{ id: "a", name: "常看" }], follow_tag_map: { 5: ["a"] } };
+    const r = await vm.runInContext('followUpTag({ mid: "1", op: { create: "新" } })', ctx);
+    assert.ok(names.every((n) => n === "mdg-follow"), `every write under it: ${names}`);
+    assert.deepStrictEqual(local.follow_tags.map((x) => x.name), ["常看", "新"]);
+    assert.deepStrictEqual(local.follow_tag_map, { 5: ["a"], 1: [r.id] }, "read inside the lock: the stored map is kept");
+    await vm.runInContext('followUpTag({ mid: "1", op: { toggle: "a" } })', ctx);
+    assert.deepStrictEqual(local.follow_tag_map[1], [r.id, "a"]);
+    await assert.rejects(vm.runInContext('followUpTag({ mid: "x", op: { toggle: "a" } })', ctx));
+    const full = Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, name: `n${i}` }));
+    local = { follow_tags: full, follow_tag_map: {} };
+    assert.match((await vm.runInContext('followUpTag({ mid: "1", op: { create: "多" } })', ctx)).why, /^已经有 50 个 UP 标签了/);
+    assert.deepStrictEqual([local.follow_tags.length, local.follow_tag_map], [50, {}], "past the cap nothing is written");
+    delete t.navigator;
+  }
+
   finished = true;
   console.log("follow-bg selftest ok");
 })().catch((e) => {

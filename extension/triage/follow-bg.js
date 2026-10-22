@@ -272,23 +272,21 @@ async function followArcSearch(mid) {
 
 // ===== 存储 =====
 
-let followStoreChain = Promise.resolve();
-// 本 worker 里对 follow_ 键的读改写排队执行，同步和关注 / 取关不会互相覆盖。names 和 fn 收到、返回的都是短名（list、tag_map …），
-// 这里和 follow_<短名> 互转。fn(当前值) 返回要写的 patch；值为 undefined 的键删掉。
-function followUpdate(names, fn) {
-  const p = followStoreChain.then(async () => {
-    const patch = await fn(await MdgLimits.followGet(names));
-    if (patch) {
-      const full = MdgLimits.followFull(patch);
-      const gone = Object.keys(full).filter((k) => full[k] === undefined);
-      const put = Object.fromEntries(Object.entries(full).filter(([, v]) => v !== undefined));
-      if (Object.keys(put).length) await chrome.storage.local.set(put);
-      if (gone.length) await chrome.storage.local.remove(gone);
-    }
-    return patch;
+// 对 follow_ 键的读改写排队执行，和分拣台「关注」共用一把 Web Lock（MdgLimits.updateFollow），同步、关注 / 取关和页面上改标签
+// 不会互相覆盖。names 和 fn 收到、返回的都是短名（list、tag_map …）。fn(当前值) 返回要写的 patch；值为 undefined 的键删掉。
+const followUpdate = (names, fn) => MdgLimits.updateFollow(names, fn);
+
+// B站 页面上「+ UP 标签」的一次改动（badges.js）：页面在另一个 origin，拿不到同一把锁，所以由这里在锁里重读再改。
+async function followUpTag({ mid, op } = {}) {
+  mid = String(mid || "");
+  if (!/^\d+$/.test(mid) || !op || typeof op !== "object") throw triageError("缺少 mid 或 op");
+  const one = op.create != null ? { create: String(op.create) } : { toggle: String(op.toggle) };
+  let r = null;
+  await followUpdate(["tags", "tag_map"], (s) => {
+    r = MdgTagCore.applyUpTag(s.tags, s.tag_map, mid, one);
+    return r?.map && (r.tags !== s.tags ? { tags: r.tags, tag_map: r.map } : { tag_map: r.map });
   });
-  followStoreChain = p.catch(() => {});
-  return p;
+  return r;
 }
 
 const FOLLOW_STOPPED = () => triageError(MdgErrors.LABEL.stopped, "STOPPED");
@@ -821,12 +819,13 @@ const FOLLOW_HANDLERS = {
   "follow-group-create": (msg) => followGroupCreate(msg),
   "follow-group-rename": (msg) => followGroupRename(msg),
   "follow-group-delete": (msg) => followGroupDelete(msg),
-  "follow-ai-tag": (msg) => followAiTag(msg)
+  "follow-ai-tag": (msg) => followAiTag(msg),
+  "follow-up-tag": (msg) => followUpTag(msg)
 };
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   const resume = () => followResume().catch((e) => console.warn("[follow] 接着同步失败", e));
   resume();
   chrome.alarms?.onAlarm.addListener((alarm) => alarm.name === FOLLOW_ALARM && resume());
-  triageListen("follow-", FOLLOW_HANDLERS);
+  triageListen("follow-", FOLLOW_HANDLERS, ["follow-up-tag"]);
 }

@@ -18,6 +18,34 @@
   const newTagId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // A new UP tag (关注's follow_tags; B站 pages' 「+ UP 标签」 makes the same).
   const newUpTag = (name, tags) => ({ id: newTagId("ft"), name, color: nextTagColor(tags), rule: "" });
+  // Why no new UP tag can be made: there are MdgLimits.UP_TAGS already ("" while there is room).
+  const upTagsFull = (tags) => (tags.length >= MdgLimits.UP_TAGS ? `已经有 ${tags.length} 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的` : "");
+  // One change to one UP's tags (B站 pages' 「+ UP 标签」, written by the background): { toggle: tagId }, or
+  // { create: name } which reuses a tag of that name, else makes one while upTagsFull allows, and switches it on.
+  // { tags, map, id } to write; { why } when the tag cannot be made; null when nothing changes.
+  function applyUpTag(tags, map, mid, op) {
+    tags = Array.isArray(tags) ? tags : [];
+    map = { ...(map || {}) };
+    let id = op.toggle;
+    const create = op.create != null;
+    if (create) {
+      const name = cleanTagName(op.create);
+      if (!name) return null;
+      let t = tags.find((x) => x.name === name);
+      if (!t) {
+        const why = upTagsFull(tags);
+        if (why) return { why };
+        t = newUpTag(name, tags);
+        tags = [...tags, t];
+      }
+      id = t.id;
+    } else if (!tags.some((x) => x.id === id)) return null;
+    const ids = map[mid] || [];
+    const next = ids.includes(id) ? (create ? ids : ids.filter((x) => x !== id)) : [...ids, id];
+    if (next.length) map[mid] = next;
+    else delete map[mid];
+    return { tags, map, id };
+  }
 
   // The AI's three fixed classes; the ids are also CSS color classes.
   const VERDICTS = Object.freeze({ keep: "值得留", drop: "可清理", unsure: "拿不准" });
@@ -35,5 +63,5 @@
     return { verdict: "drop", reason: v.reason ? `${INVALID}。AI 原理由：${v.reason}` : INVALID, stage: Math.max(v.stage, 0) };
   }
 
-  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, VERDICTS, INVALID, verdictOf };
+  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf };
 })();

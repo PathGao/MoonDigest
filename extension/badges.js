@@ -12,7 +12,9 @@
   }
 
   // The verdict is MdgTagCore.verdictOf, as on the triage page; invalid: the folder's snapshot lists the video as 已失效.
-  function badgeInfo({ title, analysis, invalid, tagIds, tags, decision } = {}) {
+  // folder: the 收藏夹 the page shows (its fid), whose tags alone are shown, as the 分拣台 shows the open folder's; without
+  // one, tags of the same name (one per folder) show once, as on 摘读记录.
+  function badgeInfo({ title, analysis, invalid, tagIds, tags, decision, folder = "" } = {}) {
     const done = analysis?.status === "done";
     const found = verdictOf({ title, analysis, invalid });
     const v = found.verdict === "none" ? null : found;
@@ -20,7 +22,8 @@
     const byId = new Map((Array.isArray(tags) ? tags : []).map((t) => [t.id, t]));
     const userTags = (Array.isArray(tagIds) ? tagIds : [])
       .map((id) => byId.get(id))
-      .filter(Boolean)
+      .filter((t) => t && (!folder || String(t.folder) === String(folder)))
+      .filter((t, i, all) => all.findIndex((x) => x.name === t.name) === i)
       .map((t) => ({ name: String(t.name || ""), color: String(t.color || "") }));
     const action = ACTION[decision?.action] ? decision.action : "";
     if (!v && !userTags.length && !action) return null;
@@ -149,48 +152,17 @@
   }
 
   // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (tag-core.js). ----
-  const { cleanTagName, newUpTag } = globalThis.MdgTagCore;
+  const { applyUpTag, upTagsFull } = globalThis.MdgTagCore;
   const pickRows = (mid, tags, map) => {
     const on = new Set(map?.[mid] || []);
     return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
   };
-  // One change to one UP: { toggle: tagId }, or { create: name } which reuses a tag of that name and switches it on.
-  function applyUpTag(tags, map, mid, op) {
-    tags = Array.isArray(tags) ? tags : [];
-    map = { ...(map || {}) };
-    let id = op.toggle;
-    const create = op.create != null;
-    if (create) {
-      const name = cleanTagName(op.create);
-      if (!name) return null;
-      let t = tags.find((x) => x.name === name);
-      if (!t) {
-        t = newUpTag(name, tags);
-        tags = [...tags, t];
-      }
-      id = t.id;
-    } else if (!tags.some((x) => x.id === id)) return null;
-    const ids = map[mid] || [];
-    const next = ids.includes(id) ? (create ? ids : ids.filter((x) => x !== id)) : [...ids, id];
-    if (next.length) map[mid] = next;
-    else delete map[mid];
-    return { tags, map, id };
-  }
-  // Reads both keys fresh (the triage page may have written since) and writes back only what changed. Writes from this
-  // page queue, so a second click never reads before the first one's write lands.
-  // ponytail: the queue is per page; a 分拣台 write between this read and write can still be lost (no storage lock).
-  let upWrites = Promise.resolve();
-  function saveUpTag(local, mid, op) {
-    const write = async () => {
-      const got = await MdgLimits.followGet(["tags", "tag_map"], local);
-      const r = applyUpTag(got.tags, got.tag_map, mid, op);
-      if (!r) return null;
-      await local.set(MdgLimits.followFull(r.tags !== got.tags ? { tags: r.tags, tag_map: r.map } : { tag_map: r.map }));
-      return r;
-    };
-    const done = upWrites.then(write);
-    upWrites = done.catch(() => {});
-    return done;
+  // One change to one UP (MdgTagCore.applyUpTag), written by the background: this page is another origin than the
+  // 分拣台, so the Web Lock both of them write follow_* under (MdgLimits.updateFollow) is the background's to take.
+  // Resolves { tags, map, id }, { why } or null.
+  async function saveUpTag(mid, op) {
+    const r = await chrome.runtime.sendMessage({ type: "follow-up-tag", mid, op });
+    return r?.ok ? r.data : null;
   }
 
   // What each kind of B站 page shows: bili-surfaces.js, loaded first (manifest).
@@ -770,7 +742,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!rows.length) list.append(el("div", "empty", "还没有 UP 标签"));
     const more = el("div", "new");
-    if (pick.editing) {
+    const full = upTagsFull(up.tags);
+    if (full) more.append(el("div", "empty", full));
+    else if (pick.editing) {
       const input = el("input");
       input.type = "text";
       input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
@@ -843,8 +817,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   async function pickWrite(op) {
     if (!pick) return;
     if (!chrome.runtime?.id) return renderPick();
-    const r = await saveUpTag(chrome.storage.local, pick.mid, op).catch(() => null);
-    if (!r) return;
+    const r = await saveUpTag(pick.mid, op).catch(() => null);
+    if (!r?.map) return renderPick();
     up = { ...up, tags: r.tags, map: r.map };
     upOn = true;
     if (pick) {
@@ -915,7 +889,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       invalid: shared.invalid.has(b),
       tagIds: shared.videoTags[b],
       tags: shared.tags,
-      decision: shared.decisions[b]
+      decision: shared.decisions[b],
+      folder: sharedFid
     });
   // Cached, or nothing stored under its own keys: its info comes from the shared data alone.
   function known(b) {

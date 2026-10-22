@@ -522,7 +522,7 @@ function bindEvents() {
   el.settingsDialog.addEventListener("close", async () => {
     if (el.settingsDialog.returnValue !== "save") return;
     // Only the fields changed since the dialog opened: a setting written elsewhere meanwhile (导入设置) keeps that value.
-    const patch = Object.fromEntries(Object.entries(settingsFields()).filter(([k, v]) => v !== settingsShown[k]));
+    const patch = UI.changedFields(settingsFields(), settingsShown);
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
       toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true);

@@ -11,6 +11,8 @@
   const AI_CONVERSATIONS = 500;
   // 摘读记录's own tags (one list for videos and web pages).
   const READING_TAGS = 50;
+  // 关注's UP 标签 (follow_tags), as many: 标签管理 and B站 pages' 「+ UP 标签」 make no more (MdgTagCore.upTagsFull).
+  const UP_TAGS = 50;
   const AI_SUBTITLE_MAX_CHARS = 60000;
   const AI_HISTORY_MAX_CHARS = 40000;
   // Hot comments a note or the side panel's AI gets (fetchComments' default). 分拣台细看 reads TriageUi.DEEP_COMMENTS.
@@ -225,6 +227,27 @@
   const followShort = (o) => Object.fromEntries(Object.entries(o || {}).filter(([k]) => k.startsWith(FOLLOW)).map(([k, v]) => [k.slice(FOLLOW.length), v]));
   // followGet(["list", "tags"]) reads follow_list and follow_tags as { list, tags }.
   const followGet = async (names, area = chrome.storage.local) => followShort(await area.get(names.map(KEYS.follow)));
+  // 关注's keys changed by read-modify-write, one change at a time across the 分拣台 and the background, like
+  // updateReadingMarks: fn(the stored values by short name) returns a patch by short name (a key set to undefined is
+  // removed) or nothing. B站 pages are another origin, outside the lock: badges.js sends its writes to the background
+  // (follow-up-tag). set writes the patch (the 分拣台 passes its own, which toasts a failure). Resolves the patch.
+  let followQueue = Promise.resolve();
+  function updateFollow(names, fn, set = (o) => chrome.storage.local.set(o)) {
+    const once = async () => {
+      const patch = await fn(await followGet(names));
+      if (patch) {
+        const full = followFull(patch);
+        const put = Object.fromEntries(Object.entries(full).filter(([, v]) => v !== undefined));
+        const gone = Object.keys(full).filter((k) => full[k] === undefined);
+        if (Object.keys(put).length) await set(put);
+        if (gone.length) await chrome.storage.local.remove(gone);
+      }
+      return patch;
+    };
+    const done = followQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-follow", once) : once()));
+    followQueue = done.catch(() => {});
+    return done;
+  }
 
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
   const sizeOf = (entries) => entries.reduce((sum, [key, value]) => sum + key.length + JSON.stringify(value ?? null).length, 0);
@@ -339,6 +362,7 @@
     SUBTITLE_CACHE_DAYS,
     AI_CONVERSATIONS,
     READING_TAGS,
+    UP_TAGS,
     AI_SUBTITLE_MAX_CHARS,
     AI_HISTORY_MAX_CHARS,
     HOT_COMMENTS,
@@ -365,6 +389,7 @@
     askSidepanel,
     followFull,
     followShort,
-    followGet
+    followGet,
+    updateFollow
   });
 })();
