@@ -179,6 +179,8 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
 // ponytail: read again at every context load (tab events, each send); cache by tab and URL if parsing shows up as slow.
 const PAGE_MARKDOWN_MAX = 200000;
 const PAGE_READ_TIMEOUT_MS = 10000;
+// A video page read for a write: its subtitles may take longer than a web page's text.
+const VIDEO_READ_TIMEOUT_MS = 30000;
 
 async function readWebPage(tab) {
   const url = String(tab.url || "").trim().replace(/#.*$/, "");
@@ -250,25 +252,56 @@ async function popupPageNote(tabId) {
   return { ref: MdgSites.contextRef(page), ...MdgNote.buildPageNoteFile(page, settings, turns, stored) };
 }
 
-// A web page's note read from a tab that shows it (its URL without #), for a write sent without the page (摘读记录, the
-// side panel on a page not in its tab); null when none does or it cannot be read now. open: no such tab, so open one in
-// the background and read it once loaded (the write's 「打开网页再写」); a failed read then throws its reason.
-async function tabPageNote(url, open = false) {
-  let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => String(t.url || "").replace(/#.*$/, "") === url);
+// The note of ref read from a tab that shows it, for a write sent without its page (摘读记录, the side panel on another
+// tab): a web page's (its URL without #) built as the popup's, a video part's from its content script (popup-refresh)
+// with the part as the video page's own write names it (ref). null when no tab shows it or it cannot be read now. open:
+// no such tab, so open one in the background (muted: a video page may start playing) and read it once loaded (the
+// write's 「打开网页再写」 / 「打开视频页再写」); a failed read then throws its reason.
+async function tabNote(ref, open = false) {
+  const video = ref.isVideoContext;
+  const sameVideo = (url) => {
+    const r = MdgSites.parseRef(url);
+    return r?.site === ref.site && r.id === ref.videoId && (r.part?.index || 1) === ref.pageIndex;
+  };
+  const shows = (url) => (video ? sameVideo(url) : String(url || "").replace(/#.*$/, "") === ref.url);
+  let tab = (await chrome.tabs.query({}).catch(() => [])).find((t) => shows(t.url));
   if (!tab && !open) return null;
-  if (!tab) {
-    tab = await chrome.tabs.create({ url, active: false });
+  const opened = !tab;
+  if (opened) {
+    tab = await chrome.tabs.create({ url: video ? MdgSites.videoUrl(ref) : ref.url, active: false });
+    if (video) await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
     for (const end = Date.now() + 15000; tab?.status !== "complete"; tab = await chrome.tabs.get(tab.id).catch(() => null)) {
-      if (!tab) throw new Error("网页标签页已关闭");
-      if (Date.now() > end) throw new Error("网页加载超时");
-      await new Promise((r) => setTimeout(r, 250));
+      if (!tab) throw new Error(video ? "视频页已关闭" : "网页标签页已关闭");
+      if (Date.now() > end) throw new Error(video ? "视频页加载超时" : "网页加载超时");
+      await sleep(250);
     }
   }
   try {
-    return { markdown: (await popupPageNote(tab.id)).content };
+    if (!video) return { page: { markdown: (await popupPageNote(tab.id)).content } };
+    const page = (await videoTabPayload(tab.id, opened))?.payload;
+    if (!page?.markdown || !sameVideo(page.url)) throw new Error(MdgErrors.TEXT.noNoteYet);
+    return { page: { markdown: page.markdown, cover: page.cover, warning: page.noteWarning }, ref: page.noteRef };
   } catch (error) {
     if (open) throw error;
     return null;
+  }
+}
+
+// The video page's popup-refresh answer, its subtitles read. A tab just opened may not have its content script yet.
+async function videoTabPayload(tabId, opened) {
+  for (let attempt = 0; ; attempt += 1) {
+    let timer = 0;
+    const late = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(PAGE_SILENT)), VIDEO_READ_TIMEOUT_MS)));
+    try {
+      const resp = await Promise.race([sendMessageToTab(tabId, { type: "popup-refresh" }, { frameId: 0 }), late]);
+      if (!resp?.ok) throw MdgErrors.fromResp(resp, PAGE_SILENT);
+      return resp;
+    } catch (error) {
+      if (!opened || attempt >= 20 || !/Receiving end/.test(error.message)) throw error;
+      await sleep(500);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

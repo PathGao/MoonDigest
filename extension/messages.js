@@ -18,7 +18,7 @@
   // follow-core.js builds these requests (groupCalls, aiRequests); follow.js sends what it built.
   const FOLLOW_CORE = ["triage/follow-core.js"];
   const data = ["data"];
-  const POPUP_PAYLOAD = ["site", "url", "title", "author", "uploadDate", "cover", "duration", "tags", "status", "message", "subtitlePreview", "markdown", "noteWarning", "filename", "subtitleMissing", "srt", "txt", "subtitleOptions"];
+  const POPUP_PAYLOAD = ["site", "url", "title", "author", "uploadDate", "cover", "duration", "tags", "status", "message", "subtitlePreview", "markdown", "noteWarning", "noteRef", "filename", "subtitleMissing", "srt", "txt", "subtitleOptions"];
 
   globalThis.MdgMessages = Object.freeze({
     // Settings
@@ -46,7 +46,7 @@
     "fetch-json": { from: ["content.js"], to: "background.js", request: ["url"], response: ["data", "status"] },
     "mdg-video-changed": { from: ["content.js"], to: "sidepanel.js", request: [], response: [] },
     "popup-get-state": { from: ["popup.js"], to: "content.js", request: [], response: ["payload"], builder: "content.js:getPopupPayload", payload: POPUP_PAYLOAD },
-    "popup-refresh": { from: ["popup.js", "sidepanel.js"], to: "content.js", request: ["refresh"], response: ["payload"] },
+    "popup-refresh": { from: ["popup.js", "sidepanel.js", "background.js"], to: "content.js", request: ["refresh"], response: ["payload"] },
     "popup-select-subtitle": { from: ["popup.js"], to: "content.js", request: ["url"], response: ["payload"] },
     "popup-send-obsidian": { from: ["popup.js"], to: "content.js", request: [], response: ["text", "written", "payload"] },
     "popup-trigger-reading-view": { from: ["background.js"], to: "content.js", request: ["readerUrl"], response: [] },

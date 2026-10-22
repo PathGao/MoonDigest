@@ -2093,10 +2093,11 @@ async function saveCurrentConversationToObsidian() {
       if (why) showConversationContextNotice(why, NOTICE_SHORT_MS);
       return Boolean(why);
     };
-    // A web page with no note yet and not open: open it and write its note, or only the conversation (as 摘读记录).
+    // A web page or video page with no note yet and not open: open it and write its note, or only the conversation (as
+    // 摘读记录).
     let pageChoice;
     if (resp?.ok && resp.askPage) {
-      pageChoice = await MdgOverwriteDialog.choosePage(resp.url);
+      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video);
       if (stopped(pageChoice)) return;
       resp = await sendRuntimeMessage({ ...request, pageChoice });
     }
