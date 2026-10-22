@@ -46,11 +46,34 @@ assert.deepStrictEqual(
     triage_snapshot_7: { bvids: [] }, triage_removed: { BV1: {}, BV2: {} }, triage_notes: { BV3: {} }, seen_BV1: [80, 1]
   }))),
   {
-    subtitleCache: 2, aiConversations: 3, triageResults: 3,
+    subtitleCache: 2, aiConversations: 3, aiConversationsStarred: 0, triageResults: 3,
     folderSnapshots: 1, folderSnapshotSize: "triage_snapshot_7".length + '{"bvids":[]}'.length,
-    triageRemoved: 2, triageNotes: 1, seen: 1, totalSize: 224 + "seen_BV1".length + "[80,1]".length
+    triageRemoved: 2, triageNotes: 1, seen: 1, seenExempt: 0, totalSize: 224 + "seen_BV1".length + "[80,1]".length
   }
 );
+
+// J2: the options row counts AI conversations as 摘读记录 does: starred records' ones apart, as the cap does.
+{
+  const conv = (contextKey) => ({ contextKey });
+  const all = {
+    mdg_ai_conversations_v1: [conv("video:bilibili|BV1|1"), conv("video:bilibili|BV1|2"), conv("video:bilibili|BV2|1"), conv("https://a.b/")],
+    mdg_reading_marks_v1: { tags: [], items: { [L.readingKeyOf("video:bilibili|BV1|1")]: { star: true }, "https://a.b/": { star: false } } }
+  };
+  const u = L.storageUsage(all);
+  assert.deepStrictEqual([u.aiConversations, u.aiConversationsStarred], [2, 2]);
+  assert.strictEqual(L.describe(u).find((row) => row.label === "AI 对话").usage, `2 / ${L.AI_CONVERSATIONS} 段，星标 2 段不计`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(L.conversationCounts(all.mdg_ai_conversations_v1, all.mdg_reading_marks_v1))), { counted: 2, starred: 2 });
+  assert.ok(fs.readFileSync(path.join(__dirname, "history/history.js"), "utf8").includes("MdgLimits.conversationCounts(conversations, marks)"), "摘读记录 counts through the same helper");
+}
+// J20: 观看进度 in a ticked 收藏夹 is counted apart, as triage-bg.js prunes it.
+{
+  const u = L.storageUsage({
+    triage_included_folders: ["7"], triage_snapshot_7: { bvids: ["BV1", "BV9"] }, triage_snapshot_8: { bvids: ["BV2"] },
+    seen_BV1: [80, 1], seen_BV2: [80, 1], seen_BV3: [80, 1]
+  });
+  assert.deepStrictEqual([u.seen, u.seenExempt], [2, 1]);
+  assert.strictEqual(L.describe(u).find((row) => row.label === "观看进度").usage, `2 / ${L.SEEN_MAX} 个视频，勾选收藏夹里的 1 个不计`);
+}
 
 // Storage key names: each KEYS name is written only in limits.js. Selftests and dev mocks may seed their own.
 const names = Object.values(L.KEYS).filter((v) => typeof v === "string");

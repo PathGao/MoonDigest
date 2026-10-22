@@ -585,12 +585,13 @@ function dropRemoved(bvids) {
   });
 }
 
-// Deletes everything MoonDigest holds for these videos (AI results, 保留, note, tags, 待播, 取消收藏 records) and their record.
+// Deletes what 分拣台 holds for these videos (AI results, 保留, note, 分拣 tags, 待播, 取消收藏 records) and their record.
+// 摘读记录's 星标 and tags (KEYS.readingMarks) are its own and stay.
 async function cleanRemoved(list) {
   if (!list.length) return;
   if (favBusyReason()) return toast(favBusyReason(), true);
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、标签、保留标记、待播记录和取消收藏记录，无法撤销。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
+  const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、分拣标签、保留标记、待播记录和取消收藏记录，无法撤销。摘读记录里的星标和标签会保留。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return serialStore(async () => {
     const bvids = list.map((it) => it.bvid);

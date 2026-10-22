@@ -663,7 +663,8 @@ function render() {
   // Records of web pages are not videos: counted on their own.
   const videos = allGroups.filter((g) => g.context.videoId).length;
   const pages = allGroups.length - videos;
-  els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${conversations.filter((c) => !isStarredConv(c)).length}/${MdgLimits.AI_CONVERSATIONS}${conversations.some(isStarredConv) ? `，星标 ${conversations.filter(isStarredConv).length} 段不计` : ""}`;
+  const { counted, starred } = MdgLimits.conversationCounts(conversations, marks);
+  els.count.textContent = `${videos} 个视频${pages ? `、${pages} 个网页` : ""} · 对话 ${counted}/${MdgLimits.AI_CONVERSATIONS}${starred ? `，星标 ${starred} 段不计` : ""}`;
   // A search keeps hidden selections, like the 分拣台; only a video that is gone leaves the selection.
   for (const key of [...selected]) if (!allGroups.some((g) => g.key === key)) selected.delete(key);
   // Storage changes re-render the list while the user reads it: keep expanded entries (expanded) and the scroll.

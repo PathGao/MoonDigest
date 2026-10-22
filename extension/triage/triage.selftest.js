@@ -1118,6 +1118,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     triage_notes: { BVa: { text: "n", updatedAt: 1 } }, triage_notes_migrated: true,
     triage_snapshot_7: { bvids: ["BVa"] }, triage_decisions_7: { BVa: { action: "keep" } },
     triage_title_BVa: { verdict: "keep" }, triage_analysis_BVa: { status: "done" },
+    [t.MdgLimits.KEYS.readingMarks]: { tags: [{ id: "r1", name: "精读" }], items: { "bilibili:BVa": { tags: ["r1"], star: true } } },
     triage_tab: "all", aiProviderKeys: { x: "sk-live-1" }, obsidianApiKey: "secret-token", triage_ai_command_history: ["按主题分"]
   });
   t.S.folders = t.S.allFolders = [{ id: 7, title: "夹" }];
@@ -1133,6 +1134,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(!("schemes" in backup) && !("folderScheme" in backup) && !/"old"/.test(JSON.stringify(backup)), "old scheme keys are not exported");
   assert.deepStrictEqual([backup.titleResults, backup.analyses], [{ BVa: { verdict: "keep" } }, { BVa: { status: "done" } }]);
   assert.deepStrictEqual(backup.notes, { BVa: { text: "n", updatedAt: 1 } });
+  assert.deepStrictEqual(backup.readingMarks, { tags: [{ id: "r1", name: "精读" }], items: { "bilibili:BVa": { tags: ["r1"], star: true } } }, "J1: 摘读记录's 星标 and tags");
   assert.deepStrictEqual(backup.aiHistory, ["按主题分"], "C664: AI 打标签's instructions, as 关注's");
   assert.ok(!/sk-live-1|secret-token|triage_tab|migrated|simplified/.test(JSON.stringify(backup)), "no secrets or unrelated keys");
 
@@ -2041,6 +2043,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });
   Object.assign(t.S, { notes: { BV1: { text: "n" }, BV5: { text: "m" } }, videoTags: { BV1: ["t"] }, kept: { BV1: { action: "keep" } }, basket: [{ bvid: "BV1" }, { bvid: "BV5" }] });
   store[t.K.notes] = structuredClone(t.S.notes);
+  const marksBV1 = { tags: [{ id: "r1", name: "精读" }], items: { [t.MdgNote.readingKey({ site: "bilibili", videoId: "BV1" })]: { tags: ["r1"], star: true } } };
+  store[t.MdgLimits.KEYS.readingMarks] = structuredClone(marksBV1);
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
   await t.openRemoved();
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV1"]);
@@ -2049,6 +2053,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain([Object.keys(store[t.K.notes]), store[t.K.videoTags], store[t.K.kept], store[t.K.removed]]), [["BV5"], {}, {}, {}]);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BV5" }]);
   assert.deepStrictEqual(plain([store.triage_decisions_A, store.triage_decisions_B]), [{ BV5: { action: "unfav" } }, {}], "cleaned videos leave 最近取消收藏");
+  assert.deepStrictEqual(plain(store[t.MdgLimits.KEYS.readingMarks]), marksBV1, "J19: 摘读记录's 星标 and tags stay");
 
   // Opening 已出分拣范围 checks every folder's id list; a video found in one again leaves the list.
   store[t.K.removed] = { BV1: { item: item(1), at: 1 }, BV2: { item: item(2), at: 2 } };
@@ -2320,6 +2325,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.cleanRemoved([{ ...item(621), title: XSS[0] }]);
     t.askConfirm = realAsk;
     assertInert(body, "清理");
+    assert.ok(body.includes("分拣标签") && body.includes("摘读记录里的星标和标签会保留"), "J19: says 摘读记录's marks stay");
   }
   // A14: each batch is told what is left of the run's new-tag cap. A57: a tag deleted mid-run drops the proposal naming it.
   {

@@ -425,7 +425,8 @@ const SEEN_KEEP_S = MdgLimits.SEEN_KEEP_DAYS * 86400;
 const SEEN_MAX = MdgLimits.SEEN_MAX;
 const SEEN_PRUNE_GAP_MS = 86400 * 1000;
 const SEEN_PREFIX = MdgLimits.KEYS.seenPrefix;
-const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, backoffUntil, resume }
+// counted: entries SEEN_MAX counts, as of the last prune plus every new one written since (an upper bound).
+const SEEN_META = MdgLimits.KEYS.triageSeenMeta; // { newest: view_at s, syncedAt, prunedAt, counted, backoffUntil, resume }
 
 // Percent watched from a history item: progress -1 means finished.
 function seenPercent(progress, duration) {
@@ -447,10 +448,11 @@ function seenFold(found, list, newest) {
   return false;
 }
 
-// Which seen_ entries to drop: older than SEEN_KEEP_S, or past the newest SEEN_MAX; videos in a chosen folder stay (pure).
+// Which seen_ entries to drop: older than SEEN_KEEP_S, or past the newest SEEN_MAX. Videos in a chosen folder stay and
+// take no place in SEEN_MAX, as starred records' AI conversations (MdgLimits.capConversations). Pure.
 function seenPrune(entries, keep, nowS) {
-  const sorted = Object.entries(entries).sort((x, y) => y[1][1] - x[1][1]);
-  return sorted.filter(([b, [, at]], i) => !keep.has(b) && (nowS - at > SEEN_KEEP_S || i >= SEEN_MAX)).map(([b]) => b);
+  const sorted = Object.entries(entries).filter(([b]) => !keep.has(b)).sort((x, y) => y[1][1] - x[1][1]);
+  return sorted.filter(([, [, at]], i) => nowS - at > SEEN_KEEP_S || i >= SEEN_MAX).map(([b]) => b);
 }
 
 // A first read takes minutes. The answer does not wait for it: Chrome kills a worker whose event stays open 5 minutes,
@@ -516,10 +518,13 @@ async function seenSyncOnce(force, started) {
       const end = seenFold(found, list, meta.newest || 0) || !list.length || !data?.cursor?.max || pages >= SEEN_MAX_PAGES;
       const stored = await chrome.storage.local.get(Object.keys(found).map(MdgLimits.KEYS.seen));
       const write = {};
+      let added = 0;
       for (const [b, [pct, at]] of Object.entries(found)) {
         const old = stored[MdgLimits.KEYS.seen(b)];
+        if (!old) added++;
         write[MdgLimits.KEYS.seen(b)] = [Math.max(old?.[0] || 0, pct), Math.max(old?.[1] || 0, at)];
       }
+      if (typeof meta.counted === "number") meta = { ...meta, counted: meta.counted + added };
       meta = end ? { ...meta, newest: top, syncedAt: now, backoffUntil: 0, resume: null } : { ...meta, resume: { cursor: data.cursor, top, pages } };
       await chrome.storage.local.set({ ...write, [SEEN_META]: meta });
       if (!end) cursor = data.cursor;
@@ -532,16 +537,20 @@ async function seenSyncOnce(force, started) {
     if (e.code === MdgErrors.CODE.THROTTLED) await chrome.storage.local.set({ [SEEN_META]: { ...meta, backoffUntil: Date.now() + SEEN_BACKOFF_MS } });
     throw e;
   }
+  // Pruned once a day (entries age out, folders get unticked) and as soon as the count may be over SEEN_MAX: meta.counted
+  // is kept up to date by the writes above, so no read of every entry is needed to know.
   let dropped = 0;
-  if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS) {
+  if (now - (meta.prunedAt || 0) > SEEN_PRUNE_GAP_MS || !(typeof meta.counted === "number" && meta.counted <= SEEN_MAX)) {
     const all = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(SEEN_PREFIX));
     const got = await chrome.storage.local.get([...all, MdgLimits.KEYS.triageIncludedFolders]);
     const snaps = await chrome.storage.local.get((got[MdgLimits.KEYS.triageIncludedFolders] || []).map(MdgLimits.KEYS.triageSnapshot));
-    const keep = new Set(Object.values(snaps).flatMap((s) => s?.bvids || []));
-    const drop = seenPrune(Object.fromEntries(all.map((k) => [k.slice(SEEN_PREFIX.length), got[k]])), keep, Math.floor(now / 1000));
+    const keep = MdgLimits.seenExempt({ ...got, ...snaps });
+    const entries = Object.fromEntries(all.map((k) => [k.slice(SEEN_PREFIX.length), got[k]]));
+    const drop = seenPrune(entries, keep, Math.floor(now / 1000));
     if (drop.length) await chrome.storage.local.remove(drop.map(MdgLimits.KEYS.seen));
     dropped = drop.length;
-    await chrome.storage.local.set({ [SEEN_META]: { ...meta, prunedAt: now } });
+    const counted = Object.keys(entries).filter((b) => !keep.has(b)).length - drop.length;
+    await chrome.storage.local.set({ [SEEN_META]: { ...meta, prunedAt: now, counted } });
   }
   return { pages: ran, dropped };
 }

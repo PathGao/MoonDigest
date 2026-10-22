@@ -159,13 +159,30 @@
     const key = String(contextKey || "");
     return key.startsWith("video:") ? key.replace(/\|[^|]*$/, "|") : key;
   };
+  // Whether a conversation belongs to a record with a 星标 in 摘读记录's marks; such conversations are not counted
+  // against AI_CONVERSATIONS by the cap, 摘读记录 or the options page.
+  const starredConv = (marks) => {
+    const starred = new Set(Object.entries(marks?.items || {}).filter(([, item]) => item?.star).map(([key]) => key));
+    return (c) => starred.has(readingKeyOf(c?.contextKey));
+  };
+  // { counted, starred }: what 摘读记录 and the options page show as「counted / AI_CONVERSATIONS，星标 starred 段不计」.
+  function conversationCounts(list, marks) {
+    const isStarred = starredConv(marks);
+    const starred = (Array.isArray(list) ? list : []).filter(isStarred).length;
+    return { counted: (Array.isArray(list) ? list.length : 0) - starred, starred };
+  }
   // The cap is applied here, the one writer: AI_CONVERSATIONS counts only conversations of records without a 星标,
   // newest kept; a starred record keeps all of its.
   function capConversations(list, marks) {
-    const starred = new Set(Object.entries(marks?.items || {}).filter(([, item]) => item?.star).map(([key]) => key));
+    const isStarred = starredConv(marks);
     let room = AI_CONVERSATIONS;
-    return [...list].sort((a, b) => (b?.updatedAt || 0) - (a?.updatedAt || 0)).filter((c) => starred.has(readingKeyOf(c?.contextKey)) || room-- > 0);
+    return [...list].sort((a, b) => (b?.updatedAt || 0) - (a?.updatedAt || 0)).filter((c) => isStarred(c) || room-- > 0);
   }
+
+  // 观看进度 entries that SEEN_MAX does not count and are never pruned: videos in a ticked 收藏夹. `got` holds
+  // KEYS.triageIncludedFolders and those folders' snapshots (a get(null) snapshot works too).
+  const seenExempt = (got) =>
+    new Set((got?.[KEYS.triageIncludedFolders] || []).flatMap((id) => got[KEYS.triageSnapshot(id)]?.bvids || []));
   let conversationQueue = Promise.resolve();
   function updateConversations(edit) {
     const once = async () => {
@@ -216,15 +233,21 @@
   function storageUsage(all = {}) {
     const keys = Object.keys(all);
     const snapshots = Object.entries(all).filter(([key]) => key.startsWith(KEYS.triageSnapshotPrefix));
+    const conversations = conversationCounts(all[KEYS.aiConversations], all[KEYS.readingMarks]);
+    const exempt = seenExempt(all);
+    const seen = keys.filter((key) => key.startsWith(SEEN));
+    const seenExemptCount = seen.filter((key) => exempt.has(key.slice(SEEN.length))).length;
     return {
       subtitleCache: keys.filter((key) => key.startsWith(KEYS.subtitleCachePrefix)).length,
-      aiConversations: Array.isArray(all[KEYS.aiConversations]) ? all[KEYS.aiConversations].length : 0,
+      aiConversations: conversations.counted,
+      aiConversationsStarred: conversations.starred,
       triageResults: keys.filter((key) => key.startsWith(ANALYSIS) || key.startsWith(TITLE)).length,
       folderSnapshots: snapshots.length,
       folderSnapshotSize: sizeOf(snapshots),
       triageRemoved: Object.keys(all[KEYS.triageRemoved] || {}).length,
       triageNotes: Object.keys(all[KEYS.triageNotes] || {}).length,
-      seen: keys.filter((key) => key.startsWith(SEEN)).length,
+      seen: seen.length - seenExemptCount,
+      seenExempt: seenExemptCount,
       totalSize: sizeOf(Object.entries(all))
     };
   }
@@ -265,7 +288,7 @@
       },
       {
         label: "AI 对话",
-        usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段`,
+        usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段${usage.aiConversationsStarred ? `，星标 ${usage.aiConversationsStarred} 段不计` : ""}`,
         rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的，加了星标的记录的对话不算在内、不删。在「摘读记录」页按视频和网页查看、下载或删除。`
       },
       {
@@ -300,8 +323,8 @@
       },
       {
         label: MdgErrors.LABEL.seen,
-        usage: `${count(usage.seen)} / ${SEEN_MAX} 个视频`,
-        rule: `「封面显示」不是「关」时读 B站历史记录，${SEEN_LIMITS_TEXT}，勾选收藏夹里的视频不删。选「关」时全部删掉。`
+        usage: `${count(usage.seen)} / ${SEEN_MAX} 个视频${usage.seenExempt ? `，勾选收藏夹里的 ${usage.seenExempt} 个不计` : ""}`,
+        rule: `「封面显示」不是「关」时读 B站历史记录，${SEEN_LIMITS_TEXT}，勾选收藏夹里的视频不算在内、不删。选「关」时全部删掉。`
       },
       {
         label: "本地数据合计",
@@ -335,6 +358,8 @@
     saveVideoNote,
     updateConversations,
     capConversations,
+    conversationCounts,
+    seenExempt,
     readingKeyOf,
     updateReadingMarks,
     askSidepanel,
