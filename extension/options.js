@@ -1020,7 +1020,7 @@ function validateFixedFrontmatterProperties(items) {
     } else if (!valueText) {
       return valueError("请填写自定属性的属性值");
     }
-    if (Array.from(elements.frontmatterFields).some((checkbox) => checkbox.value === lowerKey)) {
+    if (MdgSettings.RESERVED_PROPERTY_KEYS.includes(lowerKey)) {
       return keyError("该属性名与自带属性重复，请换一个名称");
     }
     if (seenKeys.has(lowerKey)) {

@@ -116,6 +116,13 @@ async function ytLanguageTests() {
 }
 assert.strictEqual(S.pickPreferredTrack(ranked).id, "3");
 assert.strictEqual(S.trackUrlKey("https://a.com/p/x.json?auth_key=1"), "a.com/p/x.json");
+// R37: YouTube's tracks share /api/timedtext; the remembered one is found by its language, not the first track.
+{
+  const yt = (lang, kind = "") => ({ id: `.${lang}${kind}`, lang, url: `https://www.youtube.com/api/timedtext?v=x&expire=1&lang=${lang}${kind && `&kind=${kind}`}&fmt=json3` });
+  const tracks = [yt("en"), yt("ja", "asr"), yt("ja")];
+  assert.strictEqual(S.pickPreferredTrack(tracks, { previousId: "gone", previousUrl: tracks[2].url.replace("expire=1", "expire=2") }), tracks[2]);
+  assert.strictEqual(S.trackUrlKey(tracks[1].url), "www.youtube.com/api/timedtext?lang=ja&kind=asr");
+}
 
 // Description chapters
 eq(

@@ -138,7 +138,8 @@
     });
   }
 
-  // Signed subtitle URLs rotate their query string; the path identifies the track.
+  // Signed subtitle URLs rotate their query string; the path identifies a B站 track. YouTube's tracks all share
+  // /api/timedtext, so its lang, tlang and kind parameters go into the key too.
   function trackUrlKey(url) {
     const text = String(url || "").trim();
     if (!text) {
@@ -148,7 +149,8 @@
     if (!parsed) {
       return text.replace(/[^\w/.-]+/g, "_");
     }
-    return `${parsed.hostname}${parsed.pathname.replace(/[^\w/.-]+/g, "_")}`;
+    const track = ["lang", "tlang", "kind"].filter((k) => parsed.searchParams.get(k)).map((k) => `${k}=${parsed.searchParams.get(k)}`).join("&");
+    return `${parsed.hostname}${parsed.pathname}${track && `?${track}`}`.replace(/[^\w/.?=&-]+/g, "_");
   }
 
   function pickPreferredTrack(tracks, { previousId = "", previousUrl = "", previousLang = "" } = {}) {

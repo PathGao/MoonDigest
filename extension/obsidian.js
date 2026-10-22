@@ -98,17 +98,19 @@ async function notePaths() {
   return (await chrome.storage.local.get(key))[key] || {};
 }
 // pageIndex: which 分 P the note is, so a ref without the cid (逐个视频笔记 knows only the BV) finds its P1 note
-// (recordedNoteKey). An entry written before it was recorded keeps none until its next write.
-async function rememberObsidianNotePath(noteKey, filepath, pageIndex) {
+// (recordedNoteKey). An entry written before it was recorded keeps none until its next write. cover: { url, link } of
+// the cover linkCoverInVault stored, so an export from the vault note gives the image's own address (unlinkCover).
+async function rememberObsidianNotePath(noteKey, filepath, pageIndex, cover) {
   if (!noteKey) return;
   const paths = await notePaths();
-  const page = pageIndex || paths[noteKey]?.pageIndex;
-  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...paths, [noteKey]: { path: filepath, lastSyncedAt: Date.now(), ...(page && { pageIndex: page }) } } });
+  const entry = { ...paths[noteKey], path: filepath, lastSyncedAt: Date.now(), ...(pageIndex && { pageIndex }), ...(cover && { cover }) };
+  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...paths, [noteKey]: entry } });
 }
 // The recorded key of the ref's note. Keys carry the cid (MdgSites.buildContextKey); without it, the entry recorded for
-// the same BV and 分 P. Prefix alone is not enough: P2's note has the same BV.
+// the same BV and 分 P. Prefix alone is not enough: P2's note has the same BV. Only a video key without its cid
+// (video:<site>:<id>|) is looked up, so the match ends at the |: a web page's key never takes a longer address's note.
 function recordedNoteKey(paths, key, ref) {
-  if (!key || paths[key] || ref.cid) return key;
+  if (!key || paths[key] || ref.cid || !key.startsWith("video:")) return key;
   return Object.keys(paths).find((k) => k.startsWith(key) && paths[k].pageIndex === ref.pageIndex) || key;
 }
 async function forgetObsidianNotePath(noteKey) {
@@ -134,12 +136,15 @@ async function updateAiSectionInVault(vault, filepath, section, noteKey, existin
 
 // Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
 // so the cover goes into the vault next to the note and the note links it. Any failure keeps the remote URL.
-// The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line).
+// The two rewritten forms mirror note.js buildFrontMatter ("cover") and buildMarkdown (cover image line); unlinkCover
+// turns them back. Returns { content, cover? }: cover { url, link } when it was linked.
+const coverForms = (url, link) => [[`cover: "${url}"`, `cover: "${link}"`], [`![cover](${url})`, `!${link}`]];
+const unlinkCover = (content, cover) => (cover?.url && cover.link ? coverForms(cover.url, cover.link).reduce((text, [remote, linked]) => text.replace(linked, () => remote), content) : content);
 async function linkCoverInVault(vault, filepath, content, cover) {
   const url = String(cover?.url || "");
   const name = MdgCommon.fileName(cover?.name);
   if (!url || !name || !content.includes(url)) {
-    return content;
+    return { content };
   }
   try {
     const ext = /\.(jpe?g|png|webp|gif)$/i.exec(new URL(url).pathname)?.[1].toLowerCase() || "jpg";
@@ -155,10 +160,10 @@ async function linkCoverInVault(vault, filepath, content, cover) {
       await vaultFetch(vault, path, { method: "PUT", headers: { "Content-Type": image.headers.get("Content-Type") || "application/octet-stream" }, body: await image.arrayBuffer() });
     }
     const link = `[[${path}]]`;
-    return content.replace(`cover: "${url}"`, () => `cover: "${link}"`).replace(`![cover](${url})`, () => `!${link}`);
+    return { content: coverForms(url, link).reduce((text, [remote, linked]) => text.replace(remote, () => linked), content), cover: { url, link } };
   } catch (error) {
     console.warn("[mdg] cover not stored in vault, keeping the remote URL", error);
-    return content;
+    return { content };
   }
 }
 
@@ -218,10 +223,15 @@ async function resolveNote({ ref: input, mode, conversation, page, pageChoice },
         if (!recorded) key = MdgSites.buildContextKey({ ...ref, cid: ref.cid || built.noteMeta.cid });
         target = { video: true, path: paths[key]?.path || built.path, ...(recorded && { note: recorded }), body: build };
       } catch (e) {
-        // A deleted or hidden video has no note to build, recorded or not: a conversation the user writes goes in its
-        // own note.
-        if (!conversation || !aiOn || !MdgSites.isBiliVideoGone(e.code)) throw e;
-        target = standalone(OWN_NOTE, "");
+        if (!MdgSites.isBiliVideoGone(e.code)) throw e;
+        // A deleted or hidden video has no note to build. Its recorded note keeps only 只更新 AI 问答, as one without its
+        // page: 整篇覆盖 fails saying why and writes nothing, never something else in its place (the AI 笔记 at the
+        // conversation's path may be the user's own). Without a recorded note, a conversation the user writes goes in
+        // its own note.
+        const why = `${MdgErrors.LABEL.videoGone}，整篇覆盖无法重建`;
+        if (recorded?.exists) target = { video: true, path: paths[key].path, note: recorded, fullReason: why, body: async () => { throw new Error(why); } };
+        else if (conversation && aiOn) target = standalone(OWN_NOTE, "");
+        else throw e;
       }
     }
   } else {
@@ -238,6 +248,10 @@ async function resolveNote({ ref: input, mode, conversation, page, pageChoice },
   // After body(): a recorded note is built only when it is written whole.
   return { ref, key, section, aiOn, target, title: () => built?.meta.title || ref.title };
 }
+
+// A video's or web page's note with this AI 问答 (section), or without one when 「附带 AI 问答」 is off: a vault note's
+// old section goes too, as a note built now has none.
+const withAi = (markdown, { aiOn, section }) => MdgNote.upsertAiSection(markdown, aiOn ? section : "");
 
 // write-video-note: the one write of a video's note, from the video page, the side panel, 摘读记录 and 逐个视频笔记.
 // ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
@@ -275,11 +289,12 @@ async function writeVideoNote(message) {
     await putVaultNote(vault, path, markdown);
     return { path, kind: "conversation", text: `${obsidianWritten(path)}${target.why}`, title: title() };
   }
-  const content = aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown;
+  const content = withAi(markdown, resolved);
   // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
   if (!content.trim()) throw new Error("笔记内容为空");
-  await putVaultNote(vault, path, await linkCoverInVault(vault, path, content, cover));
-  await rememberObsidianNotePath(key, path, ref.pageIndex);
+  const linked = await linkCoverInVault(vault, path, content, cover);
+  await putVaultNote(vault, path, linked.content);
+  await rememberObsidianNotePath(key, path, ref.pageIndex, linked.cover);
   return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title: title(), ...(warning && { subtitleWarning: warning }) };
 }
 
@@ -298,12 +313,12 @@ async function exportNote({ ref, conversation, page, pageChoice }) {
   const readNote = async (path) => (vault && (await readVaultNote(vault, path).catch(() => null))) || none;
   const resolved = await resolveNote({ ref, conversation, page, pageChoice, mode: "full" }, settings, readNote, true);
   if (resolved.askPage) return resolved;
-  const { section, aiOn, target } = resolved;
+  const { target } = resolved;
   const filename = target.path.split("/").pop();
-  const withAi = (markdown) => (aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown);
-  if (target.fullReason) return { filename, markdown: withAi(target.note.content) };
+  // The vault note as a fresh export gives it: its AI 问答 by 「附带 AI 问答」, the cover's own address.
+  if (target.fullReason) return { filename, markdown: withAi(unlinkCover(target.note.content, (await notePaths())[resolved.key]?.cover), resolved) };
   const { markdown } = await target.body();
-  return { filename, markdown: target.video ? withAi(markdown) : markdown, ...(target.noPage && { noPage: true }) };
+  return { filename, markdown: target.video ? withAi(markdown, resolved) : markdown, ...(target.noPage && { noPage: true }) };
 }
 
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.

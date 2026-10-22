@@ -104,6 +104,9 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(r.back), ["3"]);
     assert.deepStrictEqual(plain(r.restore), { 3: ["a"] }, "only tags that still exist come back");
     assert.deepStrictEqual(plain(r.list.list), ["3"], "an old follow time keeps the unfollow record");
+    // R3: an unfollow inferred from B站's list (source bili) is undone when B站 lists the UP again, old follow time or not.
+    const wrong = t.followDiff({ list: [] }, { list: ["4"], followTime: { 4: 150 }, complete: true }, { 4: { at: 200, source: "bili", tagIds: ["a"] } }, {}, live, 500, 600);
+    assert.deepStrictEqual([plain(wrong.back), plain(wrong.list.list), plain(wrong.restore)], [["4"], ["4"], { 4: ["a"] }]);
     // a follow made here during the sync and not on B站's list yet is kept, and not marked gone
     const k = t.followDiff({ list: ["7"], followTime: { 7: 550 } }, { list: [], complete: true }, {}, {}, live, 500, 600);
     assert.deepStrictEqual(plain(k.list.list), ["7"]);
@@ -367,6 +370,17 @@ const runSync = async () => {
     assert.deepStrictEqual(plain(local.follow_jobs.changes.partial), { read: 1, total: 5 }, "a partial sync's changes say how much it read");
     assert.deepStrictEqual(plain(local.follow_jobs.changes.removed), [], "and list nobody as unfollowed");
     assert.deepStrictEqual(local.follow_unfollowed || {}, {});
+  }
+
+  // ---------- R3: the list shifts between pages (an unfollow on B站 meanwhile): not complete, nobody marked gone ----------
+  {
+    local = { follow_list: { list: ["1", "2", "3", "4"], followTime: {} }, follow_last: { at: now(), since: 0, map: {} } };
+    // Page 1 says 4; 1 is unfollowed before page 2, so 3 moves onto page 1 and page 2 starts at 4.
+    routes = { ...routes, "/x/relation/followings": (u) => (u.searchParams.get("pn") === "1" ? followings([[person(1), person(2)]], 4) : followings([[], [person(4)]], 3))(u) };
+    await runSync();
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+    assert.strictEqual(local.follow_list.complete, false);
+    assert.deepStrictEqual(local.follow_unfollowed || {}, {}, "3, still followed, is not marked unfollowed");
   }
 
   // ---------- risk control: back off, then THROTTLED after three strikes ----------
@@ -797,6 +811,17 @@ const runSync = async () => {
     await t.followResume();
     assert.strictEqual(vm.runInContext("followGap()", ctx), 7, "read back when the worker starts");
     vm.runInContext("followSlowUntil = 0; followHoldUntil = 0; FOLLOW_CFG.slowGapMs = 0", ctx);
+  }
+
+  // ---------- R32: 停止 that arrives while a restarted worker's resume is reading the job does not get overridden ----------
+  {
+    local = { follow_jobs: { running: true, startedAt: now(), cursor: { phase: "list" } } };
+    calls = [];
+    const resumed = t.followResume();
+    await t.followStop();
+    await resumed;
+    assert.strictEqual(vm.runInContext("followRun", ctx), null, "no sync started after 停止");
+    assert.deepStrictEqual([local.follow_jobs.running, calls], [false, []]);
   }
 
   // ---------- J3: follow_* writes take the Web Lock the 分拣台 takes; B站 pages' 「+ UP 标签」 is written here ----------

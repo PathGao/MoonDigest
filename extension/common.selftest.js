@@ -22,6 +22,11 @@ assert.deepStrictEqual([C.localDate(morning), C.localDate(morning.getTime()), C.
 assert.strictEqual(C.fileName("第1集 #AI [合集] ^x|y"), "第1集 _AI _合集_ _x_y");
 assert.strictEqual(C.fileName("稍后\n再看  a/b", "收藏夹"), "稍后 再看 a_b");
 assert.strictEqual(C.fileName("字".repeat(130)).length, 120);
+// R6: 120 code points, so an emoji at the cut stays whole and encodeURIComponent (obsidian.js vaultEndpoint) takes it.
+const cut = C.fileName(`${"a".repeat(119)}😀tail`);
+assert.ok(cut.endsWith("😀") && encodeURIComponent(cut));
+// R36: no leading dot, which Obsidian skips; dots alone fall back.
+assert.deepStrictEqual([C.fileName(".NET 入门"), C.fileName(" . .x"), C.fileName("...", "f")], ["NET 入门", "x", "f"]);
 assert.deepStrictEqual([C.fileName("  ", "收藏夹"), C.fileName(undefined), C.fileName(null, "video-subtitle")], ["收藏夹", "", "video-subtitle"]);
 
 // C356, C385: one h:mm:ss parser, -1 for a malformed time (the callers decide what that means).
