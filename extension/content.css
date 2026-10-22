@@ -401,6 +401,18 @@ html[data-mdg-reader-mode="1"][data-mdg-reader-theme="dark"] {
   display: none;
 }
 
+/* 去设置 after the text (setReadingNotice action), drawn like 专注模式's 重试. */
+.mdg-reading-status button {
+  margin-left: 8px;
+  padding: 2px 12px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 /* A failure the user must handle (写入 Obsidian 失败): red, like errors on the extension's pages. */
 .mdg-reading-status[data-error] {
   background: var(--mdg-danger-bg);

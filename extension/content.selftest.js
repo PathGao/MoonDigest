@@ -736,6 +736,28 @@ const settle = async () => {
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianDown}`, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
     assert.deepStrictEqual(messages, []);
+    // Not set up or a wrong key (OBSIDIAN): never the settings page by itself. Before the dialog the popup gets the code
+    // (it shows 去设置); after it the page's red notice carries 去设置, which opens the settings page on its click.
+    const notices = [];
+    const realNotice = t.setReadingNotice;
+    t.setReadingNotice = (text, opts) => notices.push([text, opts?.error, opts?.action]);
+    const key = { ok: false, error: t.MdgErrors.TEXT.obsidianKey, code: "OBSIDIAN" };
+    sent = [];
+    t.sendRuntimeMessage = async (m) => (sent.push(m.type), m.type === "open-options" ? { ok: true } : key);
+    assert.strictEqual((await t.sendToObsidian()).code, "OBSIDIAN");
+    assert.deepStrictEqual([sent, notices], [["write-video-note"], []]);
+    [sent, choice] = [[], "full"];
+    t.sendRuntimeMessage = async (m) => (sent.push(m.type), m.type === "open-options" ? { ok: true } : m.mode ? key : { ok: true, ask: true, path: "p.md" });
+    await t.sendToObsidian();
+    const [text, red, action] = notices.at(-1);
+    assert.deepStrictEqual([text, red, action?.label, sent], [`${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianKey}`, true, t.MdgErrors.LABEL.toSettings, ["write-video-note", "write-video-note"]]);
+    await action.run();
+    assert.strictEqual(sent.at(-1), "open-options");
+    // A closed Obsidian after the dialog: the red line only.
+    t.sendRuntimeMessage = async (m) => (m.mode ? { ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" } : { ok: true, ask: true, path: "p.md" });
+    await t.sendToObsidian();
+    assert.strictEqual(notices.at(-1)[2], null);
+    t.setReadingNotice = realNotice;
     Object.assign(t, saved);
   }
 

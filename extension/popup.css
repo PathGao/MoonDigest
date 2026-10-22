@@ -201,6 +201,13 @@ body {
   content: none;
 }
 
+/* 去设置 after a failure's text (setStatus action). */
+.status button {
+  flex: none;
+  height: auto;
+  font-size: inherit;
+}
+
 .summary {
   margin: 0 14px;
   height: 40px;

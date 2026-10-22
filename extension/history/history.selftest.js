@@ -220,6 +220,28 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
   await click();
   assert.deepStrictEqual([sent.map((m) => [m.pageChoice, m.mode]), els.status.textContent], [[[undefined, undefined], ["own", undefined], ["own", "full"]], "已写入 Obsidian：q.md"]);
   ctx.chrome.runtime.sendMessage = writeSend;
+  // Not set up or a wrong key (OBSIDIAN): 去设置 after the red line, the settings page only on its click. A closed
+  // Obsidian (OBSIDIAN_DOWN) gets the red line only.
+  {
+    const realCreate = ctx.document.createElement;
+    let opened = 0;
+    let kids = [];
+    ctx.document.createElement = () => ({});
+    ctx.chrome.runtime.openOptionsPage = () => opened++;
+    els.status.append = (...n) => (kids = n.filter((k) => typeof k === "object"));
+    for (const code of ["OBSIDIAN", "OBSIDIAN_DOWN"]) {
+      kids = [];
+      ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), { ok: false, error: "Key 不对", code });
+      await click();
+      assert.deepStrictEqual([els.status.textContent, red, kids.map((b) => b.textContent), opened], ["写入 Obsidian 失败：Key 不对", true, code === "OBSIDIAN" ? [ctx.MdgErrors.LABEL.toSettings] : [], 0], code);
+      if (kids[0]) kids[0].onclick();
+      assert.strictEqual(opened, code === "OBSIDIAN" ? 1 : 0);
+      opened = 0;
+    }
+    ctx.chrome.runtime.sendMessage = writeSend;
+    ctx.document.createElement = realCreate;
+    delete els.status.append;
+  }
 
   // B5: each entry offers 复制 Markdown, then 下载 .md, then 写入 Obsidian (hidden while Obsidian is off), like elsewhere.
   const at = (act) => html.indexOf(`data-act="${act}"`);

@@ -2004,16 +2004,17 @@ async function autoSyncConversation(conversationId) {
     // The background's words: the note updated (hides after a while) or gone (stays).
     showSyncStatus(resp.text, resp.exists ? { autoHideMs: NOTICE_MS } : {});
   } catch (error) {
-    // Not set up or a wrong key: 去设置 before 重试, like a manual write; a closed Obsidian gets 重试 only.
+    // Not set up or a wrong key: 去设置 before 重试; a closed Obsidian gets 重试 only.
     const settings = error?.action === "settings" ? () => chrome.runtime.openOptionsPage() : null;
     showSyncStatus(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, { retry: () => autoSyncConversation(conversationId), settings, error: true });
   }
 }
 
-// A failed manual write is red; a wrong key opens the settings page, as for 未配置 (a closed Obsidian does not).
+// A failed manual write is red; not set up or a wrong key adds 去设置 and stays until the next notice (a closed Obsidian
+// gets the red line only).
 function showObsidianFailure(error) {
-  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, NOTICE_LONG_MS, { error: true });
-  if (error?.action === "settings") chrome.runtime.openOptionsPage?.();
+  const settings = error?.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
+  showConversationContextNotice(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, settings ? 0 : NOTICE_LONG_MS, { error: true, action: settings });
 }
 
 let syncStatusTimer = 0;
@@ -2302,7 +2303,8 @@ function showConversationContextError(message) {
 
 // One notice line: a new one takes its place. error: a failure the user must handle (red). Returns the notice, so a
 // 正在… flow takes down its own when done, never one shown since.
-function showConversationContextNotice(message, autoHideMs = 0, { error = false } = {}) {
+// action: { label, run }, a chip after the text (去设置).
+function showConversationContextNotice(message, autoHideMs = 0, { error = false, action = null } = {}) {
   removeConversationContextNotice();
   const notice = document.createElement("div");
   notice.className = "sp-context-notice";
@@ -2311,7 +2313,11 @@ function showConversationContextNotice(message, autoHideMs = 0, { error = false 
   body.classList.toggle("is-error", error);
   body.textContent = String(message || "").trim();
   // Notices that stay up are the 正在… ones; they get the shared spinner.
-  body.setAttribute("aria-busy", String(!(autoHideMs > 0)));
+  body.setAttribute("aria-busy", String(!(autoHideMs > 0) && !action));
+  if (action) {
+    const button = Object.assign(document.createElement("button"), { type: "button", className: "sp-chip sp-grant-btn", textContent: action.label, onclick: action.run });
+    body.append(" ", button);
+  }
   notice.append(body);
   els.messages.prepend(notice);
   if (autoHideMs > 0) {
