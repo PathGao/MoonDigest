@@ -67,6 +67,7 @@ async function start() {
   followSeenMeta(await storeGet(KEYS.triageSeenMeta));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.obsidianEnabled) syncObsidian({ obsidianEnabled: changes.obsidianEnabled.newValue });
+    if (area === "sync") followSettings(changes);
     if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
       chrome.storage.sync.get(SEEN_DEFAULTS).then((v) => {
         setSeenCfg(v);
@@ -89,6 +90,19 @@ async function start() {
   renderBasket();
   await loadFolders();
   setInterval(tick, 1000);
+}
+
+// 收藏夹设置's stored keys. A write from elsewhere (导入设置 on the options page, AI 打标签's switch) is read again here, as
+// 关注 and 摘读记录 read theirs, so this page runs with it and a later save does not put the old values back.
+const SETTING_KEYS = [...NUM_FIELDS.map(([key]) => key), "triageThinking", "triageAiRemoveTags"];
+function followSettings(changes) {
+  if (!SETTING_KEYS.some((k) => changes[k])) return;
+  return send({ type: "triage-settings-get" }).then((r) => {
+    if (!r.ok) return;
+    Object.assign(S.settings, r.data);
+    renderTagLimit();
+    render();
+  });
 }
 
 // A new folder choice (收藏夹设置, or 导入设置 on the options page, which writes it here): the folder list reloads and
@@ -507,11 +521,8 @@ function bindEvents() {
   });
   el.settingsDialog.addEventListener("close", async () => {
     if (el.settingsDialog.returnValue !== "save") return;
-    const patch = {
-      ...Object.fromEntries(NUM_FIELDS.map(([key, kind, input]) => [key, UI.numSetting(kind, el[input].value)])),
-      triageThinking: el.thinkingInput.checked,
-      triageAiRemoveTags: el.aiRemoveTagsInput.checked
-    };
+    // Only the fields changed since the dialog opened: a setting written elsewhere meanwhile (导入设置) keeps that value.
+    const patch = Object.fromEntries(Object.entries(settingsFields()).filter(([k, v]) => v !== settingsShown[k]));
     const r = await send({ type: "triage-settings-save", ...patch });
     if (!r.ok) {
       toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true);
@@ -619,6 +630,13 @@ function renderTokenHints() {
   el.analyzeMaxHint.textContent = `留空 = 自动（${UI.autoMaxTokens("analyze", 1, on)}）`;
 }
 
+// 收藏夹设置's fields as the values they store; settingsShown is what they held when the dialog opened.
+const settingsFields = () => ({
+  ...Object.fromEntries(NUM_FIELDS.map(([key, kind, input]) => [key, UI.numSetting(kind, el[input].value)])),
+  triageThinking: el.thinkingInput.checked,
+  triageAiRemoveTags: el.aiRemoveTagsInput.checked
+});
+let settingsShown = {};
 // firstRun: the first open, before any folder is chosen, asks only for folders.
 function openSettings(scrollToLimits = false, firstRun = false) {
   // Named like the button that opened it: the first run's 选择收藏夹, otherwise ⚙ 收藏夹设置 (the dialog is labelled by it).
@@ -647,6 +665,7 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.aiNewTagMaxInput.value = S.settings.triageAiNewTagMax;
   el.aiRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
   renderTokenHints();
+  settingsShown = settingsFields();
   el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();
   if (scrollToLimits) el.titleMaxInput.scrollIntoView({ block: "center" });

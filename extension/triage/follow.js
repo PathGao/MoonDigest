@@ -1115,7 +1115,8 @@ const manageTags = {
   who: WHO,
   hint: () => "UP 标签和收藏夹的视频标签分开，只存在 MoonDigest 里，不改 B站。",
   tags: () => D.tags,
-  count: (id) => following().filter((m) => rows.get(m)?.tagIds.includes(id)).length,
+  // Everyone the tag is on, 已取消关注 UP 主 too: deleting it takes it off them all (UI.withoutTag).
+  count: (id) => UI.tagUses(D.map, id),
   addReason: (value) => UI.tagNameError(cleanTagName(value), D.tags),
   async add(value) {
     const t = await addTag(value);
@@ -1144,7 +1145,7 @@ async function editTag(old, field, value) {
 }
 async function deleteTag(id) {
   const t = tagOf(id);
-  const n = following().filter((m) => rows.get(m)?.tagIds.includes(id)).length;
+  const n = UI.tagUses(D.map, id);
   // The confirm dialog is a second modal; the tag dialog stays open under it.
   if (!(await askConfirm(...UI.deleteTagAsk(t, n, WHO), "删除", { danger: true }))) return;
   await setTagMap((map) => UI.withoutTag(map, id));

@@ -52,6 +52,18 @@
       </form>
     </dialog>
     <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle"></dialog>
+    <!-- The 分拣台's confirm dialog (UI.askConfirm), as in triage/triage.html: 删除标签 and U 撤销 ask here. -->
+    <dialog id="confirmDialog" aria-label="确认">
+      <form method="dialog">
+        <h2 id="confirmTitle"></h2>
+        <div id="confirmBody" class="confirm-body"></div>
+        <div class="dialog-actions">
+          <span class="spacer"></span>
+          <button value="cancel" type="submit" aria-label="取消">取消</button>
+          <button id="confirmOk" value="ok" type="submit" class="primary"></button>
+        </div>
+      </form>
+    </dialog>
     <!-- As 关注设置's AI 打标签 groups (triage.html); UI.fillSetRows writes the rows' names, hints and ranges. -->
     <dialog id="readingSettingsDialog" aria-label="摘读记录设置">
       <form method="dialog">

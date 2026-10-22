@@ -352,6 +352,17 @@ function adapters(who) {
     ai.p = { newTags: [{ key: "B/科普", name: "科普", checked: true, folder: "B" }], rows: [{ id: "x", add: ["new:B/科普"], remove: [] }], notes: [], errors: [] };
     D.ai.render(ai);
     assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 0 个"), nodes.aiReviewSummary.textContent);
+    // H3: under a hard limit (摘读记录's), the ticked new tags 应用 cannot create are named up front, not said to be kept, and
+    // count as unticked, as 应用 skips them.
+    delete ai.allTags;
+    ai.p = { newTags: [{ key: "甲", name: "甲", checked: true }, { key: "乙", name: "乙", checked: true }], rows: [{ id: "x", add: ["new:甲"], remove: [] }, { id: "y", add: ["new:乙"], remove: [] }], notes: [], errors: [], caps: { "": 1 } };
+    D.ai.render(ai);
+    assert.ok(nodes.aiNotes.innerHTML.includes("超过上限 1 个"), "a soft cap: all kept");
+    ai.notMade = (p) => ({ keys: new Set(p.newTags.filter((t) => t.checked).slice(1).map((t) => t.key)), why: "最多 50 个" });
+    D.ai.render(ai);
+    assert.ok(nodes.aiNotes.innerHTML.includes("「乙」不会新建：最多 50 个") && !nodes.aiNotes.innerHTML.includes("超过上限"), nodes.aiNotes.innerHTML);
+    assert.ok(nodes.aiReviewSummary.textContent.includes("1 个") && nodes.aiReviewSummary.textContent.includes("新标签 1 个") && nodes.aiApplyBtn.textContent.startsWith("应用到 1 个"), nodes.aiReviewSummary.textContent);
+    delete ai.notMade;
     ai.p = null;
     nodes.aiTagDialog.close();
   }

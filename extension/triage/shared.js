@@ -1,6 +1,6 @@
 // What the 分拣台's two modes (fav-*.js 收藏夹, follow.js 关注) draw the same way, so they cannot drift apart.
 // A plain script loaded before both modules (and by the settings page and the worker, which call only the pure parts).
-// Most of it returns HTML, text or a comparator. What touches the DOM it is given: bindSearch, setReason, askTransfer,
+// Most of it returns HTML, text or a comparator. What touches the DOM it is given: bindSearch, setReason, askConfirm, askTransfer,
 // setActivity, setSync, bindSync, fillSetRows, fillNumHints, clampNumber(s) and headFold (which also reads and writes
 // chrome.storage.local); mergeAiBatch fills the proposal it is given.
 (() => {
@@ -329,6 +329,24 @@
   // the whole selection (as row 3 does), and so does the title (「已选中 3 个 · 都被筛选隐藏」, never 「已选中 0 个」).
   const selbar = ({ label, n, hidden, clearAttrs, acts }) =>
     `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n || hidden} 个</strong>${hidden ? `<span class="muted">${n ? `另有 ${hidden} 个被筛选隐藏` : "都被筛选隐藏"}</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
+  // ----- 确认 (#confirmDialog): the 分拣台's and 摘读记录's questions, a red 删除 or a 撤销 instead of the browser's 确定 -----
+  // alone: only the one button (a notice, not a question). reason: the OK button is disabled with why (only 取消 is left).
+  // Resolves true when OK was pressed.
+  function askConfirm(title, bodyHtml, okText, { danger = false, alone = false, reason = "" } = {}) {
+    const $ = (id) => document.getElementById(id);
+    const dlg = $("confirmDialog");
+    const ok = $("confirmOk");
+    dlg.querySelector("button[value=cancel]").hidden = alone;
+    $("confirmTitle").textContent = title;
+    $("confirmBody").innerHTML = bodyHtml;
+    ok.className = danger ? "danger solid" : "primary";
+    ok.textContent = okText;
+    ok.setAttribute("aria-label", okText);
+    setReason(ok, reason);
+    dlg.returnValue = "";
+    dlg.showModal();
+    return new Promise((resolve) => dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true }));
+  }
   // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----
   // o = { title, list (html), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one), label (目标收藏夹 /
   // 目标分组), options [[value, text]], newText (新建收藏夹… / 新建分组…), newPlaceholder, newMax, privacy (show 设为私密),
@@ -475,6 +493,8 @@
   const FOLLOW_SPECIAL = -10;
   // How long 关注's video feed pages stay fresh: follow-bg.js's cache, and the page starting 视频投稿 over after it.
   const FEED_CACHE_MS = 3 * 60 * 1000;
+  // How many keys of a tag map carry the tag: all that deleting it (withoutTag) takes it off.
+  const tagUses = (map, id) => Object.values(map || {}).filter((ids) => ids.includes(id)).length;
   // A tag map ({ key: [tag ids] }) without one tag; a key left with none drops out.
   function withoutTag(map, id) {
     const out = {};
@@ -839,5 +859,5 @@
     };
   }
 
-  globalThis.TriageUi = { https, gearBtn, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, tagStateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, aiTagsLabel, READING_AI_CHARS, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, AI_TAG_GONE, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
+  globalThis.TriageUi = { https, gearBtn, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, tagStateGroup, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, aiTagsLabel, READING_AI_CHARS, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, askConfirm, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, tagUses, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, AI_TAG_GONE, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
 })();
