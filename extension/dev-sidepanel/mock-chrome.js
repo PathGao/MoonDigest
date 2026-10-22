@@ -150,6 +150,12 @@
         notePaths[key] = path;
         return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
       }
+      // The note write-video-note would write, as text.
+      case "export-note": {
+        const path = notePaths[MdgSites.buildContextKey(msg.ref)] || MdgNote.videoNotePath(msg.ref, mockSettings);
+        const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(msg.conversation?.messages));
+        return { ok: true, filename: path.split("/").pop(), markdown: MdgNote.upsertAiSection(msg.page?.markdown || `# ${msg.ref.title}\n\n字幕正文\n`, section) };
+      }
       case "sync-video-note-ai": {
         if (window.__mockObsidianDown) return { ok: false, error: "连不上 Obsidian，请确认它已打开并启用了 Local REST API", code: "OBSIDIAN_DOWN" };
         const path = notePaths[MdgSites.buildContextKey(msg.ref)];

@@ -76,6 +76,8 @@
     copied: "已复制 Markdown",
     // A copy to the clipboard failed (popup, side panel, 摘读记录, 分拣台); 「：原因」 follows, noClipboard without one.
     copyFailed: "复制失败",
+    // 下载 .md failed (side panel, 摘读记录); 「：原因」 follows.
+    downloadFailed: "下载失败",
     noClipboard: "无法访问剪贴板",
     // The side panel while the video page reads the subtitle for it.
     subtitleReading: "正在读取视频字幕…",

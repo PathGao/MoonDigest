@@ -230,11 +230,28 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     (L.list.click || []).forEach((f) => f({ target: t }));
     await wait(20);
   };
+  // 复制 and 下载 give the note 写入 Obsidian writes: export-note with the newest conversation, asked about with the
+  // button's verb when the page is not open; what comes back is copied or downloaded as is.
   let copied = null;
+  const exported = [];
+  let pageAnswer = "open";
+  const exportSend = async (m) => (exported.push(m), m.type !== "export-note" ? {} : m.pageChoice ? { ok: true, filename: "a.md", markdown: `---\n${m.pageChoice}` } : { ok: true, askPage: true, url: "https://example.com/x", video: true });
+  ctx.chrome.runtime.sendMessage = exportSend;
+  const verbs = [];
+  ctx.MdgOverwriteDialog.choosePage = async (url, video, own, verb) => (verbs.push([url, video, own, verb].join()), pageAnswer);
   ctx.navigator = { clipboard: { writeText: async (text) => (copied = text) } };
   await act("copy");
-  assert.ok(copied?.startsWith("---\n"), "the entry's note is copied");
+  assert.deepStrictEqual([copied, exported.map((m) => [m.type, m.pageChoice || "-"].join()), exported[0].conversation.messages[0].content], ["---\nopen", ["export-note,-", "export-note,open"], XSS[0]]);
   assert.deepStrictEqual([els.status.textContent, red], ["已复制 Markdown", false]);
+  const realDownload = ctx.MdgDownload;
+  const downloaded = [];
+  ctx.MdgDownload = { ...realDownload, text: (name, text) => downloaded.push([name, text]) };
+  await act("md");
+  pageAnswer = "";
+  await act("md");
+  assert.deepStrictEqual([downloaded, verbs, els.status.textContent], [[["a.md", "---\nopen"]], ["https://example.com/x,true,true,复制", "https://example.com/x,true,true,下载", "https://example.com/x,true,true,下载"], "已取消下载"]);
+  ctx.MdgDownload = realDownload;
+  pageAnswer = "open";
   // B4: failures are red: a copy, and opening the side panel from 继续问.
   ctx.navigator.clipboard.writeText = async () => { throw new Error("无法访问剪贴板"); };
   await act("copy");
@@ -267,9 +284,13 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     // C159, C161: P2's entry shows the video's 备注 and copies it, and no entry of its own is added for it.
     assert.ok(entry(p2Key).includes("整个视频的备注") && entry(p2Key).includes('data-act="note"'), entry(p2Key));
     assert.strictEqual(html.split(BV).length - 1, entry(p2Key).split(BV).length - 1, "one entry for the video");
+    // Its note is P2's (the background adds the video's 备注 to it).
+    exported.length = 0;
+    ctx.chrome.runtime.sendMessage = exportSend;
     ctx.navigator.clipboard.writeText = async (text) => (copied = text);
     await on(p2Key, "copy");
-    assert.ok(copied.includes("## 备注\n\n整个视频的备注"), copied);
+    assert.deepStrictEqual([exported[0].ref.cid, exported[0].ref.pageIndex, exported[0].conversation.messages[0].content], ["c2", 2, "问"]);
+    ctx.chrome.runtime.sendMessage = writeSend;
     // C158: an 11-character YouTube id that starts with BV is YouTube's.
     assert.ok(html.includes("https://www.youtube.com/watch?v=BVabcdefghi"), html);
     // C156: the old conversation is still its video: 继续问 is on.
@@ -579,9 +600,13 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     await search("星标视频 没有这个词");
     assert.ok(!entry(videoKey), html);
     await search("");
-    ctx.navigator.clipboard.writeText = async (text) => (copied = text);
+    // A record with no conversation is exported too: its note carries the tags and 星标 (the background's MdgNote.triageExtras).
+    exported.length = 0;
+    const wasSend = ctx.chrome.runtime.sendMessage;
+    ctx.chrome.runtime.sendMessage = exportSend;
     await on(videoKey, "copy");
-    assert.ok(copied.includes("starred: true") && /tags: .*读过/.test(copied) && /tags: .*分拣标签/.test(copied), copied);
+    ctx.chrome.runtime.sendMessage = wasSend;
+    assert.deepStrictEqual([exported[0].type, `video:${exported[0].ref.site}:${exported[0].ref.videoId}|`, exported[0].conversation.messages.length], ["export-note", videoKey, 0]);
 
     // Deleting a tag in 标签管理 takes it off every record; the page, left with nothing, stays listed until a reload.
     await filter("manage");
@@ -844,14 +869,23 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
     ctx.TagDialogs.ai.open = realOpen;
   }
 
-  // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC.
+  // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC. Each is the
+  // record's note (export-note) without a dialog: one whose page is not open is its AI 笔记 (pageChoice own), one that
+  // cannot be built is this page's AI 笔记, and the status line counts both.
   const saved = [];
-  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name, data, type) => saved.push(name, type, data.length > 0) };
+  ctx.MdgDownload = { ...ctx.MdgDownload, text: (name, data, type) => saved.push(name, type, Buffer.from(data).toString()) };
+  const choices = [];
+  for (const [, key] of [...html.matchAll(/<article[^>]*data-key="([^"]*)"/g)].slice(0, 3)) pick(key, true);
+  ctx.chrome.runtime.sendMessage = async (m) => (choices.push(`${m.type},${m.pageChoice}`), choices.length === 1 ? { ok: true, filename: "页面.md", markdown: "# 网页笔记", noPage: true } : { ok: false, error: "B站 不可用" });
   const RealDate = ctx.Date;
   vm.runInContext("Date = class extends Date { constructor(...a) { a.length ? super(...a) : super(2026, 9, 14, 7, 30); } }", ctx);
   (L.selbar.click || []).forEach((f) => f({ target: { closest: () => ({ dataset: { sel: "md" } }) } }));
+  await wait(50);
   ctx.Date = RealDate;
-  assert.deepStrictEqual(saved, ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", true]);
+  const count = choices.length;
+  assert.strictEqual(count, 3, "three records selected");
+  assert.deepStrictEqual([saved[0], saved[1], [...new Set(choices)], els.status.textContent], ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", ["export-note,own"], `已下载 ${count} 条记录，1 条没打开页面，放的是 AI 笔记，${count - 1} 条生成不了笔记，放的是 AI 笔记`]);
+  assert.ok(saved[2].includes("页面.md") && saved[2].includes("# 网页笔记") && saved[2].includes("【AI笔记】"), saved[2]);
 
   console.log("history selftest: all passed");
 })().catch((e) => {

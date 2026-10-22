@@ -100,6 +100,13 @@
         store.mdg_obsidian_note_paths_v1 = { ...store.mdg_obsidian_note_paths_v1, [key]: { path, lastSyncedAt: Date.now() } };
         return { ok: true, path, kind: ai ? "ai" : "full", text: `${ai ? "已更新 AI 问答" : "已写入 Obsidian"}：${path}` };
       }
+      // The note write-video-note would write, as text.
+      case "export-note": {
+        const settings = { noteFolder: "MoonDigest/{{site}}", includeDateInFilename: true };
+        const path = store.mdg_obsidian_note_paths_v1?.[MdgSites.buildContextKey(msg.ref)]?.path || MdgNote.videoNotePath(msg.ref, settings);
+        const section = MdgNote.buildAiSection(MdgNote.buildConversationTurns(msg.conversation?.messages));
+        return { ok: true, filename: path.split("/").pop(), markdown: MdgNote.upsertAiSection(`---\ntitle: ${msg.ref.title}\n---\n\n## 字幕\n\nmock subtitle\n`, section) };
+      }
       default:
         return { ok: false, error: `mock: unhandled ${msg?.type}` };
     }

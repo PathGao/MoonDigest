@@ -70,6 +70,14 @@ const last = () => dialogs[dialogs.length - 1];
   last().fire("click", "self");
   assert.strictEqual(await picked, "");
 
+  // The page dialog names what the button does: 复制 / 下载 say what the AI 笔记 lacks (写 warns of a second note in the
+  // vault); without own (「附带 AI 问答」 off) there is no 只… AI 笔记.
+  D.choosePage("https://www.youtube.com/watch?v=y", true, true, "复制");
+  assert.strictEqual(text(last()), "视频页没有打开 要复制完整的视频笔记，先在后台打开视频页。只复制 AI 笔记只有对话，没有字幕。 只复制 AI 笔记 取消 打开视频页再复制");
+  D.choosePage("https://example.com/x", false, false, "下载");
+  assert.strictEqual(text(last()), "网页没有打开 要下载完整的网页笔记，先在后台打开这个网页。 取消 打开网页再下载");
+  last().close("");
+
   // The video page cannot use this dialog (a content script on a B站 page) but says the same words.
   const content = read("content.js");
   for (const words of ["只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。", "没有 AI 问答可更新。整篇覆盖会替换全部内容：", "该笔记已存在", ">整篇覆盖<", ">只更新 AI 问答<"]) {

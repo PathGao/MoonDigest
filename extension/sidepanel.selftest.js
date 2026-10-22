@@ -218,6 +218,34 @@ const chatOn = (context) => {
       assert.strictEqual(await write(() => "", web("x")), "-", "取消: nothing sent again");
       ctx.sendRuntimeMessage = was;
     }
+    // 复制 Markdown and 下载 .md give the note 写入 Obsidian writes: export-note with the conversation on screen, asked
+    // about with the button's verb when the page is not open; what comes back is copied or downloaded as is.
+    {
+      const was = [ctx.sendRuntimeMessage, ctx.MdgDownload];
+      const copied = [];
+      const saved = [];
+      const asked = [];
+      ctx.navigator.clipboard = { writeText: async (t) => copied.push(t) };
+      ctx.MdgDownload = { text: (name, text) => saved.push([name, text]) };
+      ctx.sendRuntimeMessage = async (m) => (sent.push(m), m.pageChoice ? { ok: true, filename: "V.md", markdown: "# 视频笔记" } : { ok: true, askPage: true, url: "u", video: true });
+      ctx.MdgOverwriteDialog.choosePage = async (url, isVideo, own, verb) => (asked.push([url, isVideo, own, verb]), choice());
+      const run = async (fn, pick) => {
+        sent.length = shown.length = 0;
+        choice = pick;
+        chatOn(video);
+        show(web("x"));
+        await fn();
+        return sent.map((m) => [m.type, m.pageChoice || "-", m.ref.videoId, m.conversation.messages[0].content].join());
+      };
+      const ask = ["export-note,-,BV1xx411c7mD,这个视频", "export-note,open,BV1xx411c7mD,这个视频"];
+      assert.deepStrictEqual(await run(ctx.copyCurrentConversationMarkdown, () => "open"), ask);
+      assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => "open"), ask);
+      assert.deepStrictEqual([copied, saved, asked.map((a) => a.join())], [["# 视频笔记"], [["V.md", "# 视频笔记"]], ["u,true,true,复制", "u,true,true,下载"]]);
+      assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => ""), [ask[0]]);
+      assert.deepStrictEqual([saved.length, shown.at(-1)], [1, ["已取消下载", undefined]]);
+      delete ctx.navigator.clipboard;
+      [ctx.sendRuntimeMessage, ctx.MdgDownload] = was;
+    }
     // The tab shows this video: its settled note goes along.
     activeTab = { id: 4, url: video.url };
     const realTab = ctx.sendMessageToActiveTab;
@@ -539,14 +567,14 @@ const chatOn = (context) => {
     els.saveConversationBtn.disabled = false;
     vm.runInContext("syncExportButtons()", ctx);
     assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, "当前没有可导出的对话"]);
-    // K8: 下载 .md failing to read the note's extras says so in red, not 「没有可下载的对话」.
+    // K8: 下载 .md failing to build the note says why in red, not 「没有可下载的对话」.
     await ctx.act({ type: "OPEN", id: "x1" });
-    const realGet = ctx.chrome.storage.local.get;
+    const realExport = ctx.sendRuntimeMessage;
     const said = [];
-    ctx.chrome.storage.local.get = async () => Promise.reject(new Error("读不到"));
+    ctx.sendRuntimeMessage = async () => ({ ok: false, error: "读不到" });
     ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
     await ctx.downloadCurrentConversation();
-    ctx.chrome.storage.local.get = realGet;
+    ctx.sendRuntimeMessage = realExport;
     ctx.showConversationContextNotice = () => {};
     assert.deepStrictEqual(said, [["下载失败：读不到", true]]);
     // A32: during a write a reply starting or ending (which recomputes the buttons) leaves 写入 Obsidian off, and a
@@ -770,11 +798,11 @@ const chatOn = (context) => {
 
   // B4: a failed copy is red, from the export menu and from a reply's own 复制 alike.
   {
-    const prev = [ctx.showConversationContextNotice, ctx.buildCurrentConversationNote];
+    const prev = [ctx.showConversationContextNotice, ctx.exportCurrentConversation];
     const notices = [];
     ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text.split("：")[0], Boolean(opts?.error)]);
     ctx.navigator.clipboard = { writeText: async () => { throw new Error("无法访问剪贴板"); } };
-    ctx.buildCurrentConversationNote = async () => ({ content: "x" });
+    ctx.exportCurrentConversation = async () => ({ markdown: "x" });
     await ctx.copyCurrentConversationMarkdown();
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败", true], ["复制失败", true]]);
@@ -789,7 +817,7 @@ const chatOn = (context) => {
     await ctx.copyMarkdown("x");
     assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板", true], ["已复制 Markdown", false]]);
     delete ctx.navigator.clipboard;
-    [ctx.showConversationContextNotice, ctx.buildCurrentConversationNote] = prev;
+    [ctx.showConversationContextNotice, ctx.exportCurrentConversation] = prev;
   }
 
   const tick = () => new Promise((r) => setImmediate(r));

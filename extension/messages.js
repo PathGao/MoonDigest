@@ -67,6 +67,7 @@
 
     // Obsidian (obsidian.js, the one writer)
     "write-video-note": { from: ["content.js", "history/history.js", "popup.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page"], response: ["ask", "path", "hasAiSection", "fullReason", "kind", "text", "title"] },
+    "export-note": { from: ["history/history.js", "sidepanel.js"], to: "obsidian.js", request: ["ref", "conversation", "page", "pageChoice"], response: ["askPage", "url", "video", "own", "filename", "markdown", "noPage"] },
     "sync-video-note-ai": { from: ["sidepanel.js"], to: "obsidian.js", request: ["ref", "conversation"], response: ["path", "exists", "updated", "text"] },
 
     // 分拣台 收藏夹 (answers are { ok, data })
