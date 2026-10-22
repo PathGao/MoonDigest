@@ -89,17 +89,21 @@
     });
   }
 
-  // write-video-note's askPage: a web page with no note yet and not open in any tab. Resolves "open" (打开网页再写: the
-  // background opens it and writes its note), "own" (只写 AI 笔记, the conversation alone) or "" (取消).
-  function choosePage(url) {
+  // write-video-note's askPage: a web page, or a video whose note needs its page (YouTube, 分 P), with no note yet and
+  // not open in any tab. Resolves "open" (打开网页再写 / 打开视频页再写: the background opens it and writes its note),
+  // "own" (只写 AI 笔记, the conversation alone) or "" (取消).
+  function choosePage(url, video = false) {
+    const [title, why, open] = video
+      ? ["视频页没有打开", "要写成完整的视频笔记，先在后台打开视频页。只写 AI 笔记会单独存一篇，之后再写视频笔记时库里会有两篇。", "打开视频页再写"]
+      : ["网页没有打开", "要写成完整的网页笔记，先在后台打开这个网页。只写 AI 笔记会单独存一篇，之后再写网页笔记时库里会有两篇。", "打开网页再写"];
     return show(`<form method="dialog">
-      <h2>网页没有打开</h2>
-      <p>要写成完整的网页笔记，先在后台打开这个网页。只写 AI 笔记会单独存一篇，之后再写网页笔记时库里会有两篇。</p>
+      <h2>${title}</h2>
+      <p>${why}</p>
       <code></code>
       <div class="actions">
         <button value="own">只写 AI 笔记</button>
         <button value="">取消</button>
-        <button class="primary" value="open" autofocus>打开网页再写</button>
+        <button class="primary" value="open" autofocus>${open}</button>
       </div>
     </form>`, (dialog) => (dialog.querySelector("code").textContent = String(url || "")));
   }

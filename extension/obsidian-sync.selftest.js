@@ -44,10 +44,19 @@ const area = (store) => ({
 });
 const onMessageListeners = [];
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
-// The tabs a write without its page looks in (tabPageNote); created: tabs it opened.
+// The tabs a write without its page looks in (tabNote); created: tabs it opened; muted: tabs it muted; videoPage: a video
+// tab's popup-refresh answer.
 let openTabs = [];
 const created = [];
-const tabs = new Proxy({ query: async () => openTabs, create: async (t) => (created.push(t.url), { id: 9, status: "complete", ...t }), get: async (id) => ({ id, status: "complete" }) }, { get: (t, k) => t[k] || noop });
+const muted = [];
+let videoPage = () => ({ ok: false });
+const tabs = new Proxy({
+  query: async () => openTabs,
+  create: async (t) => (created.push(t.url), { id: 9, status: "complete", ...t }),
+  get: async (id) => ({ id, status: "complete" }),
+  update: async (id, p) => p.muted && muted.push(id),
+  sendMessage: (id, m, o, cb) => cb(m.type === "popup-refresh" && o.frameId === 0 ? videoPage(id) : undefined)
+}, { get: (t, k) => t[k] || noop });
 const chrome = {
   runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getURL: (p) => `chrome-extension://mdg/${p}`, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
@@ -125,9 +134,12 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   sync.includeDateInFilename = false;
   log.splice(0);
 
-  // YouTube without its page: no note can be built, so the conversation is its own note, linking the video note.
+  // YouTube without its page, no tab showing it and no note recorded: no note can be built here, so it asks first as a
+  // web page does (the conversation alone would leave a second note once the video's is written); 只写 AI 笔记
+  // (pageChoice own) writes the conversation as its own note, linking the video note.
   const yt = { site: "youtube", videoId: "y1", pageIndex: 1, title: "Y", url: "https://www.youtube.com/watch?v=y1" };
-  resp = await write({ ref: yt, conversation: conversation("q") });
+  assert.deepStrictEqual(await write({ ref: yt, conversation: conversation("q") }), { ok: true, askPage: true, url: "https://www.youtube.com/watch?v=y1", video: true });
+  resp = await write({ ref: yt, conversation: conversation("q"), pageChoice: "own" });
   assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的 AI 笔记）"]);
   assert.ok(vault.get(resp.path).includes("[[N/youtube/Y|Y]]") && vault.get(resp.path).includes("## q"));
   // The video page open: its note, its cover, and the result starts with its subtitle state (G3) as for a built note.
@@ -147,6 +159,33 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   log.splice(0);
   resp = await write({ ref: { ...yt, videoId: "y2", title: "Y2" }, page: { markdown: " \n", cover: "" } });
   assert.deepStrictEqual([resp, log.splice(0)], [{ ok: false, error: "笔记内容为空" }, ["GET N/youtube/Y2.md"]]);
+
+  // Another tab shows the YouTube video: its note is read there (popup-refresh) and written whole at the path its page
+  // names, nothing asked; the 分 P / YouTube with no tab asks with the part's link, and 打开视频页再写 opens it muted.
+  {
+    const y5 = { ...yt, videoId: "y5aaaaaaaaa", title: "旧名", url: "https://www.youtube.com/watch?v=y5aaaaaaaaa" };
+    const pageOf = (ref, md) => ({ ok: true, payload: { url: ref.url, markdown: md, cover: "", noteWarning: "", noteRef: ref } });
+    openTabs = [{ id: 7, url: "https://www.youtube.com/watch?v=y5aaaaaaaaa&t=30" }];
+    videoPage = (id) => pageOf({ ...y5, title: "Y5", author: "作者" }, `# Y5 笔记 ${id}`);
+    resp = await write({ ref: y5, conversation: conversation("标签页") });
+    assert.deepStrictEqual([resp.kind, resp.path, created, muted], ["full", "N/youtube/Y5.md", [], []]);
+    assert.ok(vault.get("N/youtube/Y5.md").startsWith("# Y5 笔记 7") && vault.get("N/youtube/Y5.md").includes("### 问：标签页"));
+    assert.strictEqual(local[PATHS]["video:youtube:y5aaaaaaaaa|"].path, "N/youtube/Y5.md");
+    // A tab of another part of the same B站 video is not this part's.
+    const p2 = { site: "bilibili", videoId: "BV7", pageIndex: 2, pageCount: 3, title: "分P", url: "https://www.bilibili.com/video/BV7?p=2" };
+    openTabs = [{ id: 8, url: "https://www.bilibili.com/video/BV7?p=3" }];
+    assert.deepStrictEqual(await write({ ref: p2, conversation: conversation("分") }), { ok: true, askPage: true, url: "https://www.bilibili.com/video/BV7/?p=2", video: true });
+    openTabs = [];
+    videoPage = (id) => pageOf({ ...p2, cid: "c72", pageTitle: "第二集" }, `# 分P 笔记 ${id}`);
+    resp = await write({ ref: p2, conversation: conversation("分"), pageChoice: "open" });
+    assert.deepStrictEqual([resp.kind, resp.path, created, muted], ["full", "N/bilibili/分P-P2-第二集.md", ["https://www.bilibili.com/video/BV7/?p=2"], [9]]);
+    assert.strictEqual(local[PATHS]["video:bilibili:BV7|c72"].path, "N/bilibili/分P-P2-第二集.md");
+    // Opened but no note there (no subtitles yet, another video): says why, and writes nothing.
+    videoPage = () => ({ ok: true, payload: { url: p2.url, markdown: "" } });
+    assert.deepStrictEqual(await write({ ref: { ...p2, videoId: "BV8", url: "" }, conversation: conversation("空"), pageChoice: "open" }), { ok: false, error: E.noNoteYet });
+    videoPage = () => ({ ok: false });
+    created.length = muted.length = 0;
+  }
 
   // A deleted B站 video: the user's conversation as its own note; 逐个视频笔记 (no conversation) fails with B站's code.
   gone = true;
