@@ -1324,8 +1324,8 @@ async function sendToObsidian() {
   const ref = noteRef();
   const request = { type: "write-video-note", ref, page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
   let onPage = false;
-  const report = (text, ok) => {
-    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok });
+  const report = (text, ok, action = null) => {
+    if (onPage) setReadingNotice(text, { hideMs: ok ? 3000 : 0, error: !ok, action });
     return { ok, text };
   };
   try {
@@ -1350,9 +1350,10 @@ async function sendToObsidian() {
     if (MdgErrors.reloaded(error)) {
       return report(MdgErrors.TEXT.reloaded, false);
     }
-    // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
-    if (error.action === "settings") requestOpenOptions();
-    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, false), error: MdgErrors.messageOf(error), code: error.cause?.code };
+    // Not set up or a wrong key: 去设置, opened only on its click (the popup shows it from code when the page did not
+    // take over). A closed Obsidian only gets the red line.
+    const settings = error.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: requestOpenOptions } : null;
+    return { ...report(`${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, false, settings), error: MdgErrors.messageOf(error), code: error.cause?.code };
   }
 }
 
@@ -2131,11 +2132,13 @@ function buildReadingMetaLine() {
 
 // Errors and waits only; an empty text hides the notice. It sits outside the
 // reading view, which stays invisible until the player is ready.
-// busy: a 正在… notice (gray, spinner); hideMs: a result that clears itself; error: one the user must handle (red).
-function setReadingNotice(text, { busy = false, hideMs = 0, error = false } = {}) {
+// busy: a 正在… notice (gray, spinner); hideMs: a result that clears itself; error: one the user must handle (red);
+// action: { label, run }, a button after the text (去设置).
+function setReadingNotice(text, { busy = false, hideMs = 0, error = false, action = null } = {}) {
   const notice = byId(ids.readingStatus);
   window.clearTimeout(state.readingNoticeTimer);
   notice.textContent = text;
+  if (action) notice.append(Object.assign(document.createElement("button"), { type: "button", textContent: action.label, onclick: action.run }));
   notice.hidden = !text;
   notice.setAttribute("aria-busy", String(busy));
   notice.toggleAttribute("data-error", error);
@@ -3939,7 +3942,8 @@ async function sendRuntimeMessage(message) {
   return chrome.runtime.sendMessage(message);
 }
 
-// Red on the page, not the popup's status line: the popup has closed by now (the 该笔记已存在 dialog took the focus).
+// 去设置 on the page's notice. Red on the page, not the popup's status line: the popup has closed by now (the 该笔记已存在
+// dialog took the focus).
 async function requestOpenOptions() {
   try {
     const resp = await sendRuntimeMessage({ type: "open-options" });

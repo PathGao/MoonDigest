@@ -256,16 +256,21 @@ const chatOn = (context) => {
     ctx.sendMessageToActiveTab = realTab;
     ctx.sendRuntimeMessage = realSend;
 
-    // A failed write is red; only not set up or a wrong key (code OBSIDIAN) opens the settings page, not a closed Obsidian.
+    // A failed write is red; only not set up or a wrong key (code OBSIDIAN) adds 去设置, which stays up and opens the
+    // settings page on its click. A closed Obsidian gets the red line only.
     const notices = [];
     let settings = 0;
-    ctx.showConversationContextNotice = (text, ms, opts) => notices.push([text, opts?.error]);
+    const actions = [];
+    ctx.showConversationContextNotice = (text, ms, opts) => (notices.push([text, opts?.error, opts?.action?.label || "", ms]), opts?.action && actions.push(opts.action));
     ctx.chrome.runtime.openOptionsPage = () => settings++;
     const E = ctx.MdgErrors;
+    const LONG = vm.runInContext("NOTICE_LONG_MS", ctx);
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianKey, code: "OBSIDIAN" }, "Local API 写入失败"));
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: "Obsidian 返回 HTTP 500" }, "Local API 写入失败"));
     ctx.showObsidianFailure(E.fromResp({ ok: false, error: E.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" }, "Local API 写入失败"));
-    assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true], [`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true]]);
+    assert.deepStrictEqual(notices, [[`写入 Obsidian 失败：${E.TEXT.obsidianKey}`, true, E.LABEL.toSettings, 0], ["写入 Obsidian 失败：Obsidian 返回 HTTP 500", true, "", LONG], [`写入 Obsidian 失败：${E.TEXT.obsidianDown}`, true, "", LONG]]);
+    assert.strictEqual(settings, 0, "nothing opens before the click");
+    actions[0].run();
     assert.strictEqual(settings, 1);
   }
 

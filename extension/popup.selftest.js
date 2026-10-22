@@ -10,11 +10,11 @@ assert.ok(source.includes("(async () => {})().catch("), "harness strips the page
 const button = () => {
   const attrs = {};
   const on = {};
-  return { disabled: false, title: "", dataset: {}, attrs, on, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  return { disabled: false, title: "", dataset: {}, attrs, on, kids: [], append(...n) { this.kids.push(...n); }, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
 const body = { classes: new Set() };
 body.classList = { add: (c) => body.classes.add(c), toggle() {} };
-const ctx = vm.createContext({ URL, document: { getElementById: button, body } });
+const ctx = vm.createContext({ URL, document: { getElementById: button, body, createElement: () => ({}) } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
@@ -123,6 +123,20 @@ setTimeout(() => (async () => {
   answer = { ok: false, error: "连不上" };
   await ctx.el.sendBtn.on.click();
   assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：连不上`);
+  // Not set up or a wrong key (OBSIDIAN): 去设置 in the status line, the settings page only on its click. A closed
+  // Obsidian (OBSIDIAN_DOWN) gets the red line only.
+  for (const [code, toSettings] of [["OBSIDIAN", true], ["OBSIDIAN_DOWN", false]]) {
+    answer = { ok: false, error: "Key 不对", code };
+    ctx.el.status.kids = [];
+    asked.length = 0;
+    await ctx.el.sendBtn.on.click();
+    assert.deepStrictEqual(ctx.el.status.kids.map((b) => b.textContent), toSettings ? [ctx.MdgErrors.LABEL.toSettings] : [], code);
+    assert.ok(!asked.some((m) => m.type === "open-options"), `${code}: nothing opens before the click`);
+    if (toSettings) {
+      await ctx.el.status.kids[0].onclick();
+      assert.strictEqual(asked.at(-1).type, "open-options");
+    }
+  }
   // A page that cannot be read (no main text, a timeout, the Web Store): the note's tools are disabled with the reason.
   answer = { ok: false, error: `${T.pageReadFailed}：没有找到正文` };
   await ctx.init();
@@ -189,6 +203,15 @@ setTimeout(() =>
     ctx.sendToContent = async () => ({ ok: false, error: "网络断了" });
     await ctx.el.sendBtn.on.click();
     assert.strictEqual(ctx.el.status.textContent, `${T.obsidianFailed}：网络断了`);
+    // The video page answers OBSIDIAN (not set up, a wrong key): 去设置 here, the settings page only on its click.
+    const opened = [];
+    ctx.sendToRuntime = async (m) => (opened.push(m.type), { ok: true });
+    ctx.el.status.kids = [];
+    ctx.sendToContent = async () => ({ ok: false, text: `${T.obsidianFailed}：Key 不对`, code: "OBSIDIAN" });
+    await ctx.el.sendBtn.on.click();
+    assert.deepStrictEqual([ctx.el.status.textContent, ctx.el.status.kids.map((b) => b.textContent), opened], [`${T.obsidianFailed}：Key 不对`, [ctx.MdgErrors.LABEL.toSettings], []]);
+    await ctx.el.status.kids[0].onclick();
+    assert.deepStrictEqual(opened, ["open-options"]);
     // G5: 专注模式 that did not start reads as on the video page: TEXT.readerStartFailed and the background's reason.
     Object.assign(ctx, { isSupportedSubtitlePage: () => true, sendToContent: async () => ({ ok: true }), sendToRuntime: async () => ({ ok: false, error: "视频页没有回应" }) });
     await ctx.el.readingViewBtn.on.click();

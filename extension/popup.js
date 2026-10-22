@@ -142,14 +142,14 @@ function bindEvents() {
     setStatus(MdgErrors.TEXT.obsidianWriting, false, true);
     setBusy(el.sendBtn, true, MdgErrors.TEXT.writing);
     if (!onVideoPage) {
-      const { text, ok } = await writeWebNote().finally(() => setBusy(el.sendBtn, false));
-      setStatus(text, !ok);
+      const { text, ok, code } = await writeWebNote().finally(() => setBusy(el.sendBtn, false));
+      setStatus(text, !ok, false, ok ? null : obsidianSettings(code));
       return;
     }
     const resp = await sendToContent({ type: "popup-send-obsidian" }).finally(() => setBusy(el.sendBtn, false));
     // The page answers with the result's words (text); without them the message never reached it.
     const text = resp?.text || (resp?.ok ? "" : `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.text(resp)}`);
-    if (text) setStatus(text, !resp?.ok);
+    if (text) setStatus(text, !resp?.ok, false, resp?.ok ? null : obsidianSettings(resp?.code));
     render(resp?.payload || latestPayload, { preserveStatus: Boolean(text) });
   });
 
@@ -193,10 +193,7 @@ function bindEvents() {
     render(resp?.payload || latestPayload, { preserveStatus: !resp?.ok });
   });
 
-  el.settingsBtn.addEventListener("click", async () => {
-    const resp = await sendToRuntime({ type: "open-options" }).catch((error) => ({ ok: false, error: error.message }));
-    if (!resp?.ok) setStatus(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(resp)}`, true);
-  });
+  el.settingsBtn.addEventListener("click", openOptions);
 
   el.summaryBtn.addEventListener("click", async () => {
     const tab = await getActiveTab();
@@ -244,8 +241,16 @@ async function readWebNote(tabId) {
   setStatus(WEB_PAGE_STATUS);
 }
 
+async function openOptions() {
+  const resp = await sendToRuntime({ type: "open-options" }).catch((error) => ({ ok: false, error: error.message }));
+  if (!resp?.ok) setStatus(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(resp)}`, true);
+}
+
+// Not set up or a wrong key: 去设置 in the status line, opened only on its click. A closed Obsidian only gets the red line.
+const obsidianSettings = (code) => (MdgErrors.action(code) === "settings" ? { label: MdgErrors.LABEL.toSettings, run: openOptions } : null);
+
 // 写入 Obsidian of a web page, as the side panel writes it: the background picks the path, an existing note asks here.
-// Resolves { ok, text } for the status.
+// Resolves { ok, text, code? } for the status.
 async function writeWebNote() {
   const request = { type: "write-video-note", ref: webNote.ref, page: { markdown: webNote.markdown } };
   const send = (message) => sendToRuntime(message).catch((error) => ({ ok: false, error: error.message }));
@@ -257,9 +262,7 @@ async function writeWebNote() {
   }
   if (resp?.ok) return { ok: true, text: resp.text };
   const error = MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
-  // Not set up or a wrong key: the settings page, as the side panel does.
-  if (error.action === "settings") void sendToRuntime({ type: "open-options" }).catch(() => {});
-  return { ok: false, text: `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}` };
+  return { ok: false, text: `${MdgErrors.TEXT.obsidianFailed}：${MdgErrors.messageOf(error)}`, code: error.cause?.code };
 }
 
 async function refreshFromTab(force = false) {
@@ -367,8 +370,10 @@ function setText(node, text) {
   node.textContent = String(text || "");
 }
 
-function setStatus(text, isError = false, busy = false) {
+// action: { label, run }, a button after the text (去设置).
+function setStatus(text, isError = false, busy = false, action = null) {
   el.status.textContent = String(text || "");
+  if (action) el.status.append(Object.assign(document.createElement("button"), { type: "button", className: "link", textContent: action.label, onclick: action.run }));
   el.status.classList.toggle("is-error", Boolean(isError));
   el.status.setAttribute("aria-busy", String(busy));
 }

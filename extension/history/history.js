@@ -865,9 +865,9 @@ async function saveToObsidian(group) {
     if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     setStatus(resp.text);
   } catch (error) {
-    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${error?.message || error}`, true);
-    // Not set up or a wrong key: the settings page. A closed Obsidian only gets the red line.
-    if (error?.action === "settings") chrome.runtime.openOptionsPage();
+    // Not set up or a wrong key: 去设置, opened only on its click. A closed Obsidian only gets the red line.
+    const settings = error?.action === "settings" ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
+    setStatus(`${MdgErrors.TEXT.obsidianFailed}：${error?.message || error}`, true, settings);
   } finally {
     writing.delete(group.key);
     render();
