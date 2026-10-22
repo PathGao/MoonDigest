@@ -171,7 +171,7 @@ async function linkCoverInVault(vault, filepath, content, cover) {
 // its page is read from a tab that shows it; with none and no note of it yet, the answer is askPage (writing the
 // conversation alone would leave a second note once the page's note is written), and the caller sends again with
 // pageChoice "open" (open the page, then write its note) or "own" (the conversation as its own note).
-// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video? }
+// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video?, own? } (own false: 「附带 AI 问答」 is off, so 只写 AI 笔记 is not offered)
 // or { path, kind: full | ai | unchanged | conversation, text, title }.
 async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice }) {
   const settings = await getMergedSettings();
@@ -209,9 +209,6 @@ async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice
   let built = null;
   if (!key) {
     target = standalone("", "");
-  } else if (conversation && turns.length && !aiOn) {
-    // 「附带 AI 问答」 off: a conversation the user writes still reaches Obsidian, beside the note.
-    target = standalone(OWN_NOTE, computedPath());
   } else if (page?.markdown) {
     target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` }, warning: String(page.warning || "") }) };
   } else if (ref.site === "bilibili" && ref.pageIndex === 1) {
@@ -232,17 +229,19 @@ async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice
       } catch (e) {
         // A deleted or hidden video has no note to build, recorded or not: a conversation the user writes goes in its
         // own note.
-        if (!conversation || !MdgSites.isBiliVideoGone(e.code)) throw e;
+        if (!conversation || !aiOn || !MdgSites.isBiliVideoGone(e.code)) throw e;
         target = standalone("（视频已失效，只写了对话）", "");
       }
     }
   } else {
     // A recorded note without its page (YouTube, 分 P, a web page, no tab showing it): asked about like any other, but
     // only its AI 问答 can change. Without one it asks first (askPage); 只写 AI 笔记 makes the conversation its own note.
-    const recorded = section && paths[key]?.path;
+    const recorded = paths[key]?.path;
     const note = recorded ? await readVaultNote(vault, recorded) : null;
     const why = needsPage(ref);
-    if (!note?.exists && pageChoice !== "own") return ref.isVideoContext ? { askPage: true, url: MdgSites.videoUrl(ref), video: true } : { askPage: true, url: ref.url };
+    // 「附带 AI 问答」 off: the recorded note has nothing that can change without its page.
+    if (note?.exists && !section) return { path: recorded, kind: "unchanged", text: aiSectionResult(recorded, false), title: ref.title };
+    if (!note?.exists && (pageChoice !== "own" || !aiOn)) return { askPage: true, url: ref.isVideoContext ? MdgSites.videoUrl(ref) : ref.url, ...(ref.isVideoContext && { video: true }), ...(!aiOn && { own: false }) };
     target = note?.exists
       ? { video: true, path: recorded, note, fullReason: why, body: async () => { throw new Error(why); } }
       : ref.isVideoContext ? standalone(OWN_NOTE, computedPath()) : standalone("", "");

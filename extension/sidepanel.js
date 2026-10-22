@@ -2097,7 +2097,7 @@ async function saveCurrentConversationToObsidian() {
     // 摘读记录).
     let pageChoice;
     if (resp?.ok && resp.askPage) {
-      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video);
+      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false);
       if (stopped(pageChoice)) return;
       resp = await sendRuntimeMessage({ ...request, pageChoice });
     }

@@ -805,7 +805,7 @@ async function saveToObsidian(group) {
     // the side panel).
     let pageChoice;
     if (resp?.ok && resp.askPage) {
-      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video);
+      pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false);
       if (!pageChoice) return setStatus(MdgErrors.TEXT.obsidianCancelled);
       resp = await chrome.runtime.sendMessage({ ...request(), pageChoice });
     }
