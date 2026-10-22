@@ -260,6 +260,7 @@ async function buildBackup() {
     else if (k === K.folderCriteria) out.folderCriteria = v;
     else if (k === K.videoTags) out.videoTags = v;
     else if (k === K.notes) out.notes = v;
+    else if (k === KEYS.readingMarks) out.readingMarks = v; // 摘读记录's 星标 and tags
     else if (k.startsWith(SNAPSHOT)) folder(k.slice(SNAPSHOT.length)).snapshot = v;
     else if (k.startsWith(DECISIONS)) folder(k.slice(DECISIONS.length)).decisions = v;
     else if (k.startsWith(TITLE)) out.titleResults[k.slice(TITLE.length)] = v;

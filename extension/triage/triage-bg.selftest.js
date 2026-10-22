@@ -794,6 +794,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const nowS = 400 * 86400;
     const entries = { BVold: [80, 10], BVkeep: [80, 10], BVnew: [80, nowS - 5] };
     assert.deepStrictEqual(plain(t.seenPrune(entries, new Set(["BVkeep"]), nowS)), ["BVold"]);
+    // J20: a chosen folder's videos take no place in the newest 5000.
+    const full = Object.fromEntries(Array.from({ length: 5000 }, (_, i) => [`BV${i}`, [80, nowS - 100 - i]]));
+    assert.deepStrictEqual(plain(t.seenPrune({ ...full, BVfav: [80, nowS] }, new Set(["BVfav"]), nowS)), [], "5000 others plus one in a folder: none dropped");
+    assert.deepStrictEqual(plain(t.seenPrune({ ...full, BVx: [80, nowS] }, new Set(), nowS)), ["BV4999"]);
 
     // seen-sync: off by default; reads only what is new, merges with what is stored, waits 10 minutes between reads,
     // and backs off on risk control.
@@ -895,6 +899,18 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await vm.runInContext("seenRun", ctx)?.catch(() => {});
     assert.ok(ended.length === 1 && ended[0].error, JSON.stringify(ended));
     t.fetch = realFetch;
+    // J20: pruned as soon as a read takes the count over 5000, not only once a day; meta.counted counts new entries.
+    const seenCount = () => Object.keys(st).filter((k) => k.startsWith("seen_")).length;
+    assert.strictEqual(st.triage_seen_meta.counted, seenCount(), "a prune leaves the count it kept");
+    st.seen_BVancient = [50, 1];
+    st.triage_seen_meta = { ...st.triage_seen_meta, prunedAt: Date.now(), counted: 4998 };
+    pages = [page([h("BVi", T + 360, 10), h("BVh", T + 350, 10)], 0)];
+    await read({ force: true });
+    assert.deepStrictEqual([plain(st.seen_BVancient), st.triage_seen_meta.counted], [[50, 1], 4999], "under the cap: no prune until the day is up");
+    pages = [page([h("BVj", T + 370, 10), h("BVi", T + 360, 10)], 0)];
+    st.triage_seen_meta.counted = 5000;
+    await read({ force: true });
+    assert.deepStrictEqual([st.seen_BVancient, st.triage_seen_meta.counted], [undefined, seenCount()], "over the cap: pruned at once");
     // 关 drops every seen_ key, on a Chrome without getKeys too.
     const keep = { ...st };
     await t.seenClear();
