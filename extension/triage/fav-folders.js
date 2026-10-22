@@ -228,6 +228,7 @@ async function openFolder(mediaId) {
   S.selected.clear();
   S.tagFilter.clear();
   S.finishedFilter = S.dupFilter = false;
+  S.tagState = "";
   S.aiRecentFilter = false;
   S.kindFilter = "";
   S.undo = [];
