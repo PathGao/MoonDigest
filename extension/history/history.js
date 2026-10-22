@@ -91,7 +91,8 @@ function groupByVideo(items) {
 const readingKey = (g) => MdgNote.readingKey(g.context);
 const siteOf = (g) => MdgSites.SITES[g.context.site]?.label || "网页";
 
-// 下载 .md: the conversation note the side panel downloads, with every conversation of the video in order, its tags and 星标.
+// The record's AI 笔记 with every conversation in order, its tags and 星标: what the zip holds for a record whose note
+// export-note could not build.
 function buildNote(group) {
   const turns = group.convs.flatMap((conv) => MdgNote.buildConversationTurns(conv.messages));
   const filename = MdgNote.buildAiConversationFilename(group.context);
@@ -772,18 +773,70 @@ async function deleteGroups(keys) {
   await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 条记录的 AI 对话`, keys);
 }
 
-// Several videos go into one file like the triage batch export: one save prompt, frontmatter
-// turned into yaml blocks so the merged file still renders.
-function downloadGroups(groups) {
-  const notes = groups.map((g) => buildNote(g));
-  if (notes.length === 1) {
-    MdgDownload.text(notes[0].filename, notes[0].content);
-  } else {
-    const used = new Set();
-    const files = notes.map((n) => ({ name: MdgDownload.uniqueName(used, n.filename), text: n.content }));
-    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate(new Date(), true)}.zip`, MdgDownload.zipStored(files), "application/zip");
+// What a record's three buttons send: the record and its newest conversation (the one auto-sync keeps in the note),
+// read again at each send so a reply saved while a dialog was open goes in too.
+function noteRequest(group, type) {
+  const g = groupByVideo(conversations).find((x) => x.key === group.key) || group;
+  const newest = g.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), g.convs[0]);
+  return { type, ref: g.context, conversation: { messages: newest?.messages || [] } };
+}
+
+// 复制 and 下载 of one record (verb 复制 / 下载): the note 写入 Obsidian writes (export-note), asked about the same way
+// when its page is not open. null: cancelled, said in the status line.
+async function exportGroup(group, verb) {
+  let resp = await chrome.runtime.sendMessage(noteRequest(group, "export-note"));
+  if (resp?.ok && resp.askPage) {
+    const pageChoice = await MdgOverwriteDialog.choosePage(resp.url, resp.video, resp.own !== false, verb);
+    if (!pageChoice) return setStatus(`已取消${verb}`), null;
+    resp = await chrome.runtime.sendMessage({ ...noteRequest(group, "export-note"), pageChoice });
   }
-  setStatus(`已下载 ${groups.length} 条记录`);
+  if (!resp?.ok) throw MdgErrors.fromResp(resp, MdgErrors.TEXT.unknown);
+  return resp;
+}
+
+async function copyGroup(group) {
+  try {
+    const note = await exportGroup(group, "复制");
+    if (!note) return;
+    await navigator.clipboard.writeText(note.markdown);
+    setStatus(MdgErrors.TEXT.copied);
+  } catch (error) {
+    setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true);
+  }
+}
+
+// One record: its note, asked about as 复制. Several go into one zip without a dialog or a tab opened: a record whose note
+// needs its page that no tab shows gets its AI 笔记 (pageChoice own), and the status line counts them.
+async function downloadGroups(groups) {
+  try {
+    if (groups.length === 1) {
+      const note = await exportGroup(groups[0], "下载");
+      if (note) MdgDownload.text(note.filename, note.markdown), setStatus("已下载 1 条记录");
+      return;
+    }
+    setStatus(`正在打包 ${groups.length} 条记录…`);
+    const notes = [];
+    let noPage = 0;
+    let failed = 0;
+    for (const g of groups) {
+      const resp = await chrome.runtime.sendMessage({ ...noteRequest(g, "export-note"), pageChoice: "own" }).catch(() => null);
+      if (resp?.ok && resp.markdown) {
+        notes.push(resp);
+        if (resp.noPage) noPage++;
+      } else {
+        // No note to build (B站 unreachable, nothing recorded): the AI 笔记 still keeps the record.
+        failed++;
+        const { filename, content } = buildNote(g);
+        notes.push({ filename, markdown: content });
+      }
+    }
+    const used = new Set();
+    const files = notes.map((n) => ({ name: MdgDownload.uniqueName(used, n.filename), text: n.markdown }));
+    MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate(new Date(), true)}.zip`, MdgDownload.zipStored(files), "application/zip");
+    setStatus([`已下载 ${groups.length} 条记录`, noPage && `${noPage} 条没打开页面，放的是 AI 笔记`, failed && `${failed} 条生成不了笔记，放的是 AI 笔记`].filter(Boolean).join("，"));
+  } catch (error) {
+    setStatus(`${MdgErrors.TEXT.downloadFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
+  }
 }
 
 // The background (write-video-note) decides where it goes, as for the side panel's 写入 Obsidian: the video note with
@@ -794,12 +847,7 @@ async function saveToObsidian(group) {
   setStatus(MdgErrors.TEXT.obsidianWriting);
   render();
   try {
-    // Built again after the dialog: a reply saved while it was open goes in too.
-    const request = () => {
-      const g = groupByVideo(conversations).find((x) => x.key === group.key) || group;
-      const newest = g.convs.reduce((a, b) => ((b.updatedAt || 0) > (a.updatedAt || 0) ? b : a), g.convs[0]);
-      return { type: "write-video-note", ref: g.context, conversation: { messages: newest?.messages || [] } };
-    };
+    const request = () => noteRequest(group, "write-video-note");
     let resp = await chrome.runtime.sendMessage(request());
     // A web page or video page with no note yet and not open: open it and write its note, or only the conversation (as
     // the side panel).
@@ -837,12 +885,8 @@ els.list.addEventListener("click", (event) => {
   else if (act === "pick") {
     target.checked ? selected.add(key) : selected.delete(key);
     render();
-  } else if (act === "copy" && group) {
-    navigator.clipboard.writeText(buildNote(group).content).then(
-      () => setStatus(MdgErrors.TEXT.copied),
-      (error) => setStatus(`${MdgErrors.TEXT.copyFailed}：${error?.message || MdgErrors.TEXT.noClipboard}`, true)
-    );
-  } else if (act === "md" && group) downloadGroups([group]);
+  } else if (act === "copy" && group) void copyGroup(group);
+  else if (act === "md" && group) void downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
   else if (act === "summary") {
@@ -889,7 +933,7 @@ UI.bindSearch(els.search, () => render());
 els.selbar.addEventListener("click", (event) => {
   const act = event.target.closest("[data-sel]")?.dataset.sel;
   const picks = visibleGroups().filter((g) => selected.has(g.key));
-  if (act === "md") downloadGroups(picks);
+  if (act === "md") void downloadGroups(picks);
   else if (act === "tags") openPicker(picks);
   else if (act === "delete") void deleteGroups(picks.map((g) => g.key));
   else if (act === "clear") {

@@ -315,6 +315,54 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
     assert.deepStrictEqual([resp.exists, resp.text], [false, "Obsidian 里的网页笔记已不存在，未写入"]);
   }
 
+  // export-note (复制 Markdown, 下载 .md of the side panel and 摘读记录): the note the write gives, as text; nothing is
+  // written.
+  {
+    const exp = async (extra) => {
+      log.splice(0);
+      const r = await send({ type: "export-note", ...extra });
+      assert.ok(!log.some((l) => l.startsWith("PUT")), `export-note wrote: ${log}`);
+      return r;
+    };
+    // A web page with its body: the note written whole.
+    const sameRef = { url: "https://example.com/same", title: "同一篇", isVideoContext: false };
+    const markdown = N.buildPageNote({ ...sameRef, pageMarkdown: "正文" }, sync, []);
+    resp = await exp({ ref: sameRef, conversation: conversation("同"), page: { markdown } });
+    await write({ ref: sameRef, conversation: conversation("同"), page: { markdown } });
+    assert.deepStrictEqual([resp.filename, resp.markdown], ["同一篇.md", vault.get("N/网页/同一篇.md")]);
+    assert.ok(resp.markdown.includes("正文") && resp.markdown.includes("### 问：同"), resp.markdown);
+    // B站 P1 without its page: built as the write's 整篇覆盖 (the write then stores the cover in the vault).
+    builds = 0;
+    resp = await exp({ ref: bili, conversation: conversation("导") });
+    assert.deepStrictEqual([resp.filename, builds], ["T.md", 1]);
+    assert.ok(resp.markdown.includes("你好") && resp.markdown.includes("### 问：导") && resp.markdown.includes(`![cover](${coverUrl})`), resp.markdown);
+    // YouTube without its page, a tab or a note: asked as the write is; 只复制 AI 笔记 (own) is the AI 笔记 linking the
+    // video note, marked noPage.
+    const y7 = { ...yt, videoId: "y7", title: "Y7", url: "https://www.youtube.com/watch?v=y7" };
+    assert.deepStrictEqual(await exp({ ref: y7, conversation: conversation("问") }), await write({ ref: y7, conversation: conversation("问") }));
+    resp = await exp({ ref: y7, conversation: conversation("问"), pageChoice: "own" });
+    assert.deepStrictEqual([resp.filename, resp.noPage, resp.markdown.includes("[[N/youtube/Y7|Y7]]")], ["【AI笔记】Y7.md", true, true]);
+    // Its note recorded, no page: that note with this AI 问答.
+    await write({ ref: y7, conversation: conversation("问"), page: { markdown: "# Y7 页面" } });
+    resp = await exp({ ref: y7, conversation: conversation("再问") });
+    assert.deepStrictEqual([resp.filename, resp.markdown], ["Y7.md", N.upsertAiSection(vault.get("N/youtube/Y7.md"), N.buildAiSection(N.buildConversationTurns(conversation("再问").messages)))]);
+    // 「附带 AI 问答」 off: the note as it is, no conversation added; asked without own, which 摘读记录's zip still sends.
+    sync.includeAiChatInNote = false;
+    resp = await exp({ ref: y7, conversation: conversation("关") });
+    assert.strictEqual(resp.markdown, vault.get("N/youtube/Y7.md"));
+    resp = await exp({ ref: bili, conversation: conversation("关") });
+    assert.ok(!resp.markdown.includes("### 问："), resp.markdown);
+    const y8 = { ...yt, videoId: "y8", title: "Y8", url: "https://www.youtube.com/watch?v=y8" };
+    assert.deepStrictEqual(await exp({ ref: y8, conversation: conversation("关") }), { ok: true, askPage: true, url: y8.url, video: true, own: false });
+    assert.strictEqual((await exp({ ref: y8, conversation: conversation("关"), pageChoice: "own" })).noPage, true);
+    sync.includeAiChatInNote = true;
+    // Obsidian off: still exported; a recorded note cannot be read, so its page is asked for.
+    sync.obsidianEnabled = false;
+    assert.strictEqual((await exp({ ref: y7, conversation: conversation("问") })).askPage, true);
+    assert.strictEqual((await exp({ ref: bili, conversation: conversation("问") })).filename, "T.md");
+    sync.obsidianEnabled = true;
+  }
+
   // A26: 测试连接 passes only when the address answers the Local REST API's JSON, which names its service (F4).
   assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: true, service: "Obsidian Local REST API" });
   for (notApi of [true, "json"]) assert.deepStrictEqual({ ...(await ctx.testObsidianConnection(baseUrl, "k")) }, { ok: false, error: E.obsidianNotApi, code: "OBSIDIAN" }, notApi);

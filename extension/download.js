@@ -89,21 +89,24 @@
     });
   }
 
-  // write-video-note's askPage: a web page, or a video whose note needs its page (YouTube, 分 P), with no note yet and
-  // not open in any tab. Resolves "open" (打开网页再写 / 打开视频页再写: the background opens it and writes its note),
-  // "own" (只写 AI 笔记, the conversation alone; not offered when own is false: 「附带 AI 问答」 off) or "" (取消).
-  function choosePage(url, video = false, own = true) {
-    const [title, first, open, kind] = video
-      ? ["视频页没有打开", "要写成完整的视频笔记，先在后台打开视频页。", "打开视频页再写", "视频笔记"]
-      : ["网页没有打开", "要写成完整的网页笔记，先在后台打开这个网页。", "打开网页再写", "网页笔记"];
+  // write-video-note's and export-note's askPage: a web page, or a video whose note needs its page (YouTube, 分 P), with
+  // no note yet and not open in any tab. verb: what the button does with the note (写, 复制, 下载). Resolves "open"
+  // (打开网页再写 / 打开视频页再复制…: the background opens it and builds its note), "own" (只写 AI 笔记…, the
+  // conversation alone; not offered when own is false: 「附带 AI 问答」 off) or "" (取消).
+  function choosePage(url, video = false, own = true, verb = "写") {
+    const [title, open, kind, openThen] = video
+      ? ["视频页没有打开", "先在后台打开视频页。", "视频笔记", "打开视频页再"]
+      : ["网页没有打开", "先在后台打开这个网页。", "网页笔记", "打开网页再"];
+    // Only a write leaves a second note behind in the vault.
+    const ownText = verb === "写" ? `只写 AI 笔记会单独存一篇，之后再写${kind}时库里会有两篇。` : `只${verb} AI 笔记只有对话，没有${video ? "字幕" : "正文"}。`;
     return show(`<form method="dialog">
       <h2>${title}</h2>
-      <p>${first}${own ? `只写 AI 笔记会单独存一篇，之后再写${kind}时库里会有两篇。` : ""}</p>
+      <p>要${verb}${verb === "写" ? "成" : ""}完整的${kind}，${open}${own ? ownText : ""}</p>
       <code></code>
       <div class="actions">
-        ${own ? '<button value="own">只写 AI 笔记</button>' : ""}
+        ${own ? `<button value="own">只${verb} AI 笔记</button>` : ""}
         <button value="">取消</button>
-        <button class="primary" value="open" autofocus>${open}</button>
+        <button class="primary" value="open" autofocus>${openThen}${verb}</button>
       </div>
     </form>`, (dialog) => (dialog.querySelector("code").textContent = String(url || "")));
   }

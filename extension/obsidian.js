@@ -162,20 +162,11 @@ async function linkCoverInVault(vault, filepath, content, cover) {
   }
 }
 
-// write-video-note: the one write of a video's note, from the video page, the side panel, 摘读记录 and 逐个视频笔记.
-// ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
-// latest saved conversation. page: { markdown, cover, warning } from the open video page (warning: its
-// MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
-// not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
-// note and writes a missing one whole. A web page or a video whose note cannot be built here (YouTube, 分 P) sent without
-// its page is read from a tab that shows it; with none and no note of it yet, the answer is askPage (writing the
-// conversation alone would leave a second note once the page's note is written), and the caller sends again with
-// pageChoice "open" (open the page, then write its note) or "own" (the conversation as its own note).
-// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video?, own? } (own false: 「附带 AI 问答」 is off, so 只写 AI 笔记 is not offered)
-// or { path, kind: full | ai | unchanged | conversation, text, title }.
-async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice }) {
-  const settings = await getMergedSettings();
-  const vault = obsidianConfig(settings);
+// Where ref's note goes and how it is built, for the write (writeVideoNote) and for 复制 Markdown / 下载 .md
+// (exportNote), so the three buttons give one note. readNote(path): the vault note there ({ exists, content }). own:
+// pageChoice "own" may give the conversation's own note. Resolves { askPage, url, video?, own? } or
+// { ref, key, section, aiOn, target, title }; target: { path, video?, note?, fullReason?, noPage?, why?, body }.
+async function resolveNote({ ref: input, mode, conversation, page, pageChoice }, settings, readNote, own) {
   let ref = MdgSites.contextRef(input);
   const builds = ref.site === "bilibili" && ref.pageIndex === 1;
   if (!page && !builds && (ref.isVideoContext ? ref.videoId : ref.url)) {
@@ -211,14 +202,14 @@ async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice
     target = standalone("", "");
   } else if (page?.markdown) {
     target = { video: true, path: computedPath(), body: async () => ({ markdown: page.markdown, cover: { url: page.cover, name: `${ref.site}-${ref.videoId}` }, warning: String(page.warning || "") }) };
-  } else if (ref.site === "bilibili" && ref.pageIndex === 1) {
+  } else if (builds) {
     // Without the page only a B站 P1 note can be built (triageBuildNote). A recorded note that is only asked about or
     // gets its AI 问答 is not built; otherwise the API meta names the path ({{author}}, {{upload_date}}) and the cid the key.
     const build = async () => {
       built ||= await triageBuildNote(ref.videoId, settings);
       return { markdown: built.markdown, cover: built.cover, warning: built.subtitleWarning };
     };
-    const recorded = paths[key] ? await readVaultNote(vault, paths[key].path) : null;
+    const recorded = paths[key] ? await readNote(paths[key].path) : null;
     if (recorded?.exists && mode !== "full") {
       target = { video: true, path: paths[key].path, note: recorded, body: build };
     } else {
@@ -237,19 +228,38 @@ async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice
     // A recorded note without its page (YouTube, 分 P, a web page, no tab showing it): asked about like any other, but
     // only its AI 问答 can change. Without one it asks first (askPage); 只写 AI 笔记 makes the conversation its own note.
     const recorded = paths[key]?.path;
-    const note = recorded ? await readVaultNote(vault, recorded) : null;
+    const note = recorded ? await readNote(recorded) : null;
+    if (!note?.exists && (pageChoice !== "own" || !own)) return { askPage: true, url: ref.isVideoContext ? MdgSites.videoUrl(ref) : ref.url, ...(ref.isVideoContext && { video: true }), ...(!aiOn && { own: false }) };
     const why = needsPage(ref);
-    // 「附带 AI 问答」 off: the recorded note has nothing that can change without its page.
-    if (note?.exists && !section) return { path: recorded, kind: "unchanged", text: aiSectionResult(recorded, false), title: ref.title };
-    if (!note?.exists && (pageChoice !== "own" || !aiOn)) return { askPage: true, url: ref.isVideoContext ? MdgSites.videoUrl(ref) : ref.url, ...(ref.isVideoContext && { video: true }), ...(!aiOn && { own: false }) };
     target = note?.exists
       ? { video: true, path: recorded, note, fullReason: why, body: async () => { throw new Error(why); } }
-      : ref.isVideoContext ? standalone(OWN_NOTE, computedPath()) : standalone("", "");
+      : { ...(ref.isVideoContext ? standalone(OWN_NOTE, computedPath()) : standalone("", "")), noPage: true };
   }
-
-  const { path } = target;
   // After body(): a recorded note is built only when it is written whole.
-  const title = () => built?.meta.title || ref.title;
+  return { ref, key, section, aiOn, target, title: () => built?.meta.title || ref.title };
+}
+
+// write-video-note: the one write of a video's note, from the video page, the side panel, 摘读记录 and 逐个视频笔记.
+// ref: the video (or a web page's context). conversation: { messages } for the AI 问答 section; left out, the video's
+// latest saved conversation. page: { markdown, cover, warning } from the open video page (warning: its
+// MdgNote.noteSubtitleWarning, which the result starts with as for a note built here). mode: left out, an existing note is
+// not touched and the answer is ask; "full" writes the whole note; "ai" replaces only the AI 问答 section of an existing
+// note and writes a missing one whole. A web page or a video whose note cannot be built here (YouTube, 分 P) sent without
+// its page is read from a tab that shows it; with none and no note of it yet, the answer is askPage (writing the
+// conversation alone would leave a second note once the page's note is written), and the caller sends again with
+// pageChoice "open" (open the page, then write its note) or "own" (the conversation as its own note).
+// Resolves { ask: true, path, hasAiSection, fullReason? } (fullReason: why 整篇覆盖 is off), { askPage: true, url, video?, own? } (own false: 「附带 AI 问答」 is off, so 只写 AI 笔记 is not offered)
+// or { path, kind: full | ai | unchanged | conversation, text, title }.
+async function writeVideoNote(message) {
+  const settings = await getMergedSettings();
+  const vault = obsidianConfig(settings);
+  const resolved = await resolveNote(message, settings, (path) => readVaultNote(vault, path), settings.includeAiChatInNote);
+  if (resolved.askPage) return resolved;
+  const { ref, key, section, aiOn, target, title } = resolved;
+  const { mode } = message;
+  // 「附带 AI 问答」 off: the recorded note has nothing that can change without its page.
+  if (target.fullReason && !section) return { path: target.path, kind: "unchanged", text: aiSectionResult(target.path, false), title: ref.title };
+  const { path } = target;
   const existing = target.note || (await readVaultNote(vault, path));
   if (existing.exists && !mode) {
     return { ask: true, path, ...(target.video && { hasAiSection: Boolean(section) }), ...(target.fullReason && { fullReason: target.fullReason }) };
@@ -272,6 +282,29 @@ async function writeVideoNote({ ref: input, mode, conversation, page, pageChoice
   return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title: title(), ...(warning && { subtitleWarning: warning }) };
 }
 
+// export-note: 复制 Markdown and 下载 .md of the side panel and 摘读记录, the note writeVideoNote would write (mode
+// full), as text and nothing written. Obsidian need not be set up; when it is, a recorded note without its page is that
+// note with this AI 问答. Asks (askPage) as the write does; pageChoice "own" is taken with 「附带 AI 问答」 off too, for
+// 摘读记录's zip. Resolves askPage or { filename, markdown, noPage? } (noPage: the conversation's own note, as its page is
+// not open).
+async function exportNote({ ref, conversation, page, pageChoice }) {
+  const settings = await getMergedSettings();
+  let vault = null;
+  try {
+    vault = obsidianConfig(settings);
+  } catch {}
+  const none = { exists: false, content: "" };
+  const readNote = async (path) => (vault && (await readVaultNote(vault, path).catch(() => null))) || none;
+  const resolved = await resolveNote({ ref, conversation, page, pageChoice, mode: "full" }, settings, readNote, true);
+  if (resolved.askPage) return resolved;
+  const { section, aiOn, target } = resolved;
+  const filename = target.path.split("/").pop();
+  const withAi = (markdown) => (aiOn ? MdgNote.upsertAiSection(markdown, section) : markdown);
+  if (target.fullReason) return { filename, markdown: withAi(target.note.content) };
+  const { markdown } = await target.body();
+  return { filename, markdown: target.video ? withAi(markdown) : markdown, ...(target.noPage && { noPage: true }) };
+}
+
 // sync-video-note-ai: after a write recorded the video's note, each finished answer replaces its AI 问答 section.
 // Never creates a note. Resolves { path: "" } when there is nothing to do, else { path, exists, updated, text }: text,
 // what the side panel shows (the note updated, or gone and left alone).
@@ -289,7 +322,7 @@ async function syncVideoNoteAi({ ref: input, conversation }) {
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  const handlers = { "write-video-note": writeVideoNote, "sync-video-note-ai": syncVideoNoteAi };
+  const handlers = { "write-video-note": writeVideoNote, "export-note": exportNote, "sync-video-note-ai": syncVideoNoteAi };
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const handler = handlers[message?.type];
     if (!handler) return false;
