@@ -53,6 +53,8 @@ ctx.globalThis = ctx;
 // The scripts sidepanel.html loads before sidepanel.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "sidepanel.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.join(__dirname, m[1]));
 assert.strictEqual(scripts.pop(), path.join(__dirname, "sidepanel.js"), "sidepanel.js loads last");
+// K39: a YouTube video has a 备注 and no 分拣台 card; the tooltip names where the same 备注 shows.
+assert.ok(fs.readFileSync(path.join(__dirname, "sidepanel.html"), "utf8").includes('title="这个视频的备注，和分拣台、摘读记录里的是同一份"'));
 for (const f of scripts) vm.runInContext(fs.readFileSync(f, "utf8"), ctx);
 vm.runInContext(source, ctx);
 // The input starts empty, as in the page: switching conversations reads what is typed in it.

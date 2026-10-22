@@ -13,7 +13,7 @@
 // - follow-forget { mids }    清理：删掉这些人的已取消关注记录（连同记录里的标签），不改 B站。
 // - follow-group-create { name } → { id, name }；follow-group-rename { id, name }；follow-group-delete { id }
 //                             新建、改名、删除 B站 的关注分组，成功后改好 follow_groups（删除时成员的 groups 也去掉它）。
-// - follow-ai-tag { instruction, mids, tags, maxNewTags, allowRemove }
+// - follow-ai-tag { instruction, mids, tags, maxNewTags, allowRemove, scope }
 //                             tags、新建上限和能否去掉标签都由页面按「关注设置」和弹窗给出。提案 { newTags, assignments: { mid: { add, remove } }, note }，不写任何东西。
 //
 // 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
@@ -781,7 +781,8 @@ async function followNoteFeedPosts(items) {
   });
 }
 
-async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, aiProviderId }) {
+// scope: the dialog's 作用范围 ("selected" or "filter"), for the words when every one asked is unfollowed by now.
+async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, aiProviderId, scope }) {
   const s = await MdgLimits.followGet(["list", "people", "content", "last", "last_wip", "tags", "tag_map"]);
   // The feed read still going counts, as on the cards.
   const last = TriageUi.withFeedInProgress(s.last, s.last_wip);
@@ -789,7 +790,7 @@ async function followAiTag({ instruction, mids, tags, maxNewTags, allowRemove, a
   const asked = [...new Set((Array.isArray(mids) ? mids : []).map(String))];
   const list = asked.filter((m) => followed.has(m));
   if (!asked.length) throw triageError("缺少 mids");
-  if (!list.length) throw triageError("选中的 UP 主都已取消关注");
+  if (!list.length) throw triageError(`${scope === "selected" ? "选中" : "列出"}的都已取消关注`);
   const tagName = new Map((s.tags || []).map((t) => [t.id, t.name]));
   const items = list.map((mid) => {
     const p = s.people?.[mid] || {};

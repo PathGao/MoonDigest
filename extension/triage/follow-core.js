@@ -258,10 +258,10 @@
     return { value, seed: value };
   }
   // The follow-ai-tag requests of one run: mids in batches of cfg.batchSize; maxNewTags is the run's cap (each batch gets
-  // what is left of it), allowRemove the dialog's switch.
-  function aiRequests(mids, cfg, instruction, tags, allowRemove) {
+  // what is left of it), allowRemove the dialog's switch, scope its 作用范围 (the error names it).
+  function aiRequests(mids, cfg, instruction, tags, allowRemove, scope) {
     const out = [];
-    for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove });
+    for (let i = 0; i < mids.length; i += cfg.batchSize) out.push({ type: "follow-ai-tag", instruction, mids: mids.slice(i, i + cfg.batchSize), tags, maxNewTags: cfg.newTagMax, allowRemove, scope });
     return { batches: out, intervalMs: cfg.intervalSec * 1000 };
   }
   // Why the days cannot be saved, or "" (empty or invalid boxes fall back to the defaults, as everywhere).

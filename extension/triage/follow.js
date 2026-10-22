@@ -1323,7 +1323,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const opts = { tags: D.tags, map: D.map, maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
-  const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove);
+  const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove, scope);
   // The same run as 收藏夹's (tag-store.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
   const running = tagStore.runAi({
     R: runs,

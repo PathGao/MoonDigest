@@ -21,11 +21,11 @@ assert.ok(byLabel["AI 每次请求带的历史"].usage.includes("40,000"));
 assert.ok(!byLabel["分拣台最近取消收藏"] && !byLabel["分拣台撤销"], "display counts are not storage rows");
 const sized = Object.fromEntries(L.describe({ folderSnapshots: 3, folderSnapshotSize: 2.8 * 1024 * 1024, triageRemoved: 4, triageNotes: 5, totalSize: 300 })
   .map((row) => [row.label, row.usage]));
-assert.strictEqual(sized["收藏夹列表缓存"], "3 个收藏夹，约 2.8 MB");
+assert.strictEqual(sized["收藏夹快照"], "3 个收藏夹，约 2.8 MB");
 assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
-assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹列表缓存").usage, "0 个收藏夹，约 0 KB", "nothing stored is 0 KB, not 1");
+assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹快照").usage, "0 个收藏夹，约 0 KB", "nothing stored is 0 KB, not 1");
 // 观看进度: the caps triage-bg.js applies, in the row and in the options page's hint (filled from SEEN_LIMITS_TEXT).
 assert.strictEqual(L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage, `8 / ${L.SEEN_MAX} 个视频`);
 assert.strictEqual(L.SEEN_LIMITS_TEXT, "最多 10 分钟一次，留最近 1 年、最多 5000 个");
@@ -35,7 +35,7 @@ for (const name of ["SEEN_GAP_MS", "SEEN_KEEP_DAYS", "SEEN_MAX"]) assert.ok(tria
 const optionsHtml = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
 assert.ok(optionsHtml.includes("<span data-seen-limits></span>") && !/分钟一次|最多 \d+ 个/.test(optionsHtml), "options.html states 观看进度's caps only through data-seen-limits");
 assert.ok(fs.readFileSync(path.join(__dirname, "options.js"), "utf8").includes("node.textContent = MdgLimits.SEEN_LIMITS_TEXT"), "options.js fills data-seen-limits");
-assert.strictEqual(byLabel["收藏夹列表缓存"].usage, "– 个收藏夹，约 –", "unknown sizes render as a dash");
+assert.strictEqual(byLabel["收藏夹快照"].usage, "– 个收藏夹，约 –", "unknown sizes render as a dash");
 assert.strictEqual(L.describe()[0].usage, `– / ${L.SUBTITLE_CACHE_ENTRIES} 条`, "unknown usage renders as a dash");
 assert.ok(rows.every((row) => row.label && row.usage && row.rule));
 // vm objects carry another realm's prototypes, so compare through JSON.

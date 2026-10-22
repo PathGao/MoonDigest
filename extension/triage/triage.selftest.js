@@ -4292,6 +4292,12 @@ assert.deepStrictEqual(plain(t.zipNotes("夹", [{ filename: "Go.md", markdown: "
   openFake("all", []);
   t.renderSort();
   assert.strictEqual(t.el.csvBtn.title, "勾选的收藏夹里都没有视频");
+  // K8: 刷新 fills a missing 播放量 only in a single folder; elsewhere the sort just says 播放量.
+  for (const [view, says] of [["all", false], ["removed", false], ["123", true]]) {
+    openFake(view, [item(8)]);
+    t.renderSort();
+    assert.strictEqual(t.el.sortBox.innerHTML.includes("刷新后才有"), says, view);
+  }
   t.el.list = list;
   Object.assign(t.S, keep);
 }

@@ -615,8 +615,11 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   const html = fs.readFileSync(path.join(__dirname, "triage.html"), "utf8");
   const dlg = (id) => html.slice(html.indexOf(`<dialog id="${id}"`), html.indexOf("</dialog>", html.indexOf(`<dialog id="${id}"`)));
   for (const id of ["settingsDialog", "fwSettingsDialog"]) {
-    for (const row of Object.keys({ interval: 1, newTagMax: 1, allowRemove: 1, aiBatch: 1 })) assert.ok(dlg(id).includes(`data-set-row="${row}"`), `${id} has the shared ${row} row`);
+    for (const row of Object.keys({ newTagMax: 1, allowRemove: 1, aiBatch: 1 })) assert.ok(dlg(id).includes(`data-set-row="${row}"`), `${id} has the shared ${row} row`);
   }
+  // K14: 收藏夹's interval paces its B站 reads too (请求间隔); 关注's and 摘读记录's only the AI 打标签 batches.
+  assert.ok(dlg("settingsDialog").includes('data-set-row="interval"') && dlg("fwSettingsDialog").includes('data-set-row="aiInterval"'));
+  assert.ok(fs.readFileSync(path.join(__dirname, "../history/history.html"), "utf8").includes('data-set-row="aiInterval"'), "摘读记录设置 names it as 关注");
   for (const f of ["triage/triage.html", ...PS.triage]) assert.ok(!PS.read(f).includes("AI 打标签每批数量"), `${f} names the batch row itself`);
   assert.ok(!/<dialog/.test(PS.text(PS.follow)), "关注 builds no dialog markup");
   const root = { querySelectorAll: (sel) => (sel.includes("data-num") ? [] : [row]) };

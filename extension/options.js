@@ -2,7 +2,6 @@
 const DEFAULT_SETTINGS = { ...MdgSettings.DEFAULTS, ...MdgSettings.LOCAL_DEFAULTS };
 const { escapeHtml } = MdgErrors;
 
-const CUSTOM_PROPERTY_KEY_PATTERN = /^[\p{L}\p{N}_\-\s]+$/u;
 // The {{名称}} a typed 自定属性 may be, whole (note.js buildFrontmatterTemplateContext fills them): anything else does not
 // read as that type and note.js leaves the property out of the note. A 复选框 takes none.
 const TYPED_PROPERTY_VARS = { number: ["duration", "cid"], date: ["upload_date", "created"], checkbox: [] };
@@ -988,8 +987,9 @@ function validateFixedFrontmatterProperties(items) {
     if (!key) {
       return keyError("请填写自定属性的属性名");
     }
-    if (!CUSTOM_PROPERTY_KEY_PATTERN.test(key)) {
-      return keyError("属性名只能包含文字、数字、空格、下划线和短横线");
+    // note.js leaves out any other name, so the settings page does not take it.
+    if (!MdgSettings.FIXED_PROPERTY_KEY_RE.test(key)) {
+      return keyError(key.startsWith("-") ? "属性名不能以短横线开头，笔记里会被读成列表" : "属性名只能包含文字、数字、空格、下划线和短横线");
     }
     const token = /^\{\{\s*([a-zA-Z0-9_]+)\s*\}\}$/.exec(valueText)?.[1];
     const typedVar = Boolean(token) && (TYPED_PROPERTY_VARS[type] || []).includes(token);

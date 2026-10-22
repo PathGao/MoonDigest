@@ -330,7 +330,7 @@
         rule: "不自动删。视频离开你勾选的所有收藏夹后进分拣台的「已出分拣范围」，在那里查看、导出和清理。"
       },
       {
-        label: "收藏夹列表缓存",
+        label: "收藏夹快照",
         usage: `${count(usage.folderSnapshots)} 个收藏夹，约 ${size(usage.folderSnapshotSize)}`,
         rule: "每次刷新自动更新，取消勾选或在 B站删掉的收藏夹会被移除。"
       },

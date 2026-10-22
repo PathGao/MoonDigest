@@ -91,6 +91,9 @@
   const LOCAL_DEFAULTS = Object.freeze({ obsidianApiKey: "" });
 
   const FIXED_PROPERTY_TYPES = new Set(["text", "number", "checkbox", "list", "date"]);
+  // A 自定属性 name note.js writes and the settings page accepts: letters, digits, _, - and spaces, starting with a letter,
+  // digit or _ (a key like 「-评分」 would read as a YAML list item and break the block).
+  const FIXED_PROPERTY_KEY_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_\-\s]*$/u;
   // 正文附加段落's positions, in the settings page's order, by the names it shows.
   const NOTE_SECTION_LABELS = Object.freeze({ before_intro: "简介前", before_chapters: "章节前", before_subtitle: "字幕前" });
   const NOTE_SECTION_POSITIONS = new Set(Object.keys(NOTE_SECTION_LABELS));
@@ -180,6 +183,7 @@
 
   globalThis.MdgSettings = Object.freeze({
     DEFAULTS,
+    FIXED_PROPERTY_KEY_RE,
     LOCAL_DEFAULTS,
     NOTE_SECTION_LABELS,
     MAX_NOTE_SECTIONS,
