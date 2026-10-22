@@ -10,7 +10,7 @@
   // The text table: a sentence (TEXT) or a control's name (LABEL) shown on more than one page lives here once. Pages
   // read it; a page's static copy is marked data-text="key" (wording.selftest.js keeps both equal and finds copies).
   const TEXT = Object.freeze({
-    // After 授权 on an AI run's stop (分拣台, 摘读记录).
+    // After 授权 on an AI run's stop (分拣台, 摘读记录) or a side panel reply's error: the button beside it is 重试.
     granted: "已授权，请重试",
     obsidianUnset: "请先在设置页填写 Obsidian Local REST API 地址和 API Key",
     obsidianKey: "Obsidian 的 API Key 无效或未授权",
@@ -28,8 +28,13 @@
     reloaded: "扩展刚刚更新，请刷新网页",
     // No AI platform to send to (none added, none enabled): the background's AI_SETUP, the side panel and 分拣台 say this.
     aiNone: "没有启用的 AI 平台",
-    // A tab that is not a B站 / YouTube video page: the popup, the side panel and the content script say this.
+    // A video-only tool (专注模式, the popup's subtitle tools) asked for on a tab that is not a B站 / YouTube video page:
+    // the popup, the background and the content script say this.
     notVideoPage: "当前网页不是支持的视频页",
+    // A tab nothing can be read from (chrome://, file:, extension pages): the popup, the background and the side panel.
+    pageUnsupported: "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页",
+    // An http(s) page before web pages are granted: the side panel offers 允许读取网页; the popup and the background say it too.
+    pageGrant: "读取网页正文要先允许一次，之后所有网页都能直接读",
     // B站 risk control (HTTP 412 or MdgSites.BILI_RISK_CODES), the background's code THROTTLED.
     biliThrottled: "B站限流，请稍后再试",
     // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on any read or write; pages add 去登录.
@@ -47,6 +52,8 @@
     noNoteYet: "还没有笔记内容，请先点「刷新」",
     // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.
     aiEmpty: "AI 平台没有返回回答",
+    // The connection dropped once the platform had answered (background.js streamChat): code AI_STALLED, only 重试.
+    aiDropped: "回复中断：连接断了",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local REST API 写入失败",
     // Any failed write to Obsidian, on every entry (popup, video page, side panel, 摘读记录, 分拣台); 「：原因」 follows.

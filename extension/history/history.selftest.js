@@ -50,6 +50,8 @@ const localStorage = {
 const ctx = vm.createContext({
   localStorage,
   TextEncoder,
+  URL,
+  URLSearchParams,
   console,
   setTimeout,
   clearTimeout,
@@ -465,6 +467,31 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     openTabs = [];
     await askPage();
     assert.deepStrictEqual(taken(), [["open", {}], ["create", "https://example.com/post"], ["ask", 9, "https://example.com/post"]]);
+    // J12: a YouTube video is read only from its page (pageOnly), so its 继续问 focuses or opens that page as a web
+    // page's does, instead of a side panel that can only say 请先打开这个 YouTube 视频页.
+    {
+      const yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const ytRef = { url: yt, title: "YT", site: "youtube", videoId: "dQw4w9WgXcQ", isVideoContext: true };
+      const ytKey = ctx.MdgSites.buildContextKey(ytRef);
+      const saved = store.mdg_ai_conversations_v1;
+      store.mdg_ai_conversations_v1 = [...saved, { id: "y1", contextKey: ytKey, title: "YT", contextTitle: "YT", contextUrl: yt, contextRef: ytRef, isVideoContext: true, createdAt: 7, updatedAt: 7, messages: [{ role: "user", content: "问" }, { role: "assistant", content: "答" }] }];
+      onChanged({ mdg_ai_conversations_v1: {} }, "local");
+      await wait(350);
+      const askYt = async () => {
+        const t = { dataset: { act: "ask" }, closest: (sel) => (sel === ".entry" ? { dataset: { key: ytKey } } : t) };
+        L.list.click.forEach((f) => f({ target: t }));
+        await wait(20);
+      };
+      openTabs = [{ id: 11, url: `${yt}&t=30s`, windowId: 1 }];
+      await askYt();
+      assert.deepStrictEqual(taken(), [["open", {}], ["focus", 11], ["ask", 11, yt]]);
+      openTabs = [];
+      await askYt();
+      assert.deepStrictEqual(taken(), [["open", {}], ["create", yt], ["ask", 9, yt]]);
+      store.mdg_ai_conversations_v1 = saved;
+      onChanged({ mdg_ai_conversations_v1: {} }, "local");
+      await wait(350);
+    }
     Object.assign(ctx.chrome, { sidePanel: was.sidePanel, tabs: was.tabs });
     ctx.chrome.storage.local.set = was.set;
     assert.match(els.count.textContent, /个视频、1 个网页 · 对话 2\//);

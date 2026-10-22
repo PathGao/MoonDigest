@@ -122,6 +122,18 @@ const chatOn = (context) => {
   answer = async () => ({ ok: false, error: "读取当前分 P 失败" });
   assert.strictEqual(await ctx.loadContextState({ silent: true }), false);
   assert.strictEqual(view().live.error, "读取视频失败：读取当前分 P 失败");
+  // J8: a video deleted or hidden on B站 is said as a saved conversation's (视频已失效), without 重试; a limit keeps it.
+  {
+    const views = [];
+    const realReset = ctx.resetConversationView;
+    ctx.resetConversationView = (html, opts) => views.push([html, opts.retry]);
+    for (const code of [-404, 62002, "THROTTLED"]) {
+      answer = async () => ({ ok: false, error: "x", code });
+      await ctx.loadContextState({});
+    }
+    assert.deepStrictEqual(views, [["视频已失效", false], ["视频已失效", false], ["读取视频失败：B站限流，请稍后再试", true]]);
+    ctx.resetConversationView = realReset;
+  }
 
   {
     // Neither gate of sendMessage reaches the request (chrome.runtime.connect is not stubbed and would throw).
@@ -150,16 +162,21 @@ const chatOn = (context) => {
     await ctx.sendMessage();
     assert.deepStrictEqual([loads, ...errors, vm.runInContext("els.input.value", ctx)], [1, "q"]);
     assert.deepStrictEqual(drawn, ["q", "-q"], "the question shows while the context loads and goes when it is not asked");
-    // No enabled platform: the conversation and the typed text stay, and the settings page opens.
+    // J9: no enabled platform: the conversation and the typed text stay, and 去设置 opens the settings page only when
+    // clicked, as every other entry does.
     let resets = 0;
     let opened = 0;
+    let notice = null;
     ctx.resetConversationView = () => resets++;
-    ctx.showConversationContextNotice = () => {};
+    ctx.showConversationContextNotice = (text, ms, opts) => (notice = { text, ms, ...opts });
     ctx.chrome.runtime.openOptionsPage = () => opened++;
     show(video);
     vm.runInContext('els.input.value = "q"; els.modelSelect.value = ""', ctx);
     await ctx.sendMessage();
-    assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 1, 1, "q"]);
+    assert.deepStrictEqual([resets, opened, loads, vm.runInContext("els.input.value", ctx)], [0, 0, 1, "q"]);
+    assert.deepStrictEqual([notice.text, notice.ms, notice.error, notice.action.label], [ctx.MdgErrors.TEXT.aiNone, 0, true, ctx.MdgErrors.LABEL.toSettings]);
+    notice.action.run();
+    assert.strictEqual(opened, 1);
     ctx.resetConversationView = () => {};
     // 快捷追问 and 重试 send their own text: the draft in the input box stays as typed.
     const asked = [];
@@ -460,7 +477,8 @@ const chatOn = (context) => {
   // A history conversation whose B站 video was deleted or hidden: said once as such, not as a read error to retry.
   {
     const errors = [];
-    ctx.showConversationContextError = (text) => errors.push(text);
+    const remedies = [];
+    ctx.showConversationContextError = (text, remedy) => (errors.push(text), remedies.push(remedy?.label || ""));
     ctx.removeConversationContextNotice = () => {};
     const realResolve = ctx.resolveConversationContext;
     show(web("x"));
@@ -472,6 +490,34 @@ const chatOn = (context) => {
     }
     // A B站 limit reads as everywhere else (MdgErrors.text), not as the background's own words.
     assert.deepStrictEqual(errors, ["视频已失效，这段对话只能查看，不能继续提问。", "读取原视频失败：啥都木有", "读取原视频失败：B站限流，请稍后再试"]);
+    // J7: a failure that may pass (a limit, the network) gets 重试, as the tab's own read does; a gone video none. The
+    // 重试 reads it again and takes the error down once it loads.
+    assert.deepStrictEqual(remedies, ["", "重试", "重试"]);
+    const failure = vm.runInContext("contextFailure()", ctx);
+    assert.strictEqual(failure.remedy.label, "重试", "a redraw shows it again");
+    let centered = 0;
+    const realRemove = ctx.removeCenteredState;
+    ctx.removeCenteredState = () => centered++;
+    ctx.resolveConversationContext = async () => ({ ok: true, payload: video });
+    await failure.remedy.run();
+    assert.deepStrictEqual([centered, view().resolved?.videoId], [1, video.videoId]);
+    ctx.removeCenteredState = realRemove;
+    // J12: a YouTube video reads only from its page: the remedy opens it (in this tab, as the chip does), then reads.
+    errors.length = remedies.length = 0;
+    const yt = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "yt", contextUrl: yt, contextRef: { url: yt }, messages: [{ role: "user", content: "q" }] }] });
+    state.dispatch({ type: "OPEN", id: "yt" });
+    ctx.resolveConversationContext = async () => ({ ok: false, error: "请先打开这个 YouTube 视频页，再继续这段对话" });
+    await ctx.hydratePinnedConversationContext();
+    assert.deepStrictEqual(remedies, ["打开视频"]);
+    const realOpen = ctx.openCurrentContextUrl;
+    const steps = [];
+    ctx.openCurrentContextUrl = async () => steps.push("open");
+    ctx.resolveConversationContext = async () => (steps.push("read"), { ok: false, error: "x" });
+    await vm.runInContext("contextFailure()", ctx).remedy.run();
+    assert.deepStrictEqual(steps, ["open", "read"]);
+    ctx.openCurrentContextUrl = realOpen;
+    errors.length = remedies.length = 0;
     // A page conversation is worded as a page's.
     errors.length = 0;
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "pg", contextUrl: "https://example.com/pg", contextRef: { url: "https://example.com/pg", isVideoContext: false }, isVideoContext: false, messages: [{ role: "user", content: "q" }] }] });
@@ -1123,6 +1169,50 @@ const chatOn = (context) => {
     await ctx.act({ type: "DELETED", id: "k" });
     assert.deepStrictEqual(store[KEY].map((x) => x.id), ["l"]);
     Object.assign(ctx.chrome.storage.local, { get, set });
+  }
+
+  // J6: a subtitle that failed or needs a login gets 重试 in the empty state, as in 专注模式; it reads the context again.
+  {
+    vm.runInContext('providers = [{}]; providersError = ""', ctx);
+    state.dispatch({ type: "NEW" });
+    for (const [extra, retry] of [[{ subtitleFailure: "超时" }, true], [{ subtitleNeedLogin: true }, true], [{}, false]]) {
+      show({ ...video, subtitleMarkdown: "", ...extra });
+      assert.strictEqual(ctx.suggestionsContent().html.includes('data-act="retry"'), retry, JSON.stringify(extra));
+    }
+    const html = (show({ ...video, subtitleMarkdown: "", subtitleFailure: "超时" }), ctx.suggestionsContent().html);
+    assert.ok(html.includes("字幕抓取失败：超时") && html.includes(`>${ctx.MdgErrors.LABEL.retry}</button>`), html);
+  }
+
+  // J18: the side panel's sentences are the shared ones.
+  {
+    assert.strictEqual(ctx.pageReason({ pageAccess: "unsupported" }), ctx.MdgErrors.TEXT.pageUnsupported);
+    assert.strictEqual(ctx.pageReason({ pageAccess: "needPermission" }), ctx.MdgErrors.TEXT.pageGrant);
+    // While a followed video still loads, the send says what the popup and the video page say.
+    const notices = [];
+    const prev = [ctx.showConversationContextNotice, ctx.loadContextState];
+    ctx.showConversationContextNotice = (text) => (notices.push(text), { remove() {} });
+    ctx.loadContextState = async () => true;
+    state.dispatch({ type: "NEW" });
+    show(video);
+    state.dispatch({ type: "TAB_READ", tab: { url: "https://www.bilibili.com/video/BV1GJ411x7h7", title: "" }, follow: true });
+    assert.ok(view().context.pending, "a followed video's placeholder");
+    await real.ensureCurrentContextForSend();
+    assert.deepStrictEqual(notices, [ctx.MdgErrors.TEXT.videoReading]);
+    [ctx.showConversationContextNotice, ctx.loadContextState] = prev;
+    // After 授权 the reply's error says 已授权，请重试, as 分拣台 and 摘读记录 do: the button beside it is 重试.
+    const made = [];
+    const realCreate = ctx.document.createElement;
+    ctx.document.createElement = () => {
+      const el = stubEl();
+      el.addEventListener = (type, fn) => (el.click = fn);
+      made.push(el);
+      return el;
+    };
+    ctx.chrome.permissions = { request: async () => true };
+    ctx.appendStreamError({ node: stubEl(), prompt: "q", raw: "" }, ctx.MdgErrors.noAccess("https://ai.test"), false, "AI_ACCESS");
+    await made.find((el) => el.textContent === ctx.MdgErrors.LABEL.grant).click();
+    assert.strictEqual(made[0].textContent, ctx.MdgErrors.TEXT.granted);
+    ctx.document.createElement = realCreate;
   }
 
   console.log("sidepanel selftest: all passed");

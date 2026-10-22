@@ -18,7 +18,6 @@ const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = MdgLimits.KEYS.playerAiQuickAction;
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const PAGE_INTRO = "AI 会读这篇网页的正文，回答你的问题。";
-const PAGE_GRANT_TEXT = "读取网页正文要先允许一次，之后所有网页都能直接读";
 const STREAM_SLOW_NOTICE_MS = 15000;
 const PREVIOUS_VIDEO_CONVERSATION_KEY = "mdg_sp_previous_video_conversation";
 const FOLLOWED_LIVE_VIDEO = "followed";
@@ -306,9 +305,9 @@ function pageReason(context) {
     case "ready":
       return "";
     case "needPermission":
-      return PAGE_GRANT_TEXT;
+      return MdgErrors.TEXT.pageGrant;
     case "unsupported":
-      return "这个页面不能读取：只支持 B站 / YouTube 视频页和普通网页";
+      return MdgErrors.TEXT.pageUnsupported;
     case "failed":
       return `${MdgErrors.TEXT.pageReadFailed}：${context.pageError}`;
     default:
@@ -607,12 +606,14 @@ async function readContextState({ refresh = false, silent = false, follow = fals
   if (superseded()) return contextLoad;
 
   const ok = Boolean(resp?.ok && resp.payload);
-  // A web page always answers; only reading a video fails, said as the popup and 专注模式 say it.
-  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error: ok ? "" : `${MdgErrors.TEXT.videoReadFailed}：${MdgErrors.text(resp)}`, follow });
+  // A web page always answers; only reading a video fails, said as the popup and 专注模式 say it. A video deleted or
+  // hidden on B站 is said as a saved conversation's is, without 重试 (no read brings it back).
+  const error = ok ? "" : MdgSites.isBiliVideoGone(resp?.code) ? MdgErrors.LABEL.videoGone : `${MdgErrors.TEXT.videoReadFailed}：${MdgErrors.text(resp)}`;
+  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error, follow });
   if (!ok) {
     updateContextChip();
     if (!silent && !state.view().bound) {
-      resetConversationView(contextErrorHtml(), { retry: true });
+      resetConversationView(contextErrorHtml(), { retry: contextRetry() });
     }
     return false;
   }
@@ -721,7 +722,7 @@ function renderInitialState() {
     return;
   }
   if (!context) {
-    resetConversationView(contextErrorHtml(), { retry: true });
+    resetConversationView(contextErrorHtml(), { retry: contextRetry() });
     return;
   }
   const blocked = context.isVideoContext === false ? pageReason(context) : "";
@@ -733,6 +734,9 @@ function renderInitialState() {
 function contextErrorHtml() {
   return escapeHtml(state.view().live.error);
 }
+
+// 重试 can help unless the tab's video is gone (readContextState says so with LABEL.videoGone alone).
+const contextRetry = () => state.view().live.error !== MdgErrors.LABEL.videoGone;
 
 // The empty state drawn ([stateHtml, retry]); "" once anything else is drawn into the messages.
 let emptyStateShown = "";
@@ -820,8 +824,10 @@ function suggestionsContent() {
   // The intro and the one-click summary as the main action; the preset chips sit above the input (renderFollowups).
   const prompt = summaryPrompt(context);
   const ref = buildConversationContextRef(context);
+  // A subtitle that failed or needs a login gets 重试, as in 专注模式 (the popup has 刷新): the context is read again.
+  const retry = context.subtitleFailure || context.subtitleNeedLogin ? ` <button type="button" class="sp-chip sp-grant-btn" data-act="retry">${MdgErrors.LABEL.retry}</button>` : "";
   return {
-    html: `<p class="sp-empty-intro">${escapeHtml(introText())}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
+    html: `<p class="sp-empty-intro">${escapeHtml(introText())}${retry}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
     summary: { prompt, video: ref.videoId ? `${ref.site}:${ref.videoId}:${ref.pageIndex}` : ref.url }
   };
 }
@@ -843,6 +849,7 @@ function renderSuggestions() {
     Object.assign(node.dataset, { html, video });
     node.querySelector('[data-act="settings"]')?.addEventListener("click", () => chrome.runtime.openOptionsPage());
     node.querySelector('[data-act="summary"]')?.addEventListener("click", () => sendSummary(summary.prompt));
+    node.querySelector('[data-act="retry"]')?.addEventListener("click", () => void refreshContextManually());
     if (video) void renderTriageSummary(node);
   }
   if (!summary) {
@@ -1449,7 +1456,7 @@ function renderConversationMessages() {
   }
   const failed = nonVideo ? pageReason(state.view().context) : contextFailure()?.text;
   if (failed) {
-    showConversationContextError(failed);
+    showConversationContextError(failed, nonVideo ? null : contextFailure().remedy);
   }
   renderFollowups();
   drawnEpoch = epoch;
@@ -1497,13 +1504,13 @@ async function ensureCurrentContextForSend() {
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
     return hydratePinnedConversationContext({ notice });
   }
-  const loadingNotice = state.view().context?.pending ? showConversationContextNotice("正在加载视频信息…") : null;
+  const loadingNotice = state.view().context?.pending ? showConversationContextNotice(MdgErrors.TEXT.videoReading) : null;
   const ok = await loadContextState({ refresh: false, silent: true });
   loadingNotice?.remove();
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   const context = state.view().context;
   if (!ok || !context || context.pending) {
-    resetConversationView(contextErrorHtml(), { retry: true });
+    resetConversationView(contextErrorHtml(), { retry: contextRetry() });
     return false;
   }
   return true;
@@ -1548,7 +1555,7 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back. Else a send tries again.
   const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
   const text = gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}`;
-  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone };
+  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone, remedy: gone ? null : contextRemedy(contextRef) };
   updateContextChip();
   if (!activeStream) setStreamingUiState(false);
   if (ok) {
@@ -1559,9 +1566,22 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
     suggestionsNode?.replaceChildren();
   }
   if (!silent) {
-    showConversationContextError(text);
+    showConversationContextError(text, lastContextFailure.remedy);
   }
   return false;
+}
+
+// What helps a saved conversation whose video failed to load (not gone): a site read only from its page (YouTube)
+// needs that page open, so 打开视频 opens it in this tab as the chip does; any other gets 重试 (B站限流, the network).
+// Either reads it again, and takes the error down once it loads.
+function contextRemedy(contextRef) {
+  const again = async () => {
+    if (await hydratePinnedConversationContext()) removeCenteredState();
+  };
+  if (MdgSites.SITES[MdgSites.contextRef(contextRef).site]?.pageOnly) {
+    return { label: `打开${sourceKind()}`, run: async () => (await openCurrentContextUrl(), again()) };
+  }
+  return { label: MdgErrors.LABEL.retry, run: again };
 }
 
 // 分拣台's viewer frame that last asked for AI 总结: { tabId, frameId, videoId }. Its content script answers for its
@@ -1606,10 +1626,10 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   hideHistoryPopover();
 
   const providerId = els.modelSelect.value;
-  // No enabled platform: keep the conversation and the typed text, and go to settings like 去设置页添加平台.
+  // No enabled platform: keep the conversation and the typed text, and offer 去设置, opened only on its click (as every
+  // other entry does).
   if (!providerId) {
-    showConversationContextNotice(`${MdgErrors.TEXT.aiNone}，已打开设置页。`, NOTICE_MS);
-    chrome.runtime.openOptionsPage();
+    showConversationContextNotice(MdgErrors.TEXT.aiNone, 0, { error: true, action: { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } });
     return;
   }
 
@@ -1831,7 +1851,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     grant.textContent = MdgErrors.LABEL.grant;
     grant.addEventListener("click", async () => {
       if (await access.request()) {
-        err.textContent = "已授权，请重新发送";
+        err.textContent = MdgErrors.TEXT.granted;
         grant.remove();
       }
     });
@@ -2287,7 +2307,8 @@ function removeCenteredState() {
   els.messages.querySelectorAll(".sp-center-error").forEach((node) => node.remove());
 }
 
-function showConversationContextError(message) {
+// remedy: { label, run }, a button under the text (重试, 打开视频).
+function showConversationContextError(message, remedy = null) {
   if (!String(message || "").trim()) {
     return;
   }
@@ -2297,6 +2318,11 @@ function showConversationContextError(message) {
   const stateNode = document.createElement("div");
   stateNode.className = "sp-center-error";
   stateNode.textContent = String(message);
+  if (remedy) {
+    const button = Object.assign(document.createElement("button"), { type: "button", className: "sp-chip sp-grant-btn", textContent: remedy.label });
+    button.addEventListener("click", () => void remedy.run());
+    stateNode.append(document.createElement("br"), button);
+  }
   els.messages.appendChild(stateNode);
   scrollToBottom();
 }

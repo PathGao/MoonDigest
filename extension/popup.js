@@ -61,13 +61,16 @@ async function init() {
       localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
     } catch {}
   });
-  // Not a video page: nothing to read here, said instead of a failed fetch.
+  // Not a video page: nothing to read here, said instead of a failed fetch. A tab that is not even a web page
+  // (chrome://, file:) is said as the side panel says it; on a web page only the video tools say NOT_VIDEO_PAGE.
   if (!onVideoPage) {
-    syncTools(null, false);
-    setDisabledReason(el.refreshBtn, NOT_VIDEO_PAGE);
+    const webPage = /^https?:\/\//i.test(tab?.url || "");
+    const reason = webPage ? NOT_VIDEO_PAGE : MdgErrors.TEXT.pageUnsupported;
+    syncTools(null, false, reason);
+    setDisabledReason(el.refreshBtn, reason);
     // An ordinary web page (its URL shows because the icon was clicked: activeTab, which also lets the background read
     // it): AI 总结 opens the side panel, the note's tools take the side panel's note; the video's are hidden (popup.css .web-page).
-    if (/^https?:\/\//i.test(tab?.url || "")) {
+    if (webPage) {
       document.body.classList.add("web-page");
       setDisabledReason(el.summaryBtn, "");
       // 刷新 reads the page again, as a video's does: a read that timed out or found no text yet may work now.
@@ -78,7 +81,7 @@ async function init() {
       await readWebNote(tab.id);
       return;
     }
-    setStatus(NOT_VIDEO_PAGE);
+    setStatus(reason);
     return;
   }
   // Opening shows the video as the page has it (starting a read only when nothing is loaded); 刷新 reads it again.
@@ -352,8 +355,9 @@ function render(payload, { preserveStatus = false } = {}) {
 }
 
 // A tool that cannot work is disabled and says why; without a payload yet a video page keeps them usable.
-function syncTools(payload, onVideoPage = true) {
-  const pageReason = onVideoPage ? "" : NOT_VIDEO_PAGE;
+// offReason: why nothing works off a video page (NOT_VIDEO_PAGE, or pageUnsupported on a tab that is no web page).
+function syncTools(payload, onVideoPage = true, offReason = NOT_VIDEO_PAGE) {
+  const pageReason = onVideoPage ? "" : offReason;
   const contentReason = pageReason || (payload && !payload.markdown ? MdgErrors.TEXT.noNoteYet : "");
   const subtitleReason = pageReason || (payload && !(payload.srt || payload.txt) ? payload.subtitleMissing || MdgErrors.subtitleMissing() : "");
   setDisabledReason(el.readingViewBtn, pageReason);
