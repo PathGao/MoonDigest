@@ -89,12 +89,13 @@ const ENTRIES = {
   "triage/fav-render.js": "分拣台 收藏夹",
   "triage/fav-tags.js": "分拣台 收藏夹",
   "triage/fav-writes.js": "分拣台 收藏夹",
-  "triage/follow.js": "关注"
+  "triage/follow.js": "关注",
+  "triage/tag-store.js": "分拣台和摘读记录的 AI 打标签"
 };
 const PAGES = {
   "popup.html": ["popup.js"],
   "sidepanel.html": ["sidepanel.js"],
-  "history/history.html": ["history/history.js"],
+  "history/history.html": ["history/history.js", "triage/tag-store.js"],
   "triage/triage.html": Object.keys(ENTRIES).filter((f) => f.startsWith("triage/")),
   "manifest:content.js": ["content.js"]
 };
@@ -171,7 +172,7 @@ const ALLOW = [
   // 3b: AI_TRUNCATED is 分拣台's own (打开收藏夹设置 for its 输出上限); the table says 重试 like any other.
   ["triage/fav-ai.js", 'if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code);', "截断只在分拣台：横幅给「打开收藏夹设置」调输出上限"],
   ["triage/fav-ai.js", 'if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code, "细看");', "同上，细看"],
-  ["triage/fav-ai.js", 'if (x.code === "AI_TRUNCATED" && limitHint)', "同上，AI 打标签"],
+  ["triage/tag-store.js", 'if (x.code === "AI_TRUNCATED" && limitHint)', "同上，AI 打标签（只有收藏夹给 limitHint）"],
   ["triage/fav-base.js", '} else if (code === "AI_TRUNCATED") {', "同上，横幅本身"],
   // 3d: a situation without a code.
   ["sidepanel.js", "showConversationContextNotice(MdgErrors.TEXT.aiNone, 0, { error: true, action: { label: MdgErrors.LABEL.toSettings", "没有启用的 AI 平台（发送前就知道，即 AI_SETUP）：只给「去设置」，输入框留着原文，改好后再按发送"],

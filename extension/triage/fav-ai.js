@@ -246,7 +246,7 @@ function aiScopeText(scope) {
 }
 
 // The most new tags one run may make: in 所有收藏夹, the roomiest folder's.
-const aiRoom = () => (S.mediaId === ALL ? Math.max(0, ...S.folders.map((f) => aiNewTagRoom(f.id))) : aiNewTagRoom());
+const aiRoom = () => (S.mediaId === ALL ? Math.max(0, ...S.folders.map((f) => tagStore.room(f.id))) : tagStore.room(S.mediaId));
 function aiRoomHint() {
   const tags = aiTags.tags();
   const room = aiRoom();
@@ -258,7 +258,7 @@ function aiRoomHint() {
     room,
     most: all ? `每个收藏夹最多 ${room} 个，不超过它剩下的名额` : undefined,
     made: all ? `这次在每个收藏夹最多新建 ${room} 个（不超过它剩下的名额）` : `这次最多新建 ${room} 个（这个收藏夹还剩 ${tagLimit() - tags.length} 个名额）`,
-    full: `${all ? "各收藏夹" : ""}名额已满`
+    full: tagStore.noRoom(S.mediaId)
   });
 }
 
@@ -301,51 +301,13 @@ const aiTags = {
     S.ai.proposal = null;
     renderTop();
   },
-  apply: () => applyAiProposal(),
+  apply: () => tagStore.apply(S.ai.proposal, String(S.mediaId)),
   map: () => S.videoTags,
   live: () => S.itemMap,
   tagName: (id) => tagById(id)?.name,
   where: () => String(S.mediaId)
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
-
-// One AI 打标签 run, for both modes, as job on the mode's runs (R): request(i, p) is batch i's message, merge(p, data)
-// folds an answer in. An AI 429 or timeout sends the same batch again, up to AI_THROTTLE_WAITS / AI_TIMEOUT_TRIES in a
-// row; an error that fails every batch alike (aiEnds) ends the run. Returns
-// { proposal, errors }: proposal is null when no batch got through, so there is nothing to confirm (the progress line says why).
-// name(i), when given, says which batch in the progress line and errors (所有收藏夹 names the folder); where() follows
-// the pill's line (another folder's run). progress(text) is the dialog's line, counting down with the pill. limitHint:
-// a cut answer also gets the banner that asks to raise 粗看输出上限 (收藏夹设置's; 关注 runs without it).
-async function runAiBatches({ R = runs, job, total, request, merge, intervalMs, progress, name = null, where = () => "", limitHint = true }) {
-  const which = (i, full = false) => (name ? name(i) : full ? `第 ${i + 1} / ${total} 批` : `第 ${i + 1} 批`);
-  const p = { newTags: [], rows: [], notes: [], errors: [] };
-  let answered = 0;
-  let i = 0;
-  const r = await R.run(job, {
-    total,
-    tick: () => R.get(job)?.wait && progress(`${R.get(job).wait}${which(i - 1)}…`),
-    gap: intervalMs,
-    line: (d, t) => `AI 打标签 ${d}/${t} 批${where()}`,
-    next: () => (i < total ? { i: i++ } : null),
-    act: ({ i }) => (progress(`AI 正在处理${which(i, true)}…`), send(request(i, p))),
-    judge: aiJudge(),
-    done({ i }, x) {
-      if (x.ok) return answered++, merge(p, x.data, i);
-      p.errors.push(`${which(i)}失败：${x.error}`);
-      // 截断 is reported with what to change.
-      if (x.code === "AI_TRUNCATED" && limitHint) handleAiError(x.error, x.code);
-    }
-  });
-
-  if (r.error) {
-    p.errors.push(`${which(i - 1)}失败：${r.error}`);
-    handleAiError(r.error, r.code);
-  }
-  if (r.stopped) p.errors.push(answered ? "已手动停止，这里只有已完成批次的建议" : "已手动停止，还没有批次完成");
-  for (const t of p.newTags) t.checked = p.rows.some((r) => r.add.includes(UI.aiRef.new(t.key)));
-  progress(answered ? "" : p.errors.join("；"));
-  return { proposal: answered ? p : null, errors: p.errors };
-}
 
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
 async function runAiCommand({ instruction, scope, allowRemove }) {
@@ -368,7 +330,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
       payload: list.map((it) => aiCommandItem(it, f, excluded)),
       tags: own.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" })),
       // newTagFolder keeps same-name new tags of two folders apart in the one proposal.
-      opts: { maxNewTags: aiNewTagRoom(f), allowRemove, excluded, newTagFolder: all ? f : undefined, scope: new Set(list.map((it) => it.bvid)) }
+      opts: { maxNewTags: tagStore.room(f), allowRemove, excluded, newTagFolder: all ? f : undefined, scope: new Set(list.map((it) => it.bvid)) }
     };
     from += part.n;
     return part;
@@ -382,7 +344,8 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     return [part, i - part.from];
   };
   S.ai.mediaId = folder;
-  const running = runAiBatches({
+  const running = tagStore.runAi({
+    R: runs,
     job: "ai",
     total: from,
     // Each batch gets what is left of its folder's new-tag cap (mergeAiBatch drops new tags past it).
@@ -401,17 +364,15 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
       return `「${folderName(part.folder)}」第 ${j + 1}/${part.n} 批`;
     } : undefined,
     where: () => (S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`),
+    send,
     intervalMs: S.settings.triageIntervalSec * 1000,
-    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus())
+    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus()),
+    // A cut answer also gets the banner that asks to raise 粗看输出上限.
+    onError: (error, code) => handleAiError(error, code),
+    limitHint: true
   });
   renderTop();
-  let { proposal: p, errors } = await running;
-  // A tag deleted during the run is still named by the batches before it: dropped like a saved proposal (pruneAiProposals).
-  if (p && !UI.aiProposalOk(p, (id) => Boolean(tagById(id)))) {
-    p = null;
-    errors.push(UI.AI_TAG_GONE);
-    TagDialogs.ai.progress(aiTags, errors.at(-1), folder);
-  }
+  const { proposal: p, errors } = await running;
   if (p) {
     for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
     S.ai.proposals[folder] = p;
@@ -427,50 +388,4 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   }
   if (folder !== String(S.mediaId)) toast(`「${folderName(folder)}」的标签建议已完成，点进度胶囊上的「${VIEW}」确认`);
   else if (!open) toast(UI.AI_TAGS_DONE);
-}
-
-// What a proposal changes (shared.js); a video that left the folder since keeps its tags.
-
-function applyAiProposal() {
-  const p = S.ai.proposal;
-  if (!p) return;
-  const hadTags = new Set(S.tags.map((t) => t.id));
-  const idFor = {};
-  for (const t of p.newTags) {
-    if (t.checked && cleanTagName(t.name)) idFor[t.key] = createTag(t.name, t.folder || S.mediaId, { overCap: true })?.id;
-  }
-  const changes = []; // [{ bvid, before }]: what U puts back
-  for (const [bvid, before, after] of UI.aiChanges(p, S.videoTags, S.itemMap, (key) => idFor[key])) {
-    writeVideoTags(bvid, after);
-    changes.push({ bvid, before });
-  }
-  saveTags();
-  saveVideoTags();
-  const folder = String(S.mediaId);
-  const created = S.tags.filter((t) => !hadTags.has(t.id)).map((t) => t.id);
-  S.ai.proposal = null;
-  // This batch replaces the folder's last one; the list shows it to look over. U ends it only while it is still this one.
-  const at = changes.length ? Date.now() : 0;
-  if (at) {
-    S.aiRecent[folder] = { at, bvids: changes.map((c) => c.bvid) };
-    S.aiRecentFilter = true;
-    saveAiRecent();
-  }
-  if (at || created.length)
-    pushUndo(
-      pageStep("aiApply", changes.length, "ai", () => {
-        // Every video the batch changed goes back to before it, edits made since included; a tag deleted since stays gone.
-        for (const c of changes) writeVideoTags(c.bvid, c.before.filter((id) => tagById(id)));
-        const used = new Set(Object.values(S.videoTags).flat());
-        S.tags = S.tags.filter((t) => !created.includes(t.id) || used.has(t.id));
-        for (const id of [...S.tagFilter]) if (!tagById(id)) S.tagFilter.delete(id);
-        saveTags();
-        saveVideoTags();
-        // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
-        if (S.aiRecent[folder]?.at === at) endAiRecent(folder);
-        return `已撤销：AI 打标签（${changes.length} 个视频）`;
-      })
-    );
-  render();
-  toast(UI.aiApplied(changes.length, "视频", created.length));
 }

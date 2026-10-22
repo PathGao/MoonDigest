@@ -117,7 +117,7 @@ function adapters(who) {
     await wait();
     assert.deepStrictEqual(calls.at(-1), ["add", "中文"]);
     assert.strictEqual(nodes.newTagInput.value, "");
-    // K16: 添加 is off with why while the name cannot be added (empty, taken, full), updated as you type; Enter adds nothing.
+    // K16: 新建 is off with why while the name cannot be added (empty, taken, full), updated as you type; Enter adds nothing.
     assert.ok(nodes.addTagBtn.disabled && nodes.addTagBtn.title === "标签名不能为空", `${who}: empty → off`);
     nodes.newTagInput.value = "重名";
     fire("newTagInput", "input");
@@ -125,7 +125,7 @@ function adapters(who) {
     const adds = calls.length;
     enter(nodes.newTagInput);
     await wait();
-    assert.strictEqual(calls.length, adds, `${who}: Enter follows 添加`);
+    assert.strictEqual(calls.length, adds, `${who}: Enter follows 新建`);
     assert.strictEqual(nodes.newTagInput.value, "重名", "the typed text stays");
     nodes.newTagInput.value = "新的";
     fire("newTagInput", "input");
@@ -303,7 +303,8 @@ function adapters(who) {
     assert.deepStrictEqual(calls.at(-1), ["remove", 101]);
     // Back to 标签管理: its own words again.
     D.manage.open(adapters("视频").manage);
-    assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent], ["标签管理", 12, "添加"]);
+    // K24: making a tag is 新建标签 here too, as in the picker and on B站 pages.
+    assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent, nodes.addTagBtn.attrs["aria-label"]], ["标签管理", 12, "新建", "新建标签"]);
     assert.ok(nodes.tagsRows.innerHTML.includes("data-tag-color"));
   }
 
@@ -315,7 +316,7 @@ function adapters(who) {
     D.manage.open(manage);
     assert.strictEqual(nodes.tagManageHint.textContent, "这里的标签。");
     manage.reason = null;
-    // 添加 twice before the first answer creates the tag once.
+    // 新建 twice before the first answer creates the tag once.
     let answer;
     manage.add = (name) => (calls.push(["add", name]), new Promise((r) => (answer = () => r({ id: name, name }))));
     D.manage.open(manage);
@@ -324,7 +325,7 @@ function adapters(who) {
     fire("addTagBtn", "click");
     answer();
     await wait();
-    assert.strictEqual(calls.filter(([k]) => k === "add").length, 1, "a double 添加 adds once");
+    assert.strictEqual(calls.filter(([k]) => k === "add").length, 1, "a double 新建 adds once");
     nodes.tagManageDialog.close();
     // Every tag left out and no room for a new one: 运行 is off with why.
     ai.roomN = 0;

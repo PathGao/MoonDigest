@@ -2,15 +2,12 @@
 // 收藏夹's decisions (保留, 取消收藏) and their undo, and its B站 writes (fav: unfav, transfer, refav).
 
 // ---------- decisions ----------
-// An undo step is { kind, ask, blocked?, undo }: undo() undoes it and returns its toast; ask ([title, body, button] or
-// null) is confirmed first; blocked() ("" or why) refuses it. 关注's steps (kind "mode") go on their own stack.
+// An undo step is { kind, ask, blocked?, undo } (MdgTagStore.undoLast); 关注's steps (kind "mode") go on their own stack.
 function pushUndo(entry) {
-  const steps = entry.kind === "mode" ? S.modeUndo : S.undo;
-  steps.push(entry);
-  if (steps.length > MdgLimits.TRIAGE_UNDO_STEPS) steps.shift();
+  MdgTagStore.pushStep(entry.kind === "mode" ? S.modeUndo : S.undo, entry);
 }
-// A step kept on this page (保留, 标签, AI 打标签, 待播): fn undoes it and returns the toast, then the page redraws. One
-// that changed several videos asks first (askKind: shared.js undoAsk), so a stray U costs nothing.
+// A step kept on this page (保留, 待播; tag steps are tag-store.js's): fn undoes it and returns the toast, then the page
+// redraws. One that changed several videos asks first (askKind: shared.js undoAsk), so a stray U costs nothing.
 const pageStep = (kind, n, askKind, fn) => ({
   kind,
   ask: askKind && n > 1 ? UI.undoAsk(askKind, n, "视频") : null,
@@ -67,7 +64,6 @@ async function favedElsewhere(mediaId) {
 }
 // 所有收藏夹: still in a chosen folder once it leaves the folders in `gone`.
 const stillIn = (it, gone) => it.folders.some((f) => f !== TOVIEW && !gone.includes(f));
-const saveVideoTags = () => storeSet(K.videoTags, S.videoTags);
 const shortTitle = (it) => (it.title.length > 24 ? `${it.title.slice(0, 24)}…` : it.title);
 
 // S on a card: 保留 belongs to the video, so it shows in every folder.
@@ -445,17 +441,8 @@ const fav = {
 };
 
 // U undoes the last step of the mode it is pressed in.
-async function undo() {
-  const steps = followMode() ? S.modeUndo : S.undo;
-  const top = steps.at(-1);
-  if (!top) return toast(MdgErrors.TEXT.noUndo);
-  // A step that writes to Bilibili waits for a running batch.
-  const blocked = top.blocked?.();
-  if (blocked) return toast(blocked, true);
-  if (top.ask && (!(await askConfirm(top.ask[0], top.ask[1], top.ask[2] || "撤销")) || steps.at(-1) !== top || top.blocked?.())) return;
-  steps.pop();
-  const text = await top.undo();
-  return text && toast(text);
+function undo() {
+  return MdgTagStore.undoLast(followMode() ? S.modeUndo : S.undo, { confirm: (...a) => askConfirm(...a), say: (text, error) => toast(text, error) });
 }
 
 // Batch buttons act on the selected cards listed (none when filters hide them all), otherwise on every card with this

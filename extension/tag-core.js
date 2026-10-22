@@ -18,8 +18,9 @@
   const newTagId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // A new UP tag (关注's follow_tags; B站 pages' 「+ UP 标签」 makes the same).
   const newUpTag = (name, tags) => ({ id: newTagId("ft"), name, color: nextTagColor(tags), rule: "" });
-  // Why no new UP tag can be made: there are MdgLimits.UP_TAGS already ("" while there is room).
-  const upTagsFull = (tags) => (tags.length >= MdgLimits.UP_TAGS ? `已经有 ${tags.length} 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的` : "");
+  // Why no new UP tag can be made: there are MdgLimits.UP_TAGS already ("" while there is room); upFullText(n) at n.
+  const upFullText = (n) => `已经有 ${n} 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的`;
+  const upTagsFull = (tags) => (tags.length >= MdgLimits.UP_TAGS ? upFullText(tags.length) : "");
   // One change to one UP's tags (B站 pages' 「+ UP 标签」, written by the background): { toggle: tagId }, or
   // { create: name } which reuses a tag of that name, else makes one while upTagsFull allows, and switches it on.
   // { tags, map, id } to write; { why } when the tag cannot be made; null when nothing changes.
@@ -63,5 +64,5 @@
     return { verdict: "drop", reason: v.reason ? `${INVALID}。AI 原理由：${v.reason}` : INVALID, stage: Math.max(v.stage, 0) };
   }
 
-  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf };
+  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upFullText, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf };
 })();

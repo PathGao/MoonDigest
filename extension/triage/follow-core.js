@@ -237,36 +237,12 @@
   const feedList = (items, D, f, keep) => items.filter((it) => feedPass(it, D, f) || keep?.has(it.bvid));
   const feedLeaving = (items, D, f, keep) => items.filter((it) => keep?.has(it.bvid) && !feedPass(it, D, f));
 
-  // The tag map after adding / removing tags on mids; an UP left with none drops out of the map.
-  function withTags(map, mids, add, remove) {
-    const out = { ...map };
-    for (const m of mids) {
-      const ids = [...new Set([...(out[m] || []).filter((id) => !remove.includes(id)), ...add])];
-      if (ids.length) out[m] = ids;
-      else delete out[m];
-    }
-    return out;
-  }
   // J / K: the card after or before the current one; with none current (or it left the list) the first.
   function stepIn(list, cur, delta) {
     if (!list.length) return "";
     const i = list.indexOf(cur);
     return list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + delta))];
   }
-  // U: the UPs one change touched get their tags back, edits to other UPs since stay; tags deleted since stay gone.
-  // UPs unfollowed since are left out (followed: the mids still followed): their tags went into the 已取消关注 record.
-  const tagsOf = (map, mids) => Object.fromEntries(mids.map((m) => [m, [...(map[m] || [])]]));
-  function restoreTags(map, before, live, followed) {
-    const out = { ...map };
-    for (const [mid, ids] of Object.entries(before)) {
-      if (!followed.has(mid)) continue;
-      const keep = ids.filter((id) => live.has(id));
-      if (keep.length) out[mid] = keep;
-      else delete out[mid];
-    }
-    return out;
-  }
-
 
   // 关注's own AI 打标签 settings (chrome.storage.sync follow_ai_settings), clamped like the 分拣设置 fields.
   function normAi(s = {}) {
@@ -335,8 +311,6 @@
   }
   // The UP 主 among mids whose videos were not read yet (an UP read with none, 没投过稿, was), for AI 打标签's scope line.
   const aiBare = (mids, rows) => mids.filter((m) => ["unchecked", "stale"].includes(rows.get(m)?.status)).length;
-  // As 收藏夹's aiRoomHint: what the AI may use and make this run, by the tags it may use (not switched off) and room.
-  const aiRoomHint = (tags, excluded, room) => UI.aiRoomHint({ tags, excluded, room, full: "新建上限是 0" });
   // The 「已刷新」 pill (shared.js setSync) for a refresh's changes (followDiff) and posted (UP 回归); null hides it.
   // A partial read (c.partial) says so in amber, as 收藏夹's: no 取消关注 count, the UP 主 not read are not taken as gone.
   function syncView(c, posted, names) {
@@ -350,5 +324,5 @@
     };
   }
 
-  globalThis.FollowCore = { DAY, ALL, STATUS, lastPostOf, followStatus, withFeedInProgress, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, inGroupId, inGroup, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, tagPass, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, sortCmp, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, withTags, stepIn, tagsOf, restoreTags, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, aiRoomHint, syncView };
+  globalThis.FollowCore = { DAY, ALL, STATUS, lastPostOf, followStatus, withFeedInProgress, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, inGroupId, inGroup, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, tagPass, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, sortCmp, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, syncView };
 })();

@@ -598,7 +598,7 @@ async function cleanRemoved(list) {
     const set = new Set(bvids);
     const rec = await storeGet(K.removed, {});
     for (const b of bvids) {
-      for (const map of [rec, S.notes, S.videoTags, S.kept, S.analyses, S.titleRes]) delete map[b];
+      for (const map of [rec, S.notes, S.kept, S.analyses, S.titleRes]) delete map[b];
     }
     S.basket = S.basket.filter((x) => !set.has(x.bvid));
     const decisionKeys = ((await chrome.storage.local.getKeys?.()) ?? Object.keys((await chrome.storage.local.get(null)) || {})).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
@@ -612,7 +612,7 @@ async function cleanRemoved(list) {
       notePending.delete(b);
       await MdgLimits.saveVideoNote(b, "", (notes) => storeSet(K.notes, notes));
     }
-    const write = { [K.removed]: rec, [K.videoTags]: S.videoTags, [K.kept]: S.kept, [K.basket]: S.basket };
+    const write = { [K.removed]: rec, ...tagsDb.without(bvids), [K.kept]: S.kept, [K.basket]: S.basket };
     noteOwnWrites(write);
     if (!(await store(write))) return;
     S.removedCount = Object.keys(rec).length;

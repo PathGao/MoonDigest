@@ -46,7 +46,7 @@ const own = (where) => {
 const shipped = [...new Set(runtimes.filter((r) => !r.dev).flatMap((r) => r.files))];
 // 分拣台's two modes: 关注's scripts are named follow* (the worker may load one too); 收藏夹's are the rest of the page's
 // own scripts but the libraries both modes load. triage is the page's code: its own scripts and 关注's.
-const bothModes = ["triage/tag-picker.js", "triage/tag-dialogs.js", "triage/runs.js", "triage/writes.js"];
+const bothModes = ["triage/tag-picker.js", "triage/tag-dialogs.js", "triage/tag-store.js", "triage/runs.js", "triage/writes.js"];
 const follow = scripts("triage/triage.html").filter((f) => /^follow/.test(path.basename(f)));
 const favorites = own("triage/triage.html").filter((f) => !follow.includes(f) && !bothModes.includes(f));
 const triage = [...new Set([...own("triage/triage.html"), ...follow, ...bothModes])];

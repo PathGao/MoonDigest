@@ -11,7 +11,7 @@ let modeKeys = null;
 // 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
 let viewerHook = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, openOptions, store, runAiBatches, hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, openOptions, store, aiError: (error, code) => handleAiError(error, code), hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
@@ -451,7 +451,7 @@ function bindEvents() {
     }
     const bvid = card.dataset.bvid;
     const untag = e.target.closest("[data-untag]");
-    if (untag) return removeVideoTag(bvid, untag.dataset.untag);
+    if (untag) return tagStore.untag(bvid, untag.dataset.untag);
     const act = e.target.closest("[data-act]")?.dataset.act;
     setFocus(bvid, false);
     if (act) cardAction(act, bvid);

@@ -138,8 +138,9 @@
     // A video's decision on a B站 page's mark and on the 分拣台's card.
     kept: "已保留",
     unfaved: "已取消收藏",
-    // The new-tag box of every tag picker and dialog.
+    // The new-tag box of every tag picker and dialog, and its button (标签管理, B站 pages' 「+ UP 标签」).
     newTagName: "新标签名称",
+    newTag: "新建标签",
     triage: "B站分拣台",
     // The player's ✦ button and 专注模式's; the settings page names its switch after it.
     aiSummary: "AI 总结",
