@@ -34,6 +34,13 @@ for (const page of pages) {
       const id = m[1] || m[2];
       if (!found.has(id)) found.set(id, `${file}:${code.slice(0, m.index).split("\n").length}`);
     }
+    // The settings page reads its controls as elements.x (every element with an id, by its id); assigned ones are not.
+    if (file === "options.js") {
+      const assigned = new Set([...code.matchAll(/\belements\.(\w+)\s*=[^=]/g)].map((m) => m[1]));
+      for (const m of code.matchAll(/\belements\.(\w+)/g)) {
+        if (!assigned.has(m[1]) && !found.has(m[1])) found.set(m[1], `${file}:${code.slice(0, m.index).split("\n").length}`);
+      }
+    }
   }
   lookupsOf.set(page, found);
 }
