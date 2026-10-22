@@ -225,9 +225,6 @@ const pageOf = (f) => PAGES.find(([re]) => re.test(f))?.[1] || f;
 // the id in the 2026-10-16 scan) or 例外. Another file writing it fails, and so does a line whose text is no longer on
 // two pages (drop it).
 const DUPLICATES = [
-  ["优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。", "background.js settings.js", "例外：background.js 的 LEGACY_DEFAULT_AI_SYSTEM_PROMPT 是旧的默认提示词原文，用来认出没改过的旧设置，必须和当年一字不差"],
-  ["信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。", "background.js settings.js", "例外：同上，旧默认提示词原文"],
-  ["输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。", "background.js settings.js", "例外：同上，旧默认提示词原文"],
   ["该笔记已存在", "content.js download.js", "例外：视频页用不了扩展页面的 dialog，content.js 自己画一份，download.selftest.js 核对一字不差（ARCHITECTURE）"],
   ["只更新 AI 问答：保留原笔记，只替换标记之间的「AI 问答」。整篇覆盖：替换全部内容。", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["整篇覆盖", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],

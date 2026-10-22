@@ -253,17 +253,17 @@ process.on("exit", (code) => {
   await Promise.all([ctx.saveSettings({ readerTheme: "light" }), ctx.saveSettings({ noteFolder: "M" })]);
   assert.deepStrictEqual([stored.readerTheme, stored.noteFolder], ["light", "M"]);
   // An imported file's frontmatterFields that is not a list reads as the default (the settings page maps over it).
-  assert.deepStrictEqual([...ctx.normalizeSyncSettings({ frontmatterFields: "title" }).frontmatterFields], [...ctx.MdgSettings.DEFAULTS.frontmatterFields]);
+  assert.deepStrictEqual([...ctx.MdgSettings.normalizeSyncSettings({ frontmatterFields: "title" }).frontmatterFields], [...ctx.MdgSettings.DEFAULTS.frontmatterFields]);
 
   // C17: the saved and read settings go through MdgSettings.normalizeSwitches: a non-boolean keeps a default-on switch on.
   {
-    const n = ctx.normalizeSyncSettings({ enablePlayerAiQuickAction: "true", includeDateInFilename: 1, includeTimestampInBody: "yes", obsidianEnabled: "true" });
+    const n = ctx.MdgSettings.normalizeSyncSettings({ enablePlayerAiQuickAction: "true", includeDateInFilename: 1, includeTimestampInBody: "yes", obsidianEnabled: "true" });
     assert.deepStrictEqual([n.enablePlayerAiQuickAction, n.includeDateInFilename, n.includeTimestampInBody, n.obsidianEnabled], [true, true, true, false]);
   }
 
   // 看多少算看完了 (1–100): empty, not a number, 0 or negative is 80; above 100 is 100.
   for (const [input, want] of [[0, 80], [-5, 80], [1, 1], ["150", 100], [42.4, 42], [undefined, 80], ["", 80], ["x", 80]]) {
-    assert.strictEqual(ctx.normalizeSyncSettings({ seenThreshold: input }).seenThreshold, want);
+    assert.strictEqual(ctx.MdgSettings.normalizeSyncSettings({ seenThreshold: input }).seenThreshold, want);
   }
 
   const systemFor = (extra) =>
@@ -332,9 +332,9 @@ process.on("exit", (code) => {
   assert.ok(ctx.buildAiMessages({ context: pageCtx, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt), "no swap: what was sent is used");
   assert.ok(ctx.buildAiMessages({ context: { isVideoContext: true, subtitleMarkdown: "字幕" }, userPrompt: "q", systemPrompt: aiSystemPrompt }).messages[0].content.endsWith(aiSystemPrompt));
   // The web set is normalized like the video set: trimmed, 快捷追问 deduplicated and capped, missing ones defaulted.
-  const norm = ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiSystemPrompt: "  规则  ", webAiSummaryPrompt: " 总结 ", webAiPresetPrompts: ["a", "a", " ", ...Array.from({ length: 20 }, (_, i) => `q${i}`)] });
+  const norm = ctx.MdgSettings.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiSystemPrompt: "  规则  ", webAiSummaryPrompt: " 总结 ", webAiPresetPrompts: ["a", "a", " ", ...Array.from({ length: 20 }, (_, i) => `q${i}`)] });
   assert.deepStrictEqual([norm.webAiSystemPrompt, norm.webAiSummaryPrompt, norm.webAiPresetPrompts.length, norm.webAiPresetPrompts[0]], ["规则", "总结", ctx.MdgSettings.MAX_PRESET_PROMPTS, "a"]);
-  assert.deepStrictEqual([...ctx.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiPresetPrompts: "x" }).webAiPresetPrompts], []);
+  assert.deepStrictEqual([...ctx.MdgSettings.normalizeSyncSettings({ ...ctx.MdgSettings.DEFAULTS, webAiPresetPrompts: "x" }).webAiPresetPrompts], []);
   assert.throws(() => ctx.checkSyncItems({ webAiSystemPrompt: "字".repeat(3000) }), /网页的系统提示词太长/);
   const longPage = ctx.buildAiMessages({ context: { ...pageCtx, pageMarkdown: Array.from({ length: 4000 }, (_, i) => `第 ${i} 行 ${"字".repeat(40)}`).join("\n") }, userPrompt: "q" });
   assert.ok(longPage.messages[0].content.length < 62000);

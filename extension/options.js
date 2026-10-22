@@ -22,67 +22,14 @@ const AI_PRESETS = [
   { id: "custom",        name: MdgErrors.LABEL.customAi, baseUrl: "", model: "", requiresKey: true }
 ];
 
-const elements = {
-  obsidianEnabled: document.getElementById("obsidianEnabled"),
-  noteFolder: document.getElementById("noteFolder"),
-  obsidianApiBaseUrl: document.getElementById("obsidianApiBaseUrl"),
-  obsidianApiKey: document.getElementById("obsidianApiKey"),
-  tags: document.getElementById("tags"),
-  downloadFormat: document.getElementById("downloadFormat"),
-  youtubeSubtitleLang: document.getElementById("youtubeSubtitleLang"),
-  includeDateInFilename: document.getElementById("includeDateInFilename"),
-  includeHotCommentsInNote: document.getElementById("includeHotCommentsInNote"),
-  includeCoverInNote: document.getElementById("includeCoverInNote"),
-  includeAiChatInNote: document.getElementById("includeAiChatInNote"),
-  storageLimits: document.getElementById("storageLimits"),
-  enablePlayerAiQuickAction: document.getElementById("enablePlayerAiQuickAction"),
-  playerAiQuickPrompt: document.getElementById("playerAiQuickPrompt"),
-  includeTimestampInBody: document.getElementById("includeTimestampInBody"),
-  showBiliTriageBadges: document.getElementById("showBiliTriageBadges"),
-  showBiliUpTags: document.getElementById("showBiliUpTags"),
-  showBiliVerdicts: document.getElementById("showBiliVerdicts"),
-  biliMarks: document.getElementById("biliMarks"),
-  seenShow: document.getElementById("seenShow"),
-  seenThreshold: document.getElementById("seenThreshold"),
-  seenStyle: document.getElementById("seenStyle"),
-  seenDemo: document.getElementById("seenDemo"),
-  enableDebugLogs: document.getElementById("enableDebugLogs"),
-  frontmatterFields: document.querySelectorAll('input[name="frontmatterField"]'),
-  fixedPropertiesList: document.getElementById("fixedPropertiesList"),
-  fixedPropertiesEmpty: document.getElementById("fixedPropertiesEmpty"),
-  addFixedPropertyBtn: document.getElementById("addFixedPropertyBtn"),
-  noteSectionsList: document.getElementById("noteSectionsList"),
-  noteSectionsEmpty: document.getElementById("noteSectionsEmpty"),
-  addNoteSectionBtn: document.getElementById("addNoteSectionBtn"),
-  aiProvidersHead: document.getElementById("aiProvidersHead"),
-  aiProvidersList: document.getElementById("aiProvidersList"),
-  aiPromptRows: document.getElementById("aiPromptRows"),
-  aiPromptsLater: document.getElementById("aiPromptsLater"),
-  addAiProviderBtn: document.getElementById("addAiProviderBtn"),
-  aiSystemPrompt: document.getElementById("aiSystemPrompt"),
-  aiPresetPrompts: document.getElementById("aiPresetPrompts"),
-  webAiSystemPrompt: document.getElementById("webAiSystemPrompt"),
-  webAiSummaryPrompt: document.getElementById("webAiSummaryPrompt"),
-  webAiPresetPrompts: document.getElementById("webAiPresetPrompts"),
-  saveBar: document.getElementById("saveBar"),
-  unsavedHint: document.getElementById("unsavedHint"),
-  saveBtn: document.getElementById("saveBtn"),
-  testConnectionBtn: document.getElementById("testConnectionBtn"),
-  status: document.getElementById("status"),
-  hostPermissionBanner: document.getElementById("hostPermissionBanner"),
-  hostPermissionText: document.getElementById("hostPermissionText"),
-  hostPermissionBtn: document.getElementById("hostPermissionBtn"),
-  unsavedWhere: document.getElementById("unsavedWhere"),
-  toc: document.getElementById("toc"),
-  aiPill: document.getElementById("aiPill"),
-  aiSectionPill: document.getElementById("aiSectionPill"),
-  obsidianPill: document.getElementById("obsidianPill"),
-  noAiNote: document.getElementById("noAiNote"),
-  obsidianGuide: document.getElementById("obsidianGuide"),
-  obsidianKeyTag: document.getElementById("obsidianKeyTag"),
-  obsidianTestResult: document.getElementById("obsidianTestResult"),
-  filenameSample: document.getElementById("filenameSample")
-};
+// Every element with an id, by its id. A setting's control has the setting's key as its id.
+const elements = Object.fromEntries(Array.from(document.querySelectorAll("[id]"), (el) => [el.id, el]));
+elements.frontmatterFields = document.querySelectorAll('input[name="frontmatterField"]');
+// The settings this page shows in a control of their own id, by the type of their default: a switch is a checkbox, a
+// string or number a box or a select. The 专注模式's have no control here.
+const formKeys = (type) => Object.keys(DEFAULT_SETTINGS).filter((k) => elements[k] && type.includes(typeof DEFAULT_SETTINGS[k]));
+const SWITCH_KEYS = formKeys(["boolean"]);
+const VALUE_KEYS = formKeys(["string", "number"]);
 // The languages after 自动 are MdgCommon.SUBTITLE_LANGS, the targets the subtitle choice matches.
 elements.youtubeSubtitleLang.append(...Object.entries(MdgCommon.SUBTITLE_LANGS).map(([value, name]) => new Option(name, value)));
 
@@ -301,41 +248,19 @@ async function loadSettings() {
     return;
   }
   void renderStorageLimits();
-  elements.obsidianEnabled.checked = settings.obsidianEnabled;
+  for (const k of SWITCH_KEYS) elements[k].checked = settings[k];
+  for (const k of VALUE_KEYS) elements[k].value = String(settings[k] ?? "");
   syncObsidianBody();
-  elements.noteFolder.value = settings.noteFolder || "";
-  elements.obsidianApiBaseUrl.value = settings.obsidianApiBaseUrl || "";
-  elements.obsidianApiKey.value = settings.obsidianApiKey || "";
-  elements.tags.value = settings.tags || "";
-  elements.downloadFormat.value = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
-  elements.youtubeSubtitleLang.value = settings.youtubeSubtitleLang || "auto";
-  elements.includeDateInFilename.checked = settings.includeDateInFilename;
-  elements.includeHotCommentsInNote.checked = settings.includeHotCommentsInNote;
-  elements.includeCoverInNote.checked = settings.includeCoverInNote;
-  elements.includeAiChatInNote.checked = settings.includeAiChatInNote;
-  elements.enablePlayerAiQuickAction.checked = settings.enablePlayerAiQuickAction;
-  elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
-  elements.includeTimestampInBody.checked = settings.includeTimestampInBody;
-  elements.showBiliTriageBadges.checked = settings.showBiliTriageBadges;
-  elements.showBiliUpTags.checked = settings.showBiliUpTags;
-  elements.showBiliVerdicts.checked = settings.showBiliVerdicts;
   renderBiliMarks(settings.biliMarksOff);
-  elements.seenShow.value = MdgSettings.normalizeSeenShow(settings.seenShow);
-  elements.seenThreshold.value = String(MdgSettings.normalizeSeenThreshold(settings.seenThreshold));
-  elements.seenStyle.value = MdgSettings.normalizeSeenStyle(settings.seenStyle);
   syncSeenRows();
   syncBiliMarks();
-  elements.enableDebugLogs.checked = settings.enableDebugLogs;
   const selectedFields = new Set((settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields).map(MdgSettings.normalizeFrontmatterField));
   elements.frontmatterFields.forEach((checkbox) => {
     checkbox.checked = selectedFields.has(checkbox.value);
   });
   renderFixedPropertyRows(settings.fixedFrontmatterProperties);
   renderNoteSectionRows(settings.notePlaceholderSections);
-  elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   elements.aiPresetPrompts.value = (Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : []).join("\n");
-  elements.webAiSystemPrompt.value = settings.webAiSystemPrompt || "";
-  elements.webAiSummaryPrompt.value = String(settings.webAiSummaryPrompt || "");
   elements.webAiPresetPrompts.value = (Array.isArray(settings.webAiPresetPrompts) ? settings.webAiPresetPrompts : []).join("\n");
 
   renderAiProviders(providers);
@@ -606,45 +531,23 @@ function collectFormPayload() {
   return payload;
 }
 
+// The form's settings as the background stores them (MdgSettings.normalizeSyncSettings), only the keys this page has.
 function readFormPayload() {
-  const selectedFields = Array.from(elements.frontmatterFields)
-    .filter((checkbox) => checkbox.checked)
-    .map((checkbox) => checkbox.value);
-
-  const normalizedBaseUrl = normalizeBaseUrl(elements.obsidianApiBaseUrl.value);
-  const normalizedApiKey = MdgSettings.normalizeApiKey(elements.obsidianApiKey.value);
-
-  return {
-    obsidianEnabled: elements.obsidianEnabled.checked,
-    noteFolder: elements.noteFolder.value.trim(),
-    obsidianApiBaseUrl: normalizedBaseUrl,
-    obsidianApiKey: normalizedApiKey,
-    tags: elements.tags.value.trim(),
-    downloadFormat: MdgSettings.normalizeDownloadFormat(elements.downloadFormat.value),
-    youtubeSubtitleLang: elements.youtubeSubtitleLang.value,
-    includeDateInFilename: elements.includeDateInFilename.checked,
-    includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
-    includeCoverInNote: elements.includeCoverInNote.checked,
-    includeAiChatInNote: elements.includeAiChatInNote.checked,
-    enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
-    playerAiQuickPrompt: MdgSettings.normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
-    includeTimestampInBody: elements.includeTimestampInBody.checked,
-    showBiliTriageBadges: elements.showBiliTriageBadges.checked,
-    showBiliUpTags: elements.showBiliUpTags.checked,
-    showBiliVerdicts: elements.showBiliVerdicts.checked,
+  const form = {
+    ...Object.fromEntries(SWITCH_KEYS.map((k) => [k, elements[k].checked])),
+    ...Object.fromEntries(VALUE_KEYS.map((k) => [k, elements[k].value.trim()])),
     biliMarksOff: Array.from(elements.biliMarks.querySelectorAll("input[data-cell]:not(:checked)"), (input) => input.dataset.cell),
-    seenShow: elements.seenShow.value,
-    seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),
-    seenStyle: MdgSettings.normalizeSeenStyle(elements.seenStyle.value),
-    enableDebugLogs: elements.enableDebugLogs.checked,
-    frontmatterFields: selectedFields,
-    fixedFrontmatterProperties: MdgSettings.normalizeFixedFrontmatterProperties(collectFixedPropertyRows()),
-    notePlaceholderSections: MdgSettings.normalizeNotePlaceholderSections(collectNoteSectionRows()),
-    aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.aiPresetPrompts.value.split("\n")),
-    webAiSystemPrompt: String(elements.webAiSystemPrompt?.value || "").trim(),
-    webAiSummaryPrompt: MdgSettings.normalizePlayerAiQuickPrompt(elements.webAiSummaryPrompt.value),
-    webAiPresetPrompts: MdgSettings.normalizeAiPresetPrompts(elements.webAiPresetPrompts.value.split("\n"))
+    frontmatterFields: Array.from(elements.frontmatterFields).filter((checkbox) => checkbox.checked).map((checkbox) => checkbox.value),
+    fixedFrontmatterProperties: collectFixedPropertyRows(),
+    notePlaceholderSections: collectNoteSectionRows(),
+    aiPresetPrompts: elements.aiPresetPrompts.value.split("\n"),
+    webAiPresetPrompts: elements.webAiPresetPrompts.value.split("\n")
+  };
+  const normalized = MdgSettings.normalizeSyncSettings(form);
+  return {
+    ...Object.fromEntries(Object.keys(form).map((k) => [k, normalized[k]])),
+    obsidianApiBaseUrl: normalizeBaseUrl(elements.obsidianApiBaseUrl.value),
+    obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value)
   };
 }
 

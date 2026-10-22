@@ -8,10 +8,13 @@ const assert = require("assert");
 const read = (file) => fs.readFileSync(path.join(__dirname, file), "utf8");
 const ctx = vm.createContext({});
 ctx.globalThis = ctx;
+vm.runInContext(read("common.js"), ctx);
 vm.runInContext(read("settings.js"), ctx);
 vm.runInContext(read("settings.js"), ctx); // re-injection keeps the first copy
 const S = ctx.MdgSettings;
 const plain = (value) => JSON.parse(JSON.stringify(value));
+
+assert.deepStrictEqual(["zh-Hans", "fr", undefined].map(S.normalizeSubtitleLang), ["zh-Hans", "auto", "auto"]);
 
 // C17: every on/off setting by its default: default on stays on unless stored false; default off is on only when stored
 // true. A string "true" from an imported file does not turn a default-on switch off.

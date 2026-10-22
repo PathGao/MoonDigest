@@ -549,7 +549,8 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   assert.deepStrictEqual(ruleCopies(path.join(__dirname, "..")), ["settings.js"], "the whole-number rule is written only in settings.js");
   for (const [f, src] of [...modes, ...["triage/triage-bg.js", "triage/follow-bg.js", "background.js"].map((f) => [f, PS.read(f)])]) {
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
-    assert.ok(/\.(intIn|numSetting|normalizeSeenThreshold)\b/.test(src) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
+    // background.js leaves its settings' numbers to MdgSettings.normalizeSyncSettings.
+    assert.ok((f === "background.js" || /\.(intIn|numSetting|normalizeSeenThreshold)\b/.test(src)) && !bare.test(src), `${f}: parses its whole-number settings with intIn`);
   }
   // J15: the dialogs' settings take range and default from NUM_SETTINGS alone: no reader writes them again.
   for (const f of [...PS.triage, ...PS.own("background.js")]) {
@@ -678,7 +679,8 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
     assert.ok(!/seenThreshold\b[^\n]*\b(80|100)\b|\b1, 100\b|\|\| 80\b/.test(src), `${f} writes 看到多少算看完了's range or default itself`);
   }
   assert.ok(!/id="seenThreshold"[^>]* (min|max|placeholder)=/.test(optionsHtml), "options.html's 看到多少算看完了 box takes its range from code");
-  for (const f of ["../background.js", "../bili-surfaces.js", "../options.js"]) assert.ok(/MdgSettings\.normalizeSeenThreshold\(/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} parses 看到多少算看完了 with normalizeSeenThreshold`);
+  // The background and the settings page parse it in MdgSettings.normalizeSyncSettings.
+  for (const f of ["../background.js", "../bili-surfaces.js", "../options.js"]) assert.ok(/MdgSettings\.normalize(SeenThreshold|SyncSettings)\(/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} parses 看到多少算看完了 with normalizeSeenThreshold`);
 }
 
 // A number field above max becomes max; below min (or negative) it is emptied, which means the default.

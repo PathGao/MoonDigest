@@ -3659,7 +3659,7 @@ function computeCurrentClipSignature(url = location.href) {
 
 // The language setting is YouTube's only; Bilibili keeps the default order.
 function subtitleLangTarget() {
-  return state.site === "youtube" ? MdgSites.normalizeSubtitleLang(state.settings?.youtubeSubtitleLang) : "auto";
+  return state.site === "youtube" ? MdgSettings.normalizeSubtitleLang(state.settings?.youtubeSubtitleLang) : "auto";
 }
 
 function currentSite() {

@@ -4,13 +4,6 @@ importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
 const AI_TEST_TIMEOUT_MS = 30000;
-const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
-  "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
-].join("\n");
 const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().version || "";
 // content.js has two manifest entries with the same files: Bilibili video pages also run in 分拣台's viewer frame.
 const READER_ENTRIES = chrome.runtime.getManifest().content_scripts.filter((entry) => entry.js.includes("content.js"));
@@ -710,41 +703,13 @@ async function migrateInitialQuickPrompts() {
   await chrome.storage.sync.remove("aiInitialQuickPrompts");
 }
 
-function normalizeSyncSettings(settings) {
-  // Every on/off setting by its default, in one place (MdgSettings.normalizeSwitches).
-  const merged = MdgSettings.normalizeSwitches(settings);
-  merged.downloadFormat = MdgSettings.normalizeDownloadFormat(merged.downloadFormat);
-  merged.youtubeSubtitleLang = MdgSites.normalizeSubtitleLang(merged.youtubeSubtitleLang);
-  merged.playerAiQuickPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
-  // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
-  merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
-  merged.seenShow = MdgSettings.normalizeSeenShow(merged.seenShow);
-  merged.seenThreshold = MdgSettings.normalizeSeenThreshold(merged.seenThreshold);
-  merged.seenStyle = MdgSettings.normalizeSeenStyle(merged.seenStyle);
-  merged.readerTheme = MdgSettings.normalizeReaderTheme(merged.readerTheme);
-  merged.readerFontScale = MdgSettings.normalizeReaderFontScale(merged.readerFontScale);
-  merged.readerLetterSpacing = MdgSettings.normalizeReaderLetterSpacing(merged.readerLetterSpacing);
-  merged.readerLineHeight = MdgSettings.normalizeReaderLineHeight(merged.readerLineHeight);
-  merged.readerContentWidth = MdgSettings.normalizeReaderContentWidth(merged.readerContentWidth);
-  // options.js and note.js map over it: a settings file may carry anything.
-  merged.frontmatterFields = Array.isArray(merged.frontmatterFields) ? merged.frontmatterFields.filter((f) => typeof f === "string") : MdgSettings.DEFAULTS.frontmatterFields;
-  merged.fixedFrontmatterProperties = MdgSettings.normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
-  merged.notePlaceholderSections = MdgSettings.normalizeNotePlaceholderSections(merged.notePlaceholderSections);
-  merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-  merged.aiPresetPrompts = MdgSettings.normalizeAiPresetPrompts(merged.aiPresetPrompts);
-  merged.webAiSystemPrompt = toString(merged.webAiSystemPrompt).trim();
-  merged.webAiSummaryPrompt = MdgSettings.normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt);
-  merged.webAiPresetPrompts = MdgSettings.normalizeAiPresetPrompts(merged.webAiPresetPrompts);
-  return merged;
-}
-
 async function getMergedSettings() {
   const [syncSettings, localSettings] = await Promise.all([
     chrome.storage.sync.get(MdgSettings.DEFAULTS),
     chrome.storage.local.get(MdgSettings.LOCAL_DEFAULTS)
   ]);
 
-  const merged = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...syncSettings });
+  const merged = MdgSettings.normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...syncSettings });
   return {
     ...merged,
     obsidianApiKey: MdgSettings.normalizeApiKey(localSettings.obsidianApiKey)
@@ -771,7 +736,7 @@ function checkSyncItems(payload) {
 // so two pages saving at once never write back each other's keys from a stale read.
 async function saveSettings(settings) {
   const payload = settings && typeof settings === "object" ? settings : {};
-  const normalized = normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...payload });
+  const normalized = MdgSettings.normalizeSyncSettings({ ...MdgSettings.DEFAULTS, ...payload });
   const syncPayload = Object.fromEntries(Object.keys(payload).filter((k) => k !== "obsidianApiKey").map((k) => [k, normalized[k]]));
   checkSyncItems(syncPayload);
 
@@ -850,18 +815,6 @@ async function dropMovedKeys(before, after) {
   if (Object.keys(kept).length !== Object.keys(keys).length) await chrome.storage.local.set({ [AI_PROVIDER_KEYS_STORAGE]: kept });
   const obsidianUrl = (settings) => settings.obsidianApiBaseUrl ?? MdgSettings.DEFAULTS.obsidianApiBaseUrl;
   if (origin(obsidianUrl(before)) !== origin(obsidianUrl(after))) await chrome.storage.local.remove("obsidianApiKey");
-}
-
-function toString(value) {
-  return typeof value === "string" ? value : "";
-}
-
-function normalizeAiSystemPrompt(value) {
-  const normalized = toString(value).trim();
-  if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT) {
-    return MdgSettings.DEFAULTS.aiSystemPrompt;
-  }
-  return normalized;
 }
 
 // ===== AI 模型平台存储 =====
@@ -1037,7 +990,7 @@ function buildAiMessages({ context, userPrompt, history, systemPrompt }) {
   const notices = [];
   const sections = ctx.isVideoContext === false ? pageAiSections(ctx, notices) : videoAiSections(ctx, notices);
   // The side panel sends the set of the context's kind: webAiSystemPrompt for a page, aiSystemPrompt for a video.
-  const customSystemPrompt = normalizeAiSystemPrompt(systemPrompt);
+  const customSystemPrompt = MdgSettings.normalizeAiSystemPrompt(systemPrompt);
   if (customSystemPrompt) {
     sections.push(`以下是额外系统要求：\n${customSystemPrompt}`);
   }
