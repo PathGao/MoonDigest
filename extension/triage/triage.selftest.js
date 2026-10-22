@@ -2528,6 +2528,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   }
   assert.strictEqual(t.el.banner.hidden, false, "a finished run leaves a banner that is not about AI");
   assert.strictEqual(t.activityState(), null, "K's last 粗看 line is not shown in L");
+  // entry-matrix: a run's stop shows the remedy MdgErrors.remedies lists first (the run's own buttons are its 重试), and
+  // 授权 only for AI_ACCESS, never for the same words under another code.
+  {
+    const labels = { settings: ctx.MdgErrors.LABEL.toSettings, grant: ctx.MdgErrors.LABEL.grant, retry: "" };
+    for (const code of Object.keys(ctx.MdgErrors.CODE).filter((c) => c.startsWith("AI_") && c !== "AI_TRUNCATED")) {
+      t.el.banner.hidden = true;
+      t.handleAiError(ctx.MdgErrors.noAccess("https://ai.test"), code);
+      const want = labels[ctx.MdgErrors.remedies(code)[0]];
+      assert.deepStrictEqual(want ? [t.el.banner.hidden, t.el.bannerBtn.textContent] : [t.el.banner.hidden], want ? [false, want] : [true], code);
+    }
+  }
   t.handleAiError("没有启用的 AI 平台", "AI_SETUP");
   t.startGroup(["BV820"]);
   for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));

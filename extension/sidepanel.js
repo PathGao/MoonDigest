@@ -609,7 +609,8 @@ async function readContextState({ refresh = false, silent = false, follow = fals
   // A web page always answers; only reading a video fails, said as the popup and 专注模式 say it. A video deleted or
   // hidden on B站 is said as a saved conversation's is, without 重试 (no read brings it back).
   const error = ok ? "" : MdgSites.isBiliVideoGone(resp?.code) ? MdgErrors.LABEL.videoGone : `${MdgErrors.TEXT.videoReadFailed}：${MdgErrors.text(resp)}`;
-  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error, follow });
+  const noRetry = !ok && !MdgErrors.remedies(resp?.code).includes("retry");
+  const effects = await act({ type: "CONTEXT_ARRIVED", payload: ok ? resp.payload : null, error, noRetry, follow });
   if (!ok) {
     updateContextChip();
     if (!silent && !state.view().bound) {
@@ -727,7 +728,9 @@ function renderInitialState() {
   }
   const blocked = context.isVideoContext === false ? pageReason(context) : "";
   // A page that failed to read (a timeout, no main text yet) gets 重试, as a video that failed does.
-  resetConversationView(escapeHtml(blocked), { retry: context.pageAccess === "failed", grant: context.pageAccess === "needPermission" });
+  const code = blocked && MdgErrors.pageCode(context.pageAccess);
+  const fix = code ? MdgErrors.remedies(code) : [];
+  resetConversationView(escapeHtml(blocked), { retry: fix.includes("retry"), grant: fix.includes("grantPage") });
 }
 
 // Why the tab's context could not be read (B站 限流, the extension reloaded…), as the read said.
@@ -735,8 +738,8 @@ function contextErrorHtml() {
   return escapeHtml(state.view().live.error);
 }
 
-// 重试 can help unless the tab's video is gone (readContextState says so with LABEL.videoGone alone).
-const contextRetry = () => state.view().live.error !== MdgErrors.LABEL.videoGone;
+// 重试 can help unless the read's code says no read helps (MdgErrors.remedies: a video gone on B站).
+const contextRetry = () => !state.view().live.noRetry;
 
 // The empty state drawn ([stateHtml, retry]); "" once anything else is drawn into the messages.
 let emptyStateShown = "";
@@ -825,7 +828,7 @@ function suggestionsContent() {
   const prompt = summaryPrompt(context);
   const ref = buildConversationContextRef(context);
   // A subtitle that failed or needs a login gets 重试, as in 专注模式 (the popup has 刷新): the context is read again.
-  const retry = context.subtitleFailure || context.subtitleNeedLogin ? ` <button type="button" class="sp-chip sp-grant-btn" data-act="retry">${MdgErrors.LABEL.retry}</button>` : "";
+  const retry = MdgErrors.remedies(MdgErrors.subtitleCode(context)).includes("retry") ? ` <button type="button" class="sp-chip sp-grant-btn" data-act="retry">${MdgErrors.LABEL.retry}</button>` : "";
   return {
     html: `<p class="sp-empty-intro">${escapeHtml(introText())}${retry}</p>${prompt ? `<button type="button" class="sp-summary-btn" data-act="summary" title="${escapeHtml(prompt)}">${AI_SPARK}${MdgErrors.LABEL.aiSummary}</button>` : ""}`,
     summary: { prompt, video: ref.videoId ? `${ref.site}:${ref.videoId}:${ref.pageIndex}` : ref.url }
@@ -1555,7 +1558,8 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back. Else a send tries again.
   const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
   const text = gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}`;
-  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone, remedy: gone ? null : contextRemedy(contextRef) };
+  const remedy = !ok && MdgErrors.remedies(response?.code).includes("retry") ? contextRemedy(contextRef) : null;
+  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone, remedy };
   updateContextChip();
   if (!activeStream) setStreamingUiState(false);
   if (ok) {
@@ -1842,8 +1846,10 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
   node.appendChild(err);
-  // Only the background's own AI_ACCESS: words an AI platform returns must not choose which origin is asked for.
-  const access = code === "AI_ACCESS" ? MdgErrors.grantOrigin(error) : null;
+  // Only the background's own AI_ACCESS (grantOrigin checks the code): words an AI platform returns must not choose
+  // which origin is asked for.
+  const fix = MdgErrors.remedies(code);
+  const access = MdgErrors.grantOrigin(error, code);
   if (access) {
     const grant = document.createElement("button");
     grant.type = "button";
@@ -1858,7 +1864,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     node.appendChild(grant);
   }
   // The AI platform errors 分拣台 stops on (MdgErrors.CODES): 去设置 comes before 重试.
-  if (MdgErrors.action(code) === "settings") {
+  if (fix.includes("settings")) {
     const settings = document.createElement("button");
     settings.type = "button";
     settings.className = "sp-chip sp-grant-btn";

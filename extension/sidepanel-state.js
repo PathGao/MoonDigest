@@ -468,7 +468,7 @@
       // A context load read the active tab: tab is { url, title }, or null when there is none.
       case "TAB_READ": {
         if (!event.tab) {
-          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: MdgErrors.TEXT.noTab };
+          s.live = { ...s.live, tabUrl: "", context: null, key: "", error: MdgErrors.TEXT.noTab, noRetry: false };
           return [];
         }
         s.live.tabUrl = String(event.tab.url || "").trim();
@@ -493,7 +493,8 @@
       case "CONTEXT_ARRIVED": {
         const { payload } = event;
         if (!payload) {
-          s.live = { ...s.live, context: null, key: "", error: String(event.error || "") };
+          // noRetry: no second read helps (MdgErrors.remedies), so the error gets no 重试.
+          s.live = { ...s.live, context: null, key: "", error: String(event.error || ""), noRetry: event.noRetry === true };
           return [];
         }
         const key = buildContextKey(payload);

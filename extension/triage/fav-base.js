@@ -422,7 +422,7 @@ const aiJudge = () => MdgRuns.aiJudge((r) => THROTTLES[r.code]);
 // limit: the 收藏夹设置 row a cut answer asks to raise, 粗看输出上限 (标题粗看 and ✦ AI 打标签) or 细看输出上限.
 function handleAiError(error, code = "", limit = "粗看") {
   const text = String(error || "AI 调用失败");
-  const access = MdgErrors.grantOrigin(text);
+  const access = MdgErrors.grantOrigin(text, code);
   if (access) {
     showBanner(text, MdgErrors.LABEL.grant, async () => {
       if (await access.request()) {

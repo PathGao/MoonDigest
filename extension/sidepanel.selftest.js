@@ -546,6 +546,14 @@ const chatOn = (context) => {
       return kids.filter((k) => k.textContent === ctx.MdgErrors.LABEL.grant).length;
     };
     assert.deepStrictEqual([grants(""), grants("AI_ACCESS")], [0, 1]);
+    // entry-matrix: every AI code gets the buttons MdgErrors.remedies lists, in its order.
+    const labels = { settings: ctx.MdgErrors.LABEL.toSettings, grant: ctx.MdgErrors.LABEL.grant, retry: ctx.MdgErrors.LABEL.retry };
+    for (const code of [...Object.keys(ctx.MdgErrors.CODE).filter((c) => c.startsWith("AI_")), "AI_THROTTLED", "AI_STALLED"]) {
+      const kids = [];
+      ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, ctx.MdgErrors.noAccess("https://ai.test"), false, code);
+      const shown = kids.slice(1).map((k) => (typeof k.textContent === "string" ? k.textContent : k.innerHTML.replace(/<[^>]*>/g, "")));
+      assert.deepStrictEqual(shown, [...ctx.MdgErrors.remedies(code)].map((r) => labels[r]), code);
+    }
   }
 
   // Saved conversations: the video's title, the question and the AI's answer, in the history list and 上一个视频.

@@ -673,7 +673,7 @@ const settle = async () => {
       }
       t.currentSite = site;
       await t.runRefreshClip();
-      assert.strictEqual(state.videoGone, false, "a new read starts clean");
+      assert.strictEqual(state.readCode, "", "a new read starts clean");
       for (const extra of [{ subtitleFailure: "超时" }, { subtitleNeedLogin: true }]) {
         const keys = ["subtitleFetchState", "subtitleFailure", "subtitleNeedLogin"];
         const was = Object.fromEntries(keys.map((k) => [k, state[k]]));
@@ -1010,14 +1010,19 @@ const settle = async () => {
       assert.strictEqual(state.selectedSubtitleUrl, "b");
       t.MdgSites = saved.MdgSites;
     }
-    // C90: 写入 Obsidian turned off meanwhile answers the popup; C91: 取消 in the dialog says so on the page.
+    // C90: 写入 Obsidian turned off meanwhile answers the popup as the background words it for every entry (OBSIDIAN:
+    // 去设置); C91: 取消 in the dialog says so on the page.
     {
       const settings = { ...vm.runInContext("DEFAULT_SETTINGS", ctx), obsidianEnabled: false };
       t.getSettings = async () => settings;
-      assert.deepStrictEqual({ ...(await t.sendToObsidian()) }, { ok: false, text: t.MdgErrors.TEXT.obsidianOff });
-      settings.obsidianEnabled = true;
       Object.assign(t, {
         refreshDerivedContent: async () => (state.markdown = "# A"),
+        sendRuntimeMessage: async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianOff, code: "OBSIDIAN" })
+      });
+      const off = await t.sendToObsidian();
+      assert.deepStrictEqual([off.ok, off.text, off.code], [false, `${t.MdgErrors.TEXT.obsidianFailed}：${t.MdgErrors.TEXT.obsidianOff}`, "OBSIDIAN"]);
+      settings.obsidianEnabled = true;
+      Object.assign(t, {
         sendRuntimeMessage: async () => ({ ok: true, ask: true, path: "p.md" }),
         confirmOverwriteNote: async () => ""
       });
