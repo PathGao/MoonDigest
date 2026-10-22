@@ -412,9 +412,8 @@ body {
   color: var(--faint);
 }
 
-/* An ordinary web page: AI 总结 (the side panel reads the page) and the page note's tools; the video's are not shown. */
+/* An ordinary web page: AI 总结 (the side panel reads the page), 刷新 (reads it again) and the page note's tools; the video's are not shown. */
 .web-page .cover,
-.web-page #refreshBtn,
 .web-page .subrow,
 .web-page #preview,
 .web-page #downloadBtn,

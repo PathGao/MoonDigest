@@ -30,6 +30,7 @@ let latestPayload = null;
 // On a web page: its note from the background (popup-page-note), { ref, filename, markdown }; null until read or when
 // the page cannot be read (the note's tools are disabled with the reason).
 let webNote = null;
+let webTabId = 0; // the web page's tab, which 刷新 reads again; 0 on a video page
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
 // Only for when get-settings fails.
@@ -69,6 +70,9 @@ async function init() {
     if (/^https?:\/\//i.test(tab?.url || "")) {
       document.body.classList.add("web-page");
       setDisabledReason(el.summaryBtn, "");
+      // 刷新 reads the page again, as a video's does: a read that timed out or found no text yet may work now.
+      setDisabledReason(el.refreshBtn, "");
+      webTabId = tab.id;
       setText(el.videoTitle, tab.title || tab.url);
       setText(el.videoMeta, new URL(tab.url).hostname);
       await readWebNote(tab.id);
@@ -87,7 +91,7 @@ function bindEvents() {
     el.videoCover.hidden = true;
   });
   el.refreshBtn.addEventListener("click", async () => {
-    await refreshFromTab(true);
+    await (webTabId ? readWebNote(webTabId) : refreshFromTab(true));
   });
 
   el.copyBtn.addEventListener("click", async () => {
@@ -226,7 +230,9 @@ async function readWebNote(tabId) {
   const tools = [el.copyBtn, el.mdBtn, el.sendBtn];
   tools.forEach((button) => setDisabledReason(button, WEB_PAGE_READING));
   setStatus(WEB_PAGE_READING, false, true);
-  const resp = await sendToRuntime({ type: "popup-page-note", tabId }).catch((error) => ({ ok: false, error: error.message }));
+  setBusy(el.refreshBtn, true);
+  const resp = await sendToRuntime({ type: "popup-page-note", tabId }).catch((error) => ({ ok: false, error: error.message })).finally(() => setBusy(el.refreshBtn, false));
+  el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     const reason = MdgErrors.text(resp);
     tools.forEach((button) => setDisabledReason(button, reason));
