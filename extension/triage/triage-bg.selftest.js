@@ -650,6 +650,12 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.strictEqual(builtNote.path, `B站/UP/2024-05-30/${builtNote.filename}`);
   assert.deepStrictEqual(plain(builtNote.cover), { url: "https://i0.hdslb.com/bfs/archive/a.jpg", name: "bilibili-BVa" });
   delete t.getMergedSettings;
+  // The .zip names a note a write recorded after its file in the vault (dated the day it was first written), as 下载 .md.
+  const fresh = await buildNote();
+  const pathsKey = t.MdgLimits.KEYS.obsidianNotePaths;
+  store[pathsKey] = { [t.MdgSites.buildContextKey(fresh.noteMeta)]: { path: "B站/UP/2026-01-01-旧名.md" } };
+  assert.deepStrictEqual([fresh.filename, (await buildNote()).filename], [t.MdgNote.buildNoteFilename(fresh.noteMeta, {}), "2026-01-01-旧名.md"]);
+  delete store[pathsKey];
 
   // The note section comes from triage_notes (per video), not from the basket item.
   store.triage_basket = [{ bvid: "BVa", note: "篮子里的旧笔记" }];

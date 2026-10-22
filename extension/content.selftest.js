@@ -411,6 +411,12 @@ const settle = async () => {
     const prev = Object.fromEntries(Object.keys(next).map((k) => [k, state[k]]));
     Object.assign(state, next);
     assert.strictEqual(t.getPopupPayload().filename, "标题-P2-第二集.md");
+    // Once a write recorded the note (obsidian.js), its file's name: dated the day it was first written, not today.
+    const pathsKey = t.MdgLimits.KEYS.obsidianNotePaths;
+    const recorded = { [t.MdgSites.buildContextKey(t.noteRef())]: { path: "库/2026-01-01-标题-P2-第二集.md" } };
+    for (const f of listeners.storage) f({ [pathsKey]: { newValue: recorded } }, "local");
+    assert.strictEqual(t.getPopupPayload().filename, "2026-01-01-标题-P2-第二集.md");
+    state.notePaths = {};
     Object.assign(state, prev);
   }
 

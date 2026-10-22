@@ -245,8 +245,11 @@ function renderBasket() {
     .join("");
 }
 
-// 一篇摘录: one Markdown file with each video's link, AI summary, tags and note.
-function buildMarkdown(items, now = new Date()) {
+// 一篇摘录: one Markdown file with each video's link and what its own note carries (MdgNote.triageExtras): the AI 总结
+// with its 「AI 判断」 line, every 分拣 and 摘读记录 tag, 星标 and the note. stored: chrome.storage.local with digestKeys.
+const digestRef = (bvid) => ({ site: "bilibili", videoId: bvid, pageIndex: 1 });
+const digestKeys = (items) => [...new Set(items.flatMap((it) => MdgNote.triageExtrasKeys(digestRef(it.bvid))))];
+function buildMarkdown(items, stored = {}, now = new Date()) {
   const lines = [
     "---",
     `title: B站摘录 ${fmtTime(now)}`,
@@ -257,16 +260,14 @@ function buildMarkdown(items, now = new Date()) {
     ""
   ];
   for (const it of items) {
-    const a = S.analyses[it.bvid];
-    const done = a?.status === "done";
+    const { analysis, note, userTags, starred } = MdgNote.triageExtras(stored, digestRef(it.bvid));
     lines.push(`## [${mdLinkText(it.title)}](${videoUrl(it.bvid)})`, "");
-    if (it.upper || it.invalid) lines.push([it.upper && `UP 主：${it.upper}`, it.invalid && KIND_NAME.invalid].filter(Boolean).join(" · "), "");
-    if (done && a.oneLiner) lines.push(`> ${a.oneLiner}`, "");
-    if (done && a.points?.length) lines.push(...a.points.map((p) => `- ${p}`), "");
-    const names = tagIdsOf(it.bvid).map((id) => tagById(id).name);
-    if (names.length) lines.push(`标签：${names.join("、")}`, "");
-    const note = S.notes[it.bvid]?.text?.trim();
-    if (note) lines.push(`备注：${note}`, "");
+    const info = [it.upper && `UP 主：${it.upper}`, it.invalid && KIND_NAME.invalid, starred && "星标"].filter(Boolean);
+    if (info.length) lines.push(info.join(" · "), "");
+    const summary = MdgNote.buildTriageSummary(analysis);
+    if (summary) lines.push(summary, "");
+    if (userTags.length) lines.push(`标签：${userTags.join("、")}`, "");
+    if (note.trim()) lines.push(`备注：${note.trim()}`, "");
   }
   return lines.join("\n");
 }

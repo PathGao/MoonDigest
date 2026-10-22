@@ -65,8 +65,11 @@ function renderWriteScope() {
   el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;
 }
 
-// Every scope is the open folder's videos, whose summaries loadResults has already read.
-const digestMarkdown = () => buildMarkdown(writeScopeItems());
+// Read now, as a note written now would.
+async function digestMarkdown() {
+  const items = writeScopeItems();
+  return buildMarkdown(items, await chrome.storage.local.get(digestKeys(items)));
+}
 
 // how: copy | download | obsidian
 async function exportDigest(how) {
