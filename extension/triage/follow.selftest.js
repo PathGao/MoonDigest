@@ -97,7 +97,7 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ q: "原理" }).list, ["2"], "search reads the sign too");
   const c = v({ status: "active" });
   assert.deepStrictEqual(c.list, ["1", "3"]);
-  assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, source: { bili: 0, app: 0 }, tags: { t1: 1 } }, "status counts ignore the status pick; the other groups apply it");
+  assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, source: { bili: 0, app: 0 }, tags: { t1: 1 }, have: ["t1"] }, "status counts ignore the status pick; the other groups apply it");
   // 已出分拣范围: 在哪取消关注 is a row 3 group. 全部 counts with it cleared; its chips count with search and row 4 applied.
   const out = v({ side: "out", source: "app" });
   assert.deepStrictEqual([out.list, out.counts[""], out.counts.source], [["8"], 2, { bili: 1, app: 1 }]);
@@ -445,7 +445,7 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
   // 视频投稿: row 3 by the video's UP; counts as above.
   const items = [{ bvid: "x", mid: "1", title: "甲" }, { bvid: "y", mid: "2", title: "乙" }, { bvid: "z", mid: "4", title: "丙" }];
   const c = plain(t.feedCounts(items, D, { side: "all", q: "", tagState: "tagged", tags: new Set(["b"]) }));
-  assert.deepStrictEqual(c, { "": 1, tagged: 1, untagged: 0, tags: { a: 2, b: 1 } });
+  assert.deepStrictEqual(c, { "": 1, tagged: 1, untagged: 0, tags: { a: 2, b: 1 }, have: ["a", "b"] });
 }
 
 // B12: the sidebar item is remembered with the rest of the view and checked against the data on load.
@@ -614,6 +614,42 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     E.list.scrollTop = 500;
     p.click("followMain", "[data-fwtab]", { fwtab: "feed" });
     assert.deepStrictEqual([F.tab, F.sel.size, E.list.scrollTop], ["feed", 0, 0], "switching tabs clears the selection and scrolls to the top");
+  }
+
+  // P1 (DESIGN 分拣台): row 4 lists the tags the tab's UP 主 / videos carry, row 3 aside (0 when it leaves none of them),
+  // as 收藏夹's; into or out of 已出分拣范围 clears 更新状态 and AI 刚打的 too; 视频投稿's 全部 clears only its own row 3; a
+  // card click makes the card current.
+  {
+    const p = await followPage({ store: page({ follow_tags: [{ id: "t1", name: "科普", color: "#111" }], follow_tag_map: { u1: ["t1"] } }), handlers: { "follow-feed": () => feed } });
+    const { F, E } = p.FW;
+    const chip = 'aria-label="按标签筛选 科普 0"';
+    F.tagState = "untagged";
+    p.FW.render();
+    assert.ok(E.tagRow.innerHTML.includes(chip), `UP 主: ${E.tagRow.innerHTML}`);
+    p.click("followMain", ".fw-up", { mid: "u2" });
+    assert.deepStrictEqual([F.cur, F.sel.has("u2")], ["u2", true], "a card click picks it and makes it current");
+    F.status = "active";
+    F.recentFilter = true;
+    p.FW.pickSide("out");
+    assert.deepStrictEqual([F.status, F.recentFilter, F.tagState], ["", false, ""], "into 已出分拣范围 clears row 3");
+    p.FW.pickSide("all");
+    p.click("followMain", "[data-fwtab]", { fwtab: "feed" });
+    await p.settle();
+    F.tagState = "untagged";
+    p.FW.render();
+    assert.ok(E.tagRow.innerHTML.includes(chip), `视频投稿: ${E.tagRow.innerHTML}`);
+    F.status = "active";
+    p.click("followMain", "[data-fw-all]", {});
+    assert.deepStrictEqual([F.tagState, F.status], ["", "active"], "视频投稿's 全部 leaves UP 主's 更新状态");
+    // Esc with the 导出 popover open closes only the popover (the browser's), as in 收藏夹.
+    p.click("followMain", "[data-play]", { play: "BVb" });
+    const q = p.ctx.document.querySelector;
+    p.ctx.document.querySelector = (sel) => (sel === ":popover-open" ? {} : null);
+    p.key("Escape");
+    p.ctx.document.querySelector = q;
+    assert.strictEqual(p.ctx.S.viewing, "BVb", "Esc on the popover leaves the player open");
+    p.key("Escape");
+    assert.ok(!p.ctx.S.viewing, "the next Esc closes it");
   }
 
   // K1: every mode switch (the view restored on load, the 收藏夹 | 关注 switch) syncs the header fold right after

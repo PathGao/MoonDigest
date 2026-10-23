@@ -140,18 +140,19 @@
   // tagState, recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tags }.
   // Row 3's groups AND together and each counts with its own pick left out: counts[status], tagged / untagged, recent,
   // source[bili | app] (已取消关注's row 3 group), "" (row 3 cleared) and tags[id] (row 4's picks left out). Search and the
-  // sidebar apply to all.
+  // sidebar apply to all. have = the tags the item (and 已出分拣范围's tab) carries before search and row 3: row 4 lists them.
   function visibleUps(D, rows, f) {
     const words = searchWords(f.q);
-    const base = sideMids(D, rows, f.side).filter((m) => {
+    const here = sideMids(D, rows, f.side).filter((m) => !f.kind || outKind(rows.get(m)) === f.kind);
+    const base = here.filter((m) => {
       const u = rows.get(m);
-      return hasWords(`${u.name}\n${u.sign}\n${u.zone}`, words) && (!f.kind || outKind(u) === f.kind);
+      return hasWords(`${u.name}\n${u.sign}\n${u.zone}`, words);
     });
     const pass = (m, skip = "") => {
       const u = rows.get(m);
       return (skip === "status" || !f.status || u.status === f.status) && (skip === "source" || !f.source || u.gone?.source === f.source) && (skip === "recent" || !f.recent || f.recent.has(m)) && tagPass(u.tagIds, f, skip);
     };
-    const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, { tags: f.tags })).length, tagged: 0, untagged: 0, recent: 0, source: { bili: 0, app: 0 }, tags: {} };
+    const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, { tags: f.tags })).length, tagged: 0, untagged: 0, recent: 0, source: { bili: 0, app: 0 }, tags: {}, have: [...new Set(here.flatMap((m) => rows.get(m).tagIds))] };
     for (const m of base) {
       const u = rows.get(m);
       if (pass(m, "status")) counts[u.status] = (counts[u.status] || 0) + 1;
@@ -217,9 +218,9 @@
   }
   // A feed video under f = { side, q, tagState, tags } (rows 3 and 4 go by the video's UP); skip as in tagPass.
   const feedPass = (it, D, f, skip = "") => feedMatch(it, D, f.side) && hasWords(`${it.title}\n${it.name}`, searchWords(f.q)) && tagPass(liveTags(it.mid, D), f, skip);
-  // Row 3's counts for 视频投稿, as visibleUps's: "" (row 3 cleared), tagged / untagged (by the UP), tags[id].
+  // Row 3's counts for 视频投稿, as visibleUps's: "" (row 3 cleared), tagged / untagged (by the UP), tags[id], have.
   function feedCounts(items, D, f) {
-    const c = { "": 0, tagged: 0, untagged: 0, tags: {} };
+    const c = { "": 0, tagged: 0, untagged: 0, tags: {}, have: [...new Set(items.filter((it) => feedMatch(it, D, f.side)).flatMap((it) => liveTags(it.mid, D)))] };
     for (const it of items) {
       const ids = liveTags(it.mid, D);
       if (feedPass(it, D, { ...f, tagState: "" })) c[""]++;

@@ -584,6 +584,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     // Unstarred under the filter: still listed (☆) until the page reloads, so the row does not vanish under the cursor.
     await on(p1, "star");
     assert.ok(entry(p1).includes("☆"), html);
+    assert.match(els.stateRow.innerHTML, />★ 星标 2</, "the 星标 count is what the list under it shows");
     await on(p1, "star");
     // 「全部」 clears row 2.
     await filter("all");

@@ -419,10 +419,11 @@ function stateRowUps(counts) {
   out.push(UI.aiRecentChip({ attrs: 'data-fw="recent"', xAttrs: 'data-fw="recent-done"', n: counts.recent, on: F.recentFilter, who: WHO }));
   return out.join("");
 }
-// Row 4: the tags listed UP 主 (or videos) have, or that are on, with counts; several = AND.
-const tagRowHtml = (counts) =>
+// Row 4: the tags UP 主 (or videos) on this tab have, or that are on, as 收藏夹's; each counts the listed ones
+// (0, dimmed, when row 3 or search leave none); several = AND.
+const tagRowHtml = ({ tags: counts, have }) =>
   D.tags
-    .filter((t) => counts[t.id] || F.tags.has(t.id))
+    .filter((t) => have.includes(t.id) || F.tags.has(t.id))
     .map((t) => UI.tagFilterChip(`data-fw-tag="${esc(t.id)}"`, { name: t.name, color: t.color, on: F.tags.has(t.id), n: counts[t.id] || 0, what: F.tab === "feed" ? `${WHO}的视频` : WHO }))
     .join("");
 // Anything in rows 3 and 4 narrowing the list (for 「N 个结果」); the sidebar is scope, as 收藏夹's folder.
@@ -451,7 +452,7 @@ function renderUps() {
   const shows = Boolean(D.list || out);
   E.bar.innerHTML = shows ? UI.labeledRow("状态", seg) : "";
   E.barR.innerHTML = shows ? UI.selectAllBox('data-fw="select-all"', list.length, list.filter((m) => F.sel.has(m)).length, NO_UPS_LISTED) + (out ? cleanBtn(list) : "") + runSlot() : "";
-  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts.tags));
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(counts));
   E.tools.hidden = !D.list && !out;
   const so = sortState();
   E.sort.hidden = !out && !D.list;
@@ -623,7 +624,7 @@ function renderFeed() {
   const n = (k) => (items.length ? c[k] : null);
   E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
   E.barR.innerHTML = runSlot();
-  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c.tags));
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
   const restore = UI.keepScroll(E.list, ".fw-video[data-bvid]");
@@ -1367,10 +1368,11 @@ side.addEventListener("click", (e) => {
   if (e.target.closest("[data-fw=groups]")) TagDialogs.manage.open(manageGroups);
 });
 sideSlot.addEventListener("change", (e) => e.target.dataset.fw === "side" && pickSide(e.target.value));
-// Into or out of 已出分拣范围 starts clean, as opening it in 收藏夹 does: no selection, tab, source or tag filter. It has
-// only UP 主 (its tabs are why they left).
+// Into or out of 已出分拣范围 starts clean, as opening it in 收藏夹 does: no selection, tab or filter (rows 3 and 4). It
+// has only UP 主 (its tabs are why they left).
 function freshScope(id) {
-  F.kind = F.source = F.tagState = "";
+  F.kind = F.source = F.tagState = F.status = "";
+  F.recentFilter = false;
   F.sel.clear();
   F.tags = new Set();
   // 视频投稿 has its own search (F.fq): the box shows the UP 主 one again, as setTab does.
@@ -1416,8 +1418,12 @@ main.addEventListener("click", async (e) => {
     return fromTop();
   }
   if (t.closest("[data-fw-all]")) {
-    F.status = F.tagState = F.source = "";
-    F.recentFilter = false;
+    // 视频投稿's row 3 is only 未打标签 / 已打标签: UP 主's 更新状态 and AI 刚打的 stay.
+    F.tagState = "";
+    if (F.tab !== "feed") {
+      F.status = F.source = "";
+      F.recentFilter = false;
+    }
     return fromTop();
   }
   const ts = t.closest("[data-fw-tagstate]");
@@ -1439,6 +1445,7 @@ main.addEventListener("click", async (e) => {
   const up = t.closest(".fw-up");
   if (up && UI.cardPickClick(e)) {
     e.preventDefault();
+    setCur(up.dataset.mid, false); // as 收藏夹's setFocus: the clicked card is current
     if (!e.shiftKey) return toggleSel(up.dataset.mid);
     getSelection().removeAllRanges();
     F.anchor = UI.pickCard(F.sel, shown, up.dataset.mid, F.anchor, true);
