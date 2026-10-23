@@ -4,7 +4,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ AbortController, setTimeout });
 ctx.globalThis = ctx;
 const src = fs.readFileSync(path.join(__dirname, "common.js"), "utf8");
 vm.runInContext(src, ctx);
@@ -39,4 +39,22 @@ assert.deepStrictEqual(["-", "", null, undefined].map(C.parseCount), [0, 0, 0, 0
 
 assert.deepStrictEqual(Object.keys(C.SUBTITLE_LANGS), ["zh-Hans", "zh-Hant", "en", "ja"]);
 assert.ok(Object.values(C.PAGES).every((p) => fs.existsSync(path.join(__dirname, p))), "every page path exists");
-console.log("common selftest ok");
+// latest(): next() ends the run before it; an ended run's signal is aborted and its checks throw what isStale knows.
+(async () => {
+  const runs = C.latest();
+  const first = runs.current;
+  assert.ok(first.alive && !first.signal.aborted);
+  const pending = first.step(new Promise((resolve) => setTimeout(resolve, 5, "late")));
+  const second = runs.next();
+  assert.ok(!first.alive && first.signal.aborted && second.alive && runs.current === second);
+  assert.throws(() => first.check(), (e) => C.isStale(e));
+  await assert.rejects(pending, (e) => C.isStale(e), "a step that settles after next() rejects stale");
+  assert.strictEqual(await second.step(Promise.resolve(7)), 7);
+  second.end();
+  assert.ok(!second.alive && runs.current === second, "end() ends the run without starting another");
+  assert.ok(!C.isStale(new Error("x")) && !C.isStale(undefined));
+  console.log("common selftest ok");
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

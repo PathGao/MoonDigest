@@ -192,6 +192,26 @@ for (const file of sources) {
     assert.ok(kept.includes("c0") && !kept.includes("c1"), "the oldest starred one stays; the oldest unstarred (tags only) goes");
     assert.strictEqual(L.capConversations(list, undefined).length, n, "no marks: the plain cap");
   }
+  // update(): two edits started together each read what the other wrote, so neither change is lost; undefined writes
+  // nothing. The store answers slowly, as chrome.storage does, so an unqueued second read would see the first's old value.
+  {
+    const store = { counts: { a: 0 } };
+    let sets = 0;
+    const slow = (value) => new Promise((resolve) => setTimeout(resolve, 2, value));
+    ctx.chrome = { storage: { local: {
+      get: (key) => slow({ [key]: structuredClone(store[key]) }),
+      set: async (o) => (await slow(), sets++, Object.assign(store, structuredClone(o)))
+    } } };
+    const results = await Promise.all([
+      L.update("counts", (v) => ({ ...v, a: v.a + 1 })),
+      L.update("counts", (v) => ({ ...v, b: 1 })),
+      L.update("counts", () => undefined)
+    ]);
+    assert.deepStrictEqual(store.counts, { a: 1, b: 1 });
+    assert.strictEqual(sets, 2, "an edit returning undefined writes nothing");
+    assert.strictEqual(results[2], undefined);
+    delete ctx.chrome;
+  }
   console.log("limits selftest ok");
 })().catch((error) => {
   console.error(error);
