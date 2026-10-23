@@ -131,6 +131,7 @@ function followShared(changes) {
     const c = changes[K[name]];
     if (!c) continue;
     if (ownEcho(K[name], c)) continue;
+    if (editsInFlight.has(K[name])) redrawAfterEdit.add(K[name]);
     const value = c.newValue ?? structuredClone(empty);
     if (name === "kept") followKept(value);
     else S[name] = value;

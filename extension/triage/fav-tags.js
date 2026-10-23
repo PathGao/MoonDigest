@@ -47,7 +47,7 @@ const tagStore = MdgTagStore.create({
   },
   // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
   endRecent(at) {
-    for (const [folder, r] of Object.entries(S.aiRecent)) if (r.at === at) endAiRecent(folder);
+    for (const [folder, r] of Object.entries(S.aiRecent)) if (r.at === at) endAiRecent(folder, at);
   }
 });
 
@@ -60,11 +60,12 @@ const aiRecentSet = () => {
   return aiRecentMemo[1];
 };
 // One folder's 「AI 刚打的」 set (r) or ended (null), on the page's copy at once and on the stored map by read-modify-write,
-// so another tab's folder keeps its own; the page then takes what was written.
-function editAiRecent(folder, r) {
+// so another tab's folder keeps its own; the page then takes what was written. Ending one batch (at) leaves a newer one
+// another tab stored for the folder meanwhile.
+function editAiRecent(folder, r, at) {
   const apply = (m) => {
     if (r) m[folder] = r;
-    else delete m[folder];
+    else if (at === undefined || m[folder]?.at === at) delete m[folder];
     return m;
   };
   apply(S.aiRecent);
@@ -73,9 +74,9 @@ function editAiRecent(folder, r) {
   });
 }
 // × and U end the folder's 「AI 刚打的」; × leaves the tags as they are.
-function endAiRecent(folder = String(S.mediaId)) {
+function endAiRecent(folder = String(S.mediaId), at) {
   if (folder === String(S.mediaId)) S.aiRecentFilter = false;
-  return editAiRecent(folder, null);
+  return editAiRecent(folder, null, at);
 }
 
 // T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens

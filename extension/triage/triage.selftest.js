@@ -3000,12 +3000,25 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const release = holdGet(key);
       const writing = edit2();
       store[key] = structuredClone(other2);
+      const realRender = t.render;
+      let drawn = 0;
+      t.render = () => (drawn++, realRender());
       t.followShared({ [key]: { newValue: structuredClone(other2) } });
+      const drawnByEcho = drawn;
       release();
       await writing;
+      await new Promise((r) => setTimeout(r, 5));
+      t.render = realRender;
       assert.deepStrictEqual(list(store[key]), b, `${name}: the write in flight lands on the other tab's value`);
       assert.deepStrictEqual(list(copy()), b, `${name}: and the page ends with both`);
+      // The keys another tab's change replaces here (followShared); the AI proposals and instructions are not followed.
+      if (drawnByEcho) assert.ok(drawn > drawnByEcho, `${name}: drawn again once this tab's write is in (the echo drew the other tab's alone)`);
     }
+    // Ending a batch of 「AI 刚打的」 leaves the newer one another tab stored for the folder meanwhile.
+    t.S.aiRecent = { Q: { at: 2, bvids: ["BV70"] } };
+    store[t.K.aiRecent] = { Q: { at: 5, bvids: ["BV71"] } };
+    await t.endAiRecent("Q", 2);
+    assert.deepStrictEqual(plain(store[t.K.aiRecent]), { Q: { at: 5, bvids: ["BV71"] } }, "another tab's newer batch stays");
     Object.assign(t.S, { kept: {}, basket: [], folderCriteria: {}, aiRecent: {}, aiHistory: [] });
     t.S.ai.proposals = {};
     for (const [, key] of cases) delete store[key];
