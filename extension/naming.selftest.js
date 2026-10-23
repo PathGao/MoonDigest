@@ -16,8 +16,9 @@ const ALLOWED = [
 ];
 const TEXT = /\.(js|mjs|css|html|json|md|svg|txt|py|sh|yml)$/;
 
-// Paths from the repository root: the walk starts at extension/'s parent.
-const files = require("./page-sources.selftest.js").walk("..", (d) => d === ".git").map((f) => f.slice("../".length)).filter((f) => /^(extension\/|docs\/|README\.md$)/.test(f) && TEXT.test(f));
+// Paths from the repository root. Only the three scanned places are walked, not the whole checkout (worktrees, big untracked folders).
+const { walk } = require("./page-sources.selftest.js");
+const files = [...walk("../extension"), ...walk("../docs"), "../README.md"].map((f) => f.slice("../".length)).filter((f) => TEXT.test(f));
 assert.ok(files.includes("extension/content.js") && files.includes("docs/ARCHITECTURE.md"), `scanned ${files.length} files`);
 
 const self = "extension/naming.selftest.js";
