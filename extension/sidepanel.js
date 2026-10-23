@@ -627,6 +627,7 @@ function releaseActiveStream({ type, conversationId, promptIndex }) {
   }
   Object.assign(stream, { conversationId, promptIndex });
   detachedStreams.set(conversationId, stream);
+  // The question is saved now: the background need not create the conversation itself.
   try {
     stream.port.postMessage({ action: "detach", conversationId, promptIndex });
   } catch {}
@@ -1784,6 +1785,7 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   startStreamSlowNoticeTimer();
   bindStreamPort(stream);
 
+  // reply: where the answer belongs, so the background finishes it by itself should this panel close (gap 2).
   stream.port.postMessage({
     action: "chat",
     providerId,
@@ -1792,7 +1794,8 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
       aiSystemPrompt: systemPromptFor(context)
     },
     prompt: text,
-    history: state.view().messages
+    history: state.view().messages,
+    reply: state.view().turnReply
   });
 }
 

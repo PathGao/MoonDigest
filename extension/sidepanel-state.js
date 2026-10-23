@@ -167,7 +167,10 @@
     STREAM_ENDED: { waiting: "idle", streaming: "idle", stopping: "idle" }
   };
   const IN_FLIGHT = new Set(["waiting", "streaming", "stopping"]);
-  const idleTurn = () => ({ phase: "idle", prompt: "", context: null, key: "", reply: null });
+  // newId: the id a conversation not saved yet gets when its first reply lands (given at ASKED, so the background knows
+  // it from the start).
+  const idleTurn = () => ({ phase: "idle", prompt: "", context: null, key: "", reply: null, newId: "" });
+  const newConversationId = (now) => `conv_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const inFlight = (s) => IN_FLIGHT.has(s.turn.phase);
   function step(s, event) {
     const next = TURN_STEPS[event][s.turn.phase];
@@ -241,6 +244,9 @@
       turn: s.turn.phase,
       loading: s.turn.phase === "loading",
       streaming: inFlight(s),
+      // What the background needs to finish the turn's reply by itself should the panel close (the chat message's reply):
+      // the conversation, the question's place, and for a conversation not saved yet the record the panel would save.
+      turnReply: inFlight(s) ? turnReply(s) : null,
       // The reply to this conversation's last question still runs where this panel cannot show it (the background,
       // another window's panel): no second question until it lands in the stored list.
       replyDetached: Boolean(id) && s.detached.has(id),
@@ -330,28 +336,22 @@
     return pinned && !resolved && pinned.isVideoContext && shownKey(s) ? [{ type: "resolve", silent }] : [];
   }
 
-  // Writes the shown conversation into saved. A new one takes the context its reply was asked in.
-  function persist(s, context, contextKey) {
-    if (!s.conv.messages.length || !context) {
-      return;
-    }
-    const now = Date.now();
-    if (!s.conv.id) {
-      s.conv.id = `conv_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      s.conv.pinned = {
-        title: buildConversationTitle(context),
-        createdAt: now,
-        contextKey,
-        contextTitle: String(context.title || "").trim(),
-        contextUrl: String(context.url || "").trim(),
-        isVideoContext: context.isVideoContext !== false,
-        contextRef: buildConversationContextRef(context)
-      };
-      s.conv.resolved = { ...context };
-      s.unsaved.created.add(s.conv.id);
-    }
-    const { id, pinned } = s.conv;
-    const next = {
+  // A new conversation's own description, from the context its first reply was asked in.
+  function newPinned(context, contextKey, now) {
+    return {
+      title: buildConversationTitle(context),
+      createdAt: now,
+      contextKey,
+      contextTitle: String(context.title || "").trim(),
+      contextUrl: String(context.url || "").trim(),
+      isVideoContext: context.isVideoContext !== false,
+      contextRef: buildConversationContextRef(context)
+    };
+  }
+
+  // A conversation as the saved list holds it.
+  function conversationRecord(s, id, pinned, context, contextKey, messages, now) {
+    return {
       id,
       title: pinned.title || buildConversationTitle(context),
       contextKey: String(pinned.contextKey || contextKey || "").trim(),
@@ -362,12 +362,39 @@
       updatedAt: now,
       contextRef: pinned.contextRef || buildConversationContextRef(context),
       pageHydrated: s.saved.find((item) => item.id === id)?.pageHydrated === true,
-      messages: s.conv.messages.map((m) => ({ role: m.role, content: String(m.content || "") }))
+      messages: messages.map((m) => ({ role: m.role, content: String(m.content || "") }))
     };
-    s.saved = normalizeConversations([next, ...s.saved.filter((item) => item.id !== id)]);
+  }
+
+  // Writes the shown conversation into saved. A new one takes the context its reply was asked in and the id given at ASKED.
+  function persist(s, context, contextKey, newId = "") {
+    if (!s.conv.messages.length || !context) {
+      return;
+    }
+    const now = Date.now();
+    if (!s.conv.id) {
+      s.conv.id = newId || newConversationId(now);
+      s.conv.pinned = newPinned(context, contextKey, now);
+      s.conv.resolved = { ...context };
+      s.unsaved.created.add(s.conv.id);
+    }
+    const next = conversationRecord(s, s.conv.id, s.conv.pinned, context, contextKey, s.conv.messages, now);
+    s.saved = normalizeConversations([next, ...s.saved.filter((item) => item.id !== s.conv.id)]);
     const { messages, pageHydrated, ...meta } = next;
     s.conv.pinned = meta;
     s.conv.resolved ||= { ...context };
+  }
+
+  // The reply in flight as the background should finish it: { conversationId, promptIndex, record? }. record: a
+  // conversation not saved yet, with its question, as persist would write it (the background creates it when the answer
+  // comes; the panel tells it with detach once it saved the question itself).
+  function turnReply(s) {
+    if (s.turn.reply) return s.turn.reply;
+    const { prompt, context, key, newId } = s.turn;
+    if (s.conv.id) return { conversationId: s.conv.id, promptIndex: s.conv.messages.length };
+    const now = Date.now();
+    const messages = [{ role: "user", content: prompt }];
+    return { conversationId: newId, promptIndex: 0, record: context ? conversationRecord(s, newId, newPinned(context, key, now), context, key, messages, now) : undefined };
   }
 
   // This page's saved list merged by entry into a stored one (a save writes it; a change another page stored is read
@@ -389,14 +416,14 @@
     if (!inFlight(s)) {
       return [];
     }
-    const { prompt, context, key, reply } = s.turn;
+    const { prompt, context, key, reply, newId } = s.turn;
     s.turn = idleTurn();
     if (reply) {
       s.detached.set(reply.conversationId, { promptIndex: reply.promptIndex, prompt });
       return [{ type: "detach", ...reply }];
     }
     s.conv.messages.push({ role: "user", content: prompt });
-    persist(s, context, key);
+    persist(s, context, key, newId);
     const promptIndex = s.conv.messages.length - 1;
     s.detached.set(s.conv.id, { promptIndex, prompt });
     return [{ type: "detach", conversationId: s.conv.id, promptIndex }, { type: "save" }];
@@ -662,7 +689,7 @@
       case "ASKED": {
         const [context, key] = [shown(s), shownKey(s)];
         if (!step(s, event.type)) return [];
-        Object.assign(s.turn, { context, key });
+        Object.assign(s.turn, { context, key, newId: s.conv.id ? "" : newConversationId(Date.now()) });
         s.conv.unanswered = null;
         return [];
       }
@@ -689,7 +716,7 @@
           return [];
         }
         s.conv.messages.push({ role: "user", content: turn.prompt }, { role: "assistant", content: event.raw });
-        persist(s, turn.context, turn.key);
+        persist(s, turn.context, turn.key, turn.newId);
         return [{ type: "save" }, { type: "autoSync", id: s.conv.id }];
       }
       case "REPLY_FINISHED":

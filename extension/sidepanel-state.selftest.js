@@ -722,4 +722,26 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.ok(!z.dispatch({ type: "OPEN", id: "o5" }).some((e) => e.type === "reattach"), "the question taken away: nothing runs any more");
 }
 
+// What the background needs to finish a reply by itself (turnReply, sent with the chat message): on a conversation not
+// saved yet its record with the question under the id the panel will use when the reply lands; on a saved one the
+// question's place only; after a detach what the panel told the background.
+{
+  const p = panel();
+  p.ask("第一问");
+  const reply = p.view().turnReply;
+  assert.deepStrictEqual([reply.promptIndex, reply.record.title, reply.record.contextUrl, plain(reply.record.messages)], [0, "t-BV1aa", v("BV1aa"), [{ role: "user", content: "第一问" }]]);
+  p.dispatch({ type: "STREAM_ENDED", raw: "答" });
+  assert.strictEqual(p.view().id, reply.conversationId, "the id the background would create it under is the one saved here");
+  p.ask("第二问");
+  assert.deepStrictEqual(plain(p.view().turnReply), { conversationId: reply.conversationId, promptIndex: 2 });
+  p.dispatch({ type: "STREAM_ENDED", raw: "" });
+  const q = panel();
+  q.ask("走了");
+  const d = q.dispatch({ type: "NEW" }).find((e) => e.type === "detach");
+  assert.strictEqual(q.view().saved[0].id, q.view().saved[0].id && d.conversationId);
+  q.dispatch({ type: "OPEN", id: d.conversationId });
+  assert.deepStrictEqual(plain(q.view().turnReply), { conversationId: d.conversationId, promptIndex: 0 });
+  assert.strictEqual(panel().view().turnReply, null, "idle: nothing in flight");
+}
+
 console.log("sidepanel-state selftest: all passed");

@@ -619,6 +619,7 @@ chrome.runtime.onConnect.addListener((port) => {
       endChat(attachedRun || chats.current, { type: "stopped", reason: MdgErrors.TEXT.aiStopped });
       return;
     }
+    // The panel saved the question itself (it left the conversation mid-reply): the answer alone is to be put in.
     if (msg.action === "detach") {
       chats.current.reply = { conversationId: String(msg.conversationId || ""), promptIndex: Number(msg.promptIndex) || 0 };
       return;
@@ -638,6 +639,10 @@ chrome.runtime.onConnect.addListener((port) => {
     endChat(chats.current, { type: "silent" });
     const run = chats.next();
     run.post = post;
+    // Where the answer belongs from the start, so the port dropping (the panel closed, whatever it showed) orphans the
+    // run instead of aborting it; record: the conversation as the panel would save it, when it is not saved yet.
+    const reply = msg.reply && typeof msg.reply === "object" ? msg.reply : null;
+    if (reply?.conversationId) run.reply = { conversationId: String(reply.conversationId), promptIndex: Number(reply.promptIndex) || 0, ...(reply.record && typeof reply.record === "object" && { record: reply.record }) };
     const prompt = String(msg.prompt || "");
     let raw = "";
     try {
@@ -699,12 +704,17 @@ function orphan(run) {
   orphanRuns.set(run.reply.conversationId, run);
   orphanKeepAlive(true);
 }
-async function finishOrphanReply({ conversationId, promptIndex, prompt, raw }) {
-  await MdgLimits.updateConversations((list) => list.map((c) => {
-    if (c?.id !== conversationId) return c;
-    const messages = (Array.isArray(c.messages) ? c.messages : []).map((m) => ({ ...m }));
-    return SidepanelState.patchReply(messages, { promptIndex, prompt, raw }) ? { ...c, messages, updatedAt: Date.now() } : c;
-  }));
+// The panel closed while the reply was shown: its question is not stored yet, so it goes in first (at its place, as the
+// panel would have put it), and a conversation not saved at all (its first question) is created from record, with an
+// answer only; one deleted meanwhile (no record, not in the list) gets nothing.
+async function finishOrphanReply({ conversationId, promptIndex, record, prompt, raw }) {
+  await MdgLimits.updateConversations((list) => {
+    const stored = list.find((c) => c?.id === conversationId);
+    if (!stored) return record && String(raw || "").trim() ? [{ ...record, messages: [...(record.messages || []), { role: "assistant", content: raw }], updatedAt: Date.now() }, ...list] : list;
+    const messages = (Array.isArray(stored.messages) ? stored.messages : []).map((m) => ({ ...m }));
+    if (messages.length === promptIndex) messages.push({ role: "user", content: prompt });
+    return SidepanelState.patchReply(messages, { promptIndex, prompt, raw }) ? list.map((c) => (c === stored ? { ...c, messages, updatedAt: Date.now() } : c)) : list;
+  });
 }
 function orphanKeepAlive(on) {
   orphanReplies += on ? 1 : -1;

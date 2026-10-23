@@ -1192,17 +1192,23 @@ const tick = () => new Promise((r) => setImmediate(r));
     const errorsShown = [];
     let listener;
     const prev = [ctx.chrome.runtime.connect, ctx.appendUserMessage, ctx.appendAssistantPlaceholder, ctx.ensureCurrentContextForSend, ctx.appendStreamError, ctx.renderAssistantMessage];
-    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener: (f) => (listener = f) }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
+    const chatMessages = [];
+    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener: (f) => (listener = f) }, onDisconnect: { addListener() {} }, postMessage: (m) => chatMessages.push(m), disconnect() {} });
     ctx.appendUserMessage = (text) => asked.push(text);
     ctx.appendAssistantPlaceholder = () => stubEl();
     ctx.appendStreamError = (turn, error) => errorsShown.push(error);
     ctx.renderAssistantMessage = () => {};
     ctx.ensureCurrentContextForSend = async () => (vm.runInContext('els.input.value = "下一个问题"', ctx), true);
     state.dispatch({ type: "NEW" });
-    show(video);
+    // A video no earlier test saved a conversation for: the question starts a new conversation.
+    show({ ...video, url: "https://www.bilibili.com/video/BV1reply1", videoId: "BV1reply1" });
     vm.runInContext('els.input.value = "第一个问题"; els.modelSelect.value = "p"', ctx);
     await ctx.sendMessage();
     assert.deepStrictEqual([asked, els.input.value], [["第一个问题"], "下一个问题"]);
+    // The chat message names where the answer belongs (turnReply): a new conversation's record with the question, so the
+    // background saves both if this panel closes mid-reply.
+    const sentReply = chatMessages.at(-1).reply;
+    assert.deepStrictEqual([typeof sentReply?.conversationId, sentReply?.promptIndex, JSON.parse(JSON.stringify(sentReply?.record?.messages ?? null))], ["string", 0, [{ role: "user", content: "第一个问题" }]]);
     let slowGone = 0;
     ctx.__slow = { remove: () => slowGone++ };
     ctx.__now = vm.runInContext("activeStream", ctx);
@@ -1237,6 +1243,9 @@ const tick = () => new Promise((r) => setImmediate(r));
     const made = [];
     ctx.document.createElement = () => (made.push(el()), made.at(-1));
     const node = el();
+    // A fresh conversation on the video: the failed turn is its only one.
+    state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
+    state.dispatch({ type: "SAVED_CHANGED", list: [] });
     chatOn(video);
     ctx.appendStreamError({ node, prompt: "这个视频", raw: "回答" }, "x", true, "");
     ctx.document.createElement = prevCreate;

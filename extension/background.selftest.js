@@ -292,7 +292,7 @@ process.on("exit", (code) => {
   {
     const wasChrome = ctx.chrome;
     const conv = (id) => ({ id, messages: [{ role: "user", content: "q" }], updatedAt: 1 });
-    const store = { [ctx.MdgLimits.KEYS.aiConversations]: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"].map(conv) };
+    const store = { [ctx.MdgLimits.KEYS.aiConversations]: ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c9"].map(conv).concat([{ id: "c8", messages: [{ role: "user", content: "q0" }, { role: "assistant", content: "a0" }], updatedAt: 1 }]) };
     const stored = (id) => store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === id).messages;
     const pings = [];
     const timers = [];
@@ -320,7 +320,7 @@ process.on("exit", (code) => {
     await wait(10);
     port.disconnect();
     await chat;
-    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]);
+    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c9", "c8"]);
     // 停止, then the port closes (the panel deleted the conversation): aborted, nothing written.
     port = openPort();
     ctx.fetch = stalling();
@@ -367,6 +367,40 @@ process.on("exit", (code) => {
     port.disconnect();
     await chat;
     assert.deepStrictEqual([stored("c5"), timers.filter(Boolean).length], [[], 0], "no answer: the question goes, the ping stops");
+    // Closed while the reply was shown (no detach, so the question is not stored): the chat message named the
+    // conversation and the question's place from the start, so the question and the answer both go in. On the first
+    // question of a conversation not saved yet, the conversation is created as the panel would save it; nothing is
+    // created when no answer came. 停止 before the port closes still aborts and writes nothing.
+    port = openPort();
+    ctx.fetch = slowReply();
+    chat = port.fn({ ...CHAT, reply: { conversationId: "c8", promptIndex: 2 } });
+    await wait(10);
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual(stored("c8"), [{ role: "user", content: "q0" }, { role: "assistant", content: "a0" }, { role: "user", content: "q" }, { role: "assistant", content: "答案" }]);
+    const record = { id: "new1", title: "T", contextKey: "video:bilibili:BV1n|c", contextTitle: "T", contextUrl: "https://www.bilibili.com/video/BV1n/", isVideoContext: true, createdAt: 2, updatedAt: 2, contextRef: { site: "bilibili", videoId: "BV1n" }, pageHydrated: false, messages: [{ role: "user", content: "q" }] };
+    port = openPort();
+    ctx.fetch = slowReply();
+    chat = port.fn({ ...CHAT, reply: { conversationId: "new1", promptIndex: 0, record } });
+    await wait(10);
+    port.disconnect();
+    await chat;
+    const made = store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === "new1");
+    assert.deepStrictEqual([made.title, made.contextKey, made.messages], ["T", record.contextKey, [{ role: "user", content: "q" }, { role: "assistant", content: "答案" }]]);
+    port = openPort();
+    ctx.fetch = async () => ({ ok: false, status: 401, text: async () => "" });
+    chat = port.fn({ ...CHAT, reply: { conversationId: "new2", promptIndex: 0, record: { ...record, id: "new2" } } });
+    port.disconnect();
+    await chat;
+    assert.strictEqual(store[ctx.MdgLimits.KEYS.aiConversations].some((c) => c.id === "new2"), false, "no answer: no conversation");
+    port = openPort();
+    ctx.fetch = stalling();
+    chat = port.fn({ ...CHAT, reply: { conversationId: "c9", promptIndex: 1 } });
+    await wait(10);
+    port.fn({ action: "stop" });
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual([stored("c9").length, timers.filter(Boolean).length], [1, 0], "停止 then close: aborted, nothing written");
     // Attach: a reopened panel asks which replies still run, attaches to one by id, gets what comes from now on and
     // 停止 ends it; while attached nothing is pinged (its port keeps the worker). The end is still written here.
     port = openPort();
