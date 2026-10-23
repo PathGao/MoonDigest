@@ -111,7 +111,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
     assert.ok(injected(url), `the manifest injects content.js into ${url}`);
   }
 }
-vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
+vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
 const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
@@ -174,7 +174,7 @@ const settle = async () => {
     t.currentSite = () => ({ fetchRaw: () => body.promise, parseSegments: () => [{ from: 0, to: 1, content: "旧视频" }] });
     const switching = t.switchSubtitle("u");
     await settle();
-    state.fetchRunId++;
+    t.clipRuns.next();
     body.open();
     await assert.rejects(switching, (e) => e.message === "视频已切换，请刷新网页后重试");
     assert.deepStrictEqual(state.subtitleBody, [], "the new video keeps an empty body");
@@ -189,7 +189,7 @@ const settle = async () => {
     state.triageExtras = null;
     const derived = t.refreshDerivedContent();
     await settle();
-    state.fetchRunId++;
+    t.clipRuns.next();
     turns.open();
     await derived;
     assert.deepStrictEqual([state.aiTurns.length, state.triageExtras], [0, null]);
@@ -221,7 +221,7 @@ const settle = async () => {
       });
       const run = t.runRefreshClip();
       await settle();
-      state.fetchRunId++; // the URL watcher saw the change
+      t.clipRuns.next(); // the URL watcher saw the change
       Object.assign(state, newVideo);
       fail(new Error("请求超时"));
       await run;
@@ -269,7 +269,7 @@ const settle = async () => {
     let playing = { p: 1, aid: 117455577942856, cid: 42817818257, episodeId: 6913562 };
     t.sendRuntimeMessage = async (m) => (m.type === "page-player" ? { ok: true, data: playing } : {});
     t.location.href = "https://www.bilibili.com/bangumi/play/ep6694803";
-    const waiting = t.waitPlayerRef(state.fetchRunId);
+    const waiting = t.waitPlayerRef(t.clipRuns.current);
     await new Promise((r) => setImmediate(r));
     playing = { p: 1, aid: 2, cid: 20, episodeId: 6694803 };
     assert.strictEqual((await waiting)?.part.cid, "20", "the URL's episode, not the one still playing");
@@ -297,7 +297,7 @@ const settle = async () => {
     Object.assign(t, { refreshDerivedContent: () => comments.promise, renderReadingView: () => drawn++, moveReadingMainInline() {}, startReaderPlayerObserver() {} });
     t.stepReader("mark");
     t.stepReader("enter");
-    const shown = t.showSubtitle({ track: { url: "u", lang: "zh" }, body: [{ from: 0, to: 1, content: "x" }] }, state.fetchRunId);
+    const shown = t.showSubtitle({ track: { url: "u", lang: "zh" }, body: [{ from: 0, to: 1, content: "x" }] }, t.clipRuns.current);
     assert.strictEqual(drawn, 1, "drawn before the comments are read");
     comments.open();
     await shown;
@@ -313,7 +313,7 @@ const settle = async () => {
     t.stepReader("mark");
     t.stepReader("enter");
     seen.splice(0);
-    await t.showNoSubtitleState(state.fetchRunId);
+    await t.showNoSubtitleState(t.clipRuns.current);
     assert.deepStrictEqual(seen, [""], "the old read failure is cleared");
     t.stepReader("close");
     Object.assign(t, prev);
@@ -452,7 +452,7 @@ const settle = async () => {
     t.loadAiTurns = () => turns.promise;
     state.aiTurns = [];
     for (const f of listeners.storage) f({ [t.MdgLimits.KEYS.aiConversations]: {} }, "local");
-    state.fetchRunId++;
+    t.clipRuns.next();
     turns.open();
     await settle();
     assert.deepStrictEqual(state.aiTurns, [], "a storage echo for the old video is dropped");
@@ -627,20 +627,20 @@ const settle = async () => {
       if (next instanceof Error) throw next;
       return next;
     };
-    let site = t.pageSubtitleSite({ fetchRaw: answers([limited(), "raw"]) }, state.fetchRunId);
+    let site = t.pageSubtitleSite({ fetchRaw: answers([limited(), "raw"]) }, t.clipRuns.current);
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
-    site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, state.fetchRunId);
+    site = t.pageSubtitleSite({ fetchRaw: answers([limited(), limited()]) }, t.clipRuns.current);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.status === 429 && e.message === t.MdgErrors.TEXT.ytThrottled);
     // B站's 429 is its limit, said as THROTTLED by sites.js biliJson: waited on once, then passed on as it is.
     const biliLimited = () => Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED", status: 429 });
-    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), "raw"]) }, state.fetchRunId);
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), "raw"]) }, t.clipRuns.current);
     assert.strictEqual(await site.fetchRaw({}, {}), "raw");
-    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), biliLimited()]) }, state.fetchRunId);
+    site = t.pageSubtitleSite({ id: "bilibili", fetchRaw: answers([biliLimited(), biliLimited()]) }, t.clipRuns.current);
     await assert.rejects(site.fetchRaw({}, {}), (e) => e.code === "THROTTLED" && e.message === t.MdgErrors.TEXT.biliThrottled);
-    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, state.fetchRunId);
+    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: answers([{ tracks: [] }, { tracks: ["t"] }]) }, t.clipRuns.current);
     assert.deepStrictEqual((await site.fetchTracks()).tracks, ["t"]);
     const ios = [];
-    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: async (ref, meta, io) => (ios.push(io.fetchJson), ios.length === 1 ? { tracks: [], needLogin: true } : { tracks: ["t"] }) }, state.fetchRunId);
+    site = t.pageSubtitleSite({ id: "bilibili", fetchTracks: async (ref, meta, io) => (ios.push(io.fetchJson), ios.length === 1 ? { tracks: [], needLogin: true } : { tracks: ["t"] }) }, t.clipRuns.current);
     assert.deepStrictEqual((await site.fetchTracks({}, {}, { fetchJson: "background" })).tracks, ["t"]);
     assert.deepStrictEqual(ios, ["background", t.fetchJson]);
     Object.assign(t, was);
@@ -1341,11 +1341,11 @@ const settle = async () => {
   // and retries once, and says the same words.
   {
     const keep = Object.fromEntries(["fetchOk", "currentSite"].map((k) => [k, t[k]]));
-    const was = { href: t.location.href, hostname: t.location.hostname, ...Object.fromEntries(["site", "videoId", "videoDuration", "fetchRunId", "subtitles"].map((k) => [k, state[k]])) };
+    const was = { href: t.location.href, hostname: t.location.hostname, ...Object.fromEntries(["site", "videoId", "videoDuration", "subtitles"].map((k) => [k, state[k]])) };
     t.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     t.location.hostname = "www.youtube.com";
     t.currentSite = () => t.MdgSites.matchSite(t.location.href); // the real one (a test above stubs it)
-    Object.assign(state, { site: "youtube", videoId: "dQw4w9WgXcQ", videoDuration: 0, fetchRunId: 7 });
+    Object.assign(state, { site: "youtube", videoId: "dQw4w9WgXcQ", videoDuration: 0 });
     const url = "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en";
     state.subtitles = [{ id: "en", lang: "en", url }];
     let calls = 0;
@@ -1354,7 +1354,7 @@ const settle = async () => {
     assert.deepStrictEqual([calls, err?.message], [2, t.MdgErrors.TEXT.ytThrottled]);
     Object.assign(t, keep);
     Object.assign(t.location, { href: was.href, hostname: was.hostname });
-    for (const k of ["site", "videoId", "videoDuration", "fetchRunId", "subtitles"]) state[k] = was[k];
+    for (const k of ["site", "videoId", "videoDuration", "subtitles"]) state[k] = was[k];
   }
 
   // R17: a video change while 专注模式 is open resets the clip, not the view: the player mount retry still finishes the
