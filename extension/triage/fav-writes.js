@@ -332,6 +332,7 @@ const fav = {
     } else if (done && all) {
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
+      // By folder, not by view: the records are the folder's, so back in it after a switch the batch is still undoable.
       const went = new Set(r.keys);
       pushUndo(unfavManyStep(mediaId, list.filter((it) => went.has(it.bvid)).map(favRef)));
       tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);

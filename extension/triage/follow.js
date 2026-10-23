@@ -1674,9 +1674,10 @@ async function followHash() {
   return true;
 }
 window.addEventListener("hashchange", followHash);
-// As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, so the browser asks first.
+// As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, or lose an AI 打标签 run's finished
+// batches (its proposal is only in memory until it ends), so the browser asks first.
 window.addEventListener("beforeunload", (e) => {
-  if (!W.busy()) return;
+  if (!W.busy() && !aiRunning()) return;
 
   e.preventDefault();
   e.returnValue = true;

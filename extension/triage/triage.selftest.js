@@ -2403,6 +2403,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     h.release();
     await running;
     assert.strictEqual(leave(), false, "done: no prompt");
+    // An AI 打标签 run holds its finished batches in memory until it ends: leaving asks too.
+    const aiRun = hang("ai");
+    assert.strictEqual(leave(), true, "AI 打标签 running");
+    await aiRun();
+    assert.strictEqual(leave(), false, "AI 打标签 done: no prompt");
     await settled();
   }
 

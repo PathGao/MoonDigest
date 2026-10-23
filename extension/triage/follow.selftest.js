@@ -927,6 +927,25 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual([batch, plain(got.newTags), plain(got.rows.map((r) => [r.id, r.add]))], [2, [], [["u1", ["id:t1"]], ["u2", ["id:t2"]]]], JSON.stringify(got));
   }
 
+  // Closing the page while 关注's AI 打标签 runs asks first (its finished batches are only in memory); not after it ends.
+  {
+    let release;
+    const p = await followPage({ store: page(), handlers: { "follow-ai-tag": () => new Promise((r) => (release = r)) } });
+    const leave = () => {
+      let asked = false;
+      p.winL.beforeunload.forEach((f) => f({ preventDefault: () => (asked = true) }));
+      return asked;
+    };
+    assert.strictEqual(leave(), false, "nothing running: no prompt");
+    p.FW.AI.settings = { batchSize: 2, intervalSec: 0, newTagMax: 5, allowRemove: false };
+    const running = p.FW.aiTags.run({ instruction: "分", scope: "filter", allowRemove: false });
+    await p.until(() => release);
+    assert.strictEqual(leave(), true, "AI 打标签 running");
+    release({ ok: true, data: {} });
+    await running;
+    assert.strictEqual(leave(), false, "done: no prompt");
+  }
+
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.
   {
     let release;

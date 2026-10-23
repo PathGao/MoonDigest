@@ -361,9 +361,10 @@ function recentUnfavHtml() {
   return `<section class="recent-unfav" aria-label="${RECENT_UNFAV}"><h3>${RECENT_UNFAV} <span class="muted">${list.length}</span></h3>${batchRows}<ul>${rows}</ul></section>`;
 }
 
-// Closing or reloading the page stops a batch write halfway and loses a notes export: the browser asks first.
+// Closing or reloading the page stops a batch write halfway, loses a notes export, and loses an AI 打标签 run's finished
+// batches (its proposal is only in memory until it ends): the browser asks first. Not for 粗看 / 细看: saved per video.
 window.addEventListener("beforeunload", (e) => {
-  if (!writeRunning() && !fav.state().busy) return;
+  if (!writeRunning() && !fav.state().busy && !aiRunning()) return;
   e.preventDefault();
   e.returnValue = true;
 });
