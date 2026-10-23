@@ -62,7 +62,7 @@ const ALLOW = [
   // 4a. 待修 lines wait for their fix (Cn / An: the 2026-10-16 scan); new ones fail.
   // 4b
   ["content.js", "new Error(`Missing node: ${id}`)", "例外：页面少了 id 是代码错，不是用户能遇到的（冒烟核对页面脚本查找的 id）"],
-  ["content.js", 'new Error("Stale refresh run")', "例外：作废信号，带 code STALE_RUN，isStaleRunError 认出后丢掉，不显示"],
+  ["common.js", 'new Error("Superseded run")', "例外：作废信号，带 code STALE_RUN，MdgCommon.isStale 认出后丢掉，不显示"],
   ["content.js", 'new Error("Unknown retry error")', "例外：到不了，retryAsync 的循环每条路都 return 或 throw"],
   ["obsidian.js", "new Error(`cover HTTP ${image.status}`)", "例外：同一函数 catch 住，只 console.warn，笔记保留远程封面地址"],
   ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],

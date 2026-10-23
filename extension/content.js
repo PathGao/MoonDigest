@@ -18,8 +18,9 @@ const VIDEO_SWITCHED = `视频已切换，${MdgErrors.TEXT.reloadRetry}`;
 // A jump to a time point (the side panel, 专注模式) on a page without a player to drive.
 const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
+// The video page's reads: a video change ends the run in flight, so nothing waiting on it writes the new video's state.
+const clipRuns = MdgCommon.latest();
 const state = {
-  fetchRunId: 0,
   refreshPromise: null,
   site: "",
   videoId: "",
@@ -586,10 +587,10 @@ function bindSettingsWatcher() {
       return;
     }
     // The popup copies state.markdown as is, so a new answer must reach it before the next refresh.
-    const runId = state.fetchRunId;
+    const run = clipRuns.current;
     if (changes[MdgLimits.KEYS.aiConversations] && state.markdown) {
       loadAiTurns().then((turns) => {
-        if (runId !== state.fetchRunId) return;
+        if (!run.alive) return;
         state.aiTurns = turns;
         rebuildDerivedContent();
       });
@@ -600,7 +601,7 @@ function bindSettingsWatcher() {
     const extrasRef = { site: state.site, videoId: state.videoId, pageIndex: state.pageIndex };
     if (MdgNote.triageExtrasKeys(extrasRef).some((key) => changes[key]) && state.markdown) {
       loadTriageExtras().then((extras) => {
-        if (runId !== state.fetchRunId) return;
+        if (!run.alive) return;
         state.triageExtras = extras;
         rebuildDerivedContent();
       });
@@ -621,7 +622,7 @@ function bindSettingsWatcher() {
         hydrateReaderStateFromSettings(settings);
         applyReadingViewPresentation();
         schedulePlayerAiQuickActionSync();
-        if (noteChanged && state.markdown && runId === state.fetchRunId) refreshDerivedContent().catch(() => {});
+        if (noteChanged && state.markdown && run.alive) refreshDerivedContent().catch(() => {});
       })
       .catch((error) => {
         logWarn("[MDG] failed to refresh settings after storage change", error);
@@ -860,7 +861,7 @@ function videoChanged() {
   enforceNormalPageStateIfNeeded();
   ensureUiReady();
   // Invalidate the previous video's run so nothing waiting on it gets its subtitles.
-  state.fetchRunId++;
+  clipRuns.next();
   state.refreshPromise = null;
   const prev = { id: state.videoId, title: state.title };
   resetClipState();
@@ -978,9 +979,9 @@ async function settledClip(force = false) {
       force = false;
     }
     if (!run) return;
-    const runId = state.fetchRunId;
+    const current = clipRuns.current;
     const failure = await run.then(() => null, (error) => error);
-    if (runId !== state.fetchRunId) continue;
+    if (!current.alive) continue;
     if (failure) throw failure;
     return;
   }
@@ -991,7 +992,7 @@ async function clipContext(refresh) {
   for (;;) {
     await settledClip(refresh);
     refresh = false;
-    const runId = state.fetchRunId;
+    const run = clipRuns.current;
     let comments = state.hotComments;
     if (!comments?.length && currentSite()?.fetchComments && state.videoId) {
       comments = await fetchHotComments().catch((error) => {
@@ -999,7 +1000,7 @@ async function clipContext(refresh) {
         return [];
       });
     }
-    if (runId !== state.fetchRunId) continue;
+    if (!run.alive) continue;
     // A note refresh may have got them meanwhile.
     if (comments.length) state.hotComments = comments;
     return buildSidepanelContext();
@@ -1018,7 +1019,7 @@ function refreshClip() {
 }
 
 async function runRefreshClip() {
-  const runId = ++state.fetchRunId;
+  const run = clipRuns.next();
   let metaLoaded = false;
   try {
     setStatus(META_READING);
@@ -1028,12 +1029,12 @@ async function runRefreshClip() {
       renderReadingView();
     }
     state.settings = await getSettings();
-    ensureRunActive(runId);
+    run.check();
 
     const site = currentSite();
     // Taken before the awaits: a navigation mid-run must still look like a change to checkUrlChange.
     const clipSignature = computeCurrentClipSignature();
-    const ref = site?.parseRef(location.href) || (site?.playerRef && (await waitPlayerRef(runId)));
+    const ref = site?.parseRef(location.href) || (site?.playerRef && (await waitPlayerRef(run)));
     if (!ref) {
       throw new Error(site?.playerRef ? NO_PLAYER : MdgErrors.TEXT.notVideoPage);
     }
@@ -1041,7 +1042,7 @@ async function runRefreshClip() {
     state.videoId = ref.id;
 
     const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
-    ensureRunActive(runId);
+    run.check();
     logInfo("[MDG] raw meta data", { meta });
 
     const dom = site.readDom(document);
@@ -1078,13 +1079,13 @@ async function runRefreshClip() {
 
     setStatus(MdgErrors.TEXT.subtitleReading);
     const found = await MdgSites.loadSubtitle(
-      pageSubtitleSite(site, runId),
+      pageSubtitleSite(site, run),
       currentRef(),
       { ...state.meta, duration: state.videoDuration },
       { ...siteIo(), fresh: true },
       {
         prefer: { previousId: state.selectedSubtitleId, previousUrl: state.selectedSubtitleUrl, previousLang: state.selectedSubtitleLang },
-        step: runStep(runId)
+        step: run.step
       }
     );
     state.subtitles = found.tracks;
@@ -1094,15 +1095,15 @@ async function runRefreshClip() {
     logInfo("[MDG] subtitle tracks", state.subtitles.map(({ id, lang, label, kind, url }) => ({ id, lang, label, kind, url })));
     // 无字幕时也允许进入专注模式，只是字幕区域保持空态。
     if (!found.track) {
-      await showNoSubtitleState(runId, { failure: found.error ? failureReason(found.error) : "", needLogin: found.needLogin });
+      await showNoSubtitleState(run, { failure: found.error ? failureReason(found.error) : "", needLogin: found.needLogin });
       return;
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
-    await showSubtitle(found, runId);
+    await showSubtitle(found, run);
     setStatus(state.subtitleWarning + readDoneText(), Boolean(state.commentsFailure));
   } catch (error) {
     // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
-    if (isStaleRunError(error) || runId !== state.fetchRunId) {
+    if (MdgCommon.isStale(error) || !run.alive) {
       return;
     }
     const reason = failureReason(error);
@@ -1110,9 +1111,9 @@ async function runRefreshClip() {
     // failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and 重试 reads it all again.
     if (metaLoaded && !MdgSites.isLimit(error)) {
       try {
-        await showNoSubtitleState(runId, { failure: reason });
+        await showNoSubtitleState(run, { failure: reason });
       } catch (degradeError) {
-        if (isStaleRunError(degradeError) || runId !== state.fetchRunId) {
+        if (MdgCommon.isStale(degradeError) || !run.alive) {
           return;
         }
         throw degradeError;
@@ -1138,7 +1139,7 @@ function failureReason(error) {
 // The page's reads under the shared subtitle step (MdgSites.loadSubtitle). The track list is retried; B站 sometimes
 // answers it empty under risk control (one more try 1.5s later), and as logged out when the background request goes
 // without the page's cookies (asked again from the page). A rate-limited subtitle file waits a few seconds once.
-function pageSubtitleSite(site, runId) {
+function pageSubtitleSite(site, run) {
   const fetchTracks = async (ref, meta, io) => {
     const bundle = await site.fetchTracks(ref, meta, io);
     return bundle.needLogin && !site.pageOnly ? site.fetchTracks(ref, meta, { ...io, fetchJson }) : bundle;
@@ -1149,7 +1150,7 @@ function pageSubtitleSite(site, runId) {
       const bundle = await retryAsync(() => fetchTracks(ref, meta, io), 3, 500);
       if (bundle.tracks.length || site.id !== "bilibili") return bundle;
       await sleep(1500);
-      ensureRunActive(runId);
+      run.check();
       return fetchTracks(ref, meta, io);
     },
     async fetchRaw(track, io) {
@@ -1159,7 +1160,7 @@ function pageSubtitleSite(site, runId) {
         if (error?.status !== 429) throw error;
       }
       await sleep(3000 + Math.random() * 2000);
-      ensureRunActive(runId);
+      run.check();
       return site.fetchRaw(track, io).catch((error) => {
         // B站's 429 is THROTTLED already (sites.js biliJson), as on every other entry.
         throw error?.status === 429 && error.code !== MdgErrors.CODE.THROTTLED ? Object.assign(new Error(MdgErrors.TEXT.ytThrottled), { status: 429 }) : error;
@@ -1169,7 +1170,7 @@ function pageSubtitleSite(site, runId) {
 }
 
 // Shows the track MdgSites.loadSubtitle or loadFirstTrack chose, with the warning when its time range does not match.
-async function showSubtitle({ track, body, mismatch }, runId) {
+async function showSubtitle({ track, body, mismatch }, run) {
   state.selectedSubtitleId = track.id ? String(track.id) : state.selectedSubtitleId;
   state.selectedSubtitleUrl = track.url;
   // Empty for a nameless track, as the background has it (the note's subtitle_lang says unknown then).
@@ -1186,7 +1187,7 @@ async function showSubtitle({ track, body, mismatch }, runId) {
     setReadingNotice(state.subtitleWarning);
   }
   await refreshDerivedContent();
-  ensureRunActive(runId);
+  run.check();
 }
 
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
@@ -1198,16 +1199,16 @@ async function switchSubtitle(url) {
   if (!track) {
     throw new Error(VIDEO_SWITCHED);
   }
-  const runId = state.fetchRunId;
+  const run = clipRuns.current;
   const switchId = ++subtitleSwitchId;
   try {
-    const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), runId), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, runStep(runId));
+    const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), run), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, run.step);
     if (switchId !== subtitleSwitchId) return;
     if (!got.track) throw got.error;
-    await showSubtitle(got, runId);
+    await showSubtitle(got, run);
   } catch (error) {
     if (switchId !== subtitleSwitchId) return;
-    throw isStaleRunError(error) ? new Error(VIDEO_SWITCHED) : error;
+    throw MdgCommon.isStale(error) ? new Error(VIDEO_SWITCHED) : error;
   }
   if (switchId === subtitleSwitchId) setStatus(`${state.subtitleWarning}字幕切换完成。`);
 }
@@ -1422,7 +1423,7 @@ function setStatus(text, error = false) {
 }
 
 // failure: why the subtitle fetch failed; needLogin: B站 hid them from a logged-out viewer; neither: there are none.
-async function showNoSubtitleState(runId, { failure = "", needLogin = false } = {}) {
+async function showNoSubtitleState(run, { failure = "", needLogin = false } = {}) {
   state.subtitleFailure = failure;
   state.subtitleNeedLogin = needLogin;
   const label = MdgErrors.subtitleMissing(state);
@@ -1443,7 +1444,7 @@ async function showNoSubtitleState(runId, { failure = "", needLogin = false } = 
   }
   setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
-  ensureRunActive(runId);
+  run.check();
   setStatus(`${label}。${readDoneText()}${hint}`, Boolean(failure || state.commentsFailure));
 }
 
@@ -1581,7 +1582,7 @@ function maybeRefreshReaderSubtitleInBackground() {
 
 // A read focus mode started (entry, video change, 重试) failed: red in focus mode, nothing once it has closed.
 function readerReadFailed(error) {
-  if (state.readingViewOpen && !isStaleRunError(error)) {
+  if (state.readingViewOpen && !MdgCommon.isStale(error)) {
     setReadingNotice(`${MdgErrors.TEXT.videoReadFailed}：${fetchErrorText(error)}`, { error: true });
   }
 }
@@ -3727,14 +3728,14 @@ async function readPlayerRef() {
 }
 
 // The player may still be loading, or be on the last episode right after an in-page switch: asked again for 10 秒.
-async function waitPlayerRef(runId) {
+async function waitPlayerRef(run) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const ref = await readPlayerRef();
     if (ref) {
       return ref;
     }
     await sleep(500);
-    ensureRunActive(runId);
+    run.check();
   }
   return null;
 }
@@ -3942,23 +3943,6 @@ function byId(id) {
   return node;
 }
 
-function ensureRunActive(runId) {
-  if (runId !== state.fetchRunId) {
-    const error = new Error("Stale refresh run");
-    error.code = "STALE_RUN";
-    throw error;
-  }
-}
-
-// The shared subtitle step's step hook: a run the video change superseded stops at its next wait.
-function runStep(runId) {
-  return (promise) => promise.then((value) => (ensureRunActive(runId), value));
-}
-
-function isStaleRunError(error) {
-  return error?.code === "STALE_RUN";
-}
-
 
 async function retryAsync(task, retries = 1, delayMs = 180) {
   let lastError = null;
@@ -4099,7 +4083,7 @@ function rebuildDerivedContent() {
 // Read for the video of the run it started in; a newer run (the video changed) fills its own.
 // A failed comment read is said in the popup's status (commentsFailure, readDoneText); the note goes without them.
 async function refreshDerivedContent() {
-  const runId = state.fetchRunId;
+  const run = clipRuns.current;
   let hotComments = state.hotComments;
   let commentsFailure = "";
   if (state.settings?.includeHotCommentsInNote || state.subtitleFetchState === "empty") {
@@ -4121,7 +4105,7 @@ async function refreshDerivedContent() {
   try {
     notePaths = (await chrome.storage.local.get(pathsKey))[pathsKey] || {};
   } catch {}
-  if (runId !== state.fetchRunId) {
+  if (!run.alive) {
     return;
   }
   // Two overlapping refreshes of one video: comments one of them got are not replaced by the other's failure.

@@ -130,14 +130,33 @@
     }
   }
 
+  // Runs fn alone under name: one at a time across the extension's pages and the background (one origin, so one Web Lock),
+  // in call order within a page. Two read-modify-writes of a key would otherwise read the same value and the later write
+  // drop the other's change.
+  const lockQueues = new Map();
+  function locked(name, fn) {
+    const once = () => (globalThis.navigator?.locks ? navigator.locks.request(name, fn) : fn());
+    const done = (lockQueues.get(name) || Promise.resolve()).then(once);
+    lockQueues.set(name, done.catch(() => {}));
+    return done;
+  }
+  const keyLock = (key) => `mdg-key:${key}`;
+  // A chrome.storage.local key changed by read-modify-write under its lock: edit(the stored value) returns the value to
+  // write, or undefined to write nothing. Resolves what edit returned. 关注's keys go through updateFollow, whose one
+  // lock covers all of them.
+  function update(key, edit) {
+    return locked(keyLock(key), async () => {
+      const next = await edit((await chrome.storage.local.get(key))[key]);
+      if (next !== undefined) await chrome.storage.local.set({ [key]: next });
+      return next;
+    });
+  }
+
   // One 视频备注 saved by read-modify-write (the side panel, 摘读记录 and 分拣台): a fresh read, only this entry changed,
   // written back, so a note another page saved meanwhile is kept. Blank text deletes it; the stored text writes nothing.
   // set writes the whole map (the 分拣台 passes its own, to know the echo). Resolves true when it wrote.
-  // Saves run one at a time, or two would read the same map and the later write drop the other's note: in this page by
-  // a chain, across the extension's pages by a Web Lock (they share one origin).
-  let noteQueue = Promise.resolve();
   function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes })) {
-    const once = async () => {
+    return locked(keyLock(KEYS.triageNotes), async () => {
       const notes = { ...(await chrome.storage.local.get(KEYS.triageNotes))[KEYS.triageNotes] };
       const next = String(text ?? "").trim() ? String(text) : "";
       if ((notes[id]?.text || "") === next) return false;
@@ -145,11 +164,7 @@
       else delete notes[id];
       await set(notes);
       return true;
-    };
-    const locked = () => (globalThis.navigator?.locks ? navigator.locks.request("mdg-video-notes", once) : once());
-    const done = noteQueue.then(locked);
-    noteQueue = done.catch(() => {});
-    return done;
+    });
   }
 
   // The AI conversation list (KEYS.aiConversations) changed by read-modify-write, one change at a time across pages like
@@ -185,31 +200,18 @@
   // KEYS.triageIncludedFolders and those folders' snapshots (a get(null) snapshot works too).
   const seenExempt = (got) =>
     new Set((got?.[KEYS.triageIncludedFolders] || []).flatMap((id) => got[KEYS.triageSnapshot(id)]?.bvids || []));
-  let conversationQueue = Promise.resolve();
   function updateConversations(edit) {
-    const once = async () => {
+    return locked(keyLock(KEYS.aiConversations), async () => {
       const got = await chrome.storage.local.get([KEYS.aiConversations, KEYS.readingMarks]);
       const list = got[KEYS.aiConversations];
       await chrome.storage.local.set({ [KEYS.aiConversations]: capConversations(edit(Array.isArray(list) ? list : []), got[KEYS.readingMarks]) });
-    };
-    const done = conversationQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-ai-conversations", once) : once()));
-    conversationQueue = done.catch(() => {});
-    return done;
+    });
   }
 
   // 摘读记录's marks (KEYS.readingMarks) changed by read-modify-write, one change at a time across pages like
   // updateConversations. edit({ tags, items }) returns the marks to write. Resolves the marks written.
-  let marksQueue = Promise.resolve();
   function updateReadingMarks(edit) {
-    const once = async () => {
-      const stored = (await chrome.storage.local.get(KEYS.readingMarks))[KEYS.readingMarks];
-      const next = edit({ tags: Array.isArray(stored?.tags) ? stored.tags : [], items: { ...stored?.items } });
-      await chrome.storage.local.set({ [KEYS.readingMarks]: next });
-      return next;
-    };
-    const done = marksQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-reading-marks", once) : once()));
-    marksQueue = done.catch(() => {});
-    return done;
+    return update(KEYS.readingMarks, (stored) => edit({ tags: Array.isArray(stored?.tags) ? stored.tags : [], items: { ...stored?.items } }));
   }
 
   // Asks the side panel to open a video's AI chat (KEYS.playerAiQuickAction): the one shape every sender writes (the
@@ -231,9 +233,8 @@
   // updateReadingMarks: fn(the stored values by short name) returns a patch by short name (a key set to undefined is
   // removed) or nothing. B站 pages are another origin, outside the lock: badges.js sends its writes to the background
   // (follow-up-tag). set writes the patch (the 分拣台 passes its own, which toasts a failure). Resolves the patch.
-  let followQueue = Promise.resolve();
   function updateFollow(names, fn, set = (o) => chrome.storage.local.set(o)) {
-    const once = async () => {
+    return locked("mdg-follow", async () => {
       const patch = await fn(await followGet(names));
       if (patch) {
         const full = followFull(patch);
@@ -243,10 +244,7 @@
         if (gone.length) await chrome.storage.local.remove(gone);
       }
       return patch;
-    };
-    const done = followQueue.then(() => (globalThis.navigator?.locks ? navigator.locks.request("mdg-follow", once) : once()));
-    followQueue = done.catch(() => {});
-    return done;
+    });
   }
 
   // Approximate stored size: JSON length of key + value, as chrome.storage counts it (characters, not UTF-8 bytes).
@@ -379,6 +377,8 @@
     migrateRenamedKeys,
     storageKeys,
     migrateRenamedLocalStorage,
+    locked,
+    update,
     saveVideoNote,
     updateConversations,
     capConversations,

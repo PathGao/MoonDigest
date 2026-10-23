@@ -159,7 +159,6 @@ const ALLOW = [
   ["triage/follow.js", "r.code === MdgErrors.CODE.THROTTLED) waitFeed(f)", "B站限流时关注的动态等待倒计时"],
   ["triage/follow.js", "r.code === MdgErrors.CODE.THROTTLED ? { ms: UI.BILI_HOLD_MS", "B站限流时关注的运行等待倒计时"],
   ["content.js", "error.code !== MdgErrors.CODE.THROTTLED ?", "字幕接口自己的 429 换成它的说法，不是补救按钮"],
-  ["content.js", 'return error?.code === "STALE_RUN";', "换了视频的旧运行停下，不报错也没有补救按钮"],
   ["content.js", 'if (error?.code === "NETWORK") {', "字幕请求断网时自动重试一次，不是补救按钮"],
   // 3b: AI_TRUNCATED is 分拣台's own (打开收藏夹设置 for its 输出上限); the table says 重试 like any other.
   ["triage/fav-ai.js", 'if (r.code === "AI_TRUNCATED") handleAiError(r.error, r.code);', "截断只在分拣台：横幅给「打开收藏夹设置」调输出上限"],

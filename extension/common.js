@@ -1,5 +1,5 @@
 // Pure helpers and constants every runtime shares: loaded first by every page, every manifest content_scripts entry and
-// the worker's importScripts (load-order.selftest.js checks). It reads no other file and keeps no state.
+// the worker's importScripts (load-order.selftest.js checks). It reads no other file and keeps no state of its own.
 // Idempotent like limits.js.
 (() => {
   if (globalThis.MdgCommon) {
@@ -51,5 +51,39 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, sleep, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
+  // "Is this still the current one?" for an owner whose operations replace each other (a video page's reads, a folder's
+  // loads, a conversation's reply). next() ends the current run and starts another; a run also ends by itself (end()).
+  // An ended run's signal is aborted with a STALE_RUN error, so a fetch given the signal stops, check() throws it and
+  // step(promise) rejects with it once the promise settles. isStale recognizes it: callers drop it without a word.
+  const STALE_RUN = "STALE_RUN";
+  const isStale = (error) => error?.code === STALE_RUN;
+  function latest() {
+    const start = () => {
+      const controller = new AbortController();
+      const run = {
+        signal: controller.signal,
+        get alive() {
+          return !controller.signal.aborted;
+        },
+        check() {
+          if (controller.signal.aborted) throw controller.signal.reason;
+        },
+        step: (promise) => promise.then((value) => (run.check(), value)),
+        end: () => controller.abort(Object.assign(new Error("Superseded run"), { code: STALE_RUN }))
+      };
+      return run;
+    };
+    let current = start();
+    return {
+      get current() {
+        return current;
+      },
+      next() {
+        current.end();
+        return (current = start());
+      }
+    };
+  }
+
+  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, sleep, latest, isStale, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
 })();
