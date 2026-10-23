@@ -112,7 +112,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
     assert.ok(injected(url), `the manifest injects content.js into ${url}`);
   }
 }
-vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;`, ctx);
+vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;\nglobalThis.readerRuns = readerRuns;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
 const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
@@ -648,7 +648,7 @@ const settle = async () => {
       return g.promise;
     };
     const finished = [];
-    t.finishEnterReaderMode = () => finished.push(state.readerGen);
+    t.finishEnterReaderMode = () => finished.push(t.readerRuns.current);
 
     t.markReaderMode();
     const first = t.enterReaderMode();
@@ -674,8 +674,49 @@ const settle = async () => {
     assert.deepStrictEqual(finished, [], "the closed entry does not finish into the new one");
     mounts[1].open();
     await b;
-    assert.deepStrictEqual(finished, [state.readerGen], "the new entry finishes once");
+    assert.deepStrictEqual(finished, [t.readerRuns.current], "the new entry finishes once");
     t.stepReader("close");
+  }
+
+  // V7: the player mount waits for the mini player to go away. Closed and reopened meanwhile, or the page playing another
+  // video by then, it binds nothing and lets the next mount start over; the same after the controls recovery.
+  {
+    const names = ["getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "bindReadingViewVideo", "moveReadingMainInline", "normalizeReaderPlayerContainer", "clearNativeReaderFloatingStyles", "hasNativeReaderPlayerLayoutIssue", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "applyReaderPageFocus", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "ensureReaderPlayerControlsRecovered", "queueEnsureReaderPlayerControlsRecovered"];
+    const keep = Object.fromEntries(names.map((k) => [k, t[k]]));
+    const host = { classList: { add() {}, remove() {}, contains: () => false } };
+    const videoOf = (n) => ({ n, removeAttribute() {}, setAttribute() {}, closest: () => null });
+    const reopen = () => ["close", "mark", "enter"].forEach((e) => t.stepReader(e));
+    // [what happens while the mini player goes away, the video the page plays after it, what happens in the recovery]
+    const cases = [
+      ["same video, nothing happens", () => {}, (a) => a, () => {}, true, 1, 1],
+      ["another video plays by then", () => {}, () => videoOf(2), () => {}, false, 0, 0],
+      ["closed and reopened meanwhile", reopen, (a) => a, () => {}, false, 0, 0],
+      ["closed and reopened during the controls recovery", () => {}, (a) => a, reopen, false, 1, 0]
+    ];
+    for (const [name, duringWait, after, duringRecovery, mounted, bound, queued] of cases) {
+      for (const f of names) t[f] = () => {};
+      const counts = { bound: 0, queued: 0 };
+      const a = videoOf(1);
+      let reads = 0;
+      t.getRuntimeVideoElement = () => (++reads === 1 ? a : after(a));
+      // MdgCommon.sleep waits on setTimeout: what happens while the mini player goes away happens before it resolves.
+      const timer = t.setTimeout;
+      t.setTimeout = (f) => timer(() => (duringWait(), f()));
+      t.findReaderPlayerHost = () => host;
+      t.dismissReaderMiniPlayer = () => true;
+      t.hasNativeReaderPlayerLayoutIssue = () => false;
+      t.bindReadingViewVideo = () => counts.bound++;
+      t.ensureReaderPlayerControlsRecovered = async () => duringRecovery();
+      t.queueEnsureReaderPlayerControlsRecovered = () => counts.queued++;
+      t.stepReader("mark");
+      t.stepReader("enter");
+      // The real one: the overlap test above left its own stub in place.
+      assert.deepStrictEqual([await real.ensureReaderPlayerMounted(), counts.bound, counts.queued], [mounted, bound, queued], name);
+      t.setTimeout = timer;
+      t.stepReader("close");
+    }
+    state.readingPlayerHost = null;
+    Object.assign(t, keep);
   }
 
   // 跟随已停 shows after a manual scroll only while playing. Following stays off while the reader is away from the

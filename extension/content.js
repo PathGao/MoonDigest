@@ -20,6 +20,8 @@ const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
 // The video page's reads: a video change ends the run in flight, so nothing waiting on it writes the new video's state.
 const clipRuns = MdgCommon.latest();
+// Focus mode's entries: an entry or a close (stepReader) ends the run, so a closed entry's late steps stop.
+const readerRuns = MdgCommon.latest();
 const state = {
   refreshPromise: null,
   site: "",
@@ -58,7 +60,6 @@ const state = {
   // Focus mode: off → requested (asked for by URL or popup, view not open yet) → entering (open, waiting for the
   // player) ⇄ open (shown). Only stepReader changes it; the three flags below are views of it.
   readerPhase: "off",
-  readerGen: 0, // bumped on every entry and close, so an entry's late steps can tell they belong to a closed one
   get readerMode() {
     return this.readerPhase !== "off";
   },
@@ -138,7 +139,7 @@ function stepReader(event) {
   }
   state.readerPhase = next;
   if (event === "enter" || event === "close") {
-    state.readerGen++;
+    readerRuns.next();
   }
   return true;
 }
@@ -1488,7 +1489,7 @@ async function enterReaderMode() {
   if (!stepReader("enter")) {
     return;
   }
-  const gen = state.readerGen;
+  const run = readerRuns.current;
   const readingView = byId(ids.readingView);
   state.readingPlayerRetries = 0;
   document.body.setAttribute(READING_ACTIVE, "1");
@@ -1496,7 +1497,7 @@ async function enterReaderMode() {
   applyReadingViewPresentation();
   alignReaderViewportToPlayer();
   await sleep(0);
-  if (gen !== state.readerGen) {
+  if (!run.alive) {
     return;
   }
   openReaderViewShell(readingView);
@@ -1507,7 +1508,7 @@ async function enterReaderMode() {
   findReaderPlayerHost(getRuntimeVideoElement())?.setAttribute(READER_FADING, "1");
 
   await sleep(0);
-  if (gen !== state.readerGen) {
+  if (!run.alive) {
     return;
   }
 
@@ -1516,7 +1517,7 @@ async function enterReaderMode() {
   const mounted = await ensureReaderPlayerMounted({ retries: 50, delayMs: 150, forceLayout: true });
   window.clearTimeout(waitNotice);
   clearReaderFading();
-  if (gen !== state.readerGen) {
+  if (!run.alive) {
     return;
   }
   if (!mounted) {
@@ -1535,10 +1536,10 @@ function scheduleReaderPlayerRetry() {
     state.readingPlayerRetryTimer = 0;
   }
   // Keep trying to mount player in background, for about 30 seconds.
-  const gen = state.readerGen;
+  const run = readerRuns.current;
   const tryMount = async () => {
     state.readingPlayerRetryTimer = 0;
-    if (gen !== state.readerGen || !state.readingViewOpen) return;
+    if (!run.alive || !state.readingViewOpen) return;
     state.readingPlayerRetries += 1;
     if (state.readingPlayerRetries > 12) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
@@ -1547,7 +1548,7 @@ function scheduleReaderPlayerRetry() {
       return;
     }
     const mounted = await ensureReaderPlayerMounted({ retries: 10, delayMs: 200, forceLayout: true });
-    if (gen !== state.readerGen) return;
+    if (!run.alive) return;
     if (mounted) {
       finishEnterReaderMode();
     } else if (state.readingViewOpen) {
@@ -1620,6 +1621,7 @@ function settleReaderModePresentation() {
 }
 
 async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayout = false } = {}) {
+  const run = readerRuns.current;
   for (let attempt = 0; attempt < retries; attempt += 1) {
     // Exiting mid-loop must not leave the page's player stripped of controls and picture-in-picture.
     if (!isReaderMode()) {
@@ -1639,8 +1641,9 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
       const miniPlayerClosed = dismissReaderMiniPlayer(playerHost);
       if (miniPlayerClosed) {
         await sleep(120);
-        // Closed while the mini player went away: the page's player stays as the close left it.
-        if (!isReaderMode()) {
+        // Closed (or closed and reopened) while the mini player went away, or the page plays another video now: the
+        // page's player stays as the close left it, and the next mount starts from the video it has.
+        if (!isReaderMode() || !run.alive || getRuntimeVideoElement() !== video) {
           return false;
         }
       }
@@ -1690,6 +1693,9 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
         await ensureReaderPlayerControlsRecovered(activeHost, {
           reason: attempt > 0 ? "mount-retry" : "mount"
         });
+        if (!run.alive) {
+          return false;
+        }
         queueEnsureReaderPlayerControlsRecovered({
           reason: attempt > 0 ? "post-mount-retry" : "post-mount",
           delayMs: 220,
