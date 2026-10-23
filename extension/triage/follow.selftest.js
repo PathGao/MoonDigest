@@ -6,7 +6,7 @@ const vm = require("vm");
 const assert = require("assert");
 const PS = require("../page-sources.selftest.js");
 
-const ctx = vm.createContext({ setTimeout, clearTimeout });
+const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController });
 // 关注's pure functions (follow-core.js) sort with shared.js (UI.byValue / UI.dirWords), as the page does.
 for (const f of ["../errors.js", "../tag-core.js", "../settings.js", "shared.js", "follow-core.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const t = ctx.FollowCore;
@@ -536,7 +536,7 @@ async function followPage({ store = {}, sync = {}, handlers = {}, setup = () => 
   const picks = [];
   class Observer { observe() {} disconnect() {} }
   const ctx = vm.createContext({
-    console, structuredClone, TextEncoder, URLSearchParams, clearTimeout,
+    console, structuredClone, TextEncoder, URLSearchParams, AbortController, clearTimeout,
     setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),
     setInterval: () => 0,
     clearInterval() {},

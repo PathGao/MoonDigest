@@ -600,14 +600,19 @@ function renderSel() {
 }
 
 // ----- 视频投稿 -----
-const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", wait: false, dry: 0, at: Date.now() });
+// A feed's run (MdgCommon.latest) is its own: a page or wait of a feed replaced lands nowhere.
+const feedLife = MdgCommon.latest();
+const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", wait: false, dry: 0, at: Date.now(), run: feedLife.next() });
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
 // Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS, or after a refresh finished (stale), starts it over;
 // a redraw meanwhile keeps the pages loaded.
 function feedOnEnter() {
-  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = null;
+  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) {
+    F.feed = null;
+    feedLife.next();
+  }
 }
 function renderFeed() {
   F.feed ||= freshFeed();
@@ -728,7 +733,7 @@ function observeFoot() {
 
 // The background already paused its queue twice before answering THROTTLED; wait its pause again, then go on.
 async function waitFeed(f) {
-  const here = () => F.feed === f;
+  const here = () => f.run.alive;
   f.wait = true;
   await runs.wait(FEED_RUN, runs.hold({ code: MdgErrors.CODE.THROTTLED }), here);
   f.wait = false;
@@ -743,10 +748,10 @@ async function more({ byHand = false } = {}) {
   f.error = "";
   f.errorCode = null;
   renderFoot();
-  const tick = setInterval(() => F.feed === f && F.tab === "feed" && renderFoot(), 1000);
+  const tick = setInterval(() => f.run.alive && F.tab === "feed" && renderFoot(), 1000);
   const r = await send({ type: "follow-feed", offset: f.offset }).finally(() => clearInterval(tick));
   f.loading = false;
-  if (F.feed !== f) return;
+  if (!f.run.alive) return;
   if (r.code === MdgErrors.CODE.THROTTLED) waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
