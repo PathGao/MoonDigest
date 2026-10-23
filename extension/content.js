@@ -1202,24 +1202,24 @@ async function showSubtitle({ track, body, mismatch }, run) {
 // The popup's and focus mode's subtitle pickers. Only a track of the video shown: the list may belong to a video the
 // page has since left. A track whose time range does not match the video is used with the warning, as on first load.
 // The latest pick wins: a switch that loads after a newer one started shows nothing and resolves.
-let subtitleSwitchId = 0;
+const subtitleSwitches = MdgCommon.latest();
 async function switchSubtitle(url) {
   const track = url && state.subtitles.find((item) => item.url === url);
   if (!track) {
     throw new Error(VIDEO_SWITCHED);
   }
   const run = clipRuns.current;
-  const switchId = ++subtitleSwitchId;
+  const pick = subtitleSwitches.next();
   try {
     const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), run), [track], { videoId: state.videoId, cid: state.cid }, siteIo(run), state.videoDuration, run.step);
-    if (switchId !== subtitleSwitchId) return;
+    if (!pick.alive) return;
     if (!got.track) throw got.error;
     await showSubtitle(got, run);
   } catch (error) {
-    if (switchId !== subtitleSwitchId) return;
+    if (!pick.alive) return;
     throw MdgCommon.isStale(error) ? new Error(VIDEO_SWITCHED) : error;
   }
-  if (switchId === subtitleSwitchId) setStatus(`${state.subtitleWarning}字幕切换完成。`);
+  if (pick.alive) setStatus(`${state.subtitleWarning}字幕切换完成。`);
 }
 
 function onReadingSubtitleChange(event) {
