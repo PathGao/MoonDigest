@@ -448,6 +448,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.play)], [1234, undefined]);
   t.fetch = jsonRes({ code: 0, data: { list: [{ bvid: "BV6", aid: 6, title: "t6", state: 0, stat: { view: 77 } }, { bvid: "BV7", aid: 7, title: "t7", state: 0 }] } });
   assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.play)], [77, undefined]);
+  // 稍后再看 marks a 番剧 episode by its /bangumi/ redirect or pgc_label, never by season_id (a video may carry 0).
+  t.fetch = jsonRes({ code: 0, data: { list: [
+    { bvid: "BV14X4y1G7C7", aid: 714816118, state: 0, redirect_url: "https://www.bilibili.com/bangumi/play/ep397236", pgc_label: "纪录片", season_title: "造物说" },
+    { bvid: "BVp", aid: 8, state: 0, redirect_url: "", pgc_label: "电影" },
+    { bvid: "BV6", aid: 6, state: 0, season_id: 0, redirect_url: "", pgc_label: "" }
+  ] } });
+  assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.ogv)], [true, true, undefined]);
   // The UP's mid is kept (as a string) for the player's UP 标签 line; none when B站 gives none.
   t.fetch = jsonRes({ code: 0, data: { medias: [{ ...media(4), upper: { mid: 42, name: "甲" } }, media(5)], has_more: false } });
   assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.upperMid)], ["42", undefined]);

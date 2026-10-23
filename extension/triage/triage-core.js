@@ -17,7 +17,7 @@
         const dec = d[it.bvid];
         if (dec?.action === "unfav" && !refavorited(it, dec)) continue;
         const m = map.get(it.bvid);
-        // 稍后再看 does not say an episode is 番剧; any folder that does marks it for every write.
+        // One list marking an episode 番剧 (a 稍后再看 snapshot from before it did may not) marks it for every write.
         if (m) {
           m.folders.push(id);
           if (it.ogv) m.ogv = true;

@@ -963,7 +963,10 @@ const TRIAGE_HANDLERS = {
         // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
         seen: m.progress,
         // 播放量 comes with the list; no extra request.
-        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined
+        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined,
+        // A 番剧 episode redirects to its /bangumi/ page and has a pgc_label (season_id can be 0 on a video): marked so a
+        // write into a folder sends aid:42; B站 would store aid:2 as an odd video entry.
+        ...((/\/bangumi\//.test(m.redirect_url || "") || m.pgc_label) && { ogv: true })
       }));
       return { items, ids: items.map((it) => it.bvid), info: { title: MdgErrors.LABEL.watchLater, intro: "" } };
     }

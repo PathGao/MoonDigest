@@ -1853,7 +1853,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.undo();
     assert.deepStrictEqual([plain(shared.folders), plain(shared.left), plain(store[t.K.decisions("B")])], [["A", "B"], [], {}]);
   }
-  // A 番剧 episode in 稍后再看 and two folders: 稍后再看's list does not mark it, the folders' do, and the merge keeps the
+  // A 番剧 episode in 稍后再看 and two folders: 稍后再看's cached list may lack the mark, the folders' have it, and the merge keeps the
   // mark whichever comes first. Every place gets "aid:42" (the background sends 稍后再看 the bare aid); the records and
   // U keep it.
   {
