@@ -1250,10 +1250,11 @@ async function loadPreviousVideoConversationId() {
 }
 
 // state already names the bar's conversation (id); this keeps it for the session and draws the bar collapsed. Writes go
-// in call order (MdgLimits.locked), so two follows in a row leave the later one stored.
+// in call order under the key's own lock (the side panels are its only writers), so two follows in a row leave the
+// later one stored.
 function setPreviousVideoConversation(id) {
   previousVideoExpanded = false;
-  void MdgLimits.locked(`mdg-key:${PREVIOUS_VIDEO_CONVERSATION_KEY}`, () => (id ? chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: id }) : chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY))).catch(() => {});
+  void MdgLimits.locked("mdg-previous-conversation", () => (id ? chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: id }) : chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY))).catch(() => {});
   renderPreviousVideoBar();
 }
 
