@@ -8,7 +8,7 @@ const PS = require("./page-sources.selftest.js");
 // The scripts the manifest's badges.js entry injects, in its order, read from it so the test cannot load a different set.
 const badgesEntry = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")).content_scripts.find((c) => c.js.at(-1) === "badges.js").js;
 const badgesJs = badgesEntry.map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
-const ctx = vm.createContext({ URLSearchParams });
+const ctx = vm.createContext({ URLSearchParams, AbortController });
 vm.runInContext(badgesJs, ctx);
 const { bvidFromHref, badgeInfo, mergeDecisions, lineParts } = ctx.MdgBadges;
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -416,7 +416,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   };
   win.window = win;
   win.top = win;
-  const live = vm.createContext(win);
+  const live = vm.createContext(Object.assign(win, { AbortController }));
   vm.runInContext(badgesJs, live);
   const settle = () => new Promise((r) => setTimeout(r, 30));
   const chipAfter = (n) => (n.nextSibling?.classList?.contains("mdg-ups") ? n.nextSibling : null);
@@ -623,7 +623,7 @@ async function plusPage() {
   const changed = [];
   win.window = win;
   win.top = win;
-  vm.runInContext(badgesJs, vm.createContext(win));
+  vm.runInContext(badgesJs, vm.createContext(Object.assign(win, { AbortController })));
   const settle = () => new Promise((r) => setTimeout(r, 30));
   await settle();
   const title = (k) => cards[k].querySelector(".bili-dyn-title__text");
@@ -721,6 +721,33 @@ async function plusPage() {
   assert.strictEqual(focused.el, plusOf(title("c")));
   assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "false");
   assert.deepStrictEqual(winL.scroll, [], "page listeners go with it");
+
+  // J20: a check in one UP's picker answered after another UP's picker opened: the tags update, the open picker keeps
+  // its own state (its focus does not jump to the row the other picker checked).
+  {
+    const realSend = win.chrome.runtime.sendMessage;
+    let release;
+    win.chrome.runtime.sendMessage = (m) => new Promise((r) => (release = () => realSend(m).then(r)));
+    doc.listeners.click.forEach((f) => f(ev(plusOf(title("c")))));
+    const panelC = doc.childNodes.at(-1).shadow.querySelector(".pick");
+    panelC.listeners.click[0]({ target: panelC.querySelectorAll(".opt")[1] });
+    await settle();
+    assert.ok(release, "丙's uncheck of 游戏 is waiting for the background");
+    doc.listeners.click.forEach((f) => f(ev(plusOf(title("a")))));
+    const panelA = doc.childNodes.at(-1).shadow.querySelector(".pick");
+    assert.strictEqual(focused.el, panelA.querySelector(".opt"), "甲's picker opened with focus on its first row, 常看");
+    win.chrome.runtime.sendMessage = realSend;
+    release();
+    await settle();
+    assert.deepStrictEqual(store.follow_tag_map[4], [made.id], "丙's uncheck is written");
+    assert.strictEqual(tagsOf(title("c")), "学习");
+    assert.strictEqual(focused.el?.dataset.id, "a", "甲's picker keeps its focus on 常看, not on the row 丙 unchecked");
+    doc.listeners.pointerdown.forEach((f) => f({ composedPath: () => [list, doc] }));
+    store.follow_tag_map[4] = ["b", made.id];
+    changed.forEach((f) => f({ follow_tag_map: {} }, "local"));
+    await settle();
+    assert.strictEqual(tagsOf(title("c")), "游戏学习");
+  }
 
   // Bilibili dark: the picker follows. Unchecking 甲's only tag empties every 甲 box on the page at once.
   doc.classList.add("bili_dark");
@@ -831,7 +858,7 @@ async function surfacePages() {
     };
     win.window = win;
     win.top = win;
-    vm.runInContext(badgesJs, vm.createContext(win));
+    vm.runInContext(badgesJs, vm.createContext(Object.assign(win, { AbortController })));
     await new Promise((r) => setTimeout(r, 30));
     return { doc, reads, listen, win };
   };
@@ -867,6 +894,32 @@ async function surfacePages() {
   for (const search of ["?bvid=BV1GJ411x7h7", "?oid=1&bvid=BV1GJ411x7h7", ""]) {
     const list = await page({ hostname: "www.bilibili.com", pathname: search.startsWith("?bvid") ? "/list/watchlater" : "/list/ml5", search }, h("body", {}, h("div", { class: "video-info-title" }, ...(search ? [] : [titleLink]))), false, { showBiliVerdicts: true });
     assert.ok(/讲 Rust 所有权/.test(list.doc.querySelector(".mdg-line")?.textContent || ""), `the line on /list/${search}`);
+  }
+  // J19: the 稍后再看 player plays the next video in place (?bvid= changes). A scan still reading the old video's result
+  // when that happens draws nothing for it; the new video's line is drawn.
+  {
+    store.triage_analysis_BV1xx411c7mD = { status: "done", verdict: "keep", reason: "x", oneLiner: "下一个视频" };
+    const titleBox = h("div", { class: "video-info-title" });
+    const list = await page({ hostname: "www.bilibili.com", pathname: "/list/watchlater", search: "?bvid=BV1GJ411x7h7" }, h("body", {}, titleBox), false, { showBiliVerdicts: true });
+    assert.match(list.doc.querySelector(".mdg-line")?.textContent || "", /讲 Rust 所有权/);
+    // The old video's analysis changes: its line goes and a scan reads it again; that read is held.
+    const realGet = list.win.chrome.storage.local.get;
+    let release;
+    list.win.chrome.storage.local.get = (k) => ([].concat(k).some((x) => x.endsWith("BV1GJ411x7h7")) ? new Promise((r) => (release = () => realGet(k).then(r))) : realGet(k));
+    list.listen.forEach((f) => f({ triage_analysis_BV1GJ411x7h7: { newValue: {} } }, "local"));
+    await new Promise((r) => setTimeout(r, 30));
+    assert.ok(release && !list.doc.querySelector(".mdg-line"), "the old video's read is in flight, its line gone");
+    // The player moves on; the page's DOM changes under the new title.
+    list.win.location.search = "?bvid=BV1xx411c7mD";
+    const added = h("span", {}, "下一个");
+    titleBox.append(added);
+    list.win.mutate([{ type: "childList", target: titleBox, addedNodes: [added], removedNodes: [] }]);
+    await new Promise((r) => setTimeout(r, 30));
+    assert.match(list.doc.querySelector(".mdg-line")?.textContent || "", /下一个视频/, "the new video's line");
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepStrictEqual(list.doc.querySelectorAll(".mdg-line").map((n) => /下一个视频/.test(n.textContent)), [true], "the old video's late read draws nothing");
+    delete store.triage_analysis_BV1xx411c7mD;
   }
   for (const k of ["triage_analysis_BV1GJ411x7h7", "triage_tags", "triage_video_tags"]) delete store[k];
   const space = await page({ hostname: "space.bilibili.com", pathname: "/1" }, h("body", {}, author()), "space");
@@ -1008,7 +1061,7 @@ async function reloadedCopy() {
     };
     win.window = win;
     win.top = win;
-    vm.runInContext(badgesJs, vm.createContext(win));
+    vm.runInContext(badgesJs, vm.createContext(Object.assign(win, { AbortController })));
     return copy;
   };
   const shown = () => doc.querySelectorAll(".mdg-ups").map((b) => b.querySelector(".mdg-up").textContent);
@@ -1088,7 +1141,7 @@ async function incremental() {
   };
   win.window = win;
   win.top = win;
-  vm.runInContext(badgesJs, vm.createContext(win));
+  vm.runInContext(badgesJs, vm.createContext(Object.assign(win, { AbortController })));
   const settle = () => new Promise((r) => setTimeout(r, 30));
   const tick = () => new Promise((r) => setTimeout(r, 0));
   await settle();

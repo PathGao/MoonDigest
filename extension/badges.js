@@ -244,11 +244,11 @@
   // Every key in chrome.storage.local (getKeys, Chrome 130+), kept current from onChanged: a video with no key of its
   // own needs no read, so most cards are marked (or left alone) from memory. Null: unknown, so read.
   let keys = null;
-  let keyEpoch = 0; // bumped on every local change, so a getKeys answer that raced one is dropped
+  const keyLoads = MdgCommon.latest(); // ended on every local change, so a getKeys answer that raced one is dropped
   let enabled = false;
   let timer = 0;
   let pop = null;
-  let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
+  const scans = MdgCommon.latest(); // ended when triage data or the page changes, so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
   const observer = new MutationObserver((records) => onMutations(records));
   const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key", "data-server-rendered"] };
@@ -298,19 +298,6 @@
   const markBewly = () => document.getElementById("bewly")?.toggleAttribute(SEEN_ATTR, seenCfg.on);
 
   const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
-  // In-page navigation (a space page's tabs, BewlyCat's ?page=) changes the page without a reload, and its DOM changes
-  // schedule a run. Marks drawn under the old page's rules or folder go, so the run redraws them under the new ones.
-  let shownFor = `${surface}|${favFid()}`;
-  // True when the page changed: the run then covers the whole page.
-  function followNav() {
-    surface = surfaceNow();
-    const now = `${surface}|${favFid()}`;
-    if (now === shownFor) return false;
-    shownFor = now;
-    clearMarks();
-    clearUps();
-    return true;
-  }
   // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
   // /list/ml… opens without ?bvid=, which B站 adds as Vue hydrates #app: until then the title's own link names it, so
   // the line is drawn with the title and not pushed in under it at hydration.
@@ -318,6 +305,21 @@
     /^\/(?:video|list)\//.test(location.pathname)
       ? bvidFromHref(location.pathname + location.search) || bvidFromHref(document.querySelector(".video-info-title a[href]")?.getAttribute("href"))
       : "";
+  // In-page navigation (a space page's tabs, BewlyCat's ?page=, the 稍后再看 player's next video) changes the page without
+  // a reload, and its DOM changes schedule a run. Marks drawn under the old page's rules, folder or video go, a scan
+  // still reading for it stops, and the run redraws under the new ones.
+  let shownFor = `${surface}|${favFid()}|${pageBvid()}`;
+  // True when the page changed: the run then covers the whole page.
+  function followNav() {
+    surface = surfaceNow();
+    const now = `${surface}|${favFid()}|${pageBvid()}`;
+    if (now === shownFor) return false;
+    shownFor = now;
+    scans.next();
+    clearMarks();
+    clearUps();
+    return true;
+  }
 
   // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
   // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render is back in
@@ -409,15 +411,15 @@
   // Runs may overlap (one waits for a read while the next callback marks new nodes from memory): each one reads the
   // DOM and writes it in one synchronous step, and every write checks what is already there.
   async function run(roots = null) {
-    const g = gen;
     const nav = followNav();
+    const scan = scans.current;
     const hooked = hookBewly();
     const scope = nav || hooked ? null : roots;
     // The line under the title first, from memory: it never waits for the cards' or the UP names' reads.
     const here = pageBvid();
     if (triageOn && cache.has(here)) markVideoLine(here);
-    if (upOn) await markUps(scope);
-    if (triageOn || seenCfg.on) await markVideos(g, scope);
+    if (upOn) await markUps(scan, scope);
+    if (triageOn || seenCfg.on) await markVideos(scan, scope);
     fitBoxes(findAll(".mdg-badge, .mdg-ups").filter((b) => !b.dataset.fit));
   }
 
@@ -471,7 +473,7 @@
     return resolveMid({ data, face, name: el.textContent }, idx);
   }
 
-  async function markUps(scope) {
+  async function markUps(scan, scope) {
     const owner = pageOwner();
     const spots = [];
     for (const a of scanned(scope, UP_SEL)) {
@@ -491,7 +493,7 @@
     const nameEls = scanned(scope, NAME_SEL);
     // The 动态 page reads follow_people up front, so the cards it loads later are matched in the frame they appear.
     const idx = nameEls.length || surface === "feed" ? who || (await whoIs()) : null;
-    if (!enabled || !upOn) return; // stood down, or the marks or the UP tags switched off, while reading
+    if (!enabled || !upOn || !scan.alive) return; // stood down, the marks or the UP tags switched off, or the page changed, while reading
     for (const el of nameEls) spots.push([el, nameMid(el, idx), ruleFor(el)]);
     const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
     if (onFeed()) writes.push(...feedFilter(idx));
@@ -840,13 +842,15 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   // Writes at once; every box of this UP on the page and the 动态 bar counts redraw right away, not after the debounce.
   async function pickWrite(op) {
-    if (!pick) return;
+    const asked = pick;
+    if (!asked) return;
     if (!chrome.runtime?.id) return renderPick();
-    const r = await saveUpTag(pick.mid, op).catch(() => null);
+    const r = await saveUpTag(asked.mid, op).catch(() => null);
     if (!r?.map) return renderPick();
     up = { ...up, tags: r.tags, map: r.map };
     upOn = true;
-    if (pick) {
+    // Another UP's picker may be open by now: the answer settles the one that asked, not it.
+    if (pick === asked) {
       pick.editing = false;
       pick.focus = r.id;
     }
@@ -869,7 +873,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     rescan();
   }
 
-  async function markVideos(g, scope) {
+  async function markVideos(scan, scope) {
     const covers = scanned(scope, COVERS);
     const here = pageBvid();
     // Most Bilibili iframes hold no video link: nothing to mark, so no storage reads. The top frame reads at once,
@@ -877,26 +881,26 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (!here && !covers.length && window !== window.top) return;
     const fid = favFid();
     if (!keys && chrome.storage.local.getKeys) {
-      const epoch = keyEpoch;
+      const load = keyLoads.current;
       const list = await chrome.storage.local.getKeys();
-      if (epoch === keyEpoch) keys = new Set(list);
+      if (load.alive) keys = new Set(list);
     }
-    if (seenCfg.on) await loadSeen(covers, g);
-    if (g !== gen) return;
+    if (seenCfg.on) await loadSeen(covers, scan);
+    if (!scan.alive) return;
     if (!triageOn) {
       const writes = covers.map(markCover);
       for (const w of writes) w?.();
       return;
     }
-    if (!shared || fid !== sharedFid) await loadShared(fid, g);
-    if (g !== gen) return;
+    if (!shared || fid !== sharedFid) await loadShared(fid, scan);
+    if (!scan.alive) return;
     const anchors = scanned(scope, SEL);
     const want = [...new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here))].filter((b) => b && !known(b));
     // ponytail: a card whose video has results of its own, off that video's favorites page, waits for this read and is
     // marked a frame or two after it appears; preloading every result would read megabytes on every page.
     if (want.length) {
       const got = await chrome.storage.local.get(want.flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]));
-      if (g !== gen) return;
+      if (!scan.alive) return;
       for (const b of want) cache.set(b, infoFor(b, got));
     }
     if (!enabled) return;
@@ -925,7 +929,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     return true;
   }
 
-  async function loadShared(fid, g) {
+  async function loadShared(fid, scan) {
     // A favorites page shows its own folder's decisions; elsewhere every folder's decisions are merged.
     // getKeys is Chrome 130+; before that only 保留 shows outside a favorites page.
     const decisionKeys = [K.triageKept, ...(fid ? [K.triageDecisions(fid)] : [...(keys || [])].filter((k) => k.startsWith(K.triageDecisionsPrefix)))];
@@ -933,7 +937,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // whole item list) on every B站 page costs too much, and invalid videos are mostly met in favorites.
     const snapshot = fid ? K.triageSnapshot(fid) : "";
     const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags, ...decisionKeys, ...(snapshot ? [snapshot] : [])]);
-    if (g !== gen) return;
+    if (!scan.alive) return;
     sharedFid = fid;
     shared = { tags: got[K.triageTags], videoTags: got[K.triageVideoTags] || {}, decisions: mergeDecisions(got, Boolean(fid)), invalid: new Set(got[snapshot]?.invalid || []) };
     cache.clear();
@@ -942,12 +946,12 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     const pre = (got[snapshot]?.bvids || []).filter(hasResult);
     if (!pre.length) return;
     const res = await chrome.storage.local.get(pre.flatMap((b) => [K.triageTitle(b), K.triageAnalysis(b)]));
-    if (g === gen) for (const b of pre) cache.set(b, infoFor(b, res));
+    if (scan.alive) for (const b of pre) cache.set(b, infoFor(b, res));
   }
 
   // One key per video on screen, a few KB per page; the history itself is read by the background (triage-seen-sync).
   // A video with no key of its own has no progress, so it needs no read.
-  async function loadSeen(covers, g) {
+  async function loadSeen(covers, scan) {
     const want = [];
     for (const b of new Set(covers.map(bvidOf))) {
       if (!b || seenCache.has(b)) continue;
@@ -956,7 +960,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!want.length) return;
     const got = await chrome.storage.local.get(want.map(K.seen));
-    if (g !== gen) return;
+    if (!scan.alive) return;
     for (const b of want) seenCache.set(b, got[K.seen(b)]?.[0] || 0);
   }
 
@@ -1279,7 +1283,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (wasUp && !upOn) clearUps();
     const on = triageOn || seenCfg.on || upOn;
     if (on && enabled) {
-      gen++;
+      scans.next();
       clearMarks();
       schedule();
     } else setEnabled(on);
@@ -1291,7 +1295,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   chrome.storage.onChanged.addListener((changes, area) => {
     if (superseded) return;
     if (area === "local") {
-      keyEpoch++;
+      keyLoads.next();
       for (const [k, c] of Object.entries(changes)) keys?.[c.newValue === undefined ? "delete" : "add"](k);
     }
     const fc = MdgLimits.followShort(changes);
@@ -1303,18 +1307,18 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (area === "sync" && Object.keys(SYNC_DEFAULTS).some((k) => k in changes)) readSettings();
     if (area === "local" && enabled && Object.keys(changes).some((k) => k.startsWith(K.seenPrefix))) {
       for (const k of Object.keys(changes)) if (k.startsWith(K.seenPrefix)) seenCache.delete(k.slice(K.seenPrefix.length));
-      gen++;
+      scans.next();
       schedule();
     }
     if (area === "local" && enabled && triageOn && Object.keys(changes).some(isSharedKey)) {
-      gen++;
+      scans.next();
       shared = null;
       clearMarks();
       schedule();
     } else if (area === "local" && enabled && triageOn) {
       const changed = Object.keys(changes).flatMap((k) => [K.triageTitlePrefix, K.triageAnalysisPrefix].filter((p) => k.startsWith(p)).map((p) => k.slice(p.length)));
       if (!changed.length) return;
-      gen++;
+      scans.next();
       for (const b of changed) {
         cache.delete(b);
         [...findAll(`.mdg-badge[data-bvid="${b}"]`), ...document.querySelectorAll(`.mdg-line[data-bvid="${b}"]`)].forEach((n) => n.remove());
@@ -1326,7 +1330,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
   // fresh one. The fresh copy announces itself; the old one stops scanning and takes its marks with it, so one copy draws.
   function standDown() {
     superseded = true;
-    gen++; // an in-flight scan drops its reads
+    scans.next(); // an in-flight scan drops its reads
     setEnabled(false);
     document.getElementById("bewly")?.removeAttribute(SEEN_ATTR);
     bewlyRoot()?.querySelector("link[data-mdg]")?.remove();
