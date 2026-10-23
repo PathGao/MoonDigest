@@ -166,7 +166,7 @@ const tagStore = MdgTagStore.create({
   async markRecent(keys, at) {
     AI.recent = { at, keys };
     recentFilter = true;
-    await chrome.storage.local.set({ [AI_RECENT]: AI.recent }).catch(() => {});
+    await MdgLimits.update(AI_RECENT, () => AI.recent).catch(() => {});
   },
   async endRecent(at) {
     if (AI.recent?.at === at) await clearRecent();
@@ -215,7 +215,7 @@ let recentFilter = false;
 // The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's).
 function setAiProposal(p) {
   AI.proposal = p;
-  (p ? chrome.storage.local.set({ [AI_PROPOSAL]: p }) : chrome.storage.local.remove(AI_PROPOSAL)).catch(() => {});
+  (p ? MdgLimits.update(AI_PROPOSAL, () => p) : chrome.storage.local.remove(AI_PROPOSAL)).catch(() => {});
 }
 async function clearRecent() {
   AI.recent = null;
@@ -355,8 +355,9 @@ async function runAi({ instruction, scope, allowRemove }) {
   starting = true;
   render();
   const cfg = await aiSettings().finally(() => (starting = false));
+  // Added to the stored list, not the one read when the dialog opened: another 摘读记录 tab's additions are kept.
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
-  chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
+  MdgLimits.update(AI_HISTORY, (stored) => (AI.history = UI.aiHistoryAdd(Array.isArray(stored) ? stored : [], instruction))).catch(() => {});
   const excluded = new Set(marks.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = marks.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const items = [...records].map(([key, parts]) => aiItem(key, parts, excluded));
@@ -623,9 +624,13 @@ function setStatus(text, error = false, action = null) {
   else els.status.removeAttribute("aria-busy");
 }
 
+// Loads overlap (a burst of storage changes, a failed delete reading back): the newest read lands, an older one is dropped.
+const loads = MdgCommon.latest();
 async function load() {
+  const run = loads.next();
   // ponytail: reads all of storage (subtitle caches included) to find the triage keys; getKeys() first if that gets slow.
   const all = await chrome.storage.local.get(null);
+  if (!run.alive) return;
   stored = all;
   marks = { tags: all[MARKS_KEY]?.tags || [], items: all[MARKS_KEY]?.items || {} };
   triageTagById = new Map((all[TRIAGE_TAGS] || []).map((t) => [t.id, t]));

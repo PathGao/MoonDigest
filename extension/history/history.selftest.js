@@ -49,6 +49,7 @@ const localStorage = {
 };
 const ctx = vm.createContext({
   localStorage,
+  AbortController,
   TextEncoder,
   URL,
   URLSearchParams,
@@ -837,6 +838,24 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     assert.strictEqual(ad.proposal(), null);
     assert.ok(els.status.textContent.includes(ctx.TriageUi.AI_TAG_GONE), els.status.textContent);
 
+    // J24: the instruction goes into the stored 最近指令 by read-modify-write: one another 摘读记录 tab added meanwhile is kept.
+    await reset();
+    {
+      const sets = [];
+      const realSet = ctx.chrome.storage.local.set;
+      ctx.chrome.storage.local.set = async (o) => sets.push(o);
+      const HISTORY = ctx.MdgLimits.KEYS.readingAiHistory;
+      store[HISTORY] = ["另一标签页的指令"];
+      ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
+      await ad.run({ instruction: "按主题打标签", scope: "filter", allowRemove: false });
+      await wait(20);
+      assert.deepStrictEqual(plain(sets.find((o) => HISTORY in o)?.[HISTORY]), ["按主题打标签", "另一标签页的指令"]);
+      ctx.chrome.storage.local.set = realSet;
+      delete store[HISTORY];
+      ad.discard(); // the run's proposal is not this test's subject
+      await wait(20);
+    }
+
 
     // 应用 → 「AI 刚打的」 → U. Storage keeps what is written from here on.
     ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
@@ -855,6 +874,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     release();
     await running;
     assert.ok(els.tagActs.innerHTML.includes(">AI 打标签 · 待确认</button>"), els.tagActs.innerHTML);
+    await wait(20); // the write goes under the key's lock (MdgLimits.update), a tick after the run settles
     assert.deepStrictEqual(plain(store[PROPOSAL]), plain(ad.proposal()), "the proposal is stored for a reload");
     await ad.apply();
     assert.strictEqual(store[PROPOSAL], undefined);
@@ -1066,6 +1086,28 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(350);
   }
 
+  // J23: two loads overlap (a burst of changes): the one that read storage last lands, the earlier read is dropped even
+  // when it answers later.
+  {
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    const expected = html; // the store as it is, drawn by a load on its own
+    const realGet = ctx.chrome.storage.local.get;
+    const older = { ...store, mdg_ai_conversations_v1: [conv("old-only", "旧")] };
+    let release;
+    let gated = false;
+    ctx.chrome.storage.local.get = async (k) => (k === null && !gated ? ((gated = true), new Promise((r) => (release = () => r(older)))) : realGet(k));
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    assert.ok(release, "the first load is reading");
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    release();
+    await wait(50);
+    assert.ok(!html.includes('data-key="old-only"'), "the earlier read is dropped");
+    assert.strictEqual(html, expected, "the newer read is what shows");
+    ctx.chrome.storage.local.get = realGet;
+  }
   // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC. Each is the
   // record's note (export-note) without a dialog: one whose page is not open is its AI 笔记 (pageChoice own), one that
   // cannot be built is this page's AI 笔记, and the status line counts both.
