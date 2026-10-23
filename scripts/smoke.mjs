@@ -13,7 +13,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ext = path.join(root, "extension");
 const chromeBin = process.env.CHROME || {
   darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  win32: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  // System-wide install first, then the per-user one.
+  win32: ["C:\\Program Files", process.env.LOCALAPPDATA].map((d) => d && path.join(d, "Google\\Chrome\\Application\\chrome.exe")).find((f) => f && fs.existsSync(f))
 }[process.platform] || "google-chrome";
 // Every page the extension ships; dev previews stay out of the release and out of this check. Paths use / on every
 // OS: they become the pages' URLs.
