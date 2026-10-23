@@ -405,12 +405,9 @@ function bindEvents() {
     }
     else if (act === "sel-tags") openPicker(visibleSelected().map((it) => it.bvid));
     else if (act === "all-pause") {
-      S.loadAll.paused = true;
+      loadAllTo(S.loadAll, "pause");
       render();
-    } else if (act === "all-resume") {
-      S.loadAll.paused = false;
-      runLoadAll(S.view.current);
-    }
+    } else if (act === "all-resume") runLoadAll(S.view.current);
     else if (act === "clean-removed") cleanRemoved(visibleItems());
     else if (act === "clean-selected") cleanRemoved(selectedIn(visibleItems()));
     else if (act === "transfer") fav.transfer(transferList());

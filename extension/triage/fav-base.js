@@ -103,7 +103,7 @@ const S = {
   removedCount: 0,
   folderIntro: {}, // { [mediaId]: Bilibili folder intro }, read with the folder list
   folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
-  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, paused, running, error, partial }
+  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, phase (LOAD_ALL_STEPS), error, partial }
   tags: [],
   folderCriteria: {},
   videoTags: {},

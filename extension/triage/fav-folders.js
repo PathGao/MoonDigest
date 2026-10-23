@@ -666,7 +666,7 @@ async function openAll(run = S.view.current) {
     else if (!Number(f.count)) lists[id] = { items: [] };
   }
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
-  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
+  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), phase: "ready", error: "", partial: 0 };
   rebuildAll();
   if (!(await loadResults(run))) return false;
   runLoadAll(run);
@@ -692,13 +692,38 @@ function rebuildAll() {
   for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 }
 
+// The load's one phase: ready (set up, not started), running, paused (暂停, or a folder failed: L.error says which),
+// done (nothing left). Every change goes through loadAllTo; a pair not in the table (暂停 while paused, 继续 while
+// running) is refused and changes nothing.
+const LOAD_ALL_STEPS = {
+  start: { ready: "running", paused: "running", done: "running" },
+  pause: { running: "paused" },
+  fail: { running: "paused" },
+  finish: { running: "done" }
+};
+function loadAllTo(L, event) {
+  const next = LOAD_ALL_STEPS[event][L.phase];
+  if (!next) return false;
+  L.phase = next;
+  return true;
+}
+
 async function runLoadAll(run) {
   const L = S.loadAll;
-  if (!L || L.running) return;
-  const keepGoing = () => !L.paused && run.alive;
-  L.running = true;
+  if (!L || !loadAllTo(L, "start")) return;
+  const keepGoing = () => L.phase === "running" && run.alive;
   L.error = "";
   render();
+  try {
+    await loadAllLoop(L, run, keepGoing);
+  } finally {
+    // The folder left (run ended) keeps its phase: openFolder has already dropped this L.
+    if (run.alive && L.phase === "running" && !L.check.length && !L.queue.length) loadAllTo(L, "finish");
+    render();
+  }
+}
+
+async function loadAllLoop(L, run, keepGoing) {
   while ((L.check.length || L.queue.length) && keepGoing()) {
     // Checks go first: they are light (~300 ms apart) and may add folders to the full-load queue.
     const next = L.check[0] ?? L.queue[0];
@@ -719,7 +744,7 @@ async function runLoadAll(run) {
       }
       if (!r.ok) {
         L.error = checkFailed(id, r.error);
-        L.paused = true;
+        loadAllTo(L, "fail");
         break;
       }
       L.check.shift();
@@ -761,8 +786,7 @@ async function runLoadAll(run) {
     }
     if (!r.ok) {
       L.error = `「${folderName(id)}」加载失败：${r.error}`;
-
-      L.paused = true;
+      loadAllTo(L, "fail");
       break;
     }
     L.queue.shift();
@@ -776,8 +800,6 @@ async function runLoadAll(run) {
     render();
     if (L.queue.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
-  L.running = false;
-  render();
 }
 
 // 刷新 in 所有收藏夹 re-fetches every folder; the cached lists stay visible until each one is replaced.
@@ -786,9 +808,9 @@ function refreshAll() {
   if (!L) return;
   L.queue = S.folders.map((f) => String(f.id));
   L.check = [];
-  L.paused = false;
   L.partial = 0;
-  runLoadAll(S.view.current);
+  // Already running: the loop goes on with the refilled queue.
+  if (L.phase !== "running") runLoadAll(S.view.current);
 }
 
 // Row 3 of 所有收藏夹: what was loaded once done, else only a failure (the progress is in the pill, loadAllActivity).
@@ -808,8 +830,9 @@ function loadAllActivity() {
   const n = S.folders.length;
   const [verb, done, total] = L.check.length ? ["核对", L.checkTotal - L.check.length, L.checkTotal] : ["加载", n - L.queue.length, n];
   const now = L.current ? ` · 「${folderName(L.current)}」${pageText(L.current)}` : "";
-  const text = L.paused ? `${verb}收藏夹 ${done}/${total} · 已暂停` : `${verb}收藏夹 ${done}/${total}${now}`;
-  return { text, done, total, act: L.paused ? "all-resume" : "all-pause", actLabel: L.paused ? "继续" : "暂停" };
+  const paused = L.phase === "paused";
+  const text = paused ? `${verb}收藏夹 ${done}/${total} · 已暂停` : `${verb}收藏夹 ${done}/${total}${now}`;
+  return { text, done, total, act: paused ? "all-resume" : "all-pause", actLabel: paused ? "继续" : "暂停" };
 }
 
 // The folder's name in B站's list; undefined once it is gone from there.

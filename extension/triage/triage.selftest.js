@@ -91,7 +91,7 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-vm.runInContext(`${entry}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
+vm.runInContext(`${entry}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav; globalThis.loadAllTo = loadAllTo; globalThis.LOAD_ALL_STEPS = LOAD_ALL_STEPS;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -533,7 +533,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const savedFolders = [t.S.folders, t.S.allFolders];
     t.S.folders = t.S.allFolders = [{ id: "W1", title: "夹1" }, { id: "W2", title: "夹2" }, { id: "W3", title: "夹3" }];
     t.S.folderDecisions = { W1: {}, W2: {}, W3: {} };
-    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0 };
     let asked = null;
     const savedAsk = t.askConfirm;
     const savedBody = t.el.confirmBody;
@@ -1650,7 +1650,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const isDup = vm.runInContext("isDup", ctx);
     assert.deepStrictEqual(plain(t.S.items.map(isDup)), [false, false, true]);
     assert.ok(!isDup(item(9)), "a folder's items have no .folders");
-    Object.assign(t.S, { tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    Object.assign(t.S, { tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0 } });
     const r3 = row3();
     assert.ok(r3.includes('全部 3</button></span><span class="seg" role="group" aria-label="重复收藏">') && r3.includes(">重复收藏 1<"), r3);
     t.pickState("dup");
@@ -2609,7 +2609,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
     openFake("all", vids);
     t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
-    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, coarseFailed: new Map(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, coarseFailed: new Map(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0 } });
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
     // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
@@ -2679,7 +2679,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV5", ...store.triage_snapshot_6.ids] } });
   handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), { ok: true, data: { items: [item(5)], info: { intro: "" }, head: true } });
   t.S.mediaId = "all";
-  t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
+  t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], phase: "ready", error: "", partial: 0 };
   await t.runLoadAll(t.S.view.current);
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
@@ -2691,7 +2691,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let n = 0;
     handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(581)], info: { intro: "" }, head: true } });
     itemCalls.length = 0;
-    t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], phase: "ready", error: "", partial: 0 };
     await t.runLoadAll(t.S.view.current);
     assert.ok(itemCalls.length === 2 && itemCalls.every(Boolean), "two difference reads, no full one");
     assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV581");
@@ -2711,12 +2711,49 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const a = t.activityState();
       if (a?.stuck && !seen.some((x) => x[0] === a.text)) seen.push([a.text, a.stuck, a.actLabel, a.total]);
     };
-    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], phase: "ready", error: "", partial: 0 };
     await t.runLoadAll(t.S.view.current);
     t.renderStatus = realStatus;
     assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["加载收藏夹 0/1 · B站限流卡住，0:01 后重试", true, "暂停", 1], "加载收藏夹 0/1 · 「夹6」"]);
 
     assert.ok(!t.S.loadAll.error && !t.S.loadAll.queue.length && t.activityState() === null, "loaded, no red line, pill gone");
+    assert.strictEqual(t.S.loadAll.phase, "done");
+  }
+
+  // The load's phase moves only along LOAD_ALL_STEPS: every pair not in the table is refused and changes nothing.
+  {
+    const phases = ["ready", "running", "paused", "done"];
+    for (const event of Object.keys(t.LOAD_ALL_STEPS)) {
+      for (const phase of phases) {
+        const L = { phase };
+        const want = t.LOAD_ALL_STEPS[event][phase];
+        assert.deepStrictEqual([t.loadAllTo(L, event), L.phase], [Boolean(want), want || phase], `${event} in ${phase}`);
+      }
+    }
+    assert.deepStrictEqual(plain(t.LOAD_ALL_STEPS), { start: { ready: "running", paused: "running", done: "running" }, pause: { running: "paused" }, fail: { running: "paused" }, finish: { running: "done" } });
+  }
+
+  // 暂停 mid-load ends the loop after the folder in flight and keeps the rest queued; 继续 loads them; a failed folder
+  // pauses with its line, and 继续 after it starts again.
+  {
+    const loaded = [];
+    let pauseAt = "7";
+    handlers["triage-folder-items"] = (m) => {
+      loaded.push(m.mediaId);
+      if (m.mediaId === pauseAt) t.loadAllTo(t.S.loadAll, "pause");
+      return m.mediaId === "9" ? { ok: false, error: "网络断了" } : { ok: true, data: { items: [item(Number(m.mediaId))], ids: [`BV${m.mediaId}`], info: { intro: "" } } };
+    };
+    t.S.allFolders = t.S.folders = [7, 8, 9].map((id) => ({ id, title: `夹${id}`, count: 1 }));
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["7", "8", "9"], phase: "ready", error: "", partial: 0 };
+    await t.runLoadAll(t.S.view.current);
+    assert.deepStrictEqual([loaded, t.S.loadAll.phase, t.S.loadAll.queue, t.activityState().actLabel], [["7"], "paused", ["8", "9"], "继续"]);
+    assert.strictEqual(await t.runLoadAll(t.S.view.current), undefined);
+    assert.deepStrictEqual([loaded, t.S.loadAll.phase, t.S.loadAll.queue], [["7", "8", "9"], "paused", ["9"]], "9 failed: paused with its line");
+    assert.ok(t.S.loadAll.error.includes("「夹9」加载失败：网络断了"), t.S.loadAll.error);
+    pauseAt = "";
+    handlers["triage-folder-items"] = (m) => ({ ok: true, data: { items: [item(Number(m.mediaId))], ids: [`BV${m.mediaId}`], info: { intro: "" } } });
+    await t.runLoadAll(t.S.view.current);
+    assert.deepStrictEqual([t.S.loadAll.phase, t.S.loadAll.queue, t.S.loadAll.error], ["done", [], ""]);
   }
 
   // R2: a list fetched before a 取消收藏, or lagging behind it, still holds the video with its old favTime. Only a
@@ -4257,7 +4294,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.view.current++;
     t.S.allFolders = t.S.folders = [{ id: "f1", title: "一", count: 1 }, { id: "f2", title: "二", count: 1 }];
     Object.assign(t.S, { included: ["f1", "f2"], mediaId: "all", decisions: {}, undo: [], folderDecisions: { f1: {}, f2: {} } });
-    t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0 };
     t.rebuildAll();
     t.pickBatchUnfavFolders = async () => ["f1", "f2"];
     handlers["triage-unfav"] = (m) => (m.mediaId === "f2" && t.rebuildAll(), { ok: true }); // as runLoadAll after checking a folder

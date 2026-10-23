@@ -14,7 +14,7 @@ function renderTop() {
   // 已出分拣范围 has no Bilibili page of its own; the link would land on the homepage under that title.
   el.biliBtn.hidden = !S.mid || S.mediaId === REMOVED;
   el.biliBtn.title = S.mediaId === TOVIEW ? "B站稍后再看" : inFolderView() ? "B站收藏夹" : "B站主页";
-  setBusy(el.refreshBtn, (ownSync() || S.loadAll?.running) && `${UI.REFRESHING}…${ownSync() ? pageText(S.mediaId) : ""}`);
+  setBusy(el.refreshBtn, (ownSync() || S.loadAll?.phase === "running") && `${UI.REFRESHING}…${ownSync() ? pageText(S.mediaId) : ""}`);
   const allOpt = el.folderSelect.querySelector(`option[value="${ALL}"]`);
   if (allOpt) {
     allOpt.hidden = !S.folders.length;
