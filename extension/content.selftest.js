@@ -255,11 +255,23 @@ const settle = async () => {
     const settings = gate({});
     const sent = [];
     Object.assign(t, { getSettings: () => settings.promise, refreshDerivedContent: async () => (state.markdown = "# new"), sendRuntimeMessage: async (m) => (sent.push(m.type), { ok: true }) });
+    const was = { site: state.site, videoId: state.videoId, cid: state.cid };
+    Object.assign(state, { site: "bilibili", videoId: "BV_A", cid: "1" });
     const writing = t.sendToObsidian();
     await settle();
-    t.clipRuns.next();
+    state.videoId = "BV_B";
     settings.open();
     assert.deepStrictEqual([{ ...(await writing) }, sent], [{ ok: true, text: t.MdgErrors.TEXT.obsidianVideoSwitched }, []]);
+    // F10: a refresh of the same video meanwhile (the side panel's, 专注模式's 重试) is a new run, not another video: the note goes.
+    Object.assign(state, { videoId: "BV_A" });
+    const again = gate({});
+    t.getSettings = () => again.promise;
+    const rewriting = t.sendToObsidian();
+    await settle();
+    t.clipRuns.next();
+    again.open();
+    assert.deepStrictEqual([(await rewriting).ok, sent], [true, ["write-video-note"]]);
+    Object.assign(state, was);
     Object.assign(t, saved);
   }
 
@@ -311,7 +323,9 @@ const settle = async () => {
   // F9: the run's signal reaches the page's requests: a video change ends a fetch in flight and the wait for the
   // background's answer, instead of only ignoring what they bring.
   {
-    const saved = { fetch: t.fetch, send: t.sendRuntimeMessage, site: t.currentSite };
+    const saved = { fetch: t.fetch, send: t.sendRuntimeMessage, site: t.currentSite, AbortSignal: t.AbortSignal };
+    // Chrome 114 and 115 (the side panel's floor) have no AbortSignal.any.
+    t.AbortSignal = { timeout: (ms) => AbortSignal.timeout(ms) };
     t.fetch = (url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
     t.sendRuntimeMessage = () => new Promise(() => {});
     const run = t.clipRuns.current;
@@ -324,7 +338,11 @@ const settle = async () => {
     // Node's own timer: a request the change did not end stays pending, which must read as a failure, not a hang.
     const outcome = (p) => Promise.race([p.then(() => "answered", (e) => (t.MdgCommon.isStale(e) ? "stale" : e.message)), new Promise((r) => setTimeout(() => r("pending"), 50))]);
     assert.deepStrictEqual(await Promise.all([page, background, text].map(outcome)), ["stale", "stale", "stale"]);
-    Object.assign(t, { fetch: saved.fetch, sendRuntimeMessage: saved.send, currentSite: saved.site });
+    // The timeout still ends a request on its own.
+    const timedOut = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("x"), { name: "TimeoutError" })), 10));
+    t.fetch = (url, init) => Promise.race([timedOut, new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)))]);
+    assert.strictEqual(await t.fetchOk("https://www.youtube.com/y", { signal: t.clipRuns.current.signal }).then(() => "answered", (e) => e.message), t.MdgErrors.netTimeout(t.MdgErrors.NET_TIMEOUT_MS));
+    Object.assign(t, { fetch: saved.fetch, sendRuntimeMessage: saved.send, currentSite: saved.site, AbortSignal: saved.AbortSignal });
   }
 
   // V6: a video change in 专注模式 reads the new video at once, without waiting for the player to report a duration.
@@ -921,7 +939,7 @@ const settle = async () => {
       onDialog = (path, opts) => {
         asked = [path, opts.hasAiSection];
         state.markdown = "";
-        if (switched) t.clipRuns.next(); // the URL watcher saw the change
+        if (switched) state.videoId = "BV1xx411c7mD"; // autoplay moved on
       };
       const reply = await t.sendToObsidian();
       t.location.href = realUrl;

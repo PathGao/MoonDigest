@@ -1334,15 +1334,18 @@ function noteRef() {
 // the overwrite dialog itself (a content script cannot show the extension pages' <dialog>).
 // Resolves { ok, text, code? }: text is the result for the popup to show (ok: false is red). The result never goes into
 // the popup's status (statusText): answering the dialog closes the popup, so from then on it shows on the page only.
+// The video shown, by identity: autoplay or a link changes it (and resets the state) while 写入 Obsidian reads or asks,
+// and then the note must not go. A refresh of the same video (the side panel's, 专注模式's 重试) starts a new run but
+// is the same video, so this is not the run.
+const clipIdentity = () => [state.site, state.videoId, state.cid, state.pageIndex].join("|");
+
 async function sendToObsidian() {
-  // The video of the click: autoplay or a link can change it (and reset the state) during the reads below or while the
-  // overwrite dialog is open, and then the note must not go.
-  const run = clipRuns.current;
+  const clip = clipIdentity();
   state.settings = await getSettings();
   // Turned off in the settings page while the popup that still shows the button was open: the background says so with
   // its OBSIDIAN code, so the popup offers 去设置 as on every other entry.
   await refreshDerivedContent();
-  if (!run.alive) {
+  if (clipIdentity() !== clip) {
     return { ok: true, text: MdgErrors.TEXT.obsidianVideoSwitched };
   }
   // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
@@ -1362,7 +1365,7 @@ async function sendToObsidian() {
   const r = await MdgNoteActions.run("write", {
     request: () => request,
     send: sendRuntimeMessage,
-    isStale: () => (run.alive ? "" : MdgErrors.TEXT.obsidianVideoSwitched),
+    isStale: () => (clipIdentity() === clip ? "" : MdgErrors.TEXT.obsidianVideoSwitched),
     dialogs: { choose }
   });
   // Not set up or a wrong key: 去设置, opened only on its click (the popup shows it from code when the page did not
@@ -4031,7 +4034,7 @@ async function fetchOk(url, init) {
   let response;
   const timeout = AbortSignal.timeout(MdgErrors.NET_TIMEOUT_MS);
   try {
-    response = await fetch(url, { ...init, cache: "no-store", signal: init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout });
+    response = await fetch(url, { ...init, cache: "no-store", signal: init?.signal ? anySignal([timeout, init.signal]) : timeout });
   } catch (error) {
     throw error?.name === "TimeoutError" ? new Error(MdgErrors.netTimeout(MdgErrors.NET_TIMEOUT_MS)) : error;
   }
@@ -4039,6 +4042,20 @@ async function fetchOk(url, init) {
     throw httpError(response.status);
   }
   return response;
+}
+
+// A signal aborted (with its reason) when any of the given ones is. AbortSignal.any needs Chrome 116; the side panel
+// runs from 114.
+function anySignal(signals) {
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
 }
 
 // In the background's words for the same failure (triageBiliJson's 「B站请求失败 HTTP 403」), named after the site.
