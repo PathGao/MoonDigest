@@ -4396,6 +4396,37 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.viewing = was.viewing;
   }
 
+  // P1: one cached folder, 所有收藏夹, 暂停 while its id check is in flight: the reply lands, the pill hides (nothing stale,
+  // no 继续 for a check that is over), and 暂停 pressed again is refused. The same when the check ends before the press.
+  {
+    t.render = () => t.renderTop(); // the page's pill path: render → renderTop → renderStatus
+    const vids = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => item(900 + n));
+    const bvids = vids.map((it) => it.bvid);
+    store.triage_snapshot_D = { bvids, ids: bvids, items: vids, intro: "", title: "演示", invalid: [], titles: {} };
+    t.S.allFolders = t.S.folders = [{ id: "D", title: "演示", count: 8 }];
+    t.S.included = ["D"];
+    const pill = () => [t.el.activity.hidden, t.activityState()];
+    for (const pressWhile of ["in flight", "over"]) {
+      let release = null;
+      handlers["triage-folder-ids"] = () => new Promise((r) => (release = () => r({ ok: true, data: { bvids } })));
+      openFake("all", []);
+      const opening = t.openAll();
+      await until(() => release);
+      assert.deepStrictEqual(plain(pill()), [false, { text: "核对收藏夹 0/1", done: 0, total: 1, act: "all-pause", actLabel: "暂停" }], pressWhile);
+      if (pressWhile === "in flight") assert.ok(t.loadAllTo(t.S.loadAll, "pause"));
+      release();
+      await opening;
+      await until(() => !t.S.loadAll.loop);
+      await settled();
+      assert.deepStrictEqual([t.S.loadAll.phase, t.S.loadAll.check, t.S.items.length], [pressWhile === "in flight" ? "paused" : "done", [], 8], pressWhile);
+      assert.deepStrictEqual(plain(pill()), [true, null], `${pressWhile}: the pill is hidden once the check is over`);
+      assert.strictEqual(t.loadAllTo(t.S.loadAll, "pause"), false, `${pressWhile}: 暂停 after the check is refused`);
+      t.renderStatus();
+      assert.deepStrictEqual(plain(pill()), [true, null], pressWhile);
+    }
+    t.render = () => {};
+    delete store.triage_snapshot_D;
+  }
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
