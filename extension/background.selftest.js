@@ -1054,6 +1054,21 @@ process.on("exit", (code) => {
   const { local: _, ...older } = file;
   await ctx.importSettings(older);
   assert.deepStrictEqual(importLocal.triage_included_folders, ["7"]);
+  // An import during a 分拣台 tick (MdgLimits.update under the key's lock) waits for it: the tick's read-modify-write
+  // lands first and the import replaces it, instead of the tick writing its stale list over the import. Same for 判断标准.
+  {
+    const held = [];
+    const release = (p) => (held.push(p), new Promise((r) => (p.release = r)));
+    const tick = ctx.MdgLimits.update("triage_included_folders", async (stored) => (await release({}), [...stored, "9"]));
+    const edit = ctx.MdgLimits.update("triage_folder_criteria", async (stored) => (await release({}), { ...stored, 9: "新" }));
+    await new Promise((r) => setTimeout(r, 5));
+    const importing = ctx.importSettings(file);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepStrictEqual([importLocal.triage_included_folders, importLocal.triage_folder_criteria], [["7"], { 11: "只留菜谱" }], "the import waits for the held writes");
+    held.forEach((p) => p.release());
+    await Promise.all([tick, edit, importing]);
+    assert.deepStrictEqual([importLocal.triage_included_folders, importLocal.triage_folder_criteria], [["11", "toview"], { 11: "只留菜谱" }], "the import's lists win, written after the tick's");
+  }
 
   // R2: a key goes with the host it was saved for. An imported row that keeps its id but moves to another origin, or a
   // moved Obsidian address, drops that key; a row on the same origin and an unrelated key stay.

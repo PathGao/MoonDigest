@@ -864,8 +864,9 @@ async function importSettings(file) {
     const currentSync = await chrome.storage.sync.get(null);
     await chrome.storage.sync.set(settings);
     await chrome.storage.sync.remove(Object.keys(currentSync).filter((k) => !(k in settings)));
-    if (folders) await chrome.storage.local.set({ [FOLDERS_KEY]: folders.map(String) });
-    if (criteria) await chrome.storage.local.set({ [CRITERIA_KEY]: criteria });
+    // Under each key's lock: a 分拣台 tick or 判断标准 edit in flight writes first, and this replaces it, not the reverse.
+    if (folders) await MdgLimits.update(FOLDERS_KEY, () => folders.map(String));
+    if (criteria) await MdgLimits.update(CRITERIA_KEY, () => criteria);
     await serialAiProviders(() => dropMovedKeys(currentSync, settings));
     await initializeSettingsStorage();
   });
