@@ -213,6 +213,11 @@ assert.strictEqual(S.isAllowedFetchUrl("https://www.youtube.com/youtubei/v1/play
     assert.strictEqual(page(url), isPage, `the manifest ${isPage ? "misses" : "runs content.js on"} ${url}`);
     assert.strictEqual(Boolean(S.matchPage(url)), isPage, `matchPage ${url}`);
   }
+  // Every host a content script runs on is a host permission too: after an update background.js finds the open tabs by
+  // the entry's matches and injects again, and without the permission it sees neither their URL nor may inject.
+  for (const p of manifest.content_scripts.flatMap((c) => c.matches)) {
+    assert.ok(manifest.host_permissions.includes(`${new URL(p).origin}/*`), `host_permissions misses ${p}`);
+  }
   // A link a note keeps still resolves: matchSite is the wider one.
   assert.strictEqual(S.matchSite("https://music.youtube.com/watch?v=dQw4w9WgXcQ")?.id, "youtube");
 }

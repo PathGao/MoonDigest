@@ -7,6 +7,9 @@
   "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab", "sidePanel", "cookies", "declarativeNetRequest", "alarms"],
   "host_permissions": [
     "https://www.bilibili.com/*",
+    "https://space.bilibili.com/*",
+    "https://search.bilibili.com/*",
+    "https://t.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
     "https://www.youtube.com/*",
