@@ -212,10 +212,11 @@ const { normAi, followAiSettings, withAllowRemove, searchWords, hasWords } = Fol
 // recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed. A run is runs' "ai".
 const AI = { excluded: new Set(), history: [], proposal: null, settings: normAi(), recent: null };
 let recentFilter = false;
-// The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's).
+// The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's). Cleared by writing null under the same
+// key lock, so a save still queued cannot land after the clear and bring an applied proposal back.
 function setAiProposal(p) {
   AI.proposal = p;
-  (p ? MdgLimits.update(AI_PROPOSAL, () => p) : chrome.storage.local.remove(AI_PROPOSAL)).catch(() => {});
+  MdgLimits.update(AI_PROPOSAL, () => p || null).catch(() => {});
 }
 async function clearRecent() {
   AI.recent = null;

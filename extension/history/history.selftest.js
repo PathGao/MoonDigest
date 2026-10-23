@@ -856,6 +856,26 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
       await wait(20);
     }
 
+    // J25: the proposal's save is still queued when it is applied or discarded: the clear waits behind it under the key
+    // lock, so the applied proposal does not come back.
+    await reset();
+    {
+      const KEY = ctx.MdgLimits.KEYS.readingAiProposal;
+      const realSet = ctx.chrome.storage.local.set;
+      let release;
+      ctx.chrome.storage.local.set = (o) => (KEY in o && o[KEY] && !release ? new Promise((r) => (release = () => (Object.assign(store, o), r()))) : (Object.assign(store, o), Promise.resolve()));
+      ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
+      await ad.run({ instruction: "按主题分", scope: "filter", allowRemove: false });
+      await wait(20);
+      assert.ok(release && ad.proposal(), "the proposal's save is waiting");
+      ad.discard();
+      await wait(20);
+      release();
+      await wait(20);
+      assert.strictEqual(store[KEY], null, "the late save does not bring the discarded proposal back");
+      ctx.chrome.storage.local.set = realSet;
+    }
+
 
     // 应用 → 「AI 刚打的」 → U. Storage keeps what is written from here on.
     ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
@@ -877,7 +897,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(20); // the write goes under the key's lock (MdgLimits.update), a tick after the run settles
     assert.deepStrictEqual(plain(store[PROPOSAL]), plain(ad.proposal()), "the proposal is stored for a reload");
     await ad.apply();
-    assert.strictEqual(store[PROPOSAL], undefined);
+    await wait(20);
+    assert.strictEqual(store[PROPOSAL], null, "cleared under the key lock, as null");
     assert.deepStrictEqual(plain(store[RECENT].keys.sort()), [pageKey, videoKey].sort());
     assert.ok(/data-f="recent" title="[^"]*在记录上逐个看，不对的点「\+ 标签」改[^"]*" aria-pressed="true">.*AI 刚打的 3/.test(els.stateRow.innerHTML), els.stateRow.innerHTML); // entries, as the other chips count
     // A record the run did not change is not listed under 「AI 刚打的」; its × stops marking them and lists it again.
@@ -905,15 +926,17 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     ctx.confirm = () => true;
     // A stored proposal comes back on a reload; one naming a deleted tag is dropped there.
     ad.discard();
+    await wait(20); // the clear is written under the key lock
     store[PROPOSAL] = { newTags: [], rows: [{ id: pageKey, add: ["id:t1"], remove: [] }], notes: [], errors: [] };
     onChanged({ [MARKS]: {} }, "local");
     await wait(350);
     assert.deepStrictEqual(plain(ad.proposal().rows), [{ id: pageKey, add: ["id:t1"], remove: [] }]);
     ad.discard();
+    await wait(20);
     store[PROPOSAL] = { newTags: [], rows: [{ id: pageKey, add: ["id:gone"], remove: [] }], notes: [], errors: [] };
     onChanged({ [MARKS]: {} }, "local");
     await wait(350);
-    assert.deepStrictEqual([ad.proposal(), store[PROPOSAL]], [null, undefined]);
+    assert.deepStrictEqual([ad.proposal(), store[PROPOSAL]], [null, null]);
     // I opens ✦ AI 打标签, not with a dialog open.
     ad = null;
     ctx.document.querySelector = (sel) => (sel === "dialog[open]" ? {} : null);
