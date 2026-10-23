@@ -166,7 +166,7 @@ const tagStore = MdgTagStore.create({
   async markRecent(keys, at) {
     AI.recent = { at, keys };
     recentFilter = true;
-    await chrome.storage.local.set({ [AI_RECENT]: AI.recent }).catch(() => {});
+    await MdgLimits.update(AI_RECENT, () => AI.recent).catch(() => {});
   },
   async endRecent(at) {
     if (AI.recent?.at === at) await clearRecent();
@@ -212,10 +212,11 @@ const { normAi, followAiSettings, withAllowRemove, searchWords, hasWords } = Fol
 // recent: 「AI 刚打的」, { at, keys } of the records the last 应用 changed. A run is runs' "ai".
 const AI = { excluded: new Set(), history: [], proposal: null, settings: normAi(), recent: null };
 let recentFilter = false;
-// The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's).
+// The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's). Cleared by writing null under the same
+// key lock, so a save still queued cannot land after the clear and bring an applied proposal back.
 function setAiProposal(p) {
   AI.proposal = p;
-  (p ? chrome.storage.local.set({ [AI_PROPOSAL]: p }) : chrome.storage.local.remove(AI_PROPOSAL)).catch(() => {});
+  MdgLimits.update(AI_PROPOSAL, () => p || null).catch(() => {});
 }
 async function clearRecent() {
   AI.recent = null;
@@ -355,8 +356,9 @@ async function runAi({ instruction, scope, allowRemove }) {
   starting = true;
   render();
   const cfg = await aiSettings().finally(() => (starting = false));
+  // Added to the stored list, not the one read when the dialog opened: another 摘读记录 tab's additions are kept.
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
-  chrome.storage.local.set({ [AI_HISTORY]: AI.history }).catch(() => {});
+  MdgLimits.update(AI_HISTORY, (stored) => (AI.history = UI.aiHistoryAdd(Array.isArray(stored) ? stored : [], instruction))).catch(() => {});
   const excluded = new Set(marks.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = marks.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
   const items = [...records].map(([key, parts]) => aiItem(key, parts, excluded));
@@ -623,9 +625,13 @@ function setStatus(text, error = false, action = null) {
   else els.status.removeAttribute("aria-busy");
 }
 
+// Loads overlap (a burst of storage changes, a failed delete reading back): the newest read lands, an older one is dropped.
+const loads = MdgCommon.latest();
 async function load() {
+  const run = loads.next();
   // ponytail: reads all of storage (subtitle caches included) to find the triage keys; getKeys() first if that gets slow.
   const all = await chrome.storage.local.get(null);
+  if (!run.alive) return;
   stored = all;
   marks = { tags: all[MARKS_KEY]?.tags || [], items: all[MARKS_KEY]?.items || {} };
   triageTagById = new Map((all[TRIAGE_TAGS] || []).map((t) => [t.id, t]));
@@ -690,8 +696,10 @@ function noteRequest(group) {
 // 复制, 下载 and 写入 Obsidian of one record (kind copy / download / write) through MdgNoteActions: the note 写入
 // Obsidian writes, asked about the same way when its page is not open. The status line says the result; not set up or
 // a wrong key adds 去设置, opened only on its click (a closed Obsidian only gets the red line).
+// The record deleted while a dialog was open: nothing is done, and the line says so (as the side panel's 对话已切换).
+const RECORD_GONE = { copy: MdgErrors.TEXT.recordGoneCopy, download: MdgErrors.TEXT.recordGoneDownload, write: MdgErrors.TEXT.recordGoneWrite };
 async function runNoteAction(group, kind) {
-  const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group) });
+  const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group), isStale: () => (groupByVideo(conversations).some((g) => g.key === group.key) ? "" : RECORD_GONE[kind]) });
   const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
   setStatus(r.text, !r.ok, settings);
 }

@@ -55,6 +55,7 @@ const ctx = vm.createContext({
   console,
   structuredClone,
   AbortController,
+  AbortSignal,
   URL,
   URLSearchParams,
   TextEncoder,
@@ -111,7 +112,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
     assert.ok(injected(url), `the manifest injects content.js into ${url}`);
   }
 }
-vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;`, ctx);
+vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;\nglobalThis.readerRuns = readerRuns;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
 const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
@@ -228,6 +229,120 @@ const settle = async () => {
       assert.deepStrictEqual(Object.fromEntries(Object.keys(newVideo).map((k) => [k, state[k]])), newVideo, `old ${step} failure`);
     }
     Object.assign(t, saved);
+  }
+
+  // F5: the video changes while the player is still asked which one it shows (a 番剧 page): the superseded read must
+  // not write the player's answer over the new video's ids.
+  {
+    const saved = Object.fromEntries(["getSettings", "currentSite", "readPlayerRef", "refreshDerivedContent"].map((k) => [k, t[k]]));
+    const player = gate({ site: "bilibili", id: "BV_OLD", part: { index: 1, cid: "9" } });
+    Object.assign(t, { getSettings: async () => ({}), readPlayerRef: () => player.promise, refreshDerivedContent: async () => {} });
+    t.currentSite = () => ({ parseRef: () => null, playerRef: () => null, readDom: () => ({}), fetchMeta: async () => ({ title: "old" }), fetchTracks: async () => ({ tracks: [] }) });
+    const run = t.runRefreshClip();
+    await settle();
+    t.clipRuns.next();
+    Object.assign(state, { site: "bilibili", videoId: "BV_NEW", title: "new" });
+    player.open();
+    await run;
+    assert.deepStrictEqual([state.videoId, state.title], ["BV_NEW", "new"], "the player's late answer is dropped");
+    Object.assign(t, saved);
+  }
+
+  // F6: 写入 Obsidian clicked, and the video changes while the settings and the note are read: nothing is sent, and the
+  // popup hears why.
+  {
+    const saved = Object.fromEntries(["getSettings", "refreshDerivedContent", "sendRuntimeMessage"].map((k) => [k, t[k]]));
+    const settings = gate({});
+    const sent = [];
+    Object.assign(t, { getSettings: () => settings.promise, refreshDerivedContent: async () => (state.markdown = "# new"), sendRuntimeMessage: async (m) => (sent.push(m.type), { ok: true }) });
+    const was = { site: state.site, videoId: state.videoId, cid: state.cid };
+    Object.assign(state, { site: "bilibili", videoId: "BV_A", cid: "1" });
+    const writing = t.sendToObsidian();
+    await settle();
+    state.videoId = "BV_B";
+    settings.open();
+    assert.deepStrictEqual([{ ...(await writing) }, sent], [{ ok: true, text: t.MdgErrors.TEXT.obsidianVideoSwitched }, []]);
+    // F10: a refresh of the same video meanwhile (the side panel's, 专注模式's 重试) is a new run, not another video: the note goes.
+    Object.assign(state, { videoId: "BV_A" });
+    const again = gate({});
+    t.getSettings = () => again.promise;
+    const rewriting = t.sendToObsidian();
+    await settle();
+    t.clipRuns.next();
+    again.open();
+    assert.deepStrictEqual([(await rewriting).ok, sent], [true, ["write-video-note"]]);
+    Object.assign(state, was);
+    Object.assign(t, saved);
+  }
+
+  // F7: loadedmetadata and settledClip ask the player at the same time: one change, one reset. A change the URL
+  // watcher handled while the player answered is not reset again.
+  {
+    const saved = { send: t.sendRuntimeMessage, changed: t.videoChanged, site: t.currentSite, href: t.location.href };
+    t.currentSite = () => t.MdgSites.matchSite(t.location.href);
+    t.location.href = "https://www.bilibili.com/festival/bnj2025";
+    let changes = 0;
+    t.videoChanged = () => (changes++, Object.assign(state, { videoId: "", cid: "" }));
+    for (const byUrl of [false, true]) {
+      const answer = gate({ ok: true, data: { p: 1, aid: 3, cid: 2, bvid: "BV1b1fZYeEdi" } });
+      t.sendRuntimeMessage = () => answer.promise;
+      Object.assign(state, { videoId: "BV1ZUfsYpEXy", cid: "1" });
+      changes = 0;
+      const checks = [t.checkPlayerChange(), t.checkPlayerChange()];
+      await settle();
+      if (byUrl) Object.assign(state, { videoId: "", cid: "" });
+      answer.open();
+      await Promise.all(checks);
+      assert.strictEqual(changes, byUrl ? 0 : 1, byUrl ? "handled by the URL watcher meanwhile" : "two askers, one change");
+    }
+    Object.assign(t, { sendRuntimeMessage: saved.send, videoChanged: saved.changed, currentSite: saved.site });
+    t.location.href = saved.href;
+  }
+
+  // F8: the YouTube PO token capture toggles the page's captions button only for the video of its run: ended before it
+  // starts, the button is left alone; ended between its two rounds, the second round is not made.
+  {
+    const saved = { query: t.document.querySelector, toggle: t.toggleCaptionsForPot };
+    let clicks = 0;
+    const button = { getAttribute: () => "false", click: () => clicks++ };
+    t.document.querySelector = (sel) => (sel.includes("ytp-subtitles-button") ? button : null);
+    t.PerformanceObserver = class { observe() {} disconnect() {} };
+    const ended = t.clipRuns.current;
+    t.clipRuns.next();
+    const outcome = await t.capturePot("v", ended).then(() => "captured", (e) => (t.MdgCommon.isStale(e) ? "stale" : e.message));
+    assert.deepStrictEqual([outcome, clicks], ["stale", 0], "an ended run leaves the captions button alone");
+    let rounds = 0;
+    t.toggleCaptionsForPot = async () => (rounds++, t.clipRuns.next(), null);
+    await assert.rejects(t.capturePot("v", t.clipRuns.current), t.MdgCommon.isStale);
+    assert.strictEqual(rounds, 1, "no second round for a video that is gone");
+    t.document.querySelector = saved.query;
+    t.toggleCaptionsForPot = saved.toggle;
+    delete t.PerformanceObserver;
+  }
+
+  // F9: the run's signal reaches the page's requests: a video change ends a fetch in flight and the wait for the
+  // background's answer, instead of only ignoring what they bring.
+  {
+    const saved = { fetch: t.fetch, send: t.sendRuntimeMessage, site: t.currentSite, AbortSignal: t.AbortSignal };
+    // Chrome 114 and 115 (the side panel's floor) have no AbortSignal.any.
+    t.AbortSignal = { timeout: (ms) => AbortSignal.timeout(ms) };
+    t.fetch = (url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+    t.sendRuntimeMessage = () => new Promise(() => {});
+    const run = t.clipRuns.current;
+    t.currentSite = () => ({ pageOnly: true });
+    const page = t.siteIo(run).fetchJson("https://www.youtube.com/x");
+    t.currentSite = () => ({ pageOnly: false });
+    const background = t.siteIo(run).fetchJson("https://api.bilibili.com/x");
+    const text = t.siteIo(run).fetchText("https://i0.hdslb.com/x");
+    t.clipRuns.next();
+    // Node's own timer: a request the change did not end stays pending, which must read as a failure, not a hang.
+    const outcome = (p) => Promise.race([p.then(() => "answered", (e) => (t.MdgCommon.isStale(e) ? "stale" : e.message)), new Promise((r) => setTimeout(() => r("pending"), 50))]);
+    assert.deepStrictEqual(await Promise.all([page, background, text].map(outcome)), ["stale", "stale", "stale"]);
+    // The timeout still ends a request on its own.
+    const timedOut = new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("x"), { name: "TimeoutError" })), 10));
+    t.fetch = (url, init) => Promise.race([timedOut, new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)))]);
+    assert.strictEqual(await t.fetchOk("https://www.youtube.com/y", { signal: t.clipRuns.current.signal }).then(() => "answered", (e) => e.message), t.MdgErrors.netTimeout(t.MdgErrors.NET_TIMEOUT_MS));
+    Object.assign(t, { fetch: saved.fetch, sendRuntimeMessage: saved.send, currentSite: saved.site, AbortSignal: saved.AbortSignal });
   }
 
   // V6: a video change in 专注模式 reads the new video at once, without waiting for the player to report a duration.
@@ -551,7 +666,7 @@ const settle = async () => {
       return g.promise;
     };
     const finished = [];
-    t.finishEnterReaderMode = () => finished.push(state.readerGen);
+    t.finishEnterReaderMode = () => finished.push(t.readerRuns.current);
 
     t.markReaderMode();
     const first = t.enterReaderMode();
@@ -577,8 +692,49 @@ const settle = async () => {
     assert.deepStrictEqual(finished, [], "the closed entry does not finish into the new one");
     mounts[1].open();
     await b;
-    assert.deepStrictEqual(finished, [state.readerGen], "the new entry finishes once");
+    assert.deepStrictEqual(finished, [t.readerRuns.current], "the new entry finishes once");
     t.stepReader("close");
+  }
+
+  // V7: the player mount waits for the mini player to go away. Closed and reopened meanwhile, or the page playing another
+  // video by then, it binds nothing and lets the next mount start over; the same after the controls recovery.
+  {
+    const names = ["getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "bindReadingViewVideo", "moveReadingMainInline", "normalizeReaderPlayerContainer", "clearNativeReaderFloatingStyles", "hasNativeReaderPlayerLayoutIssue", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "applyReaderPageFocus", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "ensureReaderPlayerControlsRecovered", "queueEnsureReaderPlayerControlsRecovered"];
+    const keep = Object.fromEntries(names.map((k) => [k, t[k]]));
+    const host = { classList: { add() {}, remove() {}, contains: () => false } };
+    const videoOf = (n) => ({ n, removeAttribute() {}, setAttribute() {}, closest: () => null });
+    const reopen = () => ["close", "mark", "enter"].forEach((e) => t.stepReader(e));
+    // [what happens while the mini player goes away, the video the page plays after it, what happens in the recovery]
+    const cases = [
+      ["same video, nothing happens", () => {}, (a) => a, () => {}, true, 1, 1],
+      ["another video plays by then", () => {}, () => videoOf(2), () => {}, false, 0, 0],
+      ["closed and reopened meanwhile", reopen, (a) => a, () => {}, false, 0, 0],
+      ["closed and reopened during the controls recovery", () => {}, (a) => a, reopen, false, 1, 0]
+    ];
+    for (const [name, duringWait, after, duringRecovery, mounted, bound, queued] of cases) {
+      for (const f of names) t[f] = () => {};
+      const counts = { bound: 0, queued: 0 };
+      const a = videoOf(1);
+      let reads = 0;
+      t.getRuntimeVideoElement = () => (++reads === 1 ? a : after(a));
+      // MdgCommon.sleep waits on setTimeout: what happens while the mini player goes away happens before it resolves.
+      const timer = t.setTimeout;
+      t.setTimeout = (f) => timer(() => (duringWait(), f()));
+      t.findReaderPlayerHost = () => host;
+      t.dismissReaderMiniPlayer = () => true;
+      t.hasNativeReaderPlayerLayoutIssue = () => false;
+      t.bindReadingViewVideo = () => counts.bound++;
+      t.ensureReaderPlayerControlsRecovered = async () => duringRecovery();
+      t.queueEnsureReaderPlayerControlsRecovered = () => counts.queued++;
+      t.stepReader("mark");
+      t.stepReader("enter");
+      // The real one: the overlap test above left its own stub in place.
+      assert.deepStrictEqual([await real.ensureReaderPlayerMounted(), counts.bound, counts.queued], [mounted, bound, queued], name);
+      t.setTimeout = timer;
+      t.stepReader("close");
+    }
+    state.readingPlayerHost = null;
+    Object.assign(t, keep);
   }
 
   // 跟随已停 shows after a manual scroll only while playing. Following stays off while the reader is away from the
@@ -783,7 +939,7 @@ const settle = async () => {
       onDialog = (path, opts) => {
         asked = [path, opts.hasAiSection];
         state.markdown = "";
-        if (switched) t.location.href = "https://www.bilibili.com/video/BV1xx411c7mD/";
+        if (switched) state.videoId = "BV1xx411c7mD"; // autoplay moved on
       };
       const reply = await t.sendToObsidian();
       t.location.href = realUrl;
@@ -1220,7 +1376,7 @@ const settle = async () => {
       const query = t.document.querySelector;
       t.document.querySelector = (q) => (q.includes("ytp-subtitles-button") ? button : null);
       t.PerformanceObserver = class { observe() {} disconnect() {} };
-      await Promise.all([t.ytCapturePot("v1"), t.ytCapturePot("v1")]);
+      await Promise.all([t.ytCapturePot("v1", t.clipRuns.current), t.ytCapturePot("v1", t.clipRuns.current)]);
       assert.deepStrictEqual([reads, pressed], [[false, false], false]);
       t.document.querySelector = query;
       delete t.PerformanceObserver;

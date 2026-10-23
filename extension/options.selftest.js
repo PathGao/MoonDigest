@@ -9,8 +9,9 @@ const source = fs.readFileSync(path.join(__dirname, "options.js"), "utf8");
 const fn = (name) => source.slice(source.indexOf(`function ${name}(`), source.indexOf("\n}\n", source.indexOf(`function ${name}(`)) + 2);
 // A top-level constant of options.js, for the functions that read it.
 const constant = (name) => source.slice(source.indexOf(`const ${name} =`), source.indexOf(";\n", source.indexOf(`const ${name} =`)) + 1);
-const ctx = vm.createContext({ URL, busyButton: null, obsidianTest: null, elements: {}, validateNoteExtras: () => ({ ok: true }) });
-vm.runInContext([fn("validateSettings"), fn("validateNoteFolder"), fn("hostPermissionPattern"), fn("droppedFolders")].join("\n"), ctx);
+const ctx = vm.createContext({ URL, AbortController, busyButton: null, obsidianTest: null, elements: {}, validateNoteExtras: () => ({ ok: true }) });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "common.js"), "utf8"), ctx);
+vm.runInContext([constant("obsidianTests"), fn("validateSettings"), fn("validateNoteFolder"), fn("hostPermissionPattern"), fn("droppedFolders")].join("\n"), ctx);
 
 // [::1] is not in manifest host_permissions: Obsidian rejects it, AI platforms ask for it like any other host.
 const obsidian = (url) => ctx.validateSettings({ obsidianEnabled: true, noteFolder: "MoonDigest", obsidianApiBaseUrl: url }, { testing: false });
@@ -105,6 +106,31 @@ ctx.elements.obsidianApiKey.value = "k2";
 ctx.syncObsidianTest();
 assert.strictEqual(ctx.elements.obsidianTestResult.textContent, "");
 ctx.obsidianTest = null;
+// C249: the 地址 or Key edited while 测试连接 waits for Obsidian: its answer is for the old values and is not shown.
+(async () => {
+  // fn() slices from "function": testConnection is async.
+  vm.runInContext([`async ${fn("testConnection")}`, "let hasUnsavedChanges = false;"].join("\n"), ctx);
+  const typed = () => ({ obsidianApiBaseUrl: ctx.normalizeBaseUrl(ctx.elements.obsidianApiBaseUrl.value), obsidianApiKey: ctx.MdgSettings.normalizeApiKey(ctx.elements.obsidianApiKey.value) });
+  Object.assign(ctx, { clearInputErrors() {}, collectFormPayload: typed, validateSettings: () => ({ ok: true }), applyValidationError() {}, setBusy() {}, renderSavedState() {} });
+  let answer;
+  ctx.chrome = { runtime: { sendMessage: () => new Promise((r) => (answer = () => r({ ok: true, service: "Obsidian" }))) } };
+  ctx.elements.obsidianApiKey.value = "k";
+  const testing = ctx.testConnection();
+  await new Promise((r) => setImmediate(r));
+  ctx.elements.obsidianApiKey.value = "k2";
+  ctx.syncObsidianTest();
+  answer();
+  await testing;
+  assert.strictEqual(ctx.elements.obsidianTestResult.textContent, "", "the old values' answer is not shown");
+  // Untouched, the answer shows.
+  const again = ctx.testConnection();
+  await new Promise((r) => setImmediate(r));
+  answer();
+  await again;
+  assert.strictEqual(ctx.elements.obsidianTestResult.textContent, "连接成功（Obsidian）");
+  ctx.obsidianTest = null;
+  delete ctx.chrome;
+})().catch((e) => (console.error(e), process.exit(1)));
 assert.ok(/button\.setAttribute\("aria-busy"[^\n]*\n  \}\n  if \(!active\) syncObsidianTest\(\);/.test(source), "setBusy(null) gives 测试连接 its reason back");
 
 // 看多少算看完了 is parsed by settings.js's normalizeSeenThreshold (settings.selftest.js); the box's range and 「默认 N」

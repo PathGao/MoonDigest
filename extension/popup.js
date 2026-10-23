@@ -26,6 +26,9 @@ const el = {
 const NOT_VIDEO_PAGE = MdgErrors.TEXT.notVideoPage;
 const WEB_PAGE_READING = "正在读取网页…";
 let latestPayload = null;
+// 刷新 and the subtitle pick each wait for the page: the newest action's reply is drawn, an older one that lands after it
+// is dropped.
+const replies = MdgCommon.latest();
 // On a web page: its note from the background (popup-page-note), { ref, filename, markdown }; null until read or when
 // the page cannot be read (the note's tools are disabled with the reason).
 let webNote = null;
@@ -196,7 +199,9 @@ function bindEvents() {
       return;
     }
     setStatus("正在切换字幕…", false, true);
+    const reply = replies.next();
     const resp = await sendToContent({ type: "popup-select-subtitle", url });
+    if (!reply.alive) return;
     if (!resp?.ok) {
       setStatus(`${MdgErrors.TEXT.subtitleSwitchFailed}：${MdgErrors.text(resp)}`, true);
     }
@@ -272,7 +277,9 @@ const obsidianSettings = (code) => (MdgErrors.action(code) === "settings" ? { la
 async function refreshFromTab(force = false) {
   setStatus(MdgErrors.TEXT.videoReading, false, true);
   setBusy(el.refreshBtn, true);
+  const reply = replies.next();
   const resp = await sendToContent({ type: "popup-refresh", refresh: force }).finally(() => setBusy(el.refreshBtn, false));
+  if (!reply.alive) return;
   el.refreshBtn.classList.toggle("is-error", !resp?.ok);
   if (!resp?.ok) {
     // init() already turned non-video pages away: a reply without words is no 不是视频页.
@@ -283,17 +290,16 @@ async function refreshFromTab(force = false) {
   render(resp?.payload || latestPayload);
 }
 
+// The note and subtitle as the page has them now, for 复制, 下载 .md and 下载字幕: the page may have moved on to another video
+// since the popup drew it. Null when the page did not answer (the status says why).
 async function ensurePayload() {
-  if (latestPayload) {
-    return latestPayload;
-  }
   const resp = await sendToContent({ type: "popup-get-state" });
   if (resp?.ok && resp.payload) {
     latestPayload = resp.payload;
-  } else if (!resp?.ok) {
-    setStatus(MdgErrors.text(resp, MdgErrors.TEXT.reloadRetry), true);
+    return resp.payload;
   }
-  return latestPayload;
+  if (!resp?.ok) setStatus(MdgErrors.text(resp, MdgErrors.TEXT.reloadRetry), true);
+  return null;
 }
 
 function render(payload, { preserveStatus = false } = {}) {
