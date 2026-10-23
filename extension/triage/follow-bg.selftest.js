@@ -166,7 +166,7 @@ const runSync = async () => {
     };
     await runSync();
     const j = local.follow_jobs;
-    assert.strictEqual(j.running, false);
+    assert.strictEqual(j.state, "done", j.error);
     assert.ok(j.finishedAt && !j.error, j.error);
     assert.deepStrictEqual(plain(local.follow_list.list), ["1", "2", "3", "4", "5", "6"]);
     assert.deepStrictEqual(plain(local.follow_list.special), { 2: 1 });
@@ -432,7 +432,7 @@ const runSync = async () => {
     await t.followResume();
     await vm.runInContext("followRun && followRun.promise", ctx);
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2", "space/wbi/arc/search#3"], "resumes at its cursor");
-    assert.strictEqual(local.follow_jobs.running, false);
+    assert.strictEqual(local.follow_jobs.state, "done");
 
     // stop lands mid-request; continue picks up where it was
     local.follow_content = {};
@@ -444,7 +444,7 @@ const runSync = async () => {
     await t.followStart();
     while (!release) await new Promise((r) => setTimeout(r, 5));
     await t.followStop();
-    assert.strictEqual(local.follow_jobs.running, false);
+    assert.strictEqual(local.follow_jobs.state, "stopped");
     assert.ok(!local.follow_jobs.error, "a stop is not an error");
     assert.deepStrictEqual(local.follow_jobs.cursor, { phase: "arc" }, "cursor kept for continue");
     assert.ok(local.follow_content[1] && !local.follow_content[2]);
@@ -782,7 +782,7 @@ const runSync = async () => {
     onAlarm({ name: "follow-keepalive" });
     await settle(w);
     assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#2"], "resumed once, at its cursor");
-    assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.running);
+    assert.ok(local.follow_jobs.finishedAt && local.follow_jobs.state === "done");
     assert.ok(!alarms.has("follow-keepalive"));
     onAlarm({ name: "other" });
     await settle(w);
@@ -821,7 +821,7 @@ const runSync = async () => {
     await t.followStop();
     await resumed;
     assert.strictEqual(vm.runInContext("followRun", ctx), null, "no sync started after 停止");
-    assert.deepStrictEqual([local.follow_jobs.running, calls], [false, []]);
+    assert.deepStrictEqual([local.follow_jobs.state, calls], ["stopped", []]);
   }
 
   // ---------- 停止 right after 开始, while the start still reads the job: nothing starts, running stays false ----------
@@ -832,7 +832,7 @@ const runSync = async () => {
     await t.followStop();
     assert.strictEqual(vm.runInContext("followRun", ctx), null, "停止 has returned: the sync is over");
     await starting;
-    assert.deepStrictEqual([local.follow_jobs.running, calls], [false, []], "running was never written, nothing was asked");
+    assert.deepStrictEqual([plain(local.follow_jobs), calls], [{ running: false }, []], "nothing was written (a stop of an idle job is no transition), nothing was asked");
   }
 
   // ---------- J3: follow_* writes take the Web Lock the 分拣台 takes; B站 pages' 「+ UP 标签」 is written here ----------

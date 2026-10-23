@@ -283,7 +283,7 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   // T4: while a refresh runs the cards keep their order; newly listed ones go last, gone ones leave.
   assert.deepStrictEqual(plain(t.keptOrder(["c", "new", "a", "b"], ["a", "b", "c"])), ["a", "b", "c", "new"]);
   assert.deepStrictEqual(plain(t.keptOrder(["c", "a"], ["a", "b", "c"])), ["a", "c"]);
-  assert.ok(/if \(syncing && F\.order\) list = keptOrder\(list, F\.order\);/.test(source) && /function fromTop\(\) \{[^}]*F\.order = null;/.test(source), "kept while syncing, sorted again on a new list or sort");
+  assert.ok(/if \(syncing\(D\.jobs\) && F\.order\) list = keptOrder\(list, F\.order\);/.test(source) && /function fromTop\(\) \{[^}]*F\.order = null;/.test(source), "kept while syncing, sorted again on a new list or sort");
   assert.strictEqual(t.stepIn(["a", "b"], "gone", -1), "a", "a current card that left the list: back to the top");
 
 }
@@ -359,11 +359,56 @@ assert.deepStrictEqual([t.dirLabel("last", "desc"), t.dirLabel("follow", "asc"),
   assert.ok(!/<dialog id="fwTagsDialog"|data-fwmode/.test(source), "no combined 「UP 主标签」 dialog");
 }
 
+// The refresh's phase (follow_jobs.state) moves only along SYNC_STEPS; every cell the table leaves empty is refused and
+// writes nothing (syncTo gives null), so a late tick cannot wake a stopped job, nor a hold land on a finished one.
+{
+  const states = ["idle", "running", "holding", "stopped", "failed", "done"];
+  const forbidden = [];
+  for (const event of Object.keys(t.SYNC_STEPS)) for (const state of states) if (!t.SYNC_STEPS[event][state]) forbidden.push([event, state]);
+  assert.deepStrictEqual(forbidden, [
+    ["hold", "idle"], ["hold", "stopped"], ["hold", "failed"], ["hold", "done"],
+    ["tick", "idle"], ["tick", "stopped"], ["tick", "failed"], ["tick", "done"],
+    ["stop", "idle"], ["stop", "stopped"], ["stop", "failed"], ["stop", "done"],
+    ["fail", "idle"], ["fail", "stopped"], ["fail", "failed"], ["fail", "done"],
+    ["finish", "idle"], ["finish", "stopped"], ["finish", "failed"], ["finish", "done"]
+  ], "the forbidden transitions, each tried below");
+  const to = (job, event, fields) => plain(t.syncTo(job, event, fields));
+  for (const [event, state] of forbidden) assert.strictEqual(to({ state, done: 3 }, event, { beat: 9 }), null, `${event} from ${state} is refused`);
+  // A phase takes its own data with it: a hold does not outlive holding, an error does not outlive failed.
+  const held = to({ state: "running", done: 3, cursor: { phase: "arc" } }, "hold", { hold: { until: 99, why: "throttled" } });
+  assert.deepStrictEqual(held, { state: "holding", done: 3, cursor: { phase: "arc" }, hold: { until: 99, why: "throttled" } });
+  assert.deepStrictEqual(to(held, "tick", { done: 4 }), { state: "running", done: 4, cursor: { phase: "arc" } }, "a tick ends the hold");
+  const failed = to(held, "fail", { error: "风控", errorCode: "THROTTLED" });
+  assert.deepStrictEqual(failed, { state: "failed", done: 3, cursor: { phase: "arc" }, error: "风控", errorCode: "THROTTLED" }, "failed keeps the cursor to continue from");
+  assert.deepStrictEqual(to(failed, "start", { startedAt: 7 }), { state: "running", done: 3, cursor: { phase: "arc" }, startedAt: 7 }, "a start clears the error");
+  assert.deepStrictEqual(to({ state: "done", finishedAt: 5 }, "start", {}), { state: "running" }, "and the finish");
+  assert.deepStrictEqual(to({ state: "running" }, "stop"), { state: "stopped" });
+  assert.strictEqual(to({ state: "holding", hold: { until: 1 } }, "start").hold, undefined, "a worker restart (start from a stored hold) drops the hold");
+  assert.deepStrictEqual(to(undefined, "start", { startedAt: 1 }), { state: "running", startedAt: 1 }, "no job yet is idle");
+}
+
+// A follow_jobs stored by the release before state (running / hold / error / finishedAt side by side) reads as one phase.
+{
+  const old = (j) => plain(t.syncJob(j));
+  assert.deepStrictEqual(old(undefined), { state: "idle" });
+  assert.deepStrictEqual(old({ running: false }), { state: "idle" });
+  assert.deepStrictEqual(old({ running: true, phase: "list", step: "", done: 1, total: 3, startedAt: 10, hold: null, error: null, errorCode: null, finishedAt: null }), { state: "running", phase: "list", step: "", done: 1, total: 3, startedAt: 10 });
+  assert.deepStrictEqual(old({ running: true, phase: "arc", startedAt: 10, hold: { until: 99, why: "offline" } }), { state: "holding", phase: "arc", startedAt: 10, hold: { until: 99, why: "offline" } });
+  assert.deepStrictEqual(old({ running: false, startedAt: 10, cursor: { phase: "arc" }, hold: null }), { state: "stopped", startedAt: 10, cursor: { phase: "arc" } }, "stopped: started, not finished, no error");
+  assert.deepStrictEqual(old({ running: false, startedAt: 10, cursor: { phase: "feed" }, error: "风控", errorCode: "THROTTLED", hold: null }), { state: "failed", startedAt: 10, cursor: { phase: "feed" }, error: "风控", errorCode: "THROTTLED" });
+  assert.deepStrictEqual(old({ running: false, startedAt: 10, finishedAt: 20, lastFinishedAt: 20, step: "", cursor: null, hold: null, slowUntil: 30 }), { state: "done", startedAt: 10, step: "", cursor: null, slowUntil: 30, finishedAt: 20 }, "lastFinishedAt (never read) is dropped");
+  assert.deepStrictEqual(old({ running: false, error: "x" }), { state: "failed", error: "x", errorCode: null });
+  const cur = { state: "done", finishedAt: 20 };
+  assert.strictEqual(t.syncJob(cur), cur, "the current shape passes through");
+  assert.ok(t.syncing({ state: "running" }) && t.syncing({ state: "holding" }) && !t.syncing({ state: "stopped" }) && !t.syncing(undefined));
+}
+
 // 刷新 then 动态: a finished sync drops the loaded feed, so the next look reads it again.
 {
-  assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }));
-  assert.ok(!t.syncFinished({ finishedAt: 5 }, { finishedAt: 5, beat: 6 }), "a tick of the same job is not a finish");
-  assert.ok(!t.syncFinished({ running: true }, { running: false, hold: null }), "stopped (no finishedAt) is not a finish");
+  assert.ok(t.syncFinished({ state: "running" }, { state: "done", finishedAt: 5 }));
+  assert.ok(!t.syncFinished({ state: "done", finishedAt: 5 }, { state: "done", finishedAt: 5, slowUntil: 6 }), "a data patch of the same job is not a finish");
+  assert.ok(!t.syncFinished({ state: "running" }, { state: "stopped" }), "stopped is not a finish");
+  assert.ok(t.syncFinished({ running: true, finishedAt: null }, { running: false, finishedAt: 5 }), "the last release's shape too");
   // T7: it marks 视频投稿 stale, read anew on the next visit (feedOnEnter), not cleared under the pages being looked at.
   assert.ok(/if \(syncFinished\(fc\.jobs\?\.oldValue, fc\.jobs\?\.newValue\) && F\.feed\) F\.feed\.stale = true;/.test(source) && /F\.feed\.stale \|\|/.test(source), "the page marks F.feed stale on it");
 }
@@ -991,16 +1036,17 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual(plain([...F.sel].sort()), ["u1", "u4"], "the unfollowed one leaves; the rest stay selected");
   }
 
-  // The refresh held by the background (follow_jobs.hold): its pill says why and counts down.
-  for (const [why, words] of [["throttled", "B站限流卡住"], ["offline", "网络断了"]]) {
-    const p = await followPage({ store: page({ follow_jobs: { running: true, phase: "list", hold: { until: Math.ceil(Date.now() / 1000) + 60, why } } }) });
+  // The refresh held by the background (follow_jobs holding): its pill says why and counts down. The first is the last
+  // release's shape, as a user's stored job may still be.
+  for (const [why, words, jobs] of [["throttled", "B站限流卡住", { running: true, phase: "list" }], ["offline", "网络断了", { state: "holding", phase: "list" }]]) {
+    const p = await followPage({ store: page({ follow_jobs: { ...jobs, hold: { until: Math.ceil(Date.now() / 1000) + 60, why } } }) });
     const pill = p.$("fwActivity");
     assert.ok(new RegExp(`^读取关注列表 · ${words}，[01]:\\d\\d 后重试$`).test(pill.title) && pill.classList.contains("warn"), pill.title);
   }
 
   // 暂停刷新 at row 3's right end stops the refresh, as the pill's 暂停 does: one request per click.
   {
-    const p = await followPage({ store: page({ follow_jobs: { running: true, phase: "list" } }) });
+    const p = await followPage({ store: page({ follow_jobs: { state: "running", phase: "list" } }) });
     assert.ok(p.$("fwBarR").innerHTML.includes("data-fw-stop"), p.$("fwBarR").innerHTML);
     p.click("followMain", "[data-fw-stop]", {});
     assert.strictEqual(p.sent.filter((m) => m.type === "follow-sync-stop").length, 1);
@@ -1053,7 +1099,7 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
 
   // The head's refresh error, as 收藏夹's: 刷新失败：reason, B站限流 in MdgErrors' words.
   {
-    const p = await followPage({ store: page({ follow_jobs: { running: false, error: p0Throttled(), errorCode: "THROTTLED" } }) });
+    const p = await followPage({ store: page({ follow_jobs: { state: "failed", error: p0Throttled(), errorCode: "THROTTLED" } }) });
     assert.ok(p.$("fwMeta").innerHTML.includes(`刷新失败：${p0Throttled()}`), p.$("fwMeta").innerHTML);
   }
 
@@ -1148,7 +1194,7 @@ const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to
     const code = slice("let loginSeen", "\nfunction renderHead(");
     const env = { calls: [] };
     const F = { mode: "follow", feed: null };
-    const renderLogin = new Function("env", "F", "MdgErrors", `const D = { jobs: { errorCode: "NOT_LOGGED_IN", error: "未登录" } }; const T = { loginBanner: (on) => env.calls.push(on) };
+    const renderLogin = new Function("env", "F", "MdgErrors", `const D = { jobs: { state: "failed", errorCode: "NOT_LOGGED_IN", error: "未登录" } }; const T = { loginBanner: (on) => env.calls.push(on) };
       ${code}; return renderLogin;`)(env, F, ctx.MdgErrors);
     renderLogin();
     F.mode = "fav";

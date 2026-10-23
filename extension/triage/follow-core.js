@@ -279,8 +279,40 @@
     return [...list].sort((a, b) => (at.get(a) ?? before.length) - (at.get(b) ?? before.length));
   }
 
+  // The background refresh's phase, follow_jobs.state: idle (never ran) | running | holding (B站限流 or a dropped connection
+  // paused the queue; hold = { until, why }) | stopped (暂停刷新; its cursor continues it) | failed (error, errorCode) |
+  // done (finishedAt). SYNC_STEPS[event][state] is the next state; no cell = forbidden, nothing is written. start from
+  // running is a worker restart: storage cannot tell a live run from a killed worker's, so follow-bg.js's followRun
+  // guards a double start within one worker.
+  const SYNC_STEPS = {
+    start: { idle: "running", running: "running", holding: "running", stopped: "running", failed: "running", done: "running" },
+    hold: { running: "holding", holding: "holding" },
+    tick: { running: "running", holding: "running" },
+    stop: { running: "stopped", holding: "stopped" },
+    fail: { running: "failed", holding: "failed" },
+    finish: { running: "done", holding: "done" }
+  };
+  // A stored follow_jobs in the current shape. Before state it carried running, hold, error and finishedAt side by side (and
+  // lastFinishedAt, which nothing read): a job stored by that release maps here on every read.
+  function syncJob(j) {
+    if (!j) return { state: "idle" };
+    if (j.state) return j;
+    const { running, hold, error, errorCode, finishedAt, lastFinishedAt, ...rest } = j;
+    const state = running ? (hold?.until ? "holding" : "running") : error ? "failed" : finishedAt ? "done" : rest.startedAt ? "stopped" : "idle";
+    return { ...rest, state, ...(state === "holding" && { hold }), ...(state === "failed" && { error, errorCode: errorCode ?? null }), ...(state === "done" && { finishedAt }) };
+  }
+  // The job after event with fields (the next phase's own data among them), or null when SYNC_STEPS forbids it. The phase
+  // left behind takes its own data with it.
+  function syncTo(job, event, fields = {}) {
+    const j = syncJob(job);
+    const state = SYNC_STEPS[event]?.[j.state];
+    if (!state) return null;
+    const { hold, error, errorCode, finishedAt, ...rest } = j;
+    return { ...rest, ...fields, state };
+  }
+  const syncing = (j) => j?.state === "running" || j?.state === "holding";
   // A 刷新 finished between two follow_jobs: the 视频投稿 already loaded is older than what it read.
-  const syncFinished = (was, now) => Boolean(now?.finishedAt && now.finishedAt !== was?.finishedAt);
+  const syncFinished = (was, now) => syncJob(now).state === "done" && syncJob(now).finishedAt !== syncJob(was).finishedAt;
 
   // What 关注 remembers across reloads (follow_view): mode, tab, both tabs' sorts and the sidebar item.
   // 已出分拣范围 is not remembered, as 收藏夹's: a reload opens 全部.
@@ -322,5 +354,5 @@
     };
   }
 
-  globalThis.FollowCore = { DAY, ALL, STATUS, followStatus, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, syncView };
+  globalThis.FollowCore = { DAY, ALL, STATUS, followStatus, recentTitles, liveTags, upRow, SPECIAL, groupId, groupsOf, groupName, groupNames, groupMembers, sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, searchWords, hasWords, visibleUps, SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, shuffled, feedOrdered, feedMatch, feedPass, feedCounts, feedList, feedLeaving, stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays, keptOrder, SYNC_STEPS, syncJob, syncTo, syncing, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare, syncView };
 })();

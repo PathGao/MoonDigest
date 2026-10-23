@@ -55,7 +55,7 @@ const ALLOW = [
   ["options.js", "testBtn.disabled = true;", "AI 平台测试中：同一行写「正在测试…」并 aria-busy，完了 setReason 接手"],
   ["popup.js", "button.disabled = busy;", "弹窗按钮在跑：按钮文字换成在做什么，aria-busy"],
   ["triage/fav-base.js", "btn.disabled = Boolean(text);", "分拣台按钮在跑：按钮文字换成在做什么，aria-busy"],
-  ["triage/follow.js", "btn.disabled = Boolean(j.running);", "关注刷新在跑：aria-busy，进度胶囊写进度"],
+  ["triage/follow.js", "btn.disabled = syncing(j);", "关注刷新在跑：aria-busy，进度胶囊写进度"],
   ["triage/follow.js", "btn.disabled = true;", "点了刷新（第 2 行、空状态或提示里的）、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
   ["triage/fav-export.js", "el.writeScope.disabled = el.writeFormat.disabled = el.writeOverwrite.disabled = busy;", "逐个视频笔记在跑：进度胶囊和「停止」写着在跑什么，范围和格式跑完才能改"],
   ["content.js", "button.disabled = true;", "播放器 ✦ 点下到侧边栏打开之间防连点，finally 打开"],
