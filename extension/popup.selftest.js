@@ -14,7 +14,7 @@ const button = () => {
 };
 const body = { classes: new Set() };
 body.classList = { add: (c) => body.classes.add(c), toggle() {} };
-const ctx = vm.createContext({ URL, setTimeout, document: { getElementById: button, body, createElement: () => ({}) }, chrome: { runtime: { sendMessage: async () => ({ ok: true }) }, tabs: { query: async () => [] } } });
+const ctx = vm.createContext({ URL, setTimeout, AbortController, document: { getElementById: button, body, createElement: () => ({}) }, chrome: { runtime: { sendMessage: async () => ({ ok: true }) }, tabs: { query: async () => [] } } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
@@ -293,6 +293,30 @@ setTimeout(() =>
     ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "没有权限" });
     await ctx.el.settingsBtn.on.click();
     assert.strictEqual(ctx.el.status.textContent, `${T.settingsOpenFailed}：没有权限`);
+    // J21: replies land in the order of the actions: a 刷新 whose reply comes after a later subtitle pick's does not redraw it.
+    {
+      const gates = [];
+      ctx.sendToContent = (m) => new Promise((r) => gates.push([m.type, r]));
+      const refreshing = refreshFromTab(true);
+      const picking = ctx.el.subtitleSelect.on.change({ target: { selectedIndex: 0, options: [{ value: "u2" }] } });
+      await new Promise((r) => setImmediate(r));
+      gates.find(([t]) => t === "popup-select-subtitle")[1]({ ok: true, payload: { title: "切换后", status: "字幕切换完成。" } });
+      await picking;
+      gates.find(([t]) => t === "popup-refresh")[1]({ ok: true, payload: { title: "刷新时", status: "读取完成。" } });
+      await refreshing;
+      assert.deepStrictEqual([ctx.el.videoTitle.textContent, ctx.el.status.textContent], ["切换后", "字幕切换完成。"]);
+    }
+    // J22: 复制 Markdown takes the note the page has now, not the one drawn when the popup opened (the page may have
+    // moved on to another video).
+    {
+      vm.runInContext(`latestPayload = { markdown: "# 旧视频", filename: "old.md" }`, ctx);
+      ctx.ensurePayload = ensurePayload;
+      ctx.sendToContent = async () => ({ ok: true, payload: { markdown: "# 新视频", filename: "new.md" } });
+      const copied = [];
+      ctx.navigator = { clipboard: { writeText: async (t) => copied.push(t) } };
+      await ctx.el.copyBtn.on.click();
+      assert.deepStrictEqual(copied, ["# 新视频"]);
+    }
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );
