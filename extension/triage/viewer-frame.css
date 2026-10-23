@@ -26,7 +26,7 @@ html[data-mdg-viewer] #playerWrap {
 html[data-mdg-viewer] #bilibili-player {
   width: 100% !important;
 }
-html[data-mdg-viewer] body:not(.webscreen-fix) #bilibili-player {
+html[data-mdg-viewer] body:not(.webscreen-fix) #playerWrap #bilibili-player {
   height: calc(100cqw * 9 / 16 + 46px) !important;
 }
 
@@ -39,4 +39,37 @@ html[data-mdg-viewer=space] .space-home > .aside {
 html[data-mdg-viewer=space] body,
 html[data-mdg-viewer=space] body * {
   min-width: 0 !important;
+}
+
+/* A 番剧 (/bangumi/play/): a 1100px page whose grid puts the player over 简介 and comments (.plp-left-wrap, padded by
+   the player's height) beside a right column (弹幕列表, 选集, 推荐). One column here; the player and that padding
+   follow its width by B站's own % padding, so the height formula above stays scoped to /video/'s #playerWrap. */
+html[data-mdg-viewer] .plp-r-wrap,
+html[data-mdg-viewer] [class*="navTools_floatNav"] {
+  display: none !important;
+}
+html[data-mdg-viewer] body:has(.plp-layout) {
+  min-width: 0 !important;
+}
+html[data-mdg-viewer] .main-container:has(> .plp-layout) {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  padding: 0 16px !important;
+}
+html[data-mdg-viewer] .plp-layout {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+/* viewer-frame.js's 季名 第N集 above a 番剧's player, styled as /video/'s h1.video-title. */
+html[data-mdg-viewer] #mdg-viewer-title {
+  margin: 0 0 16px;
+  color: #18191c;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+  -webkit-font-smoothing: antialiased;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

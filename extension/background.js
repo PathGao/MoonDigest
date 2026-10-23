@@ -447,8 +447,10 @@ const BACKGROUND_HANDLERS = {
 
   // The content script's isolated world cannot reach the player API; a MAIN-world read can, and chrome.scripting is not
   // subject to the page CSP. Only a video page's own content script may ask, and only for its own frame: YouTube's
-  // player response, B站's bpx manifest (sites.js playerRef).
-  "page-player": (_message, sender) => {
+  // player response, B站's bpx manifest (sites.js playerRef). ref (the frame's URL now: sender.url stays the one it loaded,
+  // not where B站's pushState to the next episode went): that video's ref instead, for 分拣台's viewer-frame.js, which does
+  // not load sites.js.
+  "page-player": (message, sender) => {
     const tabId = sender?.tab?.id;
     if (!tabId || !MdgSites.matchPage(String(sender.url || ""))) return { ok: false, error: "not a video page" };
     return chrome.scripting
@@ -460,7 +462,10 @@ const BACKGROUND_HANDLERS = {
             ? globalThis.player?.getManifest?.() ?? null
             : document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
       })
-      .then((results) => ({ ok: true, data: results?.[0]?.result ?? null }));
+      .then((results) => {
+        const data = results?.[0]?.result ?? null;
+        return { ok: true, data: message.ref ? MdgSites.matchSite(sender.url)?.playerRef?.(String(message.ref), data) || null : data };
+      });
   },
 
   // The popup's 复制 Markdown, 下载 .md and 写入 Obsidian on a web page: its note as the side panel builds it, with the

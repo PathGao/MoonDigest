@@ -11,7 +11,9 @@ const entry = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "manifest.js
 const src = entry.map((f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8")).join("\n");
 const EXT = "chrome-extension://abcdefghijklmnop";
 
-function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen = false } = {}) {
+// player: the BV id page-player answers each ask with, in turn (null: the player has not loaded this episode yet).
+function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen = false, player = [] } = {}) {
+  const asks = [];
   const sent = [];
   const listeners = [];
   const attrs = {};
@@ -25,8 +27,12 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
   win.top = top ? win : {};
   win.window = win;
   Object.assign(win, {
-    location: { pathname: "/video/BV1aaaaaaaaa/", ancestorOrigins: parentOrigin ? [parentOrigin] : [] },
-    chrome: { runtime: { id: EXT.slice("chrome-extension://".length), getURL: (p) => `${EXT}/${p}` } },
+    location: { pathname: "/video/BV1aaaaaaaaa/", ancestorOrigins: parentOrigin ? [parentOrigin] : [], get href() { return this.pathname; } },
+    chrome: { runtime: { id: EXT.slice("chrome-extension://".length), getURL: (p) => `${EXT}/${p}`, sendMessage: async (m) => {
+      asks.push(m);
+      const id = player.shift();
+      return { ok: true, data: id ? { site: "bilibili", id } : null };
+    } } },
     // Node gives chrome-extension: URLs a "null" origin; Chrome gives the scheme and id.
     URL: function (u) {
       return { origin: new URL(u.replace("chrome-extension:", "https:")).origin.replace("https:", "chrome-extension:") };
@@ -37,13 +43,15 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
       querySelector: (s) => (webscreen && s.includes("data-screen=web") ? {} : null)
     }
   });
-  vm.runInContext(src, vm.createContext(win));
+  const ctx = vm.createContext(win);
+  vm.runInContext(src, ctx);
   const key = (key, o = {}) => {
     const target = o.target || { closest: () => null };
     for (const l of listeners) if (l.type === "keydown") l.fn({ key, keyCode: o.keyCode || 0, isComposing: Boolean(o.isComposing), repeat: false, metaKey: false, ctrlKey: Boolean(o.ctrlKey), altKey: false, target, composedPath: () => [target] });
   };
-  const go = (pathname) => ((win.location.pathname = pathname), ticks.forEach((f) => f()));
-  return { sent, listeners, attrs, key, go, ticks };
+  const go = (pathname) => ((win.location.pathname = pathname), Promise.all(ticks.map((f) => f())));
+  const fire = (type) => listeners.filter((l) => l.type === type).forEach((l) => l.fn({}));
+  return { sent, listeners, attrs, key, go, fire, ticks, asks, ctx };
 }
 
 // The viewer frame: marked, forwards T and Esc to the extension origin only.
@@ -74,6 +82,31 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
     { data: { type: "mdg-viewer-video", bvid: "BV1aaaaaaaaa" }, to: EXT },
     { data: { type: "mdg-viewer-video", bvid: "BV1bbbbbbbbb" }, to: EXT }
   ]);
+}
+// A 番剧 (/bangumi/play/) names no BV: its player is asked (page-player with ref) until it answers for this path, and again
+// when it loads another video (the next episode); a /video/ path is never asked.
+(async () => {
+  const f = frame({ player: [null, "BV1ccccccccc", "BV1ddddddddd", "BV1eeeeeeeee"] });
+  await f.go("/video/BV1aaaaaaaaa/");
+  await f.go("/bangumi/play/ep1");
+  await f.go("/bangumi/play/ep1");
+  await f.go("/bangumi/play/ep1");
+  f.fire("loadedmetadata");
+  await f.go("/bangumi/play/ep1");
+  await f.go("/bangumi/play/ep2");
+  assert.strictEqual(f.asks.length, 4);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(f.asks[0])), { type: "page-player", ref: "/bangumi/play/ep1" });
+  assert.deepStrictEqual(f.sent.map((m) => m.data.bvid), ["BV1aaaaaaaaa", "BV1ccccccccc", "BV1ddddddddd", "BV1eeeeeeeee"]);
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+// The 番剧 title line: 季名 and the episode from the page title, nothing from a title that is not a 番剧's.
+{
+  const f = frame();
+  assert.strictEqual(f.ctx.viewerTitleText("造物说：一共分几步第2集-纪录片-全集-高清独家在线观看-bilibili-哔哩哔哩", "造物说：一共分几步"), "造物说：一共分几步 第2集");
+  assert.strictEqual(f.ctx.viewerTitleText("哔哩哔哩 (゜-゜)つロ 干杯~-bilibili", "造物说：一共分几步"), "");
+  assert.strictEqual(f.ctx.viewerTitleText("造物说：一共分几步第2集-纪录片", ""), "");
 }
 // Typing in B站's boxes and IME composition never forward.
 {

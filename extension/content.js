@@ -3282,7 +3282,7 @@ function buildPlayerAiQuickActionIconSvg() {
 // video. Resolves whether the panel opened.
 async function askSidepanel(source) {
   try {
-    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: viewerContextRef() });
+    const resp = await sendRuntimeMessage({ type: "player-ai-quick-action", ...(source && { source }), contextRef: await viewerContextRef() });
     if (!resp?.ok) throw MdgErrors.fromResp(resp);
     return true;
   } catch (error) {
@@ -3319,9 +3319,10 @@ async function handlePlayerAiQuickActionClick(event) {
   }
 }
 
-// The video playing in 分拣台's viewer, in the shape 分拣台's 问 AI hands the side panel; null in a normal tab.
-function viewerContextRef() {
-  const ref = IN_VIEWER ? MdgSites.parseRef(location.href) : null;
+// The video playing in 分拣台's viewer, in the shape 分拣台's 问 AI hands the side panel; null in a normal tab. A 番剧's URL
+// names none: its player does (the click's user activation outlasts that one round trip).
+async function viewerContextRef() {
+  const ref = IN_VIEWER ? MdgSites.parseRef(location.href) || (await readPlayerRef().catch(() => null)) : null;
   if (!ref) return null;
   return { site: ref.site, videoId: ref.id, pageIndex: ref.part?.index || 1, title: state.title, author: state.author, url: ref.url };
 }
