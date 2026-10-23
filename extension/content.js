@@ -807,19 +807,32 @@ function startUrlWatcher() {
   // at once, the interval is the fallback. YouTube's own event comes when its page has switched.
   window.navigation?.addEventListener("currententrychange", checkUrlChange, { signal: life.signal });
   document.addEventListener("yt-navigate-finish", checkUrlChange, { signal: life.signal });
+  // Media events do not bubble: caught on the way down, whichever <video> the player swaps in.
+  document.addEventListener("loadedmetadata", checkPlayerChange, { capture: true, signal: life.signal });
 }
 
 function checkUrlChange() {
-  if (state.superseded) {
-    return;
+  if (!state.superseded && computeCurrentClipSignature() !== state.currentClipSignature) {
+    videoChanged();
   }
-  const nextUrl = location.href;
-  const nextSignature = computeCurrentClipSignature();
-  if (nextSignature === state.currentClipSignature) {
-    return;
-  }
+}
 
-  state.currentClipSignature = nextSignature;
+// A 活动页 switches videos without touching its URL, a 番剧 ss… page may play on into the next episode: on a page whose
+// URL names no video, the player loading another one is the change the URL watcher cannot see.
+async function checkPlayerChange() {
+  if (state.superseded || !state.videoId || MdgSites.parseRef(location.href)) {
+    return;
+  }
+  // Unread (no answer from the background) is no change: the next read asks the player again.
+  const ref = await readPlayerRef().catch(() => null);
+  if (ref && (ref.id !== state.videoId || (state.cid && ref.part.cid !== state.cid))) {
+    videoChanged();
+  }
+}
+
+function videoChanged() {
+  const nextUrl = location.href;
+  state.currentClipSignature = computeCurrentClipSignature();
   try {
     if (!IN_VIEWER) chrome.runtime.sendMessage({ type: "mdg-video-changed" })?.catch?.(() => {});
   } catch {}
@@ -936,6 +949,7 @@ function buildSidepanelContext() {
 // Rejects with the current video's failure.
 async function settledClip(force = false) {
   for (;;) {
+    await checkPlayerChange();
     checkUrlChange();
     let run = state.refreshPromise;
     if (!run && (force || !state.videoId)) {
@@ -996,14 +1010,14 @@ async function runRefreshClip() {
     ensureRunActive(runId);
 
     const site = currentSite();
-    const ref = site?.parseRef(location.href);
+    // Taken before the awaits: a navigation mid-run must still look like a change to checkUrlChange.
+    const clipSignature = computeCurrentClipSignature();
+    const ref = site?.parseRef(location.href) || (site?.playerRef && (await waitPlayerRef(runId)));
     if (!ref) {
-      throw new Error(MdgErrors.TEXT.notVideoPage);
+      throw new Error(site?.playerRef ? NO_PLAYER : MdgErrors.TEXT.notVideoPage);
     }
     state.site = ref.site;
     state.videoId = ref.id;
-    // Taken before the awaits: a navigation mid-run must still look like a change to checkUrlChange.
-    const clipSignature = computeCurrentClipSignature();
 
     const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
     ensureRunActive(runId);
@@ -3656,7 +3670,29 @@ function updateReaderFollowState() {
 
 function computeCurrentClipSignature(url = location.href) {
   const ref = MdgSites.parseRef(url);
-  return ref ? [ref.site, ref.id, ref.part?.index || 1, ref.part?.oid || ""].join("|") : "";
+  if (ref) {
+    return [ref.site, ref.id, ref.part?.index || 1, ref.part?.oid || ""].join("|");
+  }
+  // A page whose URL names no video (sites.js playerRef) changes video with its path, or in place (checkPlayerChange).
+  return MdgSites.matchPage(url) ? new URL(url).pathname : "";
+}
+
+// The video the player has loaded on a page whose URL names none, null while it has not (sites.js playerRef).
+async function readPlayerRef() {
+  return currentSite()?.playerRef?.(location.href, await siteIo().readPlayer()) || null;
+}
+
+// The player may still be loading, or be on the last episode right after an in-page switch: asked again for 10 秒.
+async function waitPlayerRef(runId) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const ref = await readPlayerRef();
+    if (ref) {
+      return ref;
+    }
+    await sleep(500);
+    ensureRunActive(runId);
+  }
+  return null;
 }
 
 // The language setting is YouTube's only; Bilibili keeps the default order.
@@ -3705,9 +3741,9 @@ function siteIo() {
     doc: document,
     subtitleLang: subtitleLangTarget(),
     readPlayer: async () => {
-      const resp = await sendRuntimeMessage({ type: "yt-player-response" });
+      const resp = await sendRuntimeMessage({ type: "page-player" });
       if (!resp?.ok) {
-        throw MdgErrors.fromResp(resp, "读取 YouTube 播放器失败");
+        throw MdgErrors.fromResp(resp, "读取播放器失败");
       }
       return resp.data;
     },

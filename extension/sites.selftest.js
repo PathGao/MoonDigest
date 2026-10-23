@@ -202,6 +202,10 @@ assert.strictEqual(S.isAllowedFetchUrl("https://www.youtube.com/youtubei/v1/play
     ["https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7&oid=1", true],
     ["https://www.bilibili.com/list/ml123456?bvid=BV1GJ411x7h7&oid=1", true],
     ["https://www.bilibili.com/list/7?sid=9&bvid=BV1GJ411x7h7", true],
+    ["https://www.bilibili.com/bangumi/play/ep6913562", true],
+    ["https://www.bilibili.com/bangumi/play/ss33378?spm_id_from=333", true],
+    ["https://www.bilibili.com/festival/bnj2025", true],
+    ["https://www.bilibili.com/bangumi/media/md1178", false],
     ["https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30s", true],
     ["https://www.youtube.com/shorts/dQw4w9WgXcQ", true],
     ["https://m.youtube.com/watch?v=dQw4w9WgXcQ", false],
@@ -220,6 +224,31 @@ assert.strictEqual(S.isAllowedFetchUrl("https://www.youtube.com/youtubei/v1/play
   }
   // A link a note keeps still resolves: matchSite is the wider one.
   assert.strictEqual(S.matchSite("https://music.youtube.com/watch?v=dQw4w9WgXcQ")?.id, "youtube");
+}
+
+// 番剧 and 活动页 URLs name no BV id: the player's manifest does (playerRef). A 番剧 episode's aid makes its BV id; an ep URL
+// the player has not switched to yet is no answer; a 活动页's ?bvid= is the video it opened with, not the one playing.
+{
+  const bili = S.SITES.bilibili;
+  const ep = "https://www.bilibili.com/bangumi/play/ep6913562";
+  const manifest = { p: 1, aid: 117455577942856, cid: 42817818257, bvid: null, episodeId: 6913562, seasonId: 33378 };
+  assert.strictEqual(S.parseRef(ep), null);
+  eq(bili.playerRef(ep, manifest), { site: "bilibili", id: "BV11NJq6AE6N", part: { index: 1, cid: "42817818257" }, url: "https://www.bilibili.com/video/BV11NJq6AE6N/" });
+  assert.strictEqual(bili.playerRef("https://www.bilibili.com/bangumi/play/ep6694803", manifest), null);
+  assert.strictEqual(bili.playerRef("https://www.bilibili.com/bangumi/play/ss33378", manifest)?.id, "BV11NJq6AE6N");
+  assert.strictEqual(bili.playerRef(ep, null), null);
+  assert.strictEqual(bili.playerRef(ep, { ...manifest, cid: 0 }), null);
+  const festival = "https://www.bilibili.com/festival/bnj2025?bvid=BV1b1fZYeEdi";
+  assert.strictEqual(S.parseRef(festival), null);
+  assert.strictEqual(bili.playerRef(festival, { p: 1, aid: 113884295860962, cid: 28488830387, bvid: "BV1ZUfsYpEXy", episodeId: null })?.id, "BV1ZUfsYpEXy");
+  // The side panel knows such a tab's video from its loaded context (live); 专注模式's retry finds the page by its path.
+  const live = { site: "bilibili", videoId: "BV11NJq6AE6N", cid: "42817818257", url: "https://www.bilibili.com/video/BV11NJq6AE6N/" };
+  assert.strictEqual(S.sameContext(ep, live.url, { live }), true);
+  assert.strictEqual(S.sameContext(ep, live.url, { live: { ...live, pending: true } }), false);
+  assert.strictEqual(S.sameContext(ep, live.url), false);
+  assert.strictEqual(S.sameContext(ep, "https://www.bilibili.com/video/BV1GJ411x7h7/", { live }), false);
+  assert.strictEqual(S.sameContext(ep, `${ep}?mdg_reader=1`, { anyPart: true }), true);
+  assert.strictEqual(S.sameContext(ep, "https://www.bilibili.com/bangumi/play/ep6694803?mdg_reader=1", { anyPart: true }), false);
 }
 
 // srv3: attribute order, spaces inside <s>, entities decoded once, numeric entities

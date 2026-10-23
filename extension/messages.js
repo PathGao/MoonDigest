@@ -42,7 +42,7 @@
     "player-ai-quick-action": { from: ["content.js", "popup.js"], to: "background.js", request: ["tabId", "source", "contextRef"], response: [] },
 
     // The video page (content.js): the background's proxies for it, and what the popup, side panel and background ask it
-    "yt-player-response": { from: ["content.js"], to: "background.js", request: [], response: ["data"] },
+    "page-player": { from: ["content.js"], to: "background.js", request: [], response: ["data"] },
     "fetch-json": { from: ["content.js"], to: "background.js", request: ["url"], response: ["data", "status"] },
     "mdg-video-changed": { from: ["content.js"], to: "sidepanel.js", request: [], response: [] },
     "popup-get-state": { from: ["popup.js"], to: "content.js", request: [], response: ["payload"], builder: "content.js:getPopupPayload", payload: POPUP_PAYLOAD },
