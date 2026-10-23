@@ -43,6 +43,7 @@ const ctx = vm.createContext({
   console,
   structuredClone,
   TextEncoder,
+  AbortController,
   TagDialogs,
   CSS: { escape: (x) => x },
   __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
@@ -127,7 +128,7 @@ const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 function openFake(mediaId, items, decisions = {}) {
-  t.S.folderToken++;
+  t.S.view.next();
   t.S.mediaId = mediaId;
   t.S.items = items;
   t.S.itemMap = new Map(items.map((it) => [it.bvid, it]));
@@ -2108,7 +2109,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const { aid: _, ...noAid } = item(5);
     store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3), BV4: rec(4, { invalid: true }), BV5: { item: noAid, at: 5 } };
     t.S.included = ["A", "B"];
-    t.S.folderToken++; // earlier checks still running stop
+    t.S.view.current++; // earlier checks still running stop
     handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
     const asked = [];
     const mids = [];
@@ -2341,9 +2342,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     openFake("removed", [item(620)]);
     t.S.removedCheck = { error: "" };
-    const token = t.S.folderToken;
+    const token = t.S.view.current;
     handlers["triage-fav-where"] = () => {
-      t.S.folderToken++;
+      t.S.view.next();
       t.S.removedCheck = { error: "" };
       return { ok: false, error: "网络断了" };
     };
@@ -2679,7 +2680,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), { ok: true, data: { items: [item(5)], info: { intro: "" }, head: true } });
   t.S.mediaId = "all";
   t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
-  await t.runLoadAll(t.S.folderToken);
+  await t.runLoadAll(t.S.view.current);
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
@@ -2691,7 +2692,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(581)], info: { intro: "" }, head: true } });
     itemCalls.length = 0;
     t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
-    await t.runLoadAll(t.S.folderToken);
+    await t.runLoadAll(t.S.view.current);
     assert.ok(itemCalls.length === 2 && itemCalls.every(Boolean), "two difference reads, no full one");
     assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV581");
     store.triage_snapshot_6 = snap;
@@ -2711,7 +2712,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       if (a?.stuck && !seen.some((x) => x[0] === a.text)) seen.push([a.text, a.stuck, a.actLabel, a.total]);
     };
     t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
-    await t.runLoadAll(t.S.folderToken);
+    await t.runLoadAll(t.S.view.current);
     t.renderStatus = realStatus;
     assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["加载收藏夹 0/1 · B站限流卡住，0:01 后重试", true, "暂停", 1], "加载收藏夹 0/1 · 「夹6」"]);
 
@@ -2858,7 +2859,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       if (calls === 0) {
         // Mid-run: the folders being written are not read from Bilibili, and a queued video cannot be unfavorited.
         assert.ok(t.fav.state().writing("1") && t.fav.state().writing("2") && !t.fav.state().writing("3"));
-        t.S.syncing = false;
+        t.S.syncing = null;
         const before = sent.length;
         return realSync({ force: true }).then(async (synced) => {
           assert.strictEqual(synced, false, "no sync of a folder being written");
@@ -3117,7 +3118,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // A full sync whose folder changes while it reads the old list leaves the new folder's list alone.
     t.syncFolder = realSync;
     openFake("PA", [item(71)]);
-    t.S.syncing = false;
+    t.S.syncing = null;
     handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [item(71), item(73)], ids: ["BV71", "BV73"] } });
     const releaseSnap = holdRead(t.K.snapshot("PA"));
     const sync = t.syncFolder({ force: true });
@@ -3128,7 +3129,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
     // A batch write that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
     openFake("PA", [item(71)]);
-    t.S.syncing = false;
+    t.S.syncing = null;
     const releaseSnap2 = holdRead(t.K.snapshot("PA"));
     const sync2 = t.syncFolder({ force: true });
     await settle();
@@ -4153,7 +4154,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("C578", [item(578)]);
     const get = handlers["triage-title-get"];
     handlers["triage-title-get"] = () => ({ ok: false, error: "后台无响应" });
-    await t.loadResults(t.S.folderToken);
+    await t.loadResults(t.S.view.current);
     handlers["triage-title-get"] = get;
     assert.strictEqual(toasts.at(-1), "读取已有的 AI 判断失败：后台无响应");
   }
@@ -4201,7 +4202,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.folderCriteria = { F700: "只留干货" };
     for (const [id, n, want] of [["F700", 700, "只留干货"], ["all", 701, undefined]]) {
       openFake(id, [item(n)]);
-      await t.loadResults(t.S.folderToken);
+      await t.loadResults(t.S.view.current);
       assert.strictEqual(t.S.titleRes[`BV${n}`].criteria, want, id);
     }
     Object.assign(handlers, { "triage-title-get": was.title, "triage-analysis-get": was.analysis });
@@ -4238,7 +4239,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // rebuilt list lacks it): it still gets its record, the U step and the toast.
   {
     const was = { sleepWhile: t.sleepWhile, pick: t.pickBatchUnfavFolders, unfav: handlers["triage-unfav"] };
-    t.S.folderToken++;
+    t.S.view.current++;
     t.S.allFolders = t.S.folders = [{ id: "f1", title: "一", count: 1 }, { id: "f2", title: "二", count: 1 }];
     Object.assign(t.S, { included: ["f1", "f2"], mediaId: "all", decisions: {}, undo: [], folderDecisions: { f1: {}, f2: {} } });
     t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
@@ -4337,12 +4338,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
 // C587: a 刷新 still reading the folder just left does not show as this folder's.
 {
-  const keep = { syncing: t.S.syncing, token: t.S.folderToken };
-  t.S.syncing = t.S.folderToken = 587;
+  const keep = t.S.syncing;
+  t.S.syncing = t.S.view.current;
   assert.ok(String(t.activityState()?.text).startsWith("刷新中…"), "this folder's");
-  t.S.folderToken++;
+  t.S.view.next();
   assert.ok(!String(t.activityState()?.text).startsWith("刷新中…"), "the folder left's");
-  Object.assign(t.S, { syncing: keep.syncing, folderToken: keep.token });
+  t.S.syncing = keep;
 }
 
 // C593: 保留选中的 N 个 leaves out the selected videos a running batch 取消收藏 is about to write.

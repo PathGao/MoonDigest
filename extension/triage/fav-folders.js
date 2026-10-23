@@ -36,12 +36,12 @@ function followSeenMeta(meta) {
   renderStatus();
 }
 // Reads the listed videos' history entries not read yet; one key per video, so a folder costs a few KB.
-async function loadSeen(token) {
+async function loadSeen(run) {
   if (!S.seenCfg.on) return;
   const want = S.items.map((it) => it.bvid).filter((b) => !(b in S.seenPct));
   if (!want.length) return;
   const got = await chrome.storage.local.get(want.map(KEYS.seen));
-  if (token !== S.folderToken) return;
+  if (!run.alive) return;
   for (const b of want) S.seenPct[b] = got[KEYS.seen(b)] || null;
 }
 function followSeen(changes) {
@@ -208,19 +208,13 @@ async function showFolders(data, fresh) {
   await openFolder(pick);
 }
 
-let openSeq = 0;
 async function openFolder(mediaId) {
-  // Loaded before any state changes so S.mediaId and S.decisions always belong to the same folder; a later click
-  // during the read wins.
-  const seq = ++openSeq;
+  // The folder left ends here: its reads in flight land nowhere. A later click during the decisions read wins the same way.
+  const run = S.view.next();
   const all = mediaId === ALL;
   const removed = mediaId === REMOVED;
-  // 已出分拣范围 shows 保留 too; its 取消收藏 is on each card's leaving line.
-  const decisions = all ? {} : removed ? { ...S.kept } : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
-  if (seq !== openSeq) return;
-  const token = ++S.folderToken;
   S.mediaId = mediaId;
-  S.decisions = decisions;
+  S.decisions = {};
   S.folderDecisions = {};
   S.loadAll = null;
   S.removedCheck = null;
@@ -238,12 +232,16 @@ async function openFolder(mediaId) {
   if (!all && !removed) storeSet(K.lastFolder, mediaId);
   el.folderSelect.value = mediaId;
   el.list.innerHTML = loadingHtml();
+  // 已出分拣范围 shows 保留 too; its 取消收藏 is on each card's leaving line.
+  const decisions = all ? {} : removed ? { ...S.kept } : { ...S.kept, ...(await storeGet(K.decisions(mediaId), {})) };
+  if (!run.alive) return;
+  S.decisions = decisions;
   let ok;
-  if (all) ok = await openAll();
-  else if (removed) ok = await openRemoved();
-  else ok = (await openCached(token)) || (token === S.folderToken && (await syncFolder({ force: true })));
+  if (all) ok = await openAll(run);
+  else if (removed) ok = await openRemoved(run);
+  else ok = (await openCached(run)) || (run.alive && (await syncFolder({ force: true })));
   // A failed first read (limit, offline) still leaves the last folder's step and chips behind; a later folder owns the page.
-  if (!ok && token !== S.folderToken) return;
+  if (!ok && !run.alive) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
   S.classFilter = { coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
@@ -251,25 +249,25 @@ async function openFolder(mediaId) {
 }
 
 // A folder with a cached list shows it at once; one light id request then decides whether it needs a full sync.
-async function openCached(token) {
+async function openCached(run) {
   const mediaId = S.mediaId;
   const toview = mediaId === TOVIEW;
   const snap = await storeGet(K.snapshot(mediaId), null);
   // Snapshots from before the intro was cached sync once, so the AI is not told an empty intro (稍后再看 has none).
-  if (token !== S.folderToken || !snap?.items || (!toview && snap.intro === undefined)) return false;
+  if (!run.alive || !snap?.items || (!toview && snap.intro === undefined)) return false;
   if (!toview) S.folderIntro[mediaId] = snap.intro;
   setItems([...snap.items]);
-  if (!(await loadResults(token))) return false;
+  if (!(await loadResults(run))) return false;
   // 稍后再看 is read in one request anyway, and its watch progress goes stale: it always syncs, behind its snapshot.
   if (toview) syncFolder({ force: true });
-  else checkCached(token, snap);
+  else checkCached(run, snap);
   return true;
 }
 
-async function checkCached(token, snap) {
+async function checkCached(run, snap) {
   if (fav.state().writing(S.mediaId)) return deferRead(() => quickSync({ force: true }));
   const r = await send({ type: "triage-folder-ids", mediaId: S.mediaId });
-  if (token !== S.folderToken) return;
+  if (!run.alive) return;
   if (!r.ok) syncFolder({ force: true });
   else if (!idsChanged(snap.ids || snap.bvids, r.data.bvids)) markRead(S.mediaId);
   else syncFolder({ force: true, cached: { snap, ids: r.data.bvids } });
@@ -311,31 +309,30 @@ async function fromCache(mediaId, { snap, ids }, local) {
 // is not traded for the light check.
 let deferredRead = null;
 function deferRead(fn, full = false) {
-  if (deferredRead?.full && deferredRead.token === S.folderToken && !full) return;
+  if (deferredRead?.full && deferredRead.run.alive && !full) return;
   clearTimeout(deferredRead?.timer);
-  const token = S.folderToken;
+  const run = S.view.current;
   const timer = setTimeout(() => {
     deferredRead = null;
-    if (token === S.folderToken) fn();
+    if (run.alive) fn();
   }, 1000);
-  deferredRead = { timer, token, full };
+  deferredRead = { timer, run, full };
 }
 
 // The light refresh (back on the tab, the player closed, a video re-favorited): check the id list and apply only the
 // difference. 刷新 still loads the whole folder, which also catches videos that became invalid.
 // Coming back to the tab fires both focus and visibilitychange: while one check runs, the other returns.
-let quickChecking = null;
+let quickChecking = null; // the view run of the check going on
 async function quickSync({ force = false } = {}) {
-  if (!force && (Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS || quickChecking === S.folderToken)) return;
-  const token = S.folderToken;
-  quickChecking = token;
+  if (!force && (Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS || quickChecking?.alive)) return;
+  const run = (quickChecking = S.view.current);
   try {
     const snap = S.mediaId === TOVIEW ? null : await storeGet(K.snapshot(S.mediaId), null);
-    if (token !== S.folderToken) return;
+    if (!run.alive) return;
     if (!snap?.items || snap.intro === undefined) syncFolder({ force });
-    else await checkCached(token, snap);
+    else await checkCached(run, snap);
   } finally {
-    if (quickChecking === token) quickChecking = null;
+    if (quickChecking === run) quickChecking = null;
   }
 }
 
@@ -351,14 +348,13 @@ function setItems(list) {
 // ---------- sync with bilibili ----------
 // cached ({ snap, ids }, from checkCached) fetches only the newest pages and takes the rest from the cached list.
 async function syncFolder({ force = false, cached = null } = {}) {
-  // S.syncing holds the token of the running sync, so a forced sync for a newly opened folder is not blocked by the old one.
-  if (S.syncing === S.folderToken || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
+  // S.syncing is the running sync's view run, so a forced sync for a newly opened folder is not blocked by the old one.
+  if (S.syncing?.alive || (!force && Date.now() - S.lastSyncAt < SYNC_MIN_GAP_MS)) return false;
   if (fav.state().writing(S.mediaId)) {
     deferRead(() => (cached ? quickSync({ force: true }) : syncFolder({ force: true })), !cached);
     return false;
   }
-  const token = S.folderToken;
-  S.syncing = token;
+  const run = (S.syncing = S.view.current);
   S.loadPage = null;
   const mediaId = S.mediaId;
   const started = Date.now();
@@ -366,11 +362,11 @@ async function syncFolder({ force = false, cached = null } = {}) {
   try {
     // Videos MoonDigest already holds from another chosen folder or 已出分拣范围: added here, they reuse that info.
     const local = await localItems(mediaId);
-    if (token !== S.folderToken) return false;
+    if (!run.alive) return false;
     let r = cached ? await fromCache(mediaId, cached, local) : null;
-    if (token !== S.folderToken) return false;
+    if (!run.alive) return false;
     r ||= await send({ type: "triage-folder-items", mediaId });
-    if (token !== S.folderToken) return false;
+    if (!run.alive) return false;
     if (!r.ok) {
       const needLogin = MdgErrors.action(r.code) === "login"; // send() showed 去登录
       if (!needLogin) S.syncError = `刷新失败：${r.error}`;
@@ -384,7 +380,7 @@ async function syncFolder({ force = false, cached = null } = {}) {
     S.syncError = S.readError = "";
     if (r.data.info) S.folderIntro[mediaId] = r.data.info.intro;
     const snap = await storeGet(K.snapshot(mediaId), null);
-    if (token !== S.folderToken) return false;
+    if (!run.alive) return false;
     // A run that wrote here while the list was read makes it stale (it would bring moved videos back): read again later.
     if (fav.state().writing(mediaId, started)) {
       deferRead(() => syncFolder({ force: true }), true);
@@ -432,12 +428,12 @@ async function syncFolder({ force = false, cached = null } = {}) {
     for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 
     if (!partial) await saveSnapshot(mediaId, remote, r.data.ids);
-    if (!(await loadResults(token))) return false;
+    if (!(await loadResults(run))) return false;
     showSyncNotice(diff, partial);
     render();
     return true;
   } finally {
-    if (S.syncing === token) S.syncing = false;
+    if (S.syncing === run) S.syncing = null;
     renderTop();
   }
 }
@@ -481,27 +477,26 @@ function saveSnapshot(mediaId, items, ids = null) {
 // A folder's id list could not be read while checking it (已出分拣范围, 所有收藏夹); 已出分拣范围 adds how to retry.
 const checkFailed = (id, error) => `核对「${folderName(id)}」失败：${error}`;
 const RETRY_REFRESH = "，可点刷新重试";
-async function openRemoved() {
-  const token = S.folderToken;
+async function openRemoved(run = S.view.current) {
   const keys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
   const got = await chrome.storage.local.get([K.removed, ...keys]);
-  if (token !== S.folderToken) return false;
+  if (!run.alive) return false;
   const rec = got[K.removed] || {};
   const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice(KEYS.triageDecisionsPrefix.length), got[k]]));
   setItems(Object.values(rec)
     .sort((x, y) => y.at - x.at)
     .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) })));
-  if (!(await loadResults(token))) return false;
-  checkRemoved(token);
+  if (!(await loadResults(run))) return false;
+  checkRemoved(run);
   return true;
 }
 
 // Re-favorited videos leave 已出分拣范围 as soon as one chosen folder's id list has them again; then each one left is
 // asked where it is now (checkWhere). Both are runs' "check": the count in the pill, a B站 limit counting down there and
 // asking again, a failure in row 3 (S.removedCheck.error). Opening another folder ends them.
-async function checkRemoved(token) {
+async function checkRemoved(run) {
   const ids = S.folders.map((f) => String(f.id));
-  const alive = () => token === S.folderToken;
+  const alive = () => run.alive;
   S.removedCheck = { error: "" };
   // A check of an earlier opening ends once its request in flight lands.
   while (runs.busy("check") && alive()) await sleepWhile(50, () => true);
@@ -525,17 +520,17 @@ async function checkRemoved(token) {
     S.removedCheck.error = `${checkFailed(ids[i - 1], r.error)}${RETRY_REFRESH}`;
     return render();
   }
-  await checkWhere(token);
+  await checkWhere(run);
   if (alive() && !S.removedCheck.error) S.removedCheck = null;
   render();
 }
 
 // Asks Bilibili, per video, which folders hold it (not invalid ones: those are known, and records too old to have an aid
 // are left as they are). Only folders not chosen count; one in a chosen folder is taken out by the next id check.
-async function checkWhere(token) {
-  if (token !== S.folderToken) return;
+async function checkWhere(run) {
+  if (!run.alive) return;
   const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
-  const alive = () => token === S.folderToken;
+  const alive = () => run.alive;
   const found = {};
   let mid; // who is logged in, asked once per check (the first answer carries it)
   let i = 0;
@@ -623,16 +618,16 @@ async function cleanRemoved(list) {
 }
 
 // Reads cached 粗分/细看 results for listed videos not loaded yet; false when the folder changed meanwhile.
-async function loadResults(token) {
-  await loadSeen(token);
-  if (token !== S.folderToken) return false;
+async function loadResults(run) {
+  await loadSeen(run);
+  if (!run.alive) return false;
   const missing = S.items.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
   if (!missing.length) return true;
   const [t, a] = await Promise.all([
     send({ type: "triage-title-get", bvids: missing }),
     send({ type: "triage-analysis-get", bvids: missing })
   ]);
-  if (token !== S.folderToken) return false;
+  if (!run.alive) return false;
   // Results from before criteria were recorded count as made under this folder's current criteria.
   const stamp = {};
   const stamped = (key, r) => {
@@ -655,11 +650,10 @@ async function loadResults(token) {
 // Folders with a cached list (triage_snapshot_*.items) show at once, then each is checked against the folder's video ids
 // (one light request) and re-fetched if they differ. Folders without a cache are fetched one by one in the background
 // with the same loader and request interval as the rest of the page.
-async function openAll() {
-  const token = S.folderToken;
+async function openAll(run = S.view.current) {
   const ids = S.folders.map((f) => String(f.id));
   const got = await chrome.storage.local.get(ids.flatMap((id) => [K.snapshot(id), K.decisions(id)]));
-  if (token !== S.folderToken) return false;
+  if (!run.alive) return false;
   const lists = {};
   for (const f of S.folders) {
     const id = String(f.id);
@@ -671,8 +665,8 @@ async function openAll() {
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
   S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), paused: false, running: false, error: "", partial: 0 };
   rebuildAll();
-  if (!(await loadResults(token))) return false;
-  runLoadAll(token);
+  if (!(await loadResults(run))) return false;
+  runLoadAll(run);
   return true;
 }
 
@@ -695,10 +689,10 @@ function rebuildAll() {
   for (const b of [...S.selected]) if (!S.itemMap.has(b)) S.selected.delete(b);
 }
 
-async function runLoadAll(token) {
+async function runLoadAll(run) {
   const L = S.loadAll;
   if (!L || L.running) return;
-  const keepGoing = () => !L.paused && token === S.folderToken;
+  const keepGoing = () => !L.paused && run.alive;
   L.running = true;
   L.error = "";
   render();
@@ -715,7 +709,7 @@ async function runLoadAll(token) {
     if (L.check.length) {
       const id = L.check[0];
       const r = await send({ type: "triage-folder-ids", mediaId: id });
-      if (token !== S.folderToken) return;
+      if (!run.alive) return;
       if (runs.hold(r)) {
         await runs.wait("load", runs.hold(r), keepGoing);
         continue;
@@ -732,7 +726,7 @@ async function runLoadAll(token) {
       if (idsChanged(list.ids || bvids, r.data.bvids)) {
         // Only the difference, as in a single folder; the whole folder loads when that is not enough.
         const q = await fromCache(id, { snap: { ...list, bvids }, ids: r.data.bvids }, await localItems(id));
-        if (token !== S.folderToken) return;
+        if (!run.alive) return;
         // B站 risk control: wait, then check this folder again; a full read now would only be refused longer.
         if (q && runs.hold(q)) {
           await runs.wait("load", runs.hold(q), keepGoing);
@@ -743,7 +737,7 @@ async function runLoadAll(token) {
           L.lists[id] = { items: q.data.items, ids: q.data.ids };
           await saveSnapshot(id, q.data.items, q.data.ids);
           rebuildAll();
-          if (!(await loadResults(token))) return;
+          if (!(await loadResults(run))) return;
         } else L.queue.push(id);
       }
       render();
@@ -757,7 +751,7 @@ async function runLoadAll(token) {
     renderStatus();
     const r = await send({ type: "triage-folder-items", mediaId: id });
     L.current = "";
-    if (token !== S.folderToken) return;
+    if (!run.alive) return;
     if (runs.hold(r)) {
       await runs.wait("load", runs.hold(r), keepGoing);
       continue;
@@ -775,7 +769,7 @@ async function runLoadAll(token) {
     if (r.data.partial) L.partial++;
     else await saveSnapshot(id, items, r.data.ids);
     rebuildAll();
-    if (!(await loadResults(token))) return;
+    if (!(await loadResults(run))) return;
     render();
     if (L.queue.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
@@ -791,7 +785,7 @@ function refreshAll() {
   L.check = [];
   L.paused = false;
   L.partial = 0;
-  runLoadAll(S.folderToken);
+  runLoadAll(S.view.current);
 }
 
 // Row 3 of 所有收藏夹: what was loaded once done, else only a failure (the progress is in the pill, loadAllActivity).

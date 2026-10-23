@@ -4,8 +4,10 @@
 //   o.next() gives a step { n = keys.length or 1, gap?, ... } or null (finished) or { idle: ms } (sleep, nothing sent); o.act(step) sends
 //   it; o.judge(r, hold) says ok | item (this step failed, go on) | retry (send it again now) | wait (count down hold(r), then
 //   send the same step again) | stop. Default: hold(r) ? wait : r.ok ? ok : stop. o.done(step, r) after ok and item;
-//   the count is the sum of their n (failed: the item steps' part of it). The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) and o.alive()
-//   turning false end it at once, in a gap or a countdown; a request in flight still lands and counts. o.plan() (async)
+//   the count is the sum of their n (failed: the item steps' part of it). The gap (step.gap ?? o.gap ?? gap) only between two sends. stop(job) ends it
+//   at once in a gap or a countdown, and after the request in flight, which still lands and counts (a B站 write went
+//   through). o.alive() turning false (the owner is gone: another folder opened) also drops the answer in flight: no
+//   done, nothing counted. o.plan() (async)
 //   runs once the job is taken and may add total / next / act / line, or return null to end without a request.
 //   o.line(done, total, stopping) is its pill text; o.finished(done - failed) its line after it ends (green), until it starts again;
 //   the newest one shows;
@@ -51,6 +53,7 @@
       runs.set(job, r);
       ended.delete(job);
       const alive = () => !r.stopping && (!o.alive || o.alive());
+      const gone = () => Boolean(o.alive) && !o.alive();
       let error = "";
       let code = "";
       let finished = false;
@@ -81,10 +84,12 @@
           for (;;) {
             x = await o.act(step);
             sent = true;
+            if (gone()) break;
             v = judge(x, hold);
             if (v === "wait") await wait(job, hold(x), alive, o.tick);
             if ((v !== "retry" && v !== "wait") || !alive()) break;
           }
+          if (gone()) break;
           if (v === "stop") {
             // Never without words: that would read as the user's 停止 (stopped is "no error").
             error = MdgErrors.text(x);

@@ -93,7 +93,7 @@ const S = {
   included: [],
   removedCheck: null, // 已出分拣范围 only: { error } while its folders, then its videos, are checked (the pill shows the progress)
   mediaId: "",
-  folderToken: 0,
+  view: MdgCommon.latest(), // the open folder's run (openFolder starts the next): async work for a folder holds view.current and checks it after each await
   items: [],
   itemMap: new Map(),
   titleRes: {},
@@ -176,8 +176,8 @@ const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTL
 // these are mirrored from elsewhere.
 const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
-// S.syncing is the token of the folder being read: one left meanwhile no longer shows it.
-const ownSync = () => Boolean(S.syncing) && S.syncing === S.folderToken;
+// S.syncing is the view run of the folder being read: one left meanwhile no longer shows it.
+const ownSync = () => Boolean(S.syncing?.alive);
 runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });

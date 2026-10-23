@@ -71,7 +71,7 @@ async function start() {
     if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
       chrome.storage.sync.get(SEEN_DEFAULTS).then((v) => {
         setSeenCfg(v);
-        loadSeen(S.folderToken).then(render);
+        loadSeen(S.view.current).then(render);
       });
     }
     if (area === "local") followSeen(changes);
@@ -409,7 +409,7 @@ function bindEvents() {
       render();
     } else if (act === "all-resume") {
       S.loadAll.paused = false;
-      runLoadAll(S.folderToken);
+      runLoadAll(S.view.current);
     }
     else if (act === "clean-removed") cleanRemoved(visibleItems());
     else if (act === "clean-selected") cleanRemoved(selectedIn(visibleItems()));
