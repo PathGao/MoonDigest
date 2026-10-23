@@ -183,6 +183,40 @@ assert.strictEqual(S.parseRef("https://www.youtube.com/watch?v=short"), null);
 assert.strictEqual(S.parseRef("https://www.youtube.com/@channel/videos"), null);
 assert.strictEqual(S.isAllowedFetchUrl("https://www.youtube.com/youtubei/v1/player"), true);
 
+// matchPage agrees with where the manifest runs content.js (and may reach): a page it calls a video page gets the
+// content script on load, one it does not is read as a web page. Chrome matches a pattern's path against path + query,
+// so /list/watchlater alone never matched /list/watchlater?bvid=… (#395).
+{
+  const manifest = JSON.parse(PS.read("manifest.json"));
+  const glob = (p) => new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
+  const matches = (pattern, url) => {
+    const [, scheme, host, rest] = /^(\*|https?):\/\/([^/]+)(\/.*)$/.exec(pattern);
+    const u = new URL(url);
+    const hostOk = host.startsWith("*.") ? u.hostname === host.slice(2) || u.hostname.endsWith(host.slice(1)) : u.hostname === host;
+    return (scheme === "*" ? /^https?:$/.test(u.protocol) : u.protocol === `${scheme}:`) && hostOk && glob(rest).test(u.pathname + u.search);
+  };
+  const reader = manifest.content_scripts.filter((c) => c.js.includes("content.js")).flatMap((c) => c.matches);
+  const page = (url) => reader.some((p) => matches(p, url)) && manifest.host_permissions.some((p) => matches(p, url));
+  for (const [url, isPage] of [
+    ["https://www.bilibili.com/video/BV1GJ411x7h7/?p=2#reply", true],
+    ["https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7&oid=1", true],
+    ["https://www.bilibili.com/list/ml123456?bvid=BV1GJ411x7h7&oid=1", true],
+    ["https://www.bilibili.com/list/7?sid=9&bvid=BV1GJ411x7h7", true],
+    ["https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30s", true],
+    ["https://www.youtube.com/shorts/dQw4w9WgXcQ", true],
+    ["https://m.youtube.com/watch?v=dQw4w9WgXcQ", false],
+    ["https://music.youtube.com/watch?v=dQw4w9WgXcQ", false],
+    ["https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ", false],
+    ["https://www.bilibili.com/", false],
+    ["https://space.bilibili.com/7", false]
+  ]) {
+    assert.strictEqual(page(url), isPage, `the manifest ${isPage ? "misses" : "runs content.js on"} ${url}`);
+    assert.strictEqual(Boolean(S.matchPage(url)), isPage, `matchPage ${url}`);
+  }
+  // A link a note keeps still resolves: matchSite is the wider one.
+  assert.strictEqual(S.matchSite("https://music.youtube.com/watch?v=dQw4w9WgXcQ")?.id, "youtube");
+}
+
 // srv3: attribute order, spaces inside <s>, entities decoded once, numeric entities
 const srv3 = `<?xml version="1.0" encoding="utf-8" ?><timedtext format="3"><body>
 <p d="1500" t="1000"><s>hello</s><s t="500"> world</s><s t="900"> &amp;lt;tag&amp;gt;</s></p>

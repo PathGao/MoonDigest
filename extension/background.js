@@ -122,7 +122,7 @@ async function getAiSidepanelState(tabId, { refresh = false, frameId = 0, videoI
   }
 
   const inViewer = frameId > 0;
-  if (!inViewer && !MdgSites.matchSite(tab.url)) {
+  if (!inViewer && !MdgSites.matchPage(tab.url)) {
     return readWebPage(tab);
   }
   // The viewer's content script came with the 分拣台 page, which an extension update reloads.
@@ -507,7 +507,7 @@ const BACKGROUND_HANDLERS = {
     let readerUrl = "";
     try {
       const parsed = new URL(url);
-      if (!MdgSites.matchSite(parsed.href)) {
+      if (!MdgSites.matchPage(parsed.href)) {
         throw new Error(MdgErrors.TEXT.notVideoPage);
       }
       parsed.searchParams.set(MdgCommon.READER_PARAM, "1");

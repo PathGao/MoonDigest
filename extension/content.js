@@ -185,9 +185,10 @@ function replaceReaderModeUrl(nextUrl) {
   }
 }
 
-function isWatchlaterPage(url = location.href) {
+// The playlist player: 稍后再看 (/list/watchlater), a 收藏夹 or 合集 played through (/list/ml…).
+function isListPlayerPage(url = location.href) {
   try {
-    return new URL(url).pathname.replace(/\/+$/, "") === "/list/watchlater";
+    return new URL(url).pathname.startsWith("/list/");
   } catch {
     return false;
   }
@@ -1637,7 +1638,7 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
           layoutReaderPlayerHost();
         }
       }
-      if (state.readingViewOpen && !isWatchlaterPage()) {
+      if (state.readingViewOpen && !isListPlayerPage()) {
         await ensureReaderPlayerControlsRecovered(activeHost, {
           reason: attempt > 0 ? "mount-retry" : "mount"
         });
@@ -2705,7 +2706,7 @@ function getReaderPlayerControlsState(playerHost = state.readingPlayerHost) {
 }
 
 function hasReaderPlayerControlsIssue(playerHost = state.readingPlayerHost) {
-  if (!state.readingViewOpen || !playerHost || isWatchlaterPage()) {
+  if (!state.readingViewOpen || !playerHost || isListPlayerPage()) {
     return false;
   }
 
@@ -2718,7 +2719,7 @@ function queueEnsureReaderPlayerControlsRecovered({
   delayMs = 120,
   minIntervalMs = 480
 } = {}) {
-  if (!state.readingViewOpen || isWatchlaterPage()) {
+  if (!state.readingViewOpen || isListPlayerPage()) {
     return;
   }
   const playerHost = state.readingPlayerHost;
@@ -2736,7 +2737,7 @@ function queueEnsureReaderPlayerControlsRecovered({
 
   state.readingControlsRecoveryTimer = window.setTimeout(() => {
     state.readingControlsRecoveryTimer = 0;
-    if (!state.readingViewOpen || isWatchlaterPage()) {
+    if (!state.readingViewOpen || isListPlayerPage()) {
       return;
     }
     const activeHost = state.readingPlayerHost;
@@ -2811,7 +2812,7 @@ async function ensureReaderPlayerControlsRecovered(
   playerHost = state.readingPlayerHost,
   { reason = "unknown", retryDelayMs = 90 } = {}
 ) {
-  if (!state.readingViewOpen || !playerHost || isWatchlaterPage()) {
+  if (!state.readingViewOpen || !playerHost || isListPlayerPage()) {
     return false;
   }
 
@@ -2883,7 +2884,7 @@ function scheduleReaderPlayerControlsHide(playerHost = state.readingControlsHove
 }
 
 function bindReaderPlayerControlsHover(playerHost = state.readingPlayerHost) {
-  if (!state.readingViewOpen || !isWatchlaterPage() || !playerHost) {
+  if (!state.readingViewOpen || !isListPlayerPage() || !playerHost) {
     return;
   }
 
