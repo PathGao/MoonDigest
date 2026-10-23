@@ -502,6 +502,7 @@ async function checkRemoved(run) {
   // A check of an earlier opening ends once its request in flight lands.
   while (runs.busy("check") && alive()) await sleepWhile(50, () => true);
   let i = 0;
+  let cur = null; // the step in flight: a failure names its folder
   const r = await runs.run("check", {
     total: ids.length,
     gap: 300,
@@ -509,7 +510,7 @@ async function checkRemoved(run) {
     line: (d, t) => `核对收藏夹 ${d}/${t}`,
     next: () => (i < ids.length ? { id: ids[i++] } : null),
     // A folder being written is checked next time; its list is changing now.
-    act: ({ id }) => (fav.state().writing(id) ? { ok: true } : send({ type: "triage-folder-ids", mediaId: id })),
+    act: (step) => ((cur = step), fav.state().writing(step.id) ? { ok: true } : send({ type: "triage-folder-ids", mediaId: step.id })),
     async done(step, x) {
       if (!alive() || !x.data) return;
       await dropRemoved(x.data.bvids);
@@ -518,7 +519,7 @@ async function checkRemoved(run) {
   });
   if (!alive()) return;
   if (r.error) {
-    S.removedCheck.error = `${checkFailed(ids[i - 1], r.error)}${RETRY_REFRESH}`;
+    S.removedCheck.error = `${checkFailed(cur.id, r.error)}${RETRY_REFRESH}`;
     return render();
   }
   await checkWhere(run);
@@ -535,13 +536,14 @@ async function checkWhere(run) {
   const found = {};
   let mid; // who is logged in, asked once per check (the first answer carries it)
   let i = 0;
+  let cur = null; // the step in flight: a failure names its video
   const r = await runs.run("check", {
     total: list.length,
     gap: 150,
     alive,
     line: (d, t) => `核对视频的收藏状态 ${d}/${t}`,
     next: () => (i < list.length ? { it: list[i++] } : null),
-    act: ({ it }) => send({ type: "triage-fav-where", aid: favRes(it), mid }),
+    act: (step) => ((cur = step), send({ type: "triage-fav-where", aid: favRes(step.it), mid })),
     done({ it }, x) {
       if (!alive()) return;
       mid ||= x.data?.mid;
@@ -554,7 +556,7 @@ async function checkWhere(run) {
       render();
     }
   });
-  if (r.error && alive()) S.removedCheck.error = `核对《${shortTitle(list[i - 1])}》的收藏状态失败：${r.error}${RETRY_REFRESH}`;
+  if (r.error && alive()) S.removedCheck.error = `核对《${shortTitle(cur.it)}》的收藏状态失败：${r.error}${RETRY_REFRESH}`;
 
   await lockRecords(async () => {
     const rec = await storeGet(K.removed, {});

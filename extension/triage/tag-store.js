@@ -363,13 +363,14 @@
       const p = { newTags: [], rows: [], notes: [], errors: [] };
       let answered = 0;
       let i = 0;
+      let cur = 0; // the batch in flight
       const r = await R.run(job, {
         total,
-        tick: () => R.get(job)?.wait && progress(`${R.get(job).wait}${which(i - 1)}…`),
+        tick: () => R.get(job)?.wait && progress(`${R.get(job).wait}${which(cur)}…`),
         gap: intervalMs,
         line: (d, t) => `AI 打标签 ${d}/${t} 批${where()}`,
         next: () => (i < total ? { i: i++ } : null),
-        act: ({ i }) => (progress(`AI 正在处理${which(i, true)}…`), send(request(i, p))),
+        act: ({ i }) => ((cur = i), progress(`AI 正在处理${which(i, true)}…`), send(request(i, p))),
         judge: MdgRuns.aiJudge(),
         done({ i }, x) {
           if (x.ok) return answered++, merge(p, x.data, i);
@@ -379,7 +380,7 @@
         }
       });
       if (r.error) {
-        p.errors.push(`${which(i - 1)}失败：${r.error}`);
+        p.errors.push(`${which(cur)}失败：${r.error}`);
         onError(r.error, r.code);
       }
       if (r.stopped) p.errors.push(answered ? "已手动停止，这里只有已完成批次的建议" : "已手动停止，还没有批次完成");

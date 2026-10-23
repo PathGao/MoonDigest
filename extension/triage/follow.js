@@ -824,9 +824,10 @@ const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p
 // back in their groups ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
 // sidebar item or 已出分拣范围's tab (取消关注, 重新关注, 移到) leave the selection once the data is read again.
-async function relationRun(calls, label, { quiet = false, skipped = [], lost = [] } = {}) {
+// ran gets the mids B站 took (the skipped ones left out), for an undo step of exactly those.
+async function relationRun(calls, label, { quiet = false, skipped = [], lost = [], ran = [] } = {}) {
   const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
-  const ran = new Set();
+  const took = new Set();
   let out = 0;
   const running = W.run("follow-write", label, {
     verb: label,
@@ -836,7 +837,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [], lost = [
       skipped.push(...left);
       out += left.length;
       if (r?.data?.groupsError) lost.push({ mid: c.msg.mid, error: r.data.groupsError });
-      for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) ran.add(mid);
+      for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) took.add(mid);
       renderSel();
     }
   });
@@ -850,7 +851,8 @@ async function relationRun(calls, label, { quiet = false, skipped = [], lost = [
   else if (!quiet) toast(`已${label} ${done} 个`);
   await load();
   const listed = new Set(sideMids(D, rows, F.side).filter((m) => !F.kind || F.side !== "out" || outKind(rows.get(m)) === F.kind));
-  for (const m of ran) if (!listed.has(m)) F.sel.delete(m);
+  for (const m of took) if (!listed.has(m)) F.sel.delete(m);
+  ran.push(...took);
   render();
   return done;
 }
@@ -912,7 +914,9 @@ async function refollow(mids) {
   if (!ok) return;
   const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
   const lost = [];
-  const done = mids.slice(0, await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost }));
+  const ran = [];
+  await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost, ran });
+  const done = mids.filter((mid) => ran.includes(mid));
   if (!done.length) return;
   pushWriteUndo(done, {
     label: "重新关注",
@@ -1337,7 +1341,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const opts = { tags: D.tags, map: D.map, maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
+  const opts = { maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove, scope);
   // The same run as 收藏夹's (tag-store.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
   const running = tagStore.runAi({
@@ -1345,7 +1349,8 @@ async function runAi({ instruction, scope, allowRemove }) {
     job: "follow-ai",
     total: batches.length,
     request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
-    merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    // The tags and map as they are now, as 收藏夹's merge: a tag made or deleted since the run started counts.
+    merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: D.tags, map: D.map }),
     send,
     intervalMs,
     progress: (text) => (progress(text), renderSync()),

@@ -38,7 +38,7 @@ const turn = () => new Promise((r) => setImmediate(r));
     const refused = await w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks: [chunk(9, ["x"])] });
     assert.deepStrictEqual(refused, { done: 0, total: 0, error: "", busy: "重新收藏" });
     assert.ok(!log.some(([, id]) => id === 9), "the refused batch sent nothing");
-    assert.deepStrictEqual(await w2.run("follow-write", "取消关注", { verb: "取消关注", chunks: [chunk(8, ["m1"], [])] }), { done: 1, total: 1, error: "", stopped: false }, "关注's lane is its own");
+    assert.deepStrictEqual(await w2.run("follow-write", "取消关注", { verb: "取消关注", chunks: [chunk(8, ["m1"], [])] }), { done: 1, total: 1, error: "", stopped: false, keys: ["m1"], chunk: chunk(8, ["m1"], []) }, "关注's lane is its own");
     open();
     await turn();
     await turn();
@@ -53,8 +53,10 @@ const turn = () => new Promise((r) => setImmediate(r));
   {
     const { w, log } = setup((m) => (m.id === 2 ? { ok: false, error: "网络错误" } : { ok: true }));
     const done = [];
-    const r = await w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks: [chunk(1, ["a", "b"]), chunk(2, ["c"]), chunk(3, ["d"])], onChunk: (c) => done.push(c.msg.id) });
-    assert.deepStrictEqual(r, { done: 2, total: 4, error: "网络错误", stopped: false });
+    const chunks = [chunk(1, ["a", "b"]), chunk(2, ["c"]), chunk(3, ["d"])];
+    const r = await w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks, onChunk: (c) => done.push(c.msg.id) });
+    // keys name what went through and chunk the refused one: a caller maps by them, not by counting.
+    assert.deepStrictEqual(r, { done: 2, total: 4, error: "网络错误", stopped: false, keys: ["a", "b"], chunk: chunks[1] });
     assert.deepStrictEqual([done, log.some(([, id]) => id === 3)], [[1], false]);
     assert.deepStrictEqual([w.busy(), w.pending("c"), w.pending("d")], ["", "", ""]);
   }
@@ -67,7 +69,7 @@ const turn = () => new Promise((r) => setImmediate(r));
     await turn();
     w.stop();
     open();
-    assert.deepStrictEqual(await running, { done: 1, total: 2, error: "", stopped: true });
+    assert.deepStrictEqual(await running, { done: 1, total: 2, error: "", stopped: true, keys: ["m1"], chunk: chunk(1, ["m1"], []) });
     assert.deepStrictEqual([log.length, w.pending("m2")], [1, ""]);
     // Pressed while the last chunk is in flight: nothing was left, so it is not stopped.
     const [last, openLast] = gate();
@@ -76,7 +78,7 @@ const turn = () => new Promise((r) => setImmediate(r));
     await turn();
     s2.w.stop();
     openLast();
-    assert.deepStrictEqual(await whole, { done: 1, total: 1, error: "", stopped: false });
+    assert.deepStrictEqual(await whole, { done: 1, total: 1, error: "", stopped: false, keys: ["m1"], chunk: chunk(1, ["m1"], []) });
   }
 
   // A plan given as a function runs once the lane is taken; null ends the batch without a request.
@@ -84,7 +86,7 @@ const turn = () => new Promise((r) => setImmediate(r));
     const { w, log } = setup();
     let busyInPlan = "";
     const r = await w.run("transfer", "移动/复制", async () => ((busyInPlan = w.busy()), null));
-    assert.deepStrictEqual([r, busyInPlan, w.busy(), log.length], [{ done: 0, total: 0, error: "", stopped: false }, "移动/复制", "", 0]);
+    assert.deepStrictEqual([r, busyInPlan, w.busy(), log.length], [{ done: 0, total: 0, error: "", stopped: false, keys: [], chunk: null }, "移动/复制", "", 0]);
   }
 
   // Settle: a folder counts as written while the batch names it or writes it now (a limit's countdown included), and for
@@ -156,7 +158,7 @@ const turn = () => new Promise((r) => setImmediate(r));
   // plan or onChunk throwing: the batch ends with its message, no rejection, nothing left pending.
   {
     const { w } = setup();
-    assert.deepStrictEqual(await w.run("move", "移动", async () => { throw new Error("建不了收藏夹"); }), { done: 0, total: 0, error: "建不了收藏夹" });
+    assert.deepStrictEqual(await w.run("move", "移动", async () => { throw new Error("建不了收藏夹"); }), { done: 0, total: 0, error: "建不了收藏夹", keys: [], chunk: null });
     const r = await w.run("unfav", "批量取消收藏", { verb: "取消收藏", chunks: [chunk(1, ["a"]), chunk(2, ["b"])], onChunk: () => { throw new Error("存不下"); } });
     assert.deepStrictEqual([r.error, r.done, w.pending("b"), w.busy()], ["存不下", 1, "", ""]);
   }

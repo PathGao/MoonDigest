@@ -905,6 +905,28 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual([F.side, F.sel.size], ["all", 0], "out of it");
   }
 
+  // G5: a tag made (here or in another tab) after an AI 打标签 run started is a known tag for the batches after it, as in
+  // 收藏夹: the proposal refers to it by id, not as a new tag of the same name.
+  {
+    let batch = 0;
+    const p = await followPage({
+      store: page({ follow_tags: [{ id: "t1", name: "科普", color: "#111" }] }),
+      handlers: {
+        "follow-ai-tag": (m) => {
+          if (++batch === 1) {
+            p.FW.D().tags = [...p.FW.D().tags, { id: "t2", name: "新来", color: "#222" }];
+            return { ok: true, data: { assignments: { [m.mids[0]]: { add: ["科普"] } } } };
+          }
+          return { ok: true, data: { assignments: { [m.mids[0]]: { add: ["新来"] } } } };
+        }
+      }
+    });
+    p.FW.AI.settings = { batchSize: 1, intervalSec: 0, newTagMax: 5, allowRemove: false };
+    await p.FW.aiTags.run({ instruction: "分", scope: "filter", allowRemove: false });
+    const got = p.FW.AI.proposal;
+    assert.deepStrictEqual([batch, plain(got.newTags), plain(got.rows.map((r) => [r.id, r.add]))], [2, [], [["u1", ["id:t1"]], ["u2", ["id:t2"]]]], JSON.stringify(got));
+  }
+
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.
   {
     let release;

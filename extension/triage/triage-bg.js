@@ -467,18 +467,25 @@ function seenPrune(entries, keep, nowS) {
 // carries the error that ended it (B站限流 shows as the meta's backoffUntil instead).
 let seenRun = null;
 function seenSync({ force }) {
-  if (seenRun) return Promise.resolve({ reading: true });
+  // A read going on is joined, unless 关 is dropping what it wrote (seenClear): that one is ending, and this 开 reads
+  // afresh once the drop is through.
+  if (seenRun && !seenClearing) return Promise.resolve({ reading: true });
+  const prev = seenRun;
   let started;
   const start = new Promise((r) => (started = () => r({ reading: true })));
   let error = "";
-  seenRun = seenSyncOnce(force, started).catch((e) => {
-    if (e.code !== "THROTTLED") error = e.message;
-    throw e;
-  }).finally(() => {
-    seenRun = null;
-    globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-seen-done", ...(error && { error }) })?.catch?.(() => {});
-  });
-  return Promise.race([start, seenRun]);
+  const run = (prev ? prev.catch(() => {}) : Promise.resolve())
+    .then(() => seenSyncOnce(force, started))
+    .catch((e) => {
+      if (e.code !== "THROTTLED") error = e.message;
+      throw e;
+    })
+    .finally(() => {
+      if (seenRun === run) seenRun = null;
+      globalThis.chrome?.runtime?.sendMessage?.({ type: "triage-seen-done", ...(error && { error }) })?.catch?.(() => {});
+    });
+  seenRun = run;
+  return Promise.race([start, run]);
 }
 
 // 关 drops the stored history (up to SEEN_MAX keys) once any read in flight has written; turning it back on reads afresh:
@@ -518,8 +525,9 @@ async function seenSyncOnce(force, started) {
       if (ran) {
         await new Promise((r) => setTimeout(r, SEEN_PAGE_GAP_MS));
         await chrome.runtime.getPlatformInfo(); // an extension API call keeps the worker alive through a ~5 min first read
-        // Turned 关 mid-read: stop before the next page (seenClear is waiting for this run to drop what was read).
-        if (!(await seenOn())) return { stopped: "off", pages: ran };
+        // Turned 关 mid-read: stop before the next page (seenClear is waiting for this run to drop what was read), also
+        // when it is 开 again already: what this run wrote goes, and the 开 reads afresh after the drop.
+        if (seenClearing || !(await seenOn())) return { stopped: "off", pages: ran };
       }
       const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/web-interface/history/cursor?ps=30&max=${cursor.max}&view_at=${cursor.view_at}&business=${cursor.business}`);
       ran++;

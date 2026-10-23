@@ -135,7 +135,8 @@ const busyError = (r) => r.error || UI.busyText(r.busy);
 async function refavInto(mediaId, items) {
   const r = await W.run("refav", REFAV, { verb: REFAV, chunks: items.map((it) => refavChunk(mediaId, it)), folders: [mediaId], meta: { mediaId, verb: REFAV }, onChunk: refavDone });
   render();
-  return { n: r.done, rest: items.slice(r.done), error: busyError(r), stopped: r.stopped };
+  const went = new Set(r.keys || []);
+  return { n: r.done, rest: items.filter((it) => !went.has(it.bvid)), error: busyError(r), stopped: r.stopped };
 }
 
 // 所有收藏夹's batch 取消收藏 undone: each video back in every folder it was taken out of, as one run.
@@ -291,14 +292,12 @@ const fav = {
     const chunks = folders.flatMap((f) =>
       chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map(favRes) }, keys: items.map((it) => it.bvid), folders: [f], items }))
     );
-    let sent = 0;
     const r = await W.run("unfav", UNFAV_MANY, {
       verb: UNFAV,
       chunks,
       folders: [mediaId],
       meta: { mediaId, verb: UNFAV },
       async onChunk({ folders: [f], items }) {
-        sent++;
         bumpCount(f, -items.length);
         const at = Date.now();
         const left = (it) => (all ? stillIn(it, [f, ...Object.keys(gone).filter((g) => gone[g].some((x) => x.bvid === it.bvid))]) : elsewhere.has(it.bvid));
@@ -308,7 +307,7 @@ const fav = {
     });
     if (r.busy) return;
     const done = r.done;
-    const fail = r.error && `${all || S.mediaId !== mediaId ? `「${folderName(chunks[sent].folders[0])}」` : ""}${cutShort(UNFAV_MANY, done, r.error)}`;
+    const fail = r.error && `${all || S.mediaId !== mediaId ? `「${folderName(r.chunk.folders[0])}」` : ""}${cutShort(UNFAV_MANY, done, r.error)}`;
     const stop = r.stopped && `${S.mediaId !== mediaId ? `「${folderName(mediaId)}」` : ""}${stopWords(UNFAV_MANY, r)}`;
     // After a failure or 停止 the ones done are still recorded and undoable; the toast says how far it got.
     const tell = (msg, undoHint) => toast(fail || stop ? `${fail || stop}${undoHint}` : msg, Boolean(fail));
@@ -333,7 +332,8 @@ const fav = {
     } else if (done && all) {
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
-      pushUndo(unfavManyStep(mediaId, list.slice(0, done).map(favRef)));
+      const went = new Set(r.keys);
+      pushUndo(unfavManyStep(mediaId, list.filter((it) => went.has(it.bvid)).map(favRef)));
       tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);
     } else if (done) {
       // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.

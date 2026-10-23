@@ -3727,6 +3727,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text === "写入笔记 1/3 · B站限流卡住，0:01 后重试" && stuck.total === 3, JSON.stringify(stuck));
 
       assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
+      // G3: the index held by B站限流 says so in the dialog, not the last video's title.
+      {
+        let held = "";
+        let n = 0;
+        handlers["triage-export"] = () => (++n === 1 ? (setTimeout(() => (held = t.el.writeProgress.textContent)), { ok: false, code: "THROTTLED", error: "B站返回 -412" }) : { ok: true, data: { path: "甲.md" } });
+        await t.runWrite();
+        assert.strictEqual(held, "B站限流卡住，等待后重试：「甲」的索引");
+        handlers["triage-export"] = () => ({ ok: true, data: { path: "甲.md" } });
+      }
       // C661: the vault's index failing is said apart, not counted as a failed note.
       handlers["triage-export"] = () => ({ ok: false, error: "网络断了" });
       await t.runWrite();
