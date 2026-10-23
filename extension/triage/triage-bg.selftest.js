@@ -462,6 +462,22 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   };
   const head = await folderItems({ mediaId: 1, known: ["BV1", "BV2", "BV3"] });
   assert.deepStrictEqual(JSON.parse(JSON.stringify([pages, head.items.map((it) => it.bvid), head.head])), [[1, 2], ["BV9", "BV1", "BV2", "BV3"], true]);
+  // A 番剧 episode (type 24) is listed only with platform=web; it keeps the list's bvid and carries its own resource
+  // "id:24" as aid. ids answers its resource, not the BV id it miscomputes from the episode id. Audio (12) stays out.
+  const urls = [];
+  t.fetch = async (url) => {
+    urls.push(url);
+    return /resource\/ids/.test(url)
+      ? jsonRes({ code: 0, data: [{ id: 1, type: 2, bvid: "BV1" }, { id: 397236, type: 24, bvid: "BVwrong" }, { id: 5, type: 12, bvid: "BVa" }] })()
+      : jsonRes({ code: 0, data: { medias: [media(1), { id: 397236, type: 24, bvid: "BV14X4y1G7C7", title: "造物说", intro: "第1集 另一个我", attr: 0, cnt_info: { play: 0 }, ogv: { season_id: 38374 } }, { ...media(5), type: 12 }], has_more: false } })();
+  };
+  const ogv = await folderItems({ mediaId: 1 });
+  assert.match(urls[0], /resource\/list\?.*&platform=web/);
+  assert.deepStrictEqual(plain(ogv.items.map(({ bvid, aid, title, intro, play }) => ({ bvid, aid, title, intro, play }))), [
+    { bvid: "BV1", aid: 1, title: "t1" },
+    { bvid: "BV14X4y1G7C7", aid: "397236:24", title: "造物说 第1集 另一个我", intro: "" }
+  ]);
+  assert.deepStrictEqual(plain(ogv.ids), ["BV1", "397236:24"]);
 
   // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
   const store = {};
@@ -770,6 +786,37 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(await H["triage-fav-where"]({ aid: 1 })), { mid: 7, folders: [{ id: "3", title: "甲" }] });
     await H["triage-fav-where"]({ aid: 2, mid: 7 });
     assert.deepStrictEqual(urls.filter((u) => /nav/.test(u)).length, 1);
+    // A 番剧 favorite's aid is its resource "id:24": every write and lookup names that resource, the same as B站's favlist
+    // page; a video's stays "aid:2". 稍后再看 never gets one.
+    t.fetch = async (url, opts) => {
+      if (/web-interface\/nav/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { isLogin: true, mid: 7 } }) };
+      const u = new URL(url);
+      calls.push([u.pathname, Object.fromEntries(opts?.body ? new URLSearchParams(opts.body) : u.searchParams)]);
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { list: [] } }) };
+    };
+    calls.length = 0;
+    await H["triage-unfav"]({ mediaId: "1", aids: [10, "397236:24"] });
+    await H["triage-transfer"]({ from: "1", to: "2", aids: ["397236:24", 11], move: true });
+    await H["triage-transfer"]({ from: "1", to: "2", aids: ["397236:24"], move: false });
+    await H["triage-refav"]({ mediaId: "1", aid: "397236:24" });
+    await H["triage-refav"]({ mediaId: "1", aid: 10 });
+    await H["triage-transfer"]({ from: "", to: "2", aids: ["397236:24"], move: false });
+    await H["triage-fav-where"]({ aid: "397236:24", mid: 7 });
+    await H["triage-fav-where"]({ aid: 10, mid: 7 });
+    assert.deepStrictEqual(plain(calls.splice(0).map(([p, f]) => [p, f.resources || `${f.rid}:${f.type}`])), [
+      ["/x/v3/fav/resource/batch-del", "10:2,397236:24"],
+      ["/x/v3/fav/resource/move", "397236:24,11:2"],
+      ["/x/v3/fav/resource/copy", "397236:24"],
+      ["/x/v3/fav/resource/deal", "397236:24"],
+      ["/x/v3/fav/resource/deal", "10:2"],
+      ["/x/v3/fav/resource/deal", "397236:24"],
+      ["/x/v3/fav/folder/created/list-all", "397236:24"],
+      ["/x/v3/fav/folder/created/list-all", "10:2"]
+    ]);
+    await assert.rejects(H["triage-unfav"]({ mediaId: "toview", aids: ["397236:24"] }), /稍后再看只放视频/);
+    await assert.rejects(H["triage-refav"]({ mediaId: "toview", aid: "397236:24" }), /稍后再看只放视频/);
+    await assert.rejects(H["triage-unfav"]({ mediaId: "1", aids: ["397236:12"] }), /缺少 mediaId 或 aids/);
+    assert.strictEqual(calls.length, 0, "nothing was sent");
   }
 
   // The folder list pages through created/list (which carries the cover) until has_more is false; covers are https.
