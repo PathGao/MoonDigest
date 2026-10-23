@@ -92,20 +92,23 @@ async function testObsidianConnection(baseUrl, apiKey) {
 }
 
 // The note a write recorded for a video (MdgSites.buildContextKey) wins over the computed path, which carries the
-// date when includeDateInFilename is on. ponytail: read-modify-write on one storage key; writes are seconds apart.
+// date when includeDateInFilename is on. Changed by read-modify-write under the key's lock (MdgLimits.update), so a
+// write and an auto-sync landing together both keep their entry.
+const PATHS_KEY = MdgLimits.KEYS.obsidianNotePaths;
 async function notePaths() {
-  const key = MdgLimits.KEYS.obsidianNotePaths;
-  return (await chrome.storage.local.get(key))[key] || {};
+  return (await chrome.storage.local.get(PATHS_KEY))[PATHS_KEY] || {};
 }
 // pageIndex: which 分 P the note is, so a ref without the cid (逐个视频笔记 knows only the BV) finds its P1 note
 // (recordedNoteKey). An entry written before it was recorded keeps none until its next write. cover: { url, link } of
 // the cover linkCoverInVault stored, so an export from the vault note gives the image's own address (unlinkCover).
 async function rememberObsidianNotePath(noteKey, filepath, pageIndex, cover) {
   if (!noteKey) return;
-  const paths = await notePaths();
-  const entry = { ...paths[noteKey], path: filepath, lastSyncedAt: Date.now(), ...(pageIndex && { pageIndex }), ...(cover && { cover }) };
-  await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: { ...paths, [noteKey]: entry } });
+  await MdgLimits.update(PATHS_KEY, (paths = {}) => ({ ...paths, [noteKey]: { ...paths[noteKey], path: filepath, lastSyncedAt: Date.now(), ...(pageIndex && { pageIndex }), ...(cover && { cover }) } }));
 }
+// One note has one writer at a time: a 写入 Obsidian and the auto-sync of the same note (sync-video-note-ai) each read
+// it and write it whole, so interleaved, the later write would put back what the earlier one changed.
+// ponytail: the manual write's read before its dialog is outside the lock; its ai write only replaces the section it owns, its full write reads nothing.
+const noteLocked = (filepath, fn) => MdgLimits.locked(`mdg-note:${filepath}`, fn);
 // The recorded key of the ref's note. Keys carry the cid (MdgSites.buildContextKey); without it, the entry recorded for
 // the same BV and 分 P. Prefix alone is not enough: P2's note has the same BV. Only a video key without its cid
 // (video:<site>:<id>|) is looked up, so the match ends at the |: a web page's key never takes a longer address's note.
@@ -114,24 +117,30 @@ function recordedNoteKey(paths, key, ref) {
   return Object.keys(paths).find((k) => k.startsWith(key) && paths[k].pageIndex === ref.pageIndex) || key;
 }
 async function forgetObsidianNotePath(noteKey) {
-  const { [noteKey]: removed, ...rest } = await notePaths();
-  if (removed) await chrome.storage.local.set({ [MdgLimits.KEYS.obsidianNotePaths]: rest });
+  await MdgLimits.update(PATHS_KEY, (paths) => {
+    if (!paths?.[noteKey]) return undefined;
+    const { [noteKey]: removed, ...rest } = paths;
+    return rest;
+  });
 }
 
-// Rewrites only the marked AI 问答 block of an existing note (MdgNote.upsertAiSection); a missing note is reported and
-// forgotten, never created. existing: the note already read, if any. Returns { exists, updated }.
-async function updateAiSectionInVault(vault, filepath, section, noteKey, existing, pageIndex) {
-  const note = existing || (await readVaultNote(vault, filepath));
-  if (!note.exists) {
-    // Every path 404s at a wrong address: forget the note only once the API itself answers.
-    await probeObsidian(vault.baseUrl, vault.apiKey);
-    await forgetObsidianNotePath(noteKey);
-    return { exists: false, updated: false };
-  }
-  const next = MdgNote.upsertAiSection(note.content, section);
-  if (next !== note.content) await putVaultNote(vault, filepath, next);
-  await rememberObsidianNotePath(noteKey, filepath, pageIndex);
-  return { exists: true, updated: next !== note.content };
+// Rewrites only the marked AI 问答 block of an existing note (MdgNote.upsertAiSection), read and written under the
+// note's lock; a missing note is reported and forgotten, never created. existing: the note already read, if any.
+// Returns { exists, updated }.
+function updateAiSectionInVault(vault, filepath, section, noteKey, existing, pageIndex) {
+  return noteLocked(filepath, async () => {
+    const note = existing || (await readVaultNote(vault, filepath));
+    if (!note.exists) {
+      // Every path 404s at a wrong address: forget the note only once the API itself answers.
+      await probeObsidian(vault.baseUrl, vault.apiKey);
+      await forgetObsidianNotePath(noteKey);
+      return { exists: false, updated: false };
+    }
+    const next = MdgNote.upsertAiSection(note.content, section);
+    if (next !== note.content) await putVaultNote(vault, filepath, next);
+    await rememberObsidianNotePath(noteKey, filepath, pageIndex);
+    return { exists: true, updated: next !== note.content };
+  });
 }
 
 // Obsidian requests remote images with an app://obsidian.md Referer, which hdslb.com answers with 403,
@@ -292,9 +301,11 @@ async function writeVideoNote(message) {
   const content = withAi(markdown, resolved);
   // Last guard: no writer means to empty a note, so an empty body is a caller's bug (a video that changed mid-write).
   if (!content.trim()) throw new Error("笔记内容为空");
-  const linked = await linkCoverInVault(vault, path, content, cover);
-  await putVaultNote(vault, path, linked.content);
-  await rememberObsidianNotePath(key, path, ref.pageIndex, linked.cover);
+  await noteLocked(path, async () => {
+    const linked = await linkCoverInVault(vault, path, content, cover);
+    await putVaultNote(vault, path, linked.content);
+    await rememberObsidianNotePath(key, path, ref.pageIndex, linked.cover);
+  });
   return { path, kind: "full", text: `${warning}${obsidianWritten(path)}`, title: title(), ...(warning && { subtitleWarning: warning }) };
 }
 

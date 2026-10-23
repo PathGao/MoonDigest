@@ -12,7 +12,9 @@ const PS = require("./page-sources.selftest.js");
 const vault = new Map();
 let notApi = false;
 const log = [];
-const server = http.createServer((req, res) => {
+// One GET of this file is held until release() (the interleaving test); the next GET goes through.
+let holdGet = null;
+const server = http.createServer(async (req, res) => {
   // The cover image, from B站 in real life.
   if (req.url.startsWith("/img/")) return res.writeHead(200, { "Content-Type": "image/jpeg" }).end("jpg");
   // The API root (probeObsidian); notApi: another service on that address, "json" one that answers JSON.
@@ -21,6 +23,11 @@ const server = http.createServer((req, res) => {
   const file = decodeURIComponent(req.url.replace(/^\/vault\//, ""));
   log.push(`${req.method} ${file}`);
   if (req.headers.authorization !== "Bearer k") return res.writeHead(401).end();
+  if (req.method === "GET" && holdGet?.file === file) {
+    const { held } = holdGet;
+    holdGet = null;
+    await held;
+  }
   if (req.method === "GET") return vault.has(file) ? res.writeHead(200).end(vault.get(file)) : res.writeHead(404).end();
   let body = "";
   req.on("data", (chunk) => (body += chunk));
@@ -286,6 +293,27 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // L10: the gone note is worded here too; the side panel only shows text.
   assert.strictEqual(resp.text, "Obsidian 里的视频笔记已不存在，未写入");
   assert.ok(!PS.text(PS.own("sidepanel.html")).includes("已不存在"), "the side panel words a sync result itself");
+
+  // Gap 12: an auto-sync and a 整篇覆盖 of the same note at once. The sync's read is held while the full write lands;
+  // under the note's lock the write waits for the sync's read-then-write, so the sync never puts the old body back over
+  // the new one. Without the lock the final note would be the old body with the sync's section.
+  {
+    let release;
+    holdGet = { file: notePath, held: new Promise((r) => (release = r)) };
+    const syncing = send({ type: "sync-video-note-ai", ref: bili, conversation: conversation("同时") });
+    while (holdGet) await new Promise((r) => setImmediate(r));
+    log.splice(0);
+    const wasBuild = ctx.triageBuildNote;
+    ctx.triageBuildNote = async (bvid, settings) => ({ meta: { title: "T" }, noteMeta: { site: "bilibili", videoId: bvid, cid: "c1", title: "T" }, markdown: "---\ntitle: T\n---\n\n新正文", path: notePath, cover: null, subtitleWarning: "" });
+    const writing = write({ ref: bili, conversation: conversation("覆盖"), mode: "full" });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepStrictEqual(log.filter((l) => l.startsWith("PUT")), [], "the full write waits for the sync's turn");
+    release();
+    await Promise.all([syncing, writing]);
+    assert.ok(vault.get(notePath).includes("新正文") && vault.get(notePath).includes("### 问：覆盖") && !vault.get(notePath).includes("### 问：同时"), vault.get(notePath));
+    ctx.triageBuildNote = wasBuild;
+    log.splice(0);
+  }
 
   // A web page read in the side panel: its note (MdgNote.buildPageNote) goes under {{site}} = 网页 and is remembered by the
   // page key, so auto-sync keeps its AI 问答 current. Without its body (opened from 摘读记录) the conversation is its own
