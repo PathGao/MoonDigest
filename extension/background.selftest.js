@@ -238,6 +238,110 @@ process.on("exit", (code) => {
   await init();
   assert.strictEqual(JSON.stringify(oldUser), once);
 
+  // The chat port, message by message: fn is the background's listener, disconnect the panel going away.
+  ctx.chrome = chrome;
+  const openPort = (postMessage) => {
+    const port = { name: "sidepanel-chat", sender: PANEL, out: [], fn: null, disconnect: null, postMessage: postMessage || ((m) => port.out.push(m)) };
+    port.onMessage = { addListener: (f) => (port.fn = f) };
+    port.onDisconnect = { addListener: (f) => (port.disconnect = f) };
+    onConnect(port);
+    return port;
+  };
+  const CHAT = { action: "chat", providerId: "p", prompt: "q", context: { isVideoContext: true, subtitleMarkdown: "字幕" } };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stalling = () => (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError())));
+  // Gap 9c: two chats on one port: the first's end does not disarm the second (its 停止 still aborts it).
+  {
+    const port = openPort();
+    ctx.fetch = stalling();
+    const first = port.fn(CHAT);
+    await wait(5);
+    ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "a" }) }, { after: 200, chunk: sse({ content: "b" }) }, { after: 0, done: true }]);
+    const second = port.fn(CHAT);
+    await first;
+    await wait(20);
+    port.fn({ action: "stop" });
+    await second;
+    assert.deepStrictEqual(port.out.map((m) => m.type), ["token", "stopped"]);
+  }
+  // Gap 9a, 9b: the panel closed while the platforms were read: no request goes out, and nothing is thrown at a port
+  // nobody listens to (an answer to a closed port is swallowed, not rethrown out of the listener).
+  {
+    const dead = () => {
+      throw new Error("Attempting to use a disconnected port object");
+    };
+    const port = openPort(dead);
+    let release;
+    const was = ctx.loadAiProviders;
+    ctx.loadAiProviders = () => new Promise((r) => (release = r));
+    let fetched = 0;
+    ctx.fetch = async () => (fetched++, { ok: true, body: null });
+    const chat = port.fn(CHAT);
+    port.disconnect();
+    release([{ id: "p", baseUrl: "https://ai.test", model: "m", requiresKey: false }]);
+    await assert.doesNotReject(chat);
+    assert.strictEqual(fetched, 0, "the request is not sent after the panel closed");
+    ctx.loadAiProviders = async () => [];
+    await assert.doesNotReject(openPort(dead).fn(CHAT), "no provider: the error has nowhere to go");
+    ctx.loadAiProviders = was;
+  }
+  // Gap 2: a reply the panel left to its conversation (detach) outlives the panel: the port closing no longer aborts
+  // it, and the answer goes into that conversation by id as the panel would have put it; a conversation deleted
+  // meanwhile gets nothing. 停止 before the port closes (a delete) still aborts it, and the worker is pinged only while
+  // such a reply runs.
+  {
+    const wasChrome = ctx.chrome;
+    const store = { [ctx.MdgLimits.KEYS.aiConversations]: [{ id: "c1", messages: [{ role: "user", content: "q" }], updatedAt: 1 }, { id: "c2", messages: [{ role: "user", content: "q" }], updatedAt: 1 }] };
+    const pings = [];
+    const timers = [];
+    ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}`, getPlatformInfo: () => pings.push(1) }, storage: { local: area(store) } };
+    const realInterval = [ctx.setInterval, ctx.clearInterval];
+    ctx.setInterval = (fn) => (timers.push(fn), timers.length);
+    ctx.clearInterval = (id) => (timers[id - 1] = null);
+    const slowReply = () => streamingFetch([{ after: 5, chunk: sse({ content: "答" }) }, { after: 30, chunk: sse({ content: "案" }) }, { after: 0, done: true }]);
+    // Finished after the panel closed: written into c1.
+    let port = openPort();
+    ctx.fetch = slowReply();
+    let chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c1", promptIndex: 0 });
+    await wait(10);
+    port.disconnect();
+    assert.strictEqual(timers.filter(Boolean).length, 1, "pinged while the orphaned reply runs");
+    await chat;
+    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === "c1").messages, [{ role: "user", content: "q" }, { role: "assistant", content: "答案" }]);
+    assert.strictEqual(timers.filter(Boolean).length, 0, "the ping stops with it");
+    // Deleted meanwhile: nothing written, the list otherwise untouched.
+    port = openPort();
+    ctx.fetch = slowReply();
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "gone", promptIndex: 0 });
+    await wait(10);
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2"]);
+    // 停止, then the port closes (the panel deleted the conversation): aborted, nothing written.
+    port = openPort();
+    ctx.fetch = stalling();
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c2", promptIndex: 0 });
+    await wait(10);
+    port.fn({ action: "stop" });
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual([store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === "c2").messages.length, port.out.at(-1).type], [1, "stopped"]);
+    // Not detached (the question was never saved): the port closing aborts, as before.
+    port = openPort();
+    let aborted = false;
+    ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => ((aborted = true), reject(abortError()))));
+    chat = port.fn(CHAT);
+    await wait(10);
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual([aborted, timers.filter(Boolean).length], [true, 0]);
+    [ctx.setInterval, ctx.clearInterval] = realInterval;
+    ctx.chrome = wasChrome;
+  }
+
   // C13: a fresh install writes no defaults into sync (only the Obsidian switch's one-time migration); reading fills
   // them in, so a default changed later reaches everyone who never set it.
   const fresh = {};
@@ -259,6 +363,26 @@ process.on("exit", (code) => {
   // Two pages saving different settings at once: each writes only its own keys, so neither reverts the other.
   await Promise.all([ctx.saveSettings({ readerTheme: "light" }), ctx.saveSettings({ noteFolder: "M" })]);
   assert.deepStrictEqual([stored.readerTheme, stored.noteFolder], ["light", "M"]);
+  // Gap 13: a save during an import waits for it, so the import's remove of the keys its file lacks never drops what
+  // the save wrote. The import's first write is held to open the window.
+  {
+    const data = { readerTheme: "light" };
+    let release;
+    const held = area(data);
+    const plainSet = held.set.bind(held);
+    held.set = (o) => ("noteFolder" in o && release === undefined ? new Promise((r) => (release = () => r(plainSet(o)))) : plainSet(o));
+    ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}` }, storage: { sync: held, local: area({}) } };
+    const wasInit = ctx.initializeSettingsStorage;
+    ctx.initializeSettingsStorage = async () => {};
+    const importing = ctx.importSettings({ app: "moondigest", kind: "settings", schemaVersion: 1, settings: { noteFolder: "F" } });
+    await new Promise((r) => setTimeout(r, 5));
+    const saving = ctx.saveSettings({ readerTheme: "dark" });
+    await new Promise((r) => setTimeout(r, 5));
+    release();
+    await Promise.all([importing, saving]);
+    assert.deepStrictEqual(data, { noteFolder: "F", readerTheme: "dark" });
+    ctx.initializeSettingsStorage = wasInit;
+  }
   // An imported file's frontmatterFields that is not a list reads as the default (the settings page maps over it).
   assert.deepStrictEqual([...ctx.MdgSettings.normalizeSyncSettings({ frontmatterFields: "title" }).frontmatterFields], [...ctx.MdgSettings.DEFAULTS.frontmatterFields]);
 
@@ -553,7 +677,8 @@ process.on("exit", (code) => {
           if (refuse) throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
           if (files) return calls.push(...files), (loaded = true), [];
           calls.push(`parse ${args[0]}`);
-          return [{ result: loaded && typeof func === "function" ? page : null }];
+          // The parsed document names its own URL (location.href), the page's unless a test moves it.
+          return [{ result: loaded && typeof func === "function" ? { ...page, url: page.url ?? tabUrl } : null }];
         }
       }
     };
@@ -578,6 +703,13 @@ process.on("exit", (code) => {
     assert.deepStrictEqual([got.pageAccess, got.url, got.title, got.author, got.published, got.siteName, got.pageMarkdown], ["ready", "https://example.com/a?x=1", "文章", "作者", "2026-01-02", "example.com", "正文"]);
     got = await read();
     assert.deepStrictEqual(calls.splice(0), ["parse 200000"], "the bundle stays loaded");
+    // Gap 8: the tab navigated between the tab read and the extraction: the text is another page's, so it is not
+    // stored under this URL; said as a failed read, with 重试 (the next tab event reads again anyway).
+    page.url = "https://example.com/moved";
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.pageError, got.url, "pageMarkdown" in got], ["failed", "读取时页面已跳转", "https://example.com/a?x=1", false]);
+    delete page.url;
+    calls.splice(0);
     // The popup's note of a web page (popup-page-note): the side panel's note file, with the page's newest conversation.
     {
       const wasSettings = ctx.getMergedSettings;
