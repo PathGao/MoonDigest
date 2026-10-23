@@ -26,6 +26,10 @@
     convSwitchedCopy: "对话已切换，未复制。",
     convSwitchedDownload: "对话已切换，未下载。",
     obsidianVideoSwitched: "视频已切换，未写入 Obsidian。",
+    // 摘读记录: the record was deleted while the dialog was open.
+    recordGoneWrite: "记录已删除，未写入。",
+    recordGoneCopy: "记录已删除，未复制。",
+    recordGoneDownload: "记录已删除，未下载。",
     // The extension reloaded under a page whose content script still runs: chrome.runtime no longer answers.
     reloaded: "扩展刚刚更新，请刷新网页",
     // No AI platform to send to (none added, none enabled): the background's AI_SETUP, the side panel and 分拣台 say this.

@@ -696,8 +696,10 @@ function noteRequest(group) {
 // 复制, 下载 and 写入 Obsidian of one record (kind copy / download / write) through MdgNoteActions: the note 写入
 // Obsidian writes, asked about the same way when its page is not open. The status line says the result; not set up or
 // a wrong key adds 去设置, opened only on its click (a closed Obsidian only gets the red line).
+// The record deleted while a dialog was open: nothing is done, and the line says so (as the side panel's 对话已切换).
+const RECORD_GONE = { copy: MdgErrors.TEXT.recordGoneCopy, download: MdgErrors.TEXT.recordGoneDownload, write: MdgErrors.TEXT.recordGoneWrite };
 async function runNoteAction(group, kind) {
-  const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group) });
+  const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group), isStale: () => (groupByVideo(conversations).some((g) => g.key === group.key) ? "" : RECORD_GONE[kind]) });
   const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
   setStatus(r.text, !r.ok, settings);
 }

@@ -311,6 +311,26 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await act("copy");
   assert.deepStrictEqual([copied, exported.map((m) => [m.type, m.pageChoice || "-"].join()), exported[0].conversation.messages[0].content], ["---\nopen", ["export-note,-", "export-note,open"], XSS[0]]);
   assert.deepStrictEqual([els.status.textContent, red], ["已复制 Markdown", false]);
+  // J26: the record deleted while the dialog is open: nothing is sent again or copied, and the line says so, not red.
+  {
+    const keep = [...store.mdg_ai_conversations_v1];
+    const pageDialog = ctx.MdgOverwriteDialog.choosePage;
+    ctx.MdgOverwriteDialog.choosePage = async () => {
+      store.mdg_ai_conversations_v1 = keep.filter((c) => c.contextKey !== "a");
+      onChanged({ mdg_ai_conversations_v1: {} }, "local");
+      await wait(350);
+      return "open";
+    };
+    copied = null;
+    exported.length = 0;
+    await act("copy");
+    await wait(400);
+    assert.deepStrictEqual([copied, exported.length, els.status.textContent, red], [null, 1, "记录已删除，未复制。", false]);
+    store.mdg_ai_conversations_v1 = keep;
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
+    ctx.MdgOverwriteDialog.choosePage = pageDialog;
+  }
   const realDownload = ctx.MdgDownload;
   const downloaded = [];
   ctx.MdgDownload = { ...realDownload, text: (name, text) => downloaded.push([name, text]) };
