@@ -668,11 +668,12 @@ process.on("exit", (code) => {
     const inFlight = () => vm.runInContext("proxiedFetches.size", ctx);
     const seen = [];
     ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => (seen.push(url), reject(Object.assign(new Error("aborted"), { name: "AbortError" })))));
-    const tab = (id) => ({ tab: { id }, frameId: 0, url: "https://www.bilibili.com/video/BV1" });
+    const tab = (id, documentId = "d1") => ({ tab: { id }, documentId, frameId: 0, url: "https://www.bilibili.com/video/BV1" });
     const pending = ask({ type: "fetch-json", url: bili, id: 1 }, tab(5));
     await new Promise((r) => setTimeout(r, 5));
     assert.strictEqual(inFlight(), 1);
     assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(6))).ok, true, "another tab's id 1 is not this request");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(5, "d0"))).ok, true, "the tab's earlier page, back from the cache, has its own id 1");
     assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 2 }, tab(5))).ok, true, "an unknown id is ignored");
     await new Promise((r) => setTimeout(r, 5));
     assert.deepStrictEqual([seen, inFlight()], [[], 1], "still in flight");

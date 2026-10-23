@@ -427,10 +427,11 @@ async function resolveAiSidepanelPageRef(contextRef) {
   };
 }
 
-// The video page's proxied requests (fetch-json) in flight, by sender tab, frame and the page's id, so the page can end
-// one (fetch-json-cancel) and only its own; an entry goes when its request settles.
+// The video page's proxied requests (fetch-json) in flight, by sender document (a tab's new page counts its ids from 1
+// again, and an old one back from the back-forward cache still sends), frame and the page's id, so the page can end one
+// (fetch-json-cancel) and only its own; an entry goes when its request settles.
 const proxiedFetches = new Map();
-const proxiedFetchKey = (sender, id) => `${sender?.tab?.id ?? ""}:${sender?.frameId ?? 0}:${id}`;
+const proxiedFetchKey = (sender, id) => `${sender?.tab?.id ?? ""}:${sender?.documentId ?? ""}:${sender?.frameId ?? 0}:${id}`;
 
 // What each message answers, registered with triageListen at the end of this file (after its importScripts): the
 // handler's object is the reply, a throw is { ok: false, error, code? }. Only the extension's own pages are answered,
