@@ -841,13 +841,20 @@ function checkUrlChange() {
 
 // A 活动页 switches videos without touching its URL, a 番剧 ss… page may play on into the next episode: on a page whose
 // URL names no video, the player loading another one is the change the URL watcher cannot see.
-async function checkPlayerChange() {
-  if (state.superseded || !state.videoId || MdgSites.parseRef(location.href)) {
+// loadedmetadata and settledClip both ask: one read serves every caller waiting, so one change resets the state once.
+let playerCheck = null;
+function checkPlayerChange() {
+  return (playerCheck ||= readPlayerChange().finally(() => (playerCheck = null)));
+}
+async function readPlayerChange() {
+  const watching = () => !state.superseded && state.videoId && !MdgSites.parseRef(location.href);
+  if (!watching()) {
     return;
   }
   // Unread (no answer from the background) is no change: the next read asks the player again.
   const ref = await readPlayerRef().catch(() => null);
-  if (ref && (ref.id !== state.videoId || (state.cid && ref.part.cid !== state.cid))) {
+  // Compared again: the URL watcher may have reset the state while the player answered.
+  if (watching() && ref && (ref.id !== state.videoId || (state.cid && ref.part.cid !== state.cid))) {
     videoChanged();
   }
 }
@@ -1035,13 +1042,14 @@ async function runRefreshClip() {
     // Taken before the awaits: a navigation mid-run must still look like a change to checkUrlChange.
     const clipSignature = computeCurrentClipSignature();
     const ref = site?.parseRef(location.href) || (site?.playerRef && (await waitPlayerRef(run)));
+    run.check();
     if (!ref) {
       throw new Error(site?.playerRef ? NO_PLAYER : MdgErrors.TEXT.notVideoPage);
     }
     state.site = ref.site;
     state.videoId = ref.id;
 
-    const meta = await retryAsync(() => site.fetchMeta(ref, siteIo()), 2, 250);
+    const meta = await retryAsync(() => site.fetchMeta(ref, siteIo(run)), 2, 250);
     run.check();
     logInfo("[MDG] raw meta data", { meta });
 
@@ -1082,7 +1090,7 @@ async function runRefreshClip() {
       pageSubtitleSite(site, run),
       currentRef(),
       { ...state.meta, duration: state.videoDuration },
-      { ...siteIo(), fresh: true },
+      { ...siteIo(run), fresh: true },
       {
         prefer: { previousId: state.selectedSubtitleId, previousUrl: state.selectedSubtitleUrl, previousLang: state.selectedSubtitleLang },
         step: run.step
@@ -1202,7 +1210,7 @@ async function switchSubtitle(url) {
   const run = clipRuns.current;
   const switchId = ++subtitleSwitchId;
   try {
-    const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), run), [track], { videoId: state.videoId, cid: state.cid }, siteIo(), state.videoDuration, run.step);
+    const got = await MdgSites.loadFirstTrack(pageSubtitleSite(currentSite(), run), [track], { videoId: state.videoId, cid: state.cid }, siteIo(run), state.videoDuration, run.step);
     if (switchId !== subtitleSwitchId) return;
     if (!got.track) throw got.error;
     await showSubtitle(got, run);
@@ -1326,17 +1334,21 @@ function noteRef() {
 // Resolves { ok, text, code? }: text is the result for the popup to show (ok: false is red). The result never goes into
 // the popup's status (statusText): answering the dialog closes the popup, so from then on it shows on the page only.
 async function sendToObsidian() {
+  // The video of the click: autoplay or a link can change it (and reset the state) during the reads below or while the
+  // overwrite dialog is open, and then the note must not go.
+  const run = clipRuns.current;
   state.settings = await getSettings();
   // Turned off in the settings page while the popup that still shows the button was open: the background says so with
   // its OBSIDIAN code, so the popup offers 去设置 as on every other entry.
   await refreshDerivedContent();
+  if (!run.alive) {
+    return { ok: true, text: MdgErrors.TEXT.obsidianVideoSwitched };
+  }
   // The popup disables 写入 Obsidian without a note; the note can still go when the video changes meanwhile.
   if (!state.markdown) {
     return { ok: false, text: MdgErrors.TEXT.noNoteYet };
   }
 
-  // Taken before the overwrite dialog: autoplay or a link can change the video (and reset state) while it is open.
-  const clip = computeCurrentClipSignature();
   const request = { ref: noteRef(), page: { markdown: state.markdown, cover: state.cover, warning: MdgNote.noteSubtitleWarning(state.subtitleWarning, state) } };
   // Once the dialog was answered the popup has closed: the result shows on the page.
   let onPage = false;
@@ -1349,7 +1361,7 @@ async function sendToObsidian() {
   const r = await MdgNoteActions.run("write", {
     request: () => request,
     send: sendRuntimeMessage,
-    isStale: () => (computeCurrentClipSignature() !== clip ? MdgErrors.TEXT.obsidianVideoSwitched : ""),
+    isStale: () => (run.alive ? "" : MdgErrors.TEXT.obsidianVideoSwitched),
     dialogs: { choose }
   });
   // Not set up or a wrong key: 去设置, opened only on its click (the popup shows it from code when the page did not
@@ -3781,7 +3793,9 @@ function queryFirst(list, root = document) {
 // Sites that answer outside the page (Bilibili API and its cross-origin hdslb
 // subtitle files) are read through the background worker, as background.js
 // itself does; pageOnly sites are fetched from the page directly.
-function siteIo() {
+// Every request goes under the run's signal: a video change ends them, not only ignores their answers.
+function siteIo(run = clipRuns.current) {
+  const { signal } = run;
   return {
     doc: document,
     subtitleLang: subtitleLangTarget(),
@@ -3792,14 +3806,15 @@ function siteIo() {
       }
       return resp.data;
     },
-    capturePot: ytCapturePot,
-    fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url) : fetchJsonInBackground(url)),
-    fetchText: async (url) => (await fetchOk(url, { credentials: "include" })).text(),
+    capturePot: (videoId) => ytCapturePot(videoId, run),
+    fetchJson: (url) => (currentSite()?.pageOnly ? fetchJson(url, signal) : fetchJsonInBackground(url, signal)),
+    fetchText: async (url) => (await fetchOk(url, { credentials: "include", signal })).text(),
     postJson: async (url, body, headers = {}) =>
       (
         await fetchOk(url, {
           method: "POST",
           credentials: "include",
+          signal,
           headers: { "Content-Type": "application/json", ...headers },
           body: JSON.stringify(body)
         })
@@ -3815,22 +3830,25 @@ function siteIo() {
 // delivers, and the button is left as found. The token goes nowhere but
 // youtube.com timedtext URLs. Captures queue up: two reads toggling the button at once would each take the other's
 // click for the state they found and leave captions flipped.
+// A capture queued behind another may find its video gone (run ended): it leaves the button alone.
 let potQueue = Promise.resolve();
-function ytCapturePot(videoId) {
-  const run = potQueue.then(() => capturePot(videoId));
-  potQueue = run.catch(() => {});
-  return run;
+function ytCapturePot(videoId, run) {
+  const capture = potQueue.then(() => capturePot(videoId, run));
+  potQueue = capture.catch(() => {});
+  return capture;
 }
 
-async function capturePot(videoId) {
+async function capturePot(videoId, run) {
   let pot = MdgSites.ytPotFromUrls(performance.getEntriesByType("resource").map((entry) => entry.name), videoId);
   const button = document.querySelector("#movie_player .ytp-subtitles-button");
   if (pot || !button) {
     return pot;
   }
+  run.check();
   const wasOn = button.getAttribute("aria-pressed") === "true";
   // Right after load the player may not fetch captions on the first click yet; a second round a few seconds later does.
   for (let attempt = 0; attempt < 2 && !pot; attempt += 1) {
+    run.check();
     pot = await toggleCaptionsForPot(button, wasOn, videoId);
   }
   logInfo("[MDG] youtube pot capture", { wasOn, found: Boolean(pot) });
@@ -3996,16 +4014,18 @@ function readRuntimeVideoDuration() {
   return 0;
 }
 
-async function fetchJson(url) {
-  return (await fetchOk(url, { credentials: "include" })).json();
+async function fetchJson(url, signal) {
+  return (await fetchOk(url, { credentials: "include", signal })).json();
 }
 
 // A hung request would keep refreshPromise pending, and with it the popup's refresh and sidepanel-get-context, so
 // every page fetch gives up after MdgErrors.NET_TIMEOUT_MS, with the background's words (fetch-json says the same).
+// init.signal (the run's) ends it too: fetch rejects with its STALE_RUN reason.
 async function fetchOk(url, init) {
   let response;
+  const timeout = AbortSignal.timeout(MdgErrors.NET_TIMEOUT_MS);
   try {
-    response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(MdgErrors.NET_TIMEOUT_MS) });
+    response = await fetch(url, { ...init, cache: "no-store", signal: init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout });
   } catch (error) {
     throw error?.name === "TimeoutError" ? new Error(MdgErrors.netTimeout(MdgErrors.NET_TIMEOUT_MS)) : error;
   }
@@ -4022,9 +4042,14 @@ function httpError(status) {
   return Object.assign(new Error(`${who}请求失败 HTTP ${status}`), { status });
 }
 
-async function fetchJsonInBackground(url) {
+// The background's request cannot be stopped from here; the wait for it ends with the run.
+async function fetchJsonInBackground(url, signal) {
   try {
-    const resp = await sendRuntimeMessage({ type: "fetch-json", url });
+    signal?.throwIfAborted();
+    const resp = await Promise.race([
+      sendRuntimeMessage({ type: "fetch-json", url }),
+      new Promise((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }))
+    ]);
     if (!resp?.ok) {
       // code: THROTTLED (412) and NETWORK, as triageBiliGetJson says them; status: 429 waits in pageSubtitleSite.
       throw Object.assign(MdgErrors.fromResp(resp, "后台请求失败"), { status: resp?.status, code: resp?.code });
