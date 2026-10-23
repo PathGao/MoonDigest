@@ -72,7 +72,8 @@ if (require.main === module) {
   assert.ok(favorites.includes("triage/fav-page.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
   assert.ok(bothModes.every((f) => scripts("triage/triage.html").includes(f)), "bothModes names files the page loads");
   // The selftests list files through walk only: eleven copies of it once disagreed on Windows' \. A selftest that
-  // reads a directory of its own (not extension/) is named here with why.
+  // reads a directory of its own (not extension/) is named here with why. Only extension/'s selftests are checked:
+  // scripts/ (smoke.mjs, selftest.mjs) reads directories itself and turns \ into / by hand.
   const OWN_DIRS = { "triage/triage.selftest.js": "reads back the notes it unzipped into a temp folder" };
   const readers = all.filter((f) => f.endsWith(".selftest.js") && f !== "page-sources.selftest.js" && read(f).split("\n").some((l) => !/^\s*\/\//.test(l) && l.includes("readdirSync(")));
   assert.deepStrictEqual(readers, Object.keys(OWN_DIRS), `selftests reading directories themselves (use walk): ${readers.join(", ")}`);

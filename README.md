@@ -261,19 +261,19 @@ extension/
 ├── tokens.css      共享的颜色、字号、间距（含深色主题）
 ├── triage/         B站分拣台：收藏夹（fav-*.js，由 triage.js 启动，纯函数在 triage-core.js）、关注（follow.js，纯函数在 follow-core.js），后台接口 triage-bg.js、follow-bg.js
 ├── history/        摘读记录页
-├── vendor/         第三方代码：defuddle.js（网页正文提取，`scripts/update-defuddle.sh <版本>` 更新）
+├── vendor/         第三方代码：defuddle.js（网页正文提取，`scripts/update-defuddle.sh <版本>` 更新，要 bash）
 ├── dev-sidepanel/  侧边栏的开发预览
 └── dev/            设置页的开发用假数据
 ```
 
-自检（用 `/usr/local/bin/node`，Node 24；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错）：
+自检（用 Node 24，Mac、Windows、Linux 同一条命令；`node` 指向 bun 套壳或 v26 时有几个会卡住或报错，本机的 Node 24 在 `/usr/local/bin/node`）：
 
 `load-order.selftest.js` 检查每个页面、每组内容脚本和后台 `importScripts` 的加载顺序：定义全局对象的文件要排在用到它的文件前面，引用的脚本都要存在，`common.js` 排第一。运行环境和各自加载的脚本由 `page-sources.selftest.js` 列出；按页面查代码的测试和约定检查从它取文件清单，不按文件名读，代码换到同一页面的另一个文件也照样查得到。
 
 `conventions.selftest.js` 检查开关取值、存储键名、灰掉写原因、回复的错误经 `MdgErrors.text` 显示、共享记录经各自的串行写入函数读改写这几条约定；`wording.selftest.js` 检查界面文字：文字表里的话别处不再写一份、同一句话不在两个页面各写一份、不用术语表里「不用」的词；`messages.selftest.js` 核对消息清单 `messages.js`（每条消息谁发、谁接、带哪些字段）和代码一致。这几个是读源码的约定检查，不是行为测试。规则和允许清单怎么加见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ```bash
-for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do /usr/local/bin/node "$f" || break; done
+node scripts/selftest.mjs
 ```
 
 自检在 vm 里跑页面，会去掉启动代码，页面一打开就崩它查不出来。`/usr/local/bin/node scripts/smoke.mjs` 用真 Chrome（无头、临时配置）装扩展，打开每个页面（没配和配了 AI 平台各一次）、后台和 B站、YouTube 视频页，扩展有未捕获错误或 `console.error` 就失败。页面脚本查找的每个 id 都要在打开的页面、html 或脚本模板里找得到（页面自检的假 DOM 什么 id 都给元素，查不出 id 改名或删掉）。每个 PR 和发版前 GitHub Actions 都会跑自检和这一项（`.github/workflows/check.yml`）。
