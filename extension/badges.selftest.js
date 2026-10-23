@@ -308,6 +308,7 @@ class El extends Node_ {
   get title() { return this.attrs.title ?? ""; }
   set title(v) { this.attrs.title = String(v); }
   getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   append(...ns) { for (const n of ns) { const x = typeof n === "string" ? new Text_(n) : n; x.parentNode = this; this.childNodes.push(x); } }
   prepend(n) { n.remove(); n.parentNode = this; this.childNodes.unshift(n); muts.n++; }
@@ -334,6 +335,7 @@ function simple(el, s) {
   for (const [, c] of bare.matchAll(/\.([\w-]+)/g)) if (!el.classList.contains(c)) return false;
   for (const [, i] of bare.matchAll(/#([\w-]+)/g)) if (el.attrs.id !== i) return false;
   for (const [, k, v] of s.matchAll(/\[([\w-]+)\*="([^"]*)"\]/g)) if (!String(el.attrs[k] ?? "").includes(v)) return false;
+  for (const [, k] of s.matchAll(/\[([\w-]+)\]/g)) if (!(k in el.attrs)) return false;
   return true;
 }
 function matches(el, sel) {
@@ -919,6 +921,19 @@ async function surfacePages() {
   assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
   assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
+
+  // #394: before Vue hydrates the server-rendered #app, nothing in it is marked; once it drops the attribute, all of it is.
+  const ssrRow = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, "甲"));
+  const ssrRec = author();
+  const app = h("div", { id: "app", "data-server-rendered": "true" }, h("div", { class: "up-detail" }, ssrRow), ssrRec);
+  const outside = author();
+  const ssr = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, app, outside));
+  assert.deepStrictEqual([ssrRow.nextSibling, boxAfter(ssrRec)], [null, null], "not hydrated yet: no UP marks inside #app");
+  assert.ok(boxAfter(outside), "outside #app: marked at once");
+  app.removeAttribute("data-server-rendered");
+  ssr.win.mutate([{ type: "attributes", target: app, attributeName: "data-server-rendered", addedNodes: [], removedNodes: [] }]);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(ssrRow.nextSibling?.classList.contains("mdg-ups-line") && boxAfter(ssrRec), "hydrated: the name line and the card are marked");
 
   // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
   Object.assign(store, {

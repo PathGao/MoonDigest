@@ -251,15 +251,21 @@
   let gen = 0; // bumped when triage data changes so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
   const observer = new MutationObserver((records) => onMutations(records));
-  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key"] };
+  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key", "data-server-rendered"] };
 
   // BewlyCat draws its own pages (首页, 收藏, 稍后再看…) inside #bewly's open shadow root. Only that root is searched:
   // Bilibili's comment section is nested shadow roots too, and its video links should stay unmarked.
   const bewlyRoot = () => document.getElementById("bewly")?.shadowRoot || null;
+  // The video and /list/ player pages are server-rendered: #app carries data-server-rendered until Vue hydrates it, in
+  // one synchronous step that drops the attribute. A node of ours in there before that breaks the hydration, and with
+  // it the player's 网页全屏 and the comments (#394). So nothing in it is marked until then; the attribute going is a
+  // mutation on #app, which looks at all of it.
+  const SSR = "[data-server-rendered]";
+  const hydrated = (list) => (document.querySelector(SSR) ? list.filter((n) => !n.closest(SSR)) : list);
   const findAll = (sel) => {
     if (lineOnly) return [];
     const r = bewlyRoot();
-    const list = [...document.querySelectorAll(sel)];
+    const list = hydrated([...document.querySelectorAll(sel)]);
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
   };
   // What a run looks at: the queued nodes (each one, what it holds and the match it sits in), or null for the whole page.
@@ -271,7 +277,7 @@
       if (up) out.add(up);
       for (const n of r.querySelectorAll(sel)) out.add(n);
     }
-    return [...out];
+    return hydrated([...out]);
   };
   let bewlyHooked = null;
   // Page CSS doesn't reach into a shadow root, so it gets its own copy of badges.css. True when newly hooked: what
@@ -314,9 +320,9 @@
   // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
   // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render is back in
   // the same callback. The video page's title block is one: our line, there before Vue hydrates the block, makes
-  // hydration throw the block away and draw it anew once, about 2s in (without the line it is never replaced). Adding
-  // the line only after hydration would spare that, but a content script cannot tell when hydration ends, and adding
-  // it late is what pushed the player down. The whole page is looked at, in
+  // hydration throw the block away and draw it anew once, about 2s in (without the line it is never replaced). It is
+  // the one mark drawn before hydration (findAll's SSR wait does not cover it): adding it late is what pushed the
+  // player down, and the block it sits in survives being redrawn. The whole page is looked at, in
   // the next animation frame, at start, after in-page navigation, when the tab comes back into view and when more
   // than MAX nodes piled up in one callback (the parser at document_start); data changes do it too, throttled
   // (schedule). ----
