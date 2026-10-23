@@ -922,18 +922,19 @@ async function surfacePages() {
   assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
 
-  // #394: before Vue hydrates the server-rendered #app, nothing in it is marked; once it drops the attribute, all of it is.
+  // #394: before Vue hydrates the server-rendered #app, the UP name's line waits (the cards beside it don't); once it
+  // drops the attribute, the line is drawn.
   const ssrRow = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, "甲"));
   const ssrRec = author();
   const app = h("div", { id: "app", "data-server-rendered": "true" }, h("div", { class: "up-detail" }, ssrRow), ssrRec);
   const outside = author();
   const ssr = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, app, outside));
-  assert.deepStrictEqual([ssrRow.nextSibling, boxAfter(ssrRec)], [null, null], "not hydrated yet: no UP marks inside #app");
-  assert.ok(boxAfter(outside), "outside #app: marked at once");
+  assert.strictEqual(ssrRow.nextSibling, null, "not hydrated yet: no line under the UP name");
+  assert.ok(boxAfter(ssrRec) && boxAfter(outside), "the cards, in #app or not, are marked at once");
   app.removeAttribute("data-server-rendered");
   ssr.win.mutate([{ type: "attributes", target: app, attributeName: "data-server-rendered", addedNodes: [], removedNodes: [] }]);
   await new Promise((r) => setTimeout(r, 30));
-  assert.ok(ssrRow.nextSibling?.classList.contains("mdg-ups-line") && boxAfter(ssrRec), "hydrated: the name line and the card are marked");
+  assert.ok(ssrRow.nextSibling?.classList.contains("mdg-ups-line") && boxAfter(ssrRec), "hydrated: the line under the UP name");
 
   // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
   Object.assign(store, {
