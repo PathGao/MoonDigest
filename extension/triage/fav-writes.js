@@ -29,7 +29,7 @@ const keepStep = (bvids) =>
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
 function patchDecisions(mediaId, patch) {
-  return serialStore(async () => {
+  return lockRecords(async () => {
     const stored = await storeGet(K.decisions(mediaId), {});
     const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
     for (const d of maps) {
@@ -366,8 +366,7 @@ const fav = {
         const f = { id: Number(meta.to), title: meta.toName, count: 0 };
         S.allFolders.push(f);
         S.folders.push(f);
-        S.included = [...S.included, meta.to];
-        await chrome.storage.local.set({ [K.included]: S.included });
+        S.included = await MdgLimits.update(K.included, (stored) => [...new Set([...(stored || []).map(String), meta.to])]);
       }
       const { to, toName } = meta;
       const chunks = chunksOf(list, add || from === TOVIEW, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map(favRes), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
@@ -394,7 +393,7 @@ const fav = {
           if (move && left.length) {
             const gone = new Set(left.map((it) => it.bvid));
             // One queued step, so a folder save in between never sees the videos gone from here but not yet recorded.
-            await serialStore(async () => {
+            await lockRecords(async () => {
               await patchSnapshotNow(from, { drop: [...gone] });
               if (!chosen) await addMovedNow(from, left, { id: to, title: toName });
             });
@@ -521,9 +520,9 @@ function askTransfer(list) {
 // gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
 // every folder (已出分拣范围). A folder with no cached list is left to its first load.
 function patchSnapshot(...args) {
-  return serialStore(() => patchSnapshotNow(...args));
+  return lockRecords(() => patchSnapshotNow(...args));
 }
-// patchSnapshot for a fn already running in serialStore.
+// patchSnapshot for a fn already running in lockRecords.
 async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = false) {
   const key = K.snapshot(mediaId);
   const got = await chrome.storage.local.get([key, K.left]);
@@ -556,9 +555,9 @@ async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = fals
 // Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已出分拣范围, marked with
 // where it went. Ticking that folder brings it back (recoverRemoved).
 function addMovedToRemoved(...args) {
-  return serialStore(() => addMovedNow(...args));
+  return lockRecords(() => addMovedNow(...args));
 }
-// addMovedToRemoved for a fn already running in serialStore.
+// addMovedToRemoved for a fn already running in lockRecords.
 async function addMovedNow(from, items, movedTo) {
   const others = chosenOtherIds(from);
   const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);

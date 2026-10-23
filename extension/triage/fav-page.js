@@ -540,7 +540,8 @@ function bindEvents() {
     // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
     const included = S.toviewUnread && S.included.includes(TOVIEW) ? [...ticked, TOVIEW] : ticked;
     if (!sameSet(included, S.included)) {
-      await storeSet(K.included, included);
+      noteOwnWrites({ [K.included]: included });
+      await MdgLimits.update(K.included, () => included).catch((e) => storeFailed([K.included], e));
       await applyIncluded(included);
     }
   });

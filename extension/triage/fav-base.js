@@ -318,24 +318,18 @@ function storeSet(key, value) {
 // Writes obj to storage.local; a failure is logged and toasted once until a write succeeds again (关注 writes through
 // this too). Resolves false on failure.
 function store(obj) {
-  return chrome.storage.local.set(obj).then(
-    () => ((storeFailShown = false), true),
-    (e) => {
-      console.error("[triage] storage write failed", Object.keys(obj), e);
-      if (!storeFailShown) toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
-      storeFailShown = true;
-      return false;
-    }
-  );
+  return chrome.storage.local.set(obj).then(() => ((storeFailShown = false), true), (e) => storeFailed(Object.keys(obj), e));
 }
-// Read-modify-writes of a shared record (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
-// write back what they read, and the first one's change is lost. A queued fn must not queue another (it would wait on itself).
-let storeChain = Promise.resolve();
-function serialStore(fn) {
-  const run = storeChain.then(fn);
-  storeChain = run.catch(() => {});
-  return run;
+function storeFailed(keys, e) {
+  console.error("[triage] storage write failed", keys, e);
+  if (!storeFailShown) toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+  storeFailShown = true;
+  return false;
 }
+// Read-modify-writes of the shared records (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time
+// across every 分拣台 tab (MdgLimits.locked): two overlapping ones would each write back what they read, and the first
+// one's change be lost. A locked fn must not lock again (it would wait on itself): the *Now variants are for that.
+const lockRecords = (fn) => MdgLimits.locked("mdg-triage-records", fn);
 
 const stamp = (d = new Date(), withTime = true) => MdgCommon.localDate(d, withTime);
 function fmtTime(ts) {

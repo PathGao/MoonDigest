@@ -38,10 +38,10 @@
   const changedParts = (cur, next) => Object.fromEntries(["tags", "map"].filter((k) => next[k] !== cur[k]).map((k) => [k, next[k]]));
 
   // 收藏夹: the page holds them (get()); save(patch) is its storage write (echo bookkeeping, failure toast) → stored?
+  // One write at a time across the pages that hold these keys (MdgLimits.locked).
   function local({ keys, get, put, save }) {
-    let queue = Promise.resolve();
     function write(fn) {
-      const run = queue.then(async () => {
+      return MdgLimits.locked(`mdg-key:${keys.tags}`, async () => {
         const cur = get();
         const part = changedParts(cur, fn(cur));
         if (!Object.keys(part).length) return true;
@@ -49,8 +49,6 @@
         put(part);
         return true;
       });
-      queue = run.catch(() => {});
-      return run;
     }
     // 清理 forgets videos in one write of several keys: the map without them, as a patch for that write (put now).
     function without(itemKeys) {

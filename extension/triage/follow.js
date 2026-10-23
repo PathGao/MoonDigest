@@ -158,6 +158,8 @@ const tagOf = (id) => D.tags.find((t) => t.id === id);
 const nameOf = (mid) => rows.get(mid)?.name || mid;
 const upName = (mid) => D.people?.[mid]?.name || F.feed?.items.find((it) => it.mid === mid)?.name || nameOf(mid);
 const write = T.store;
+// A patch of follow_* keys by short name (undefined removes), under the lock the background's sync writes take.
+const followWrite = (patch) => MdgLimits.updateFollow([], () => patch, write);
 // A batch confirm's list, as 收藏夹's.
 const names = (mids) => UI.confirmList(mids.map(nameOf));
 
@@ -196,13 +198,13 @@ const tagStore = MdgTagStore.create({
   async markRecent(mids, at) {
     D.recent = { at, mids };
     F.recentFilter = true;
-    await write(MdgLimits.followFull({ ai_recent: D.recent }));
+    await followWrite({ ai_recent: D.recent });
   },
   async endRecent(at) {
     if (D.recent?.at !== at) return;
     D.recent = null;
     F.recentFilter = false;
-    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
+    await followWrite({ ai_recent: undefined });
   }
 });
 // An 已取消关注 UP 主's tags are kept in its follow_unfollowed record (follow-bg.js moves them there when it leaves):
@@ -1264,8 +1266,7 @@ const AI = { proposal: null, excluded: new Set(), settings: {}, history: [] };
 const aiRunning = () => Boolean(runs.get("follow-ai"));
 function setAiProposal(p) {
   AI.proposal = p;
-  if (p) write(MdgLimits.followFull({ ai_proposal: p }));
-  else chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_proposal"));
+  followWrite({ ai_proposal: p ?? undefined });
 }
 
 // The AI tags only UP 主 still followed.
@@ -1513,7 +1514,7 @@ main.addEventListener("click", async (e) => {
   } else if (act === "recent-done") {
     F.recentFilter = false;
     D.recent = null;
-    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
+    await followWrite({ ai_recent: undefined });
     fromTop();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {

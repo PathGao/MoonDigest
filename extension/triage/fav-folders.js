@@ -98,7 +98,7 @@ function chosenOtherIds(exceptId) {
 // A folder that is no longer chosen (deleted on Bilibili or unticked) gets no new list to diff against, so its videos
 // (unless in a chosen folder's list) move to 已出分拣范围 here and its records go. Runs once S.folders is known.
 function retireUnchosenFolders() {
-  return serialStore(async () => {
+  return lockRecords(async () => {
     if (!S.allFolders.length) return; // 默认收藏夹 always exists; an empty list is never "every folder deleted"
     if (!S.included.length) return; // nothing chosen yet (or all unticked by accident): never empty every folder into 已出分拣范围
     const live = new Set(chosenOtherIds());
@@ -121,13 +121,14 @@ function retireUnchosenFolders() {
 // Opt-in: a new user starts with no folder chosen. The first load after this change keeps every folder for
 // someone who already triaged (a snapshot exists).
 async function loadIncluded() {
-  const got = await chrome.storage.local.get(K.included);
-  if (Array.isArray(got[K.included])) return got[K.included];
-  const keys = await MdgLimits.storageKeys(chrome.storage.local);
-  // 稍后再看 missing from the list this time (its read failed) is still one of every folder.
-  const every = [...S.allFolders.map((f) => String(f.id)), ...(S.toviewUnread ? [TOVIEW] : [])];
-  const included = keys.some((k) => k.startsWith(KEYS.triageSnapshotPrefix)) ? [...new Set(every)] : [];
-  await chrome.storage.local.set({ [K.included]: included });
+  let included;
+  await MdgLimits.update(K.included, async (stored) => {
+    if (Array.isArray(stored)) return void (included = stored);
+    const keys = await MdgLimits.storageKeys(chrome.storage.local);
+    // 稍后再看 missing from the list this time (its read failed) is still one of every folder.
+    const every = [...S.allFolders.map((f) => String(f.id)), ...(S.toviewUnread ? [TOVIEW] : [])];
+    return (included = keys.some((k) => k.startsWith(KEYS.triageSnapshotPrefix)) ? [...new Set(every)] : []);
+  });
   return included;
 }
 
@@ -447,7 +448,7 @@ function markRead(mediaId) {
 // The full item list doubles as the 所有收藏夹 cache; bvids/invalid/titles drive the sync diff. Videos that left every
 // chosen folder go to 已出分拣范围.
 function saveSnapshot(mediaId, items, ids = null) {
-  return serialStore(async () => {
+  return lockRecords(async () => {
     const others = chosenOtherIds(mediaId);
     const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, K.left, ...others.map(K.snapshot)]);
     const old = got[K.snapshot(mediaId)];
@@ -555,7 +556,7 @@ async function checkWhere(run) {
   });
   if (r.error && alive()) S.removedCheck.error = `核对《${shortTitle(list[i - 1])}》的收藏状态失败：${r.error}${RETRY_REFRESH}`;
 
-  await serialStore(async () => {
+  await lockRecords(async () => {
     const rec = await storeGet(K.removed, {});
     const hit = Object.keys(found).filter((b) => rec[b]);
     for (const b of hit) rec[b].inFolder = found[b];
@@ -565,7 +566,7 @@ async function checkWhere(run) {
 
 // Drops these bvids from 已出分拣范围 (they are in a folder again); returns how many were there.
 function dropRemoved(bvids) {
-  return serialStore(async () => {
+  return lockRecords(async () => {
     const rec = await storeGet(K.removed, {});
     // A hidden invalid video stays in the id list; only its listing coming back (updateRemoved) takes it out.
     const back = bvids.filter((b) => rec[b] && !rec[b].hidden);
@@ -588,7 +589,7 @@ async function cleanRemoved(list) {
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
   const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、分拣标签、保留标记、待播记录和取消收藏记录，无法撤销。摘读记录里的星标和标签会保留。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
-  return serialStore(async () => {
+  return lockRecords(async () => {
     const bvids = list.map((it) => it.bvid);
     const set = new Set(bvids);
     const rec = await storeGet(K.removed, {});
@@ -628,18 +629,20 @@ async function loadResults(run) {
     send({ type: "triage-analysis-get", bvids: missing })
   ]);
   if (!run.alive) return false;
-  // Results from before criteria were recorded count as made under this folder's current criteria.
-  const stamp = {};
-  const stamped = (key, r) => {
+  // Results from before criteria were recorded count as made under this folder's current criteria: stamped under the
+  // key's lock, and only while the stored one still has none (the background may have written a newer result meanwhile).
+  const stamped = async (key, r) => {
     if (!inFolderView() || r.criteria !== undefined) return r;
-    stamp[key] = { ...r, criteria: criteria() };
-    return stamp[key];
+    const c = criteria();
+    let stored;
+    const next = await MdgLimits.update(key, (now) => ((stored = now), now && now.criteria === undefined ? { ...now, criteria: c } : undefined)).catch((e) => storeFailed([key], e));
+    return next || stored || r;
   };
   for (const b of missing) {
-    if (t.ok && t.data?.[b]) S.titleRes[b] = stamped(KEYS.triageTitle(b), t.data[b]);
-    if (a.ok && a.data?.[b]) S.analyses[b] = stamped(KEYS.triageAnalysis(b), a.data[b]);
+    if (t.ok && t.data?.[b]) S.titleRes[b] = await stamped(KEYS.triageTitle(b), t.data[b]);
+    if (a.ok && a.data?.[b]) S.analyses[b] = await stamped(KEYS.triageAnalysis(b), a.data[b]);
   }
-  if (Object.keys(stamp).length) await store(stamp);
+  if (!run.alive) return false;
   // Their cards would read as 未分析; the next load reads the missing ones again.
   const failed = [t, a].find((r) => !r.ok);
   if (failed) toast(`读取已有的 AI 判断失败：${MdgErrors.text(failed)}`, true);

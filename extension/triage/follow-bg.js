@@ -209,7 +209,7 @@ function followHold(ms, why) {
   // Slowed outside a sync too (视频投稿's pages): kept in follow_jobs, which a restarted worker reads back (followResume).
   if (why === "throttled" && !followOnHold) followPatchJob({ slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
   // The 视频投稿 page reads follow_hold while it waits for a page, as the sync's pill reads follow_jobs.hold.
-  chrome.storage.local.set(MdgLimits.followFull({ hold })).catch(() => {});
+  followUpdate([], () => ({ hold })).catch(() => {});
 }
 
 // Every GET goes through triage-bg.js's channel, paced by this queue.

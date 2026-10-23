@@ -4198,12 +4198,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     const was = { title: handlers["triage-title-get"], analysis: handlers["triage-analysis-get"], crit: t.S.folderCriteria };
     handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
-    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, { verdict: "keep" }])) });
+    // The background answers from storage: the stored result is what the stamp is written onto.
+    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[t.MdgLimits.KEYS.triageTitle(b)]])) });
     t.S.folderCriteria = { F700: "只留干货" };
     for (const [id, n, want] of [["F700", 700, "只留干货"], ["all", 701, undefined]]) {
+      store[t.MdgLimits.KEYS.triageTitle(`BV${n}`)] = { verdict: "keep" };
       openFake(id, [item(n)]);
       await t.loadResults(t.S.view.current);
-      assert.strictEqual(t.S.titleRes[`BV${n}`].criteria, want, id);
+      assert.deepStrictEqual([t.S.titleRes[`BV${n}`].criteria, store[t.MdgLimits.KEYS.triageTitle(`BV${n}`)].criteria], [want, want], id);
+    }
+    // G4: a newer result the background wrote between the read and the stamp is kept, in storage and on the card.
+    {
+      const key = t.MdgLimits.KEYS.triageTitle("BV702");
+      store[key] = { verdict: "keep" };
+      handlers["triage-title-get"] = ({ bvids }) => {
+        const data = Object.fromEntries(bvids.map((b) => [b, store[t.MdgLimits.KEYS.triageTitle(b)]]));
+        store[key] = { verdict: "drop", criteria: "新标准" };
+        return { ok: true, data };
+      };
+      openFake("F700", [item(702)]);
+      await t.loadResults(t.S.view.current);
+      assert.deepStrictEqual([plain(store[key]), plain(t.S.titleRes.BV702)], [{ verdict: "drop", criteria: "新标准" }, { verdict: "drop", criteria: "新标准" }], "the newer result stays");
     }
     Object.assign(handlers, { "triage-title-get": was.title, "triage-analysis-get": was.analysis });
     t.S.folderCriteria = was.crit;
