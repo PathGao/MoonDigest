@@ -427,6 +427,11 @@ async function resolveAiSidepanelPageRef(contextRef) {
   };
 }
 
+// The video page's proxied requests (fetch-json) in flight, by sender tab, frame and the page's id, so the page can end
+// one (fetch-json-cancel) and only its own; an entry goes when its request settles.
+const proxiedFetches = new Map();
+const proxiedFetchKey = (sender, id) => `${sender?.tab?.id ?? ""}:${sender?.frameId ?? 0}:${id}`;
+
 // What each message answers, registered with triageListen at the end of this file (after its importScripts): the
 // handler's object is the reply, a throw is { ok: false, error, code? }. Only the extension's own pages are answered,
 // a content script only the types listed there.
@@ -533,15 +538,26 @@ const BACKGROUND_HANDLERS = {
     return { ok: true };
   },
 
-  "fetch-json": (message) => {
+  "fetch-json": async (message, sender) => {
     const url = typeof message.url === "string" ? message.url : "";
     // The proxy carries the user's cookies, so it only serves the video sites.
     if (!MdgSites.isAllowedFetchUrl(url)) return { ok: false, error: "URL not allowed" };
-    // The same request, timeout and words as 分拣台 and the side panel (triageBiliGetJson, one try); the page retries.
-    return triageBiliGetJson(url).then(
-      (data) => ({ ok: true, data }),
-      (error) => ({ ok: false, error: error.message, code: error.code, status: error.status })
-    );
+    const key = proxiedFetchKey(sender, message.id);
+    const ctl = new AbortController();
+    proxiedFetches.set(key, ctl);
+    try {
+      // The same request, timeout and words as 分拣台 and the side panel (triageBiliGetJson, one try); the page retries.
+      return { ok: true, data: await triageBiliGetJson(url, undefined, ctl.signal) };
+    } catch (error) {
+      return { ok: false, error: error.message, code: error.code, status: error.status };
+    } finally {
+      if (proxiedFetches.get(key) === ctl) proxiedFetches.delete(key);
+    }
+  },
+  // The page stopped waiting (its run ended): its request stops too. An id that already settled, or another tab's, is nothing.
+  "fetch-json-cancel": (message, sender) => {
+    proxiedFetches.get(proxiedFetchKey(sender, message.id))?.abort();
+    return { ok: true };
   },
 
   // The settings page validates both fields before it asks.
@@ -1285,5 +1301,5 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
-triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json"], (r) => r);
+triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json", "fetch-json-cancel"], (r) => r);
 triageListen(null, OBSIDIAN_HANDLERS, OBSIDIAN_WEB_TYPES, (r) => ({ ok: true, ...r }));

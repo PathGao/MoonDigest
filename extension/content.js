@@ -4065,14 +4065,22 @@ function httpError(status) {
   return Object.assign(new Error(`${who}请求失败 HTTP ${status}`), { status });
 }
 
-// The background's request cannot be stopped from here; the wait for it ends with the run.
+// The run's abort ends the wait here and tells the background to abort its request (fetch-json-cancel, by this page's
+// id). The listener goes when the answer comes, so a later abort of the run cancels nothing and rejects nothing.
+let proxiedFetchSeq = 0;
 async function fetchJsonInBackground(url, signal) {
+  const id = ++proxiedFetchSeq;
+  let cancel = () => {};
   try {
     signal?.throwIfAborted();
-    const resp = await Promise.race([
-      sendRuntimeMessage({ type: "fetch-json", url }),
-      new Promise((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true }))
-    ]);
+    const cancelled = new Promise((_, reject) => {
+      cancel = () => {
+        reject(signal.reason);
+        sendRuntimeMessage({ type: "fetch-json-cancel", id }).catch(() => {});
+      };
+    });
+    signal?.addEventListener("abort", cancel, { once: true });
+    const resp = await Promise.race([sendRuntimeMessage({ type: "fetch-json", url, id }), cancelled]);
     if (!resp?.ok) {
       // code: THROTTLED (412) and NETWORK, as triageBiliGetJson says them; status: 429 waits in pageSubtitleSite.
       throw Object.assign(MdgErrors.fromResp(resp, "后台请求失败"), { status: resp?.status, code: resp?.code });
@@ -4083,6 +4091,8 @@ async function fetchJsonInBackground(url, signal) {
       throw new Error(MdgErrors.TEXT.reloaded);
     }
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
 }
 

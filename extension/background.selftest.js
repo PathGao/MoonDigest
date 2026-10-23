@@ -662,6 +662,24 @@ process.on("exit", (code) => {
     assert.deepStrictEqual([late.error, late.code], [ctx.MdgErrors.netTimeout(20), "NETWORK"]);
     ctx.fetch = async (url, init) => ({ ok: true, json: async () => ({ code: 0, data: { referrer: init.referrer } }) });
     assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
+
+    // fetch-json-cancel aborts the page's own request in flight, by its id: another tab's cancel with the same id, and
+    // an id that is not in flight, abort nothing. The entry goes when the request settles.
+    const inFlight = () => vm.runInContext("proxiedFetches.size", ctx);
+    const seen = [];
+    ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => (seen.push(url), reject(Object.assign(new Error("aborted"), { name: "AbortError" })))));
+    const tab = (id) => ({ tab: { id }, frameId: 0, url: "https://www.bilibili.com/video/BV1" });
+    const pending = ask({ type: "fetch-json", url: bili, id: 1 }, tab(5));
+    await new Promise((r) => setTimeout(r, 5));
+    assert.strictEqual(inFlight(), 1);
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(6))).ok, true, "another tab's id 1 is not this request");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 2 }, tab(5))).ok, true, "an unknown id is ignored");
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepStrictEqual([seen, inFlight()], [[], 1], "still in flight");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(5))).ok, true);
+    // Node's own timer: a request only the 30 s timeout would end must read as a failure, not a wait.
+    const ended = await Promise.race([pending, new Promise((r) => setTimeout(() => r({ ok: "still pending" }), 100))]);
+    assert.deepStrictEqual([seen, ended.ok, ended.code, inFlight()], [[bili], false, "NETWORK", 0], "the fetch saw the abort; the entry is gone");
   }
 
   // A B站 or YouTube page's script (a hijacked renderer too) gets only the types content.js sends: it cannot send a saved
