@@ -862,8 +862,10 @@ async function surfacePages() {
   assert.strictEqual(viewer.doc.querySelector(".mdg-line"), null, "player: AI 判断 off, the line goes");
   store.triage_analysis_BV1GJ411x7h7 = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" };
   // J3: the 稍后再看 / 收藏夹 player (/list/…?bvid=) has the line under the title too, as /video/ has.
-  for (const search of ["?bvid=BV1GJ411x7h7", "?oid=1&bvid=BV1GJ411x7h7"]) {
-    const list = await page({ hostname: "www.bilibili.com", pathname: search.startsWith("?oid") ? "/list/ml5" : "/list/watchlater", search }, h("body", {}, h("div", { class: "video-info-title" })), false, { showBiliVerdicts: true });
+  // /list/ml… before hydration has no ?bvid=: the title's link names the video.
+  const titleLink = h("a", { class: "video-title-href", href: "//www.bilibili.com/video/BV1GJ411x7h7?spm_id_from=" });
+  for (const search of ["?bvid=BV1GJ411x7h7", "?oid=1&bvid=BV1GJ411x7h7", ""]) {
+    const list = await page({ hostname: "www.bilibili.com", pathname: search.startsWith("?bvid") ? "/list/watchlater" : "/list/ml5", search }, h("body", {}, h("div", { class: "video-info-title" }, ...(search ? [] : [titleLink]))), false, { showBiliVerdicts: true });
     assert.ok(/讲 Rust 所有权/.test(list.doc.querySelector(".mdg-line")?.textContent || ""), `the line on /list/${search}`);
   }
   for (const k of ["triage_analysis_BV1GJ411x7h7", "triage_tags", "triage_video_tags"]) delete store[k];

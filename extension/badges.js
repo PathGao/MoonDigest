@@ -315,7 +315,12 @@
     return true;
   }
   // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
-  const pageBvid = () => (/^\/(?:video|list)\//.test(location.pathname) ? bvidFromHref(location.pathname + location.search) : "");
+  // /list/ml… opens without ?bvid=, which B站 adds as Vue hydrates #app: until then the title's own link names it, so
+  // the line is drawn with the title and not pushed in under it at hydration.
+  const pageBvid = () =>
+    /^\/(?:video|list)\//.test(location.pathname)
+      ? bvidFromHref(location.pathname + location.search) || bvidFromHref(document.querySelector(".video-info-title a[href]")?.getAttribute("href"))
+      : "";
 
   // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
   // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render is back in
