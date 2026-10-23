@@ -571,13 +571,24 @@ async function seenSyncOnce(force, started) {
   return { pages: ran, dropped };
 }
 
-// The types triage-folder-items keeps: 2 = video, TRIAGE_OGV = 番剧 episodes.
-// ids gives a type-24 番剧 episode a BV id computed from its episode id as if that were an aid, another video's: ids keys
-// every 番剧 entry by "id:type" instead, which never matches a BV id (folder-ids has no list to map it with).
-async function triageFolderIds(mediaId) {
+// The bvids of a folder, as the page compares them with its lists. The types triage-folder-items keeps: 2 = video,
+// TRIAGE_OGV = 番剧 episodes. ids gives a type-24 番剧 episode a BV id computed from its episode id as if that were an
+// aid, another video's: a 番剧 entry is mapped to its bvid by its "id:type", which list items carry as ep (fresh: the
+// list just read; then the folder's cached list and 已出分拣范围, where one hidden from the list still is). One no list
+// knows stays "id:type", which never matches a BV id.
+async function triageFolderIds(mediaId, fresh = []) {
   if (mediaId === TRIAGE_TOVIEW) return (await triageToviewList()).map((m) => m.bvid);
   const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
-  return (data || []).filter((m) => m.type === 2 || TRIAGE_OGV.includes(m.type)).map((m) => (m.type === 2 ? m.bvid || m.bv_id : `${m.id}:${m.type}`));
+  const list = (data || []).filter((m) => m.type === 2 || TRIAGE_OGV.includes(m.type));
+  if (list.every((m) => m.type === 2)) return list.map((m) => m.bvid || m.bv_id);
+  const K = MdgLimits.KEYS;
+  let got = {};
+  try {
+    got = await chrome.storage.local.get([K.triageSnapshot(mediaId), K.triageRemoved]);
+  } catch {} // unread caches only leave the 番剧 unmapped
+  const known = [...fresh, ...(got[K.triageSnapshot(mediaId)]?.items || []), ...Object.values(got[K.triageRemoved] || {}).map((r) => r?.item)];
+  const byEp = new Map(known.filter((it) => it?.ep).map((it) => [it.ep, it.bvid]));
+  return list.map((m) => (m.type === 2 ? m.bvid || m.bv_id : byEp.get(`${m.id}:${m.type}`) || `${m.id}:${m.type}`));
 }
 
 // created/list (paged) is used instead of list-all because only it returns each folder's cover.
@@ -991,7 +1002,7 @@ const TRIAGE_HANDLERS = {
         items.push({
           bvid: m.bvid || m.bv_id,
           aid: ogv ? triageBvToAv(m.bvid || m.bv_id) : m.id,
-          ...(ogv && { ogv: true }),
+          ...(ogv && { ogv: true, ep: `${m.id}:${m.type}` }),
           // A 番剧 episode: title is the season's, intro the episode's (第1集 …); its counts are all 0.
           title: ogv && m.intro ? `${m.title} ${m.intro}` : m.title,
           cover: m.cover,
@@ -1015,7 +1026,7 @@ const TRIAGE_HANDLERS = {
     }
     // The id list is what 所有收藏夹 later checks against: it can hold entries the paged list leaves out, so comparing
     // it with the items would flag the folder every time. null when it fails; the check then falls back to the items.
-    const ids = await triageFolderIds(mediaId).catch(() => null);
+    const ids = await triageFolderIds(mediaId, items).catch(() => null);
     return { items, ids, info };
   },
 

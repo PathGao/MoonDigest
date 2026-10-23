@@ -485,7 +485,33 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     { bvid: "BV1", aid: 1, title: "t1" },
     { bvid: "BV14X4y1G7C7", aid: "714816118", ogv: true, title: "造物说 第1集 另一个我", intro: "" }
   ]);
-  assert.deepStrictEqual(plain(ogv.ids), ["BV1", "397236:24"]);
+  assert.strictEqual(ogv.items[1].ep, "397236:24");
+  assert.deepStrictEqual(plain(ogv.ids), ["BV1", "BV14X4y1G7C7"], "ids maps the episode to the bvid of the list just read");
+  // G2: one B站 hides from the list but keeps in ids is mapped by the folder's cached list, or by 已出分拣范围 once it is
+  // recorded there, so the page sees it still in the folder (hidden), like a video. An old cache without ep, or none,
+  // leaves "id:type", which matches no video.
+  {
+    const ids = vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-folder-ids"];
+    const cached = { bvid: "BV14X4y1G7C7", ep: "397236:24" };
+    const withStore = (got) => ({ storage: { local: { get: async () => got } } });
+    t.fetch = jsonRes({ code: 0, data: [{ id: 1, type: 2, bvid: "BV1" }, { id: 397236, type: 24, bvid: "BV11x411F7Tx" }] });
+    const realChrome = t.chrome;
+    t.chrome = withStore({ triage_snapshot_1: { items: [cached] } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "BV14X4y1G7C7"]);
+    // So a folder holding a 番剧 and unchanged since is not seen as changed (所有收藏夹 would reload it every time).
+    const core = vm.createContext({});
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "triage-core.js"), "utf8"), core);
+    const snap = { items: [{ bvid: "BV1" }, cached], ids: ["BV1", "BV14X4y1G7C7"] };
+    t.chrome = withStore({ triage_snapshot_1: snap });
+    assert.strictEqual(core.TriageCore.idsChanged(snap.ids, (await ids({ mediaId: 1 })).bvids), false, "a 番剧 alone does not mark the folder changed");
+    t.chrome = withStore({ triage_removed: { BV14X4y1G7C7: { item: cached, hidden: true } } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "BV14X4y1G7C7"]);
+    t.chrome = withStore({ triage_snapshot_1: { items: [{ bvid: "BV14X4y1G7C7" }] } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
+    t.chrome = {};
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
+    t.chrome = realChrome;
+  }
   assert.deepStrictEqual(["BV1GJ411x7h7", "BV17x411w7KC", "x"].map(vm.runInContext("triageBvToAv", ctx)), ["80433022", "170001", ""]);
 
   // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
