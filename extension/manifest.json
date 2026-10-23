@@ -36,7 +36,6 @@
     {
       "matches": [
         "https://www.bilibili.com/list/*",
-        "https://www.bilibili.com/bangumi/play/*",
         "https://www.bilibili.com/festival/*",
         "https://www.youtube.com/*"
       ],
@@ -45,14 +44,14 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.bilibili.com/video/*"],
+      "matches": ["https://www.bilibili.com/video/*", "https://www.bilibili.com/bangumi/play/*"],
       "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "content.js"],
       "css": ["content.css"],
       "all_frames": true,
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.bilibili.com/video/*", "https://space.bilibili.com/*"],
+      "matches": ["https://www.bilibili.com/video/*", "https://www.bilibili.com/bangumi/play/*", "https://space.bilibili.com/*"],
       "js": ["common.js", "typing.js", "triage/viewer-frame.js"],
       "css": ["triage/viewer-frame.css"],
       "all_frames": true,

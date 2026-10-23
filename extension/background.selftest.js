@@ -486,6 +486,15 @@ process.on("exit", (code) => {
       const kept = onMessage.some((fn) => fn({ type }, web, (r) => (refused = r)) === true);
       assert.ok(kept && !refused, `${type} from a video page`);
     }
+    // 分拣台's viewer frame on a 番剧 asks for the video itself (ref): the episode's aid makes its BV id.
+    {
+      ctx.chrome = { scripting: { executeScript: async () => [{ result: { aid: 170001, cid: 2, episodeId: 397236 } }] } };
+      // sender.url is where the frame loaded; ref is where B站's pushState took it, the episode the player now has.
+      const ep = { tab: { id: 5 }, frameId: 3, url: "https://www.bilibili.com/bangumi/play/ep1" };
+      assert.strictEqual((await ask({ type: "page-player", ref: "https://www.bilibili.com/bangumi/play/ep397236" }, ep)).data.id, "BV17x411w7KC");
+      assert.strictEqual((await ask({ type: "page-player", ref: "https://www.bilibili.com/bangumi/play/ep1" }, ep)).data, null, "not this episode yet");
+      assert.strictEqual((await ask({ type: "page-player" }, ep)).data.aid, 170001, "content.js still gets the manifest");
+    }
     Object.assign(ctx, { chrome: was.chrome, testAiConnection: was.test, loadAiProviderKeys: was.keys, getMergedSettings: was.settings });
   }
 
