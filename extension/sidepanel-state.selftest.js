@@ -696,6 +696,30 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   x.dispatch({ type: "UNSENT" });
   x.dispatch({ type: "NEW" });
   assert.ok(x.dispatch({ type: "OPEN", id: "o3" }).some((e) => e.type === "reattach"), "kept for the next show");
+  // F1: a background reply attached here and left again ends through REPLY_FINISHED as external: nothing saved, the
+  // conversation's updatedAt untouched (the background's write must not be merged away), the reply detached still.
+  const y = panel({ list: [saved("o4", video("BV1o4"), [{ role: "user", content: "问" }], 7)] });
+  y.dispatch({ type: "OPEN", id: "o4" });
+  y.dispatch({ type: "ORPHANS", replies: [{ conversationId: "o4", promptIndex: 0 }] });
+  const d = y.dispatch({ type: "NEW" }).find((e) => e.type === "detach");
+  assert.deepStrictEqual(plain(y.dispatch({ ...d, type: "REPLY_FINISHED", prompt: "", raw: "", external: true })), []);
+  assert.deepStrictEqual([y.view().saved.find((c) => c.id === "o4").updatedAt, y.view().saved.find((c) => c.id === "o4").messages.length], [7, 1]);
+  // F3: while a reply runs out of reach (not attached here), its conversation refuses a question; the stored list
+  // bringing the answer (or taking the question away) ends that, so does the answer landing after a re-attach.
+  y.dispatch({ type: "QUESTION", prompt: "别处在答" });
+  y.dispatch({ type: "UNSENT" });
+  const o4 = y.view().saved.find((c) => c.id === "o4");
+  y.dispatch({ type: "OPEN", id: "o4" });
+  assert.deepStrictEqual([y.view().turn, y.view().replyDetached], ["streaming", false], "shown: attached, not refused");
+  y.dispatch({ type: "STREAM_ENDED", raw: "", external: true });
+  assert.deepStrictEqual([y.view().turn, y.view().replyDetached], ["idle", true], "done without the answer here: refused until the list has it");
+  y.dispatch({ type: "SAVED_CHANGED", list: [{ ...o4, messages: [...o4.messages, { role: "assistant", content: "后台写的" }], updatedAt: 9 }], previous: [o4] });
+  assert.deepStrictEqual(plain([y.view().replyDetached, y.view().messages.map((m) => m.content)]), [false, ["问", "后台写的"]]);
+  const z = panel({ list: [saved("o5", video("BV1o5"), [{ role: "user", content: "问" }], 7)] });
+  z.dispatch({ type: "ORPHANS", replies: [{ conversationId: "o5", promptIndex: 0 }] });
+  const o5 = z.view().saved.find((c) => c.id === "o5");
+  z.dispatch({ type: "SAVED_CHANGED", list: [{ ...o5, messages: [], updatedAt: 9 }], previous: [o5] });
+  assert.ok(!z.dispatch({ type: "OPEN", id: "o5" }).some((e) => e.type === "reattach"), "the question taken away: nothing runs any more");
 }
 
 console.log("sidepanel-state selftest: all passed");

@@ -241,6 +241,9 @@
       turn: s.turn.phase,
       loading: s.turn.phase === "loading",
       streaming: inFlight(s),
+      // The reply to this conversation's last question still runs where this panel cannot show it (the background,
+      // another window's panel): no second question until it lands in the stored list.
+      replyDetached: Boolean(id) && s.detached.has(id),
       bound: Boolean(pinned) || inFlight(s),
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
       nonVideo: (pinned || context)?.isVideoContext === false,
@@ -417,8 +420,15 @@
   }
 
   // A detached reply ended: the answer goes after its question, or the question goes when nothing came back
-  // (patchReply), in the saved list and in the shown conversation when it is the one.
-  function finishReply(s, { conversationId, promptIndex, prompt, raw }) {
+  // (patchReply), in the saved list and in the shown conversation when it is the one. external: the background holds
+  // and writes it; it stays detached (asking is refused) until the stored list shows its answer (SAVED_CHANGED), so a
+  // 「done」 from the background that only means another panel took it, or an end before the write, blocks nothing for good
+  // and writes nothing here.
+  function finishReply(s, { conversationId, promptIndex, prompt, raw, external }) {
+    if (external) {
+      if (s.saved.some((item) => item.id === conversationId)) s.detached.set(conversationId, { promptIndex, prompt });
+      return [];
+    }
     s.detached.delete(conversationId);
     const conversation = s.saved.find((item) => item.id === conversationId);
     if (!conversation) {
@@ -620,6 +630,11 @@
         const gone = (id) => stored(event.previous, id) && !stored(event.list, id);
         s.saved = mergeSaved(event.list, s.saved, s.unsaved);
         const effects = [...s.detached.keys()].filter(gone).flatMap((id) => dropReply(s, id));
+        // The background (or another window) wrote a detached reply's end: its question answered, or taken away.
+        for (const [id, { promptIndex, prompt }] of [...s.detached]) {
+          const messages = s.saved.find((item) => item.id === id)?.messages || [];
+          if (messages[promptIndex]?.content !== prompt || messages[promptIndex + 1]?.role === "assistant") s.detached.delete(id);
+        }
         if (s.conv.id && gone(s.conv.id)) {
           return [...effects, ...setConv(s)];
         }
@@ -668,7 +683,7 @@
         const turn = s.turn;
         if (!step(s, event.type)) return [];
         s.turn = idleTurn();
-        if (turn.reply) return event.external ? [] : finishReply(s, { ...turn.reply, prompt: turn.prompt, raw: String(event.raw || "") });
+        if (turn.reply) return finishReply(s, { ...turn.reply, prompt: turn.prompt, raw: String(event.raw || ""), external: event.external });
         if (!String(event.raw || "").trim()) {
           if (event.failure) s.conv.unanswered = { prompt: turn.prompt, ...event.failure };
           return [];

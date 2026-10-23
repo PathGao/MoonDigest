@@ -427,11 +427,13 @@ const tick = () => new Promise((r) => setImmediate(r));
     closed = 0;
     // Delete while answering: the shown conversation's reply is dropped.
     chatOn(video);
-    const doomed = { prompt: "q", raw: "", port: { disconnect: () => closed++ } };
+    const doomedSent = [];
+    const doomed = { prompt: "q", raw: "", port: { disconnect: () => closed++, postMessage: (m) => doomedSent.push(m.action) } };
     streamOn(doomed);
     ctx.confirm = () => true;
     await ctx.deleteConversation(view().id);
-    assert.deepStrictEqual([closed, vm.runInContext("activeStream", ctx), view().id], [1, null, ""]);
+    // F2: 停止 goes first, so a reply the background knows the conversation of does not run on as an orphan.
+    assert.deepStrictEqual([closed, doomedSent, vm.runInContext("activeStream", ctx), view().id], [1, ["stop"], null, ""]);
     // Gap 1: a reply left for its saved conversation is cut off too when that conversation is deleted, here or on
     // 摘读记录: 停止 goes down the port first (the background then aborts instead of finishing it), then the port closes.
     for (const deleteIt of [(id) => ctx.deleteConversation(id), (id) => ctx.act({ type: "SAVED_CHANGED", list: view().saved.filter((c) => c.id !== id), previous: view().saved })]) {
@@ -1500,10 +1502,43 @@ const tick = () => new Promise((r) => setImmediate(r));
     assert.deepStrictEqual(JSON.parse(JSON.stringify(sent.at(-1))), { action: "stop" });
     listener({ type: "done" });
     await tick();
-    assert.deepStrictEqual([view().turn, view().messages.length], ["idle", 1], "the end writes nothing here");
+    // F3: until the stored list has the answer, asking here is refused (the reply runs out of reach).
+    assert.deepStrictEqual([view().turn, view().messages.length, ctx.readOnlyReason()], ["idle", 1, "上一个回答还在生成，结束后才能继续问"], "the end writes nothing here");
     await ctx.act({ type: "SAVED_CHANGED", list: [{ ...o, messages: [...o.messages, { role: "assistant", content: "后台写的全文" }], updatedAt: 9 }], previous: [o] });
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(view().messages.map((m) => m.content))), ["后台在答", "后台写的全文"]);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify([view().messages.map((m) => m.content), ctx.readOnlyReason()])), [["后台在答", "后台写的全文"], ""]);
+    // F1: attached, then left again before the end: its end saves nothing here (the background writes the answer), the
+    // conversation's updatedAt stays, so the panel's next save cannot merge the background's answer away.
+    const o2 = { ...o, id: "orphan2", messages: [{ role: "user", content: "再问" }], updatedAt: 3 };
+    state.dispatch({ type: "SAVED_CHANGED", list: [o2] });
+    state.dispatch({ type: "NEW" });
+    await ctx.act({ type: "ORPHANS", replies: [{ conversationId: "orphan2", promptIndex: 0 }] });
+    await ctx.act({ type: "OPEN", id: "orphan2" });
+    const attachedStream = vm.runInContext("activeStream", ctx);
+    assert.strictEqual(attachedStream.attached, true);
+    await ctx.act({ type: "NEW" });
+    let saves = 0;
+    const realSave = ctx.saveConversations;
+    ctx.saveConversations = async () => saves++;
+    listener({ type: "token", data: "x" });
+    listener({ type: "done" });
+    await tick();
+    assert.deepStrictEqual([saves, view().saved.find((c) => c.id === "orphan2").updatedAt, vm.runInContext("detachedStreams", ctx).has("orphan2")], [0, 3, false]);
+    ctx.saveConversations = realSave;
     [ctx.chrome.runtime.connect, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage] = prev;
+  }
+
+  // F3: init asks the background which replies still run before the first conversation shows, so showing one attaches
+  // at once and no question goes out meanwhile.
+  {
+    const order = [];
+    const keep = Object.fromEntries(["bindEvents", "loadProvidersAndPrefs", "loadSavedConversations", "loadPreviousVideoConversationId", "loadContextState", "consumePendingPlayerAiQuickAction", "act", "renderInitialState", "updateContextChip"].map((k) => [k, ctx[k]]));
+    Object.assign(ctx, { bindEvents() {}, loadProvidersAndPrefs: async () => {}, loadSavedConversations: async () => {}, loadPreviousVideoConversationId: async () => {}, loadContextState: async () => order.push("context"), consumePendingPlayerAiQuickAction: async () => {}, act: async (e) => (order.push(e.type), []), renderInitialState() {}, updateContextChip() {} });
+    const realSend = ctx.chrome.runtime.sendMessage;
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "ai-replies-running" ? { ok: true, replies: [{ conversationId: "r", promptIndex: 0 }] } : { ok: true });
+    await ctx.init();
+    assert.deepStrictEqual(order, ["ORPHANS", "context"]);
+    ctx.chrome.runtime.sendMessage = realSend;
+    Object.assign(ctx, keep);
   }
 
   // Gap 4: every effect of an act starts before its save is awaited. Leaving a reply for its conversation while a

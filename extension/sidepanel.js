@@ -127,14 +127,17 @@ async function init() {
   // The tab's video shows from its URL (its saved conversation, or a placeholder) as soon as these are read; its
   // subtitles and comments, read meanwhile, fill it in.
   initReads = Promise.all([loadProvidersAndPrefs(), loadSavedConversations(), loadPreviousVideoConversationId()]);
+  // Replies the background still runs for a panel that closed: known before the first conversation shows, so showing
+  // one of theirs attaches to it at once and no question goes without the answer under way.
+  const running = chrome.runtime.sendMessage({ type: "ai-replies-running" }).catch(() => null);
+  await initReads.catch(() => {});
+  const replies = (await running)?.replies;
+  if (Array.isArray(replies)) await act({ type: "ORPHANS", replies });
   await loadContextState();
   // A conversation was drawn when it was shown; the empty state shows what the payload brought.
   if (state.view().bound) updateContextChip();
   else renderInitialState();
   autosizeInput();
-  // Replies the background finished for a panel that closed, still running: shown again, their conversation attaches.
-  const running = await chrome.runtime.sendMessage({ type: "ai-replies-running" }).catch(() => null);
-  if (running?.ok) await act({ type: "ORPHANS", replies: running.replies });
   initCompleted = true;
   await consumePendingPlayerAiQuickAction();
 }
@@ -305,9 +308,15 @@ function autosizeInput() {
 // What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
 const sourceKind = () => (state.view().nonVideo ? "网页" : "视频");
 
-// Why the shown conversation cannot be asked in at all: a web page not read, or a video that is gone.
+// A conversation whose last reply still runs where this panel cannot show it (the background before it is attached,
+// another window's panel): a second question would go without that answer in its history.
+const REPLY_RUNNING = "上一个回答还在生成，结束后才能继续问";
+
+// Why the shown conversation cannot be asked in now: a web page not read, a video that is gone, or its last reply
+// still running out of reach.
 function readOnlyReason() {
-  const { nonVideo, context } = state.view();
+  const { nonVideo, context, replyDetached } = state.view();
+  if (replyDetached) return REPLY_RUNNING;
   return nonVideo ? pageReason(context) : contextFailure()?.gone ? VIDEO_GONE : "";
 }
 
@@ -608,6 +617,11 @@ function releaseActiveStream({ type, conversationId, promptIndex }) {
     return;
   }
   if (type === "dropStream") {
+    // 停止 before the port closes, as dropReply does: a reply the background knows the conversation of would otherwise
+    // run on as an orphan.
+    try {
+      stream.port.postMessage({ action: "stop" });
+    } catch {}
     closeStream(stream);
     return;
   }
@@ -1848,8 +1862,8 @@ function closeStream(stream) {
 
 // A reply that left its conversation ended: state puts it after its question, also in the shown conversation when
 // the user reopened it meanwhile.
-async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
-  const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw });
+async function finishDetachedStream({ conversationId, promptIndex, prompt, raw, attached }) {
+  const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw, external: Boolean(attached) });
   if (effects.length && conversationId === state.view().id) {
     redrawConversation();
   }
