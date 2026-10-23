@@ -633,15 +633,18 @@ async function loadResults(run) {
   if (!run.alive) return false;
   // Results from before criteria were recorded count as made under this folder's current criteria: stamped under the
   // key's lock, and only while the stored one still has none (the background may have written a newer result meanwhile).
+  // This folder's criteria, read once: the folder may change while the stamps are written, and each one checks the run.
+  const c = inFolderView() ? criteria() : null;
   const stamped = async (key, r) => {
-    if (!inFolderView() || r.criteria !== undefined) return r;
-    const c = criteria();
+    if (c === null || r.criteria !== undefined) return r;
     let stored;
     const next = await MdgLimits.update(key, (now) => ((stored = now), now && now.criteria === undefined ? { ...now, criteria: c } : undefined)).catch((e) => storeFailed([key], e));
     return next || stored || r;
   };
   for (const b of missing) {
+    if (!run.alive) return false;
     if (t.ok && t.data?.[b]) S.titleRes[b] = await stamped(KEYS.triageTitle(b), t.data[b]);
+    if (!run.alive) return false;
     if (a.ok && a.data?.[b]) S.analyses[b] = await stamped(KEYS.triageAnalysis(b), a.data[b]);
   }
   if (!run.alive) return false;
@@ -668,10 +671,11 @@ async function openAll(run = S.view.current) {
     else if (!Number(f.count)) lists[id] = { items: [] };
   }
   const check = ids.filter((id) => got[K.snapshot(id)]?.items);
-  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), phase: "ready", error: "", partial: 0 };
+  S.loadAll = { lists, check, checkTotal: check.length, queue: ids.filter((id) => !lists[id]), phase: "ready", error: "", partial: 0, loop: null, life: MdgCommon.latest() };
   rebuildAll();
   if (!(await loadResults(run))) return false;
-  runLoadAll(run);
+  // 暂停 pressed while the results loaded (phase ready → paused) is kept: 继续 starts it.
+  if (S.loadAll.phase === "ready") runLoadAll(run);
   return true;
 }
 
@@ -696,10 +700,12 @@ function rebuildAll() {
 
 // The load's one phase: ready (set up, not started), running, paused (暂停, or a folder failed: L.error says which),
 // done (nothing left). Every change goes through loadAllTo; a pair not in the table (暂停 while paused, 继续 while
-// running) is refused and changes nothing.
+// running) is refused and changes nothing. The pill shows 暂停 in ready too, so ready → paused is allowed.
+// One loop at a time: L.loop is the loop going on (its request in flight included), L.life (MdgCommon.latest) its run.
+// 继续 only sets the phase while a loop exists (it goes on itself); 刷新 ends the loop's run and starts another after it.
 const LOAD_ALL_STEPS = {
   start: { ready: "running", paused: "running", done: "running" },
-  pause: { running: "paused" },
+  pause: { ready: "paused", running: "paused" },
   fail: { running: "paused" },
   finish: { running: "done" }
 };
@@ -710,22 +716,32 @@ function loadAllTo(L, event) {
   return true;
 }
 
-async function runLoadAll(run) {
+function runLoadAll(run) {
   const L = S.loadAll;
   if (!L || !loadAllTo(L, "start")) return;
-  const keepGoing = () => L.phase === "running" && run.alive;
   L.error = "";
   render();
-  try {
-    await loadAllLoop(L, run, keepGoing);
-  } finally {
-    // The folder left (run ended) keeps its phase: openFolder has already dropped this L.
-    if (run.alive && L.phase === "running" && !L.check.length && !L.queue.length) loadAllTo(L, "finish");
-    render();
-  }
+  // 继续 while the paused loop is still in its request: that loop sees running again and goes on; a second one would read
+  // the same queue head and drop the folder after it.
+  return L.loop || startLoadAll(L, run);
 }
 
-async function loadAllLoop(L, run, keepGoing) {
+function startLoadAll(L, run) {
+  const life = L.life.current;
+  // Stale: the folder left, or 刷新 replaced the queue (a reply in flight is nobody's then).
+  const stale = () => !run.alive || !life.alive;
+  const keepGoing = () => L.phase === "running" && !stale();
+  L.loop = loadAllLoop(L, stale, keepGoing).finally(() => {
+    L.loop = null;
+    if (!stale() && L.phase === "running" && !L.check.length && !L.queue.length) loadAllTo(L, "finish");
+    render();
+  });
+  return L.loop;
+}
+
+// Takes id out of line (by id: a reply names its folder; a 刷新 meanwhile may have reordered the line).
+const takeOut = (line, id) => line.splice(line.indexOf(id), line.includes(id) ? 1 : 0);
+async function loadAllLoop(L, stale, keepGoing) {
   while ((L.check.length || L.queue.length) && keepGoing()) {
     // Checks go first: they are light (~300 ms apart) and may add folders to the full-load queue.
     const next = L.check[0] ?? L.queue[0];
@@ -739,7 +755,7 @@ async function loadAllLoop(L, run, keepGoing) {
     if (L.check.length) {
       const id = L.check[0];
       const r = await send({ type: "triage-folder-ids", mediaId: id });
-      if (!run.alive) return;
+      if (stale()) return;
       if (runs.hold(r)) {
         await runs.wait("load", runs.hold(r), keepGoing);
         continue;
@@ -749,27 +765,27 @@ async function loadAllLoop(L, run, keepGoing) {
         loadAllTo(L, "fail");
         break;
       }
-      L.check.shift();
       await dropRemoved(r.data.bvids);
       const list = L.lists[id];
       const bvids = list.items.map((it) => it.bvid);
       if (idsChanged(list.ids || bvids, r.data.bvids)) {
         // Only the difference, as in a single folder; the whole folder loads when that is not enough.
         const q = await fromCache(id, { snap: { ...list, bvids }, ids: r.data.bvids }, await localItems(id));
-        if (!run.alive) return;
-        // B站 risk control: wait, then check this folder again; a full read now would only be refused longer.
+        if (stale()) return;
+        // B站 risk control: wait, then check this folder again (it is still first in line); a full read now would only
+        // be refused longer.
         if (q && runs.hold(q)) {
           await runs.wait("load", runs.hold(q), keepGoing);
-          L.check.unshift(id);
           continue;
         }
         if (q?.ok && !q.data.partial) {
           L.lists[id] = { items: q.data.items, ids: q.data.ids };
           await saveSnapshot(id, q.data.items, q.data.ids);
           rebuildAll();
-          if (!(await loadResults(run))) return;
-        } else L.queue.push(id);
+          if (!(await loadResults(S.view.current))) return;
+        } else if (!L.queue.includes(id)) L.queue.push(id);
       }
+      takeOut(L.check, id);
       render();
       if (L.check.length || L.queue.length) await sleepWhile(300, keepGoing);
       continue;
@@ -781,7 +797,7 @@ async function loadAllLoop(L, run, keepGoing) {
     renderStatus();
     const r = await send({ type: "triage-folder-items", mediaId: id });
     L.current = "";
-    if (!run.alive) return;
+    if (stale()) return;
     if (runs.hold(r)) {
       await runs.wait("load", runs.hold(r), keepGoing);
       continue;
@@ -791,28 +807,33 @@ async function loadAllLoop(L, run, keepGoing) {
       loadAllTo(L, "fail");
       break;
     }
-    L.queue.shift();
+    takeOut(L.queue, id);
     const items = keepInvalidInfo(r.data.items || [], (await storeGet(K.snapshot(id), null))?.items);
     L.lists[id] = { items, ids: r.data.ids };
     // A partial list is still searchable but never becomes the cache, as in syncFolder.
     if (r.data.partial) L.partial++;
     else await saveSnapshot(id, items, r.data.ids);
     rebuildAll();
-    if (!(await loadResults(run))) return;
+    if (!(await loadResults(S.view.current))) return;
     render();
     if (L.queue.length) await sleepWhile(S.settings.triageIntervalSec * 1000, keepGoing);
   }
 }
 
 // 刷新 in 所有收藏夹 re-fetches every folder; the cached lists stay visible until each one is replaced.
-function refreshAll() {
+async function refreshAll() {
   const L = S.loadAll;
   if (!L) return;
+  const run = S.view.current;
   L.queue = S.folders.map((f) => String(f.id));
   L.check = [];
   L.partial = 0;
-  // Already running: the loop goes on with the refilled queue.
-  if (L.phase !== "running") runLoadAll(S.view.current);
+  // The loop going on ends (a reply in flight lands nowhere), and the next one starts once it is out.
+  L.life.next();
+  await L.loop;
+  if (!run.alive) return;
+  if (L.phase === "running") startLoadAll(L, run);
+  else runLoadAll(run);
 }
 
 // Row 3 of 所有收藏夹: what was loaded once done, else only a failure (the progress is in the pill, loadAllActivity).
