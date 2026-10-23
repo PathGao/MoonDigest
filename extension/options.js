@@ -47,6 +47,8 @@ let hasUnsavedChanges = false;
 let savedForm = null;
 // The URL and key of the last Obsidian test and whether it passed; the header says 「已连接」 only while those are saved.
 let obsidianTest = null;
+// The 测试连接 in flight: an edit away from the tested 地址 and Key ends it, so its answer is not shown for other values.
+const obsidianTests = MdgCommon.latest();
 // The button whose save or test is running (setBusy).
 let busyButton = null;
 
@@ -374,6 +376,7 @@ async function saveSettings() {
     // A test of other values says nothing about the ones just saved.
     if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
       obsidianTest = null;
+      obsidianTests.next();
       setTestResult("");
     }
 
@@ -511,7 +514,10 @@ function syncObsidianKeyTag() {
 // The result next to it is for the 地址 and Key it tested: an edit away from them clears it.
 function syncObsidianTest() {
   const typed = { obsidianApiBaseUrl: normalizeBaseUrl(elements.obsidianApiBaseUrl.value), obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) };
-  if (obsidianTest && obsidianTest.target !== obsidianTarget(typed)) setTestResult("");
+  if (obsidianTest && obsidianTest.target !== obsidianTarget(typed)) {
+    obsidianTests.next();
+    setTestResult("");
+  }
   if (busyButton) return;
   const missing = [["地址", elements.obsidianApiBaseUrl], ["Key", elements.obsidianApiKey]].filter(([, box]) => !box.value.trim()).map(([name]) => name);
   MdgErrors.setReason(elements.testConnectionBtn, missing.length ? `先填 Local REST API ${missing.join("和 ")}` : "", "用填好的地址和 Key 连一次 Obsidian 的 Local REST API");
@@ -999,12 +1005,15 @@ async function testConnection() {
   setBusy(elements.testConnectionBtn);
   setTestResult("");
   obsidianTest = { target: obsidianTarget(payload), ok: false };
+  const test = obsidianTests.next();
   try {
     const resp = await chrome.runtime.sendMessage({
       type: "test-obsidian-connection",
       baseUrl: payload.obsidianApiBaseUrl,
       apiKey: payload.obsidianApiKey
     });
+    // Edited away meanwhile: the answer is for other values.
+    if (!test.alive) return;
 
     obsidianTest.ok = Boolean(resp?.ok);
     if (!resp?.ok) {
