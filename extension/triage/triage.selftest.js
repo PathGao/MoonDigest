@@ -96,6 +96,8 @@ const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
 const plain = (v) => JSON.parse(JSON.stringify(v));
+// Lets a write started without being awaited (U's, a setter's) reach the store: the fake storage is promise-only.
+const flush = () => new Promise((r) => setImmediate(r));
 // Row 3 as drawn now.
 const row3 = () => (t.renderListHeader(t.visibleItems()), t.el.classFilter.innerHTML);
 const realSync = t.syncFolder;
@@ -570,7 +572,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(["保留选中的 2 个", "取消收藏选中的 2 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     // H7: the bar has its own slot outside the header's rows (a folded header hides those).
     assert.ok(t.el.favSel.innerHTML.startsWith('<div class="selbar"') && !t.el.listHeader.innerHTML.includes("selbar"), t.el.favSel.innerHTML);
-    t.batchKeep(t.batchList(null));
+    await t.batchKeep(t.batchList(null));
     assert.deepStrictEqual(plain(Object.keys(t.S.kept).filter((b) => b.startsWith("BV6"))), ["BV61", "BV62"]);
     assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "阅览 still lists them: 保留 keeps them selected");
     // K1: none of the selection left to keep: the count is still the selection's, off with why.
@@ -619,7 +621,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // 待播: E adds in order, 移除 removes without touching decisions.
   openFake("P", [item(1), item(2), item(3)], { BV2: { action: "keep", at: 1 } });
   t.S.basket = [{ bvid: "BVgone", title: "别的收藏夹" }];
-  for (const b of ["BV1", "BV2", "BV3"]) t.toggleBasket(b);
+  store[t.K.basket] = structuredClone(t.S.basket);
+  for (const b of ["BV1", "BV2", "BV3"]) await t.toggleBasket(b);
   assert.deepStrictEqual(plain(store[t.K.basket]), [{ bvid: "BVgone", title: "别的收藏夹" }, ...[1, 2, 3].map((n) => ({ bvid: `BV${n}`, title: `视频${n}`, upper: "up", duration: 61 }))]);
   // The card's button says what a click does: 「+ 待播 E」 outside, 「✓ 待播」 inside.
   {
@@ -646,20 +649,22 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(meta().includes(" · 字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上"), meta());
     delete t.S.analyses.BV1;
   }
-  t.removeBasketItems([2]);
-  t.toggleBasket("BV1");
+  await t.removeBasketItems([2]);
+  await t.toggleBasket("BV1");
   // E on a video already in 待播 is a 移除 too: one undo step, so U puts it back instead of undoing an older step.
   assert.strictEqual(toasts.at(-1), "已从待播移除 · U 撤销");
   await t.undo();
+  await flush();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV1", "BV3"], "U undoes E's 移除");
-  t.toggleBasket("BV1");
+  await t.toggleBasket("BV1");
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"]);
   assert.deepStrictEqual(plain(t.S.decisions), { BV2: { action: "keep", at: 1 } }, "移除 leaves decisions alone");
   // 移除 takes one out, leaving no mark behind; U puts it back.
-  t.removeBasketItems([0]);
+  await t.removeBasketItems([0]);
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BV3"]);
   assert.ok(!("triage_watched" in store), "移除 writes no 优先看过 mark");
   await t.undo();
+  await flush();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U puts 移除 back in place");
   // Each item's button is 移除, not 已看: the list is a queue with no watched state.
   t.S.viewing = "";
@@ -669,9 +674,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // H11: an entry saved without a duration (BVgone, an old one) shows none, not 「0:00」.
   assert.ok(!t.S.itemMap.has("BVgone") && !t.el.basketList.innerHTML.includes("0:00"), "no 0:00 for an entry without a duration");
   // 清空 empties the list in one undoable step.
-  t.clearBasket();
+  await t.clearBasket();
   assert.deepStrictEqual([plain(store[t.K.basket]), toasts.at(-1)], [[], "已清空待播 2 个 · U 撤销"]);
   await t.undo();
+  await flush();
   assert.deepStrictEqual(plain(store[t.K.basket].map((x) => x.bvid)), ["BVgone", "BV3"], "U undoes 清空 in order");
 
   // 摘录或笔记 scopes: 逐个视频笔记 leaves invalid videos out, 一篇摘录 keeps them, marked.
@@ -885,9 +891,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
-  t.batchKeep(t.batchList("keep"));
+  await t.batchKeep(t.batchList("keep"));
   assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 处理完成");
-  Object.assign(t.S, { analyses: {}, decisions: {}, classFilter: { coarse: "all", fine: "all" } });
+  delete store[t.K.kept];
+  Object.assign(t.S, { analyses: {}, decisions: {}, kept: {}, classFilter: { coarse: "all", fine: "all" } });
   t.S.selected.clear();
   // 粗看完成 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
   t.S.tab = "coarse";
@@ -1171,8 +1178,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // 判断标准 written: the button, its text in the tooltip, no dot. Not written: the warn dot and the label says so.
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('title="判断标准：只留干货" aria-label="判断标准">') && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("dot-warn"));
   t.el.criteriaInput = { value: "  " };
-  t.saveCriteria();
-  assert.deepStrictEqual(plain(store[t.K.folderCriteria]), {});
+  await t.saveCriteria();
+  assert.ok(!("J" in store[t.K.folderCriteria]) && !("J" in t.S.folderCriteria), "an empty 判断标准 is removed, other folders' stay");
   t.renderListHeader(t.visibleItems());
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-label="判断标准（还没写）"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('判断标准<i class="dot-warn"'));
   // Clearing the 判断标准 offered 重新粗看 (askConfirm says yes here); stop it before the next block swaps the state.
@@ -1582,13 +1589,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let yes = false;
     t.askConfirm = async (title) => (asked.push(title), yes);
     t.S.undo = [];
-    vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730"), t.S.itemMap.get("BV731")]);
+    await vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730"), t.S.itemMap.get("BV731")]);
     await t.undo();
     assert.deepStrictEqual([asked, t.S.undo.length, t.S.decisions.BV730?.action], [["撤销批量保留？"], 1, "keep"], "declined: the step stays");
     yes = true;
     await t.undo();
     assert.deepStrictEqual([asked.length, t.S.undo.length, t.S.decisions.BV730, toasts.at(-1)], [2, 0, undefined, "已撤销：批量保留 2 个"]);
-    vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730")]);
+    await vm.runInContext("batchKeep", ctx)([t.S.itemMap.get("BV730")]);
     await t.undo();
     assert.ok(asked.length === 2 && toasts.at(-1).startsWith("已撤销：保留《"), "one video: no question");
     t.askConfirm = saved;
@@ -1881,11 +1888,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.kept = {};
   openFake("A", [item(1)]);
   await t.keepOne("BV1");
+  await flush();
   assert.deepStrictEqual(Object.keys(store[t.K.kept]), ["BV1"]);
   assert.ok(!store[t.K.decisions("A")], "保留 writes no folder record");
   t.S.decisions = { ...t.S.kept, ...store[t.K.decisions("B")] };
   assert.strictEqual(t.stageOf(item(1)), "done", "kept in A is kept in B");
   await t.undo();
+  await flush();
   assert.deepStrictEqual(plain(store[t.K.kept]), {});
   // Unfavoriting a kept video in a folder keeps the 保留 for other folders; U restores the folder view.
   openFake("A", [item(1)]);
@@ -1893,6 +1902,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-unfav"] = () => ({ ok: true });
   handlers["triage-refav"] = () => ({ ok: true });
   await t.fav.unfav("BV1");
+  await flush();
   assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), ["BV1"]);
   assert.ok(store[t.K.kept].BV1);
   await t.undo();
@@ -2079,6 +2089,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   Object.assign(store, { triage_decisions_A: { BV1: { action: "unfav" }, BV5: { action: "unfav" } }, triage_decisions_B: { BV1: { action: "unfav" } } });
   Object.assign(t.S, { notes: { BV1: { text: "n" }, BV5: { text: "m" } }, videoTags: { BV1: ["t"] }, kept: { BV1: { action: "keep" } }, basket: [{ bvid: "BV1" }, { bvid: "BV5" }] });
   store[t.K.notes] = structuredClone(t.S.notes);
+  store[t.K.kept] = structuredClone(t.S.kept);
+  store[t.K.basket] = structuredClone(t.S.basket);
   const marksBV1 = { tags: [{ id: "r1", name: "精读" }], items: { [t.MdgNote.readingKey({ site: "bilibili", videoId: "BV1" })]: { tags: ["r1"], star: true } } };
   store[t.MdgLimits.KEYS.readingMarks] = structuredClone(marksBV1);
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
@@ -2434,12 +2446,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   openFake("K", [item(600), item(601)]);
   assert.deepStrictEqual(plain(t.S.ai.proposal.rows.map((r) => [r.id, r.add])), [["BV600", ["id:a"]], ["BV601", ["id:a"]]], "K's own 旧, not L's");
   // G1: the proposal is saved, so a reload keeps it; one naming a deleted tag is dropped, and discarding removes it.
+  await flush();
   assert.deepStrictEqual(plain(store[t.K.aiProposals].K), plain(t.S.ai.proposal));
   t.S.ai.proposals = { K: t.S.ai.proposal, L: { newTags: [], notes: [], errors: [], rows: [{ id: "BV700", add: ["id:gone"], remove: [] }] } };
-  t.pruneAiProposals();
+  store[t.K.aiProposals] = structuredClone(t.S.ai.proposals);
+  await t.pruneAiProposals();
   assert.deepStrictEqual([Object.keys(t.S.ai.proposals), Object.keys(store[t.K.aiProposals])], [["K"], ["K"]], "L's names a deleted tag");
   t.S.ai.proposal = null;
-  assert.deepStrictEqual(store[t.K.aiProposals], {});
+  await flush();
+  assert.deepStrictEqual(plain(store[t.K.aiProposals]), {});
 
   // Opening a folder with a cached list shows it without the full sync; changed ids still sync once.
   let synced = 0;
@@ -2615,6 +2630,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("all", vids);
     t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
     Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, coarseFailed: new Map(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() } });
+    store[t.K.folderCriteria] = structuredClone(t.S.folderCriteria);
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
     // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
@@ -2892,22 +2908,25 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // page's own writes echo back too, and an older echo arriving after a newer edit is skipped.
   openFake("N", [item(50), item(51)], { BV51: { action: "unfav", at: 1 } });
   t.S.kept = {};
+  delete store.triage_kept;
   const keep = { action: "keep", at: 5 };
-  t.patchKept({ BV50: keep });
+  await t.patchKept({ BV50: keep });
   const echo1 = { triage_kept: { newValue: structuredClone(store.triage_kept) } };
-  t.S.basket = [{ bvid: "BV50" }];
-  vm.runInContext("saveBasket()", ctx);
-  t.S.basket.push({ bvid: "BV51" });
-  vm.runInContext("saveBasket()", ctx);
-  t.followShared({ triage_basket: { newValue: [{ bvid: "BV50" }] } });
+  t.S.basket = [];
+  delete store.triage_basket;
+  await t.toggleBasket("BV50");
+  const basket1 = structuredClone(store.triage_basket);
+  await t.toggleBasket("BV51");
+  t.followShared({ triage_basket: { newValue: basket1 } });
   t.followShared(echo1);
-  assert.deepStrictEqual(plain(t.S.basket), [{ bvid: "BV50" }, { bvid: "BV51" }], "an older echo of this page's write is skipped");
+  assert.deepStrictEqual(plain(t.S.basket.map((x) => x.bvid)), ["BV50", "BV51"], "an older echo of this page's write is skipped");
+  store.triage_kept = { BV51: keep }; // the other tab's write, then its event
   t.followShared({ triage_kept: { newValue: { BV51: keep } }, triage_tags: { newValue: [{ id: "n", name: "新", folder: "N" }] } });
   assert.deepStrictEqual(plain([t.S.kept, t.S.decisions, t.S.tags.map((x) => x.id)]), [{ BV51: keep }, { BV51: { action: "unfav", at: 1 } }, ["n"]],
     "the other tab's 保留 list replaces this one; 取消收藏 still wins in the folder; tags follow");
   t.followShared({ triage_basket: { newValue: undefined } });
   assert.deepStrictEqual(plain(t.S.basket), [], "a removed key reads as empty");
-  t.patchKept({ BV50: keep });
+  await t.patchKept({ BV50: keep });
   assert.deepStrictEqual(Object.keys(store.triage_kept), ["BV51", "BV50"], "the next write keeps the other tab's 保留");
   Object.assign(t.S, { kept: {}, tags: [], basket: [] });
 
@@ -2934,6 +2953,64 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.followShared({ [t.K.decisions("P")]: { newValue: { BV62: unfavAt(62) } } });
   assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV60"], "所有收藏夹 drops the video the other tab unfavorited");
   t.S.loadAll = null;
+
+  // R4: two 分拣台 tabs change the same record. Each write puts only its own change onto the stored value (storeEdit), so
+  // the other tab's change survives, and the page takes what was written. Per key: (a) the other tab's write is in storage
+  // when this tab edits (its event not here yet); (b) this tab's write is in flight (its read pending) when the other
+  // tab's event lands and replaces the page's copy, then this tab's result arrives.
+  {
+    // Holds the next storage read of key until released; the read then sees the store as it is at release.
+    const holdGet = (key) => {
+      const real = ctx.chrome.storage.local.get;
+      let release;
+      const gate = new Promise((r) => (release = r));
+      ctx.chrome.storage.local.get = async function (k) {
+        if ([].concat(k).includes(key)) {
+          ctx.chrome.storage.local.get = real;
+          await gate;
+        }
+        return real.call(this, k);
+      };
+      return () => release();
+    };
+    openFake("Q", [item(70), item(71), item(72)]);
+    t.S.folders = t.S.allFolders = [{ id: "Q", title: "夹Q" }];
+    const keepAt = (n) => ({ action: "keep", at: n });
+    const prop = (n) => ({ newTags: [], assignments: {}, note: `p${n}` });
+    const keys = (v) => Object.keys(plain(v)).sort();
+    // [name, key, other tab's first value, this tab's first edit, other tab's second value, this tab's second edit, page copy, what survives (a), (b)]
+    const cases = [
+      ["保留", t.K.kept, { BVo: keepAt(1) }, () => t.patchKept({ BV70: keepAt(2) }), { BVo: keepAt(1), BV70: keepAt(2), BVp: keepAt(3) }, () => t.patchKept({ BV71: keepAt(4) }), () => t.S.kept, ["BV70", "BVo"], ["BV70", "BV71", "BVo", "BVp"]],
+      ["待播", t.K.basket, [{ bvid: "BVo" }], () => t.toggleBasket("BV70"), [{ bvid: "BVo" }, { bvid: "BV70" }, { bvid: "BVp" }], () => t.toggleBasket("BV71"), () => t.S.basket, ["BV70", "BVo"], ["BV70", "BV71", "BVo", "BVp"]],
+      ["判断标准", t.K.folderCriteria, { O: "o" }, () => t.setCriteria([["Q", "q"]]), { O: "o", Q: "q", P: "p" }, () => t.setCriteria([["R", "r"]]), () => t.S.folderCriteria, ["O", "Q"], ["O", "P", "Q", "R"]],
+      ["AI 刚打的", t.K.aiRecent, { O: { at: 1, bvids: [] } }, () => t.editAiRecent("Q", { at: 2, bvids: ["BV70"] }), { O: { at: 1, bvids: [] }, Q: { at: 2, bvids: ["BV70"] }, P: { at: 3, bvids: [] } }, () => t.endAiRecent("Q"), () => t.S.aiRecent, ["O", "Q"], ["O", "P"]],
+      ["AI 提案", t.K.aiProposals, { O: prop(1) }, () => t.editAiProposals("Q", prop(2)), { O: prop(1), Q: prop(2), P: prop(3) }, () => t.editAiProposals("R", prop(4)), () => t.S.ai.proposals, ["O", "Q"], ["O", "P", "Q", "R"]],
+      ["AI 指令", t.K.aiHistory, ["o"], () => t.addAiHistory("q"), ["q", "o", "p"], () => t.addAiHistory("r"), () => t.S.aiHistory, ["o", "q"], ["o", "p", "q", "r"]]
+    ];
+    for (const [name, key, other1, edit1, other2, edit2, copy, a, b] of cases) {
+      const list = (v) => (Array.isArray(v) ? plain(v).map((x) => x.bvid ?? x).sort() : keys(v));
+      const page = key === t.K.aiProposals ? (v) => (t.S.ai.proposals = v) : key === t.K.aiRecent ? (v) => (t.S.aiRecent = v) : key === t.K.kept ? (v) => (t.S.kept = v) : key === t.K.basket ? (v) => (t.S.basket = v) : key === t.K.folderCriteria ? (v) => (t.S.folderCriteria = v) : (v) => (t.S.aiHistory = v);
+      // (a) the other tab wrote first; its event has not reached this tab, whose copy is still empty.
+      page(structuredClone(Array.isArray(other1) ? [] : {}));
+      store[key] = structuredClone(other1);
+      await edit1();
+      assert.deepStrictEqual(list(store[key]), a, `${name}: both tabs' changes are stored`);
+      assert.deepStrictEqual(list(copy()), a, `${name}: the page shows what was written`);
+      // (b) this tab's second write is in flight when the other tab's event lands (its write already in storage).
+      const release = holdGet(key);
+      const writing = edit2();
+      store[key] = structuredClone(other2);
+      t.followShared({ [key]: { newValue: structuredClone(other2) } });
+      release();
+      await writing;
+      assert.deepStrictEqual(list(store[key]), b, `${name}: the write in flight lands on the other tab's value`);
+      assert.deepStrictEqual(list(copy()), b, `${name}: and the page ends with both`);
+    }
+    Object.assign(t.S, { kept: {}, basket: [], folderCriteria: {}, aiRecent: {}, aiHistory: [] });
+    t.S.ai.proposals = {};
+    for (const [, key] of cases) delete store[key];
+    t.S.undo = [];
+  }
 
   // 阅览: every step in one list, the AI-class chip filters across steps.
   openFake("R", [item(701), item(702), item(703), item(704)]);
@@ -3696,11 +3773,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.strictEqual(t.S.viewing, "", "Esc closes the player");
       // 待播's 移除: out of the list, a toast that says so, U puts it back.
       t.S.basket = [{ bvid: "BV1" }, { bvid: "BV2" }];
+      store[t.K.basket] = structuredClone(t.S.basket);
       const btn = { closest: (s) => (s === "[data-basket]" ? { dataset: { basket: "remove" } } : { dataset: { i: "0" } }) };
       fire("basketList", "click", { target: btn });
       assert.deepStrictEqual([t.S.basket.map((x) => x.bvid), toasts.at(-1)], [["BV2"], "已从待播移除 · U 撤销"]);
       await t.undo();
-      assert.deepStrictEqual(t.S.basket.map((x) => x.bvid), ["BV1", "BV2"], "U puts it back");
+      assert.deepStrictEqual(plain(t.S.basket.map((x) => x.bvid)), ["BV1", "BV2"], "U puts it back");
       t.S.basket = [];
     }
     openFake("A", [item(1)]);

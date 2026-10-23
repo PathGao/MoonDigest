@@ -42,9 +42,8 @@ const tagStore = MdgTagStore.create({
   live: () => S.itemMap,
   // This batch replaces the folder's last one; the list shows it to look over.
   markRecent(bvids, at) {
-    S.aiRecent[String(S.mediaId)] = { at, bvids };
     S.aiRecentFilter = true;
-    saveAiRecent();
+    return editAiRecent(String(S.mediaId), { at, bvids });
   },
   // Another tab, or a later batch here, may have replaced the folder's 「AI 刚打的」 since.
   endRecent(at) {
@@ -60,12 +59,23 @@ const aiRecentSet = () => {
   if (aiRecentMemo[0] !== bvids) aiRecentMemo = [bvids, new Set(bvids || [])];
   return aiRecentMemo[1];
 };
-const saveAiRecent = () => storeSet(K.aiRecent, S.aiRecent);
+// One folder's 「AI 刚打的」 set (r) or ended (null), on the page's copy at once and on the stored map by read-modify-write,
+// so another tab's folder keeps its own; the page then takes what was written.
+function editAiRecent(folder, r) {
+  const apply = (m) => {
+    if (r) m[folder] = r;
+    else delete m[folder];
+    return m;
+  };
+  apply(S.aiRecent);
+  return storeEdit(K.aiRecent, {}, apply).then((m) => {
+    if (m) S.aiRecent = m;
+  });
+}
 // × and U end the folder's 「AI 刚打的」; × leaves the tags as they are.
 function endAiRecent(folder = String(S.mediaId)) {
-  delete S.aiRecent[folder];
   if (folder === String(S.mediaId)) S.aiRecentFilter = false;
-  saveAiRecent();
+  return editAiRecent(folder, null);
 }
 
 // T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens
@@ -122,17 +132,25 @@ function openCriteria() {
   el.criteriaInput.focus();
 }
 
-// One folder's 判断标准; empty removes it. The caller stores S.folderCriteria.
-function setCriteria(id, text) {
-  text = text.trim();
-  if (text) S.folderCriteria[id] = text;
-  else delete S.folderCriteria[id];
+// These folders' 判断标准 ([[id, text]]; an empty text removes it), on the page's copy at once and on the stored map by
+// read-modify-write, so a 判断标准 another tab wrote for its folder stays; the page then takes what was written.
+function setCriteria(pairs) {
+  const apply = (c) => {
+    for (const [id, text] of pairs) {
+      if (text.trim()) c[id] = text.trim();
+      else delete c[id];
+    }
+    return c;
+  };
+  apply(S.folderCriteria);
+  return storeEdit(K.folderCriteria, {}, apply).then((c) => {
+    if (c) S.folderCriteria = c;
+  });
 }
 
 async function saveCriteria() {
   const changed = el.criteriaInput.value.trim() !== criteria();
-  setCriteria(S.mediaId, el.criteriaInput.value);
-  storeSet(K.folderCriteria, S.folderCriteria);
+  await setCriteria([[S.mediaId, el.criteriaInput.value]]);
   render();
   // Asked whenever 粗看完成 has stale ones, filters or not. Its button is row 3's 按新标准重新粗看 (listed ones, the
   // selection first, one batch), disabled with the same why when that has none. While an AI step runs it could not
@@ -164,8 +182,7 @@ async function askAllCriteria(title, verb, items) {
     .join("");
   const ok = await askConfirm(title, `<p>每个视频按它所在收藏夹的判断标准判断。</p><p>重复收藏的视频，按收藏夹列表里排最前的那个。</p>${rows}`, `开始${verb} ${items.length} 个`);
   if (!ok) return false;
-  for (const box of el.confirmBody.querySelectorAll("[data-crit]")) setCriteria(box.dataset.crit, box.value);
-  storeSet(K.folderCriteria, S.folderCriteria);
+  await setCriteria([...el.confirmBody.querySelectorAll("[data-crit]")].map((box) => [box.dataset.crit, box.value]));
   render();
   return true;
 }
@@ -184,11 +201,24 @@ const manageTags = tagStore.manage({
 });
 const openManage = () => TagDialogs.manage.open(manageTags);
 
-const saveAiProposals = () => storeSet(K.aiProposals, S.ai.proposals);
+// The AI proposals, one per folder, changed on the page's copy at once and on the stored map by read-modify-write, so a
+// proposal another tab holds for its folder stays; the page then takes what was written. edit(map) → the next map.
+function editAiProposalsWith(edit) {
+  S.ai.proposals = edit(S.ai.proposals);
+  return storeEdit(K.aiProposals, {}, edit).then((m) => {
+    if (m) S.ai.proposals = m;
+  });
+}
+// One folder's proposal set (p) or dropped (null).
+function editAiProposals(folder, p) {
+  return editAiProposalsWith((m) => {
+    if (p) m[folder] = p;
+    else delete m[folder];
+    return m;
+  });
+}
 // A proposal naming a deleted tag no longer fits; it is dropped rather than applied.
 function pruneAiProposals() {
-  const fits = Object.entries(S.ai.proposals).filter(([, p]) => tagStore.fits(p));
-  if (fits.length === Object.keys(S.ai.proposals).length) return;
-  S.ai.proposals = Object.fromEntries(fits);
-  saveAiProposals();
+  if (Object.values(S.ai.proposals).every((p) => tagStore.fits(p))) return;
+  return editAiProposalsWith((m) => Object.fromEntries(Object.entries(m).filter(([, p]) => tagStore.fits(p))));
 }
