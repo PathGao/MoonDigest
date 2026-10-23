@@ -60,3 +60,16 @@ html[data-mdg-viewer] .main-container:has(> .plp-layout) {
 html[data-mdg-viewer] .plp-layout {
   grid-template-columns: minmax(0, 1fr) !important;
 }
+
+/* viewer-frame.js's 季名 第N集 above a 番剧's player, styled as /video/'s h1.video-title. */
+html[data-mdg-viewer] #mdg-viewer-title {
+  margin: 0 0 16px;
+  color: #18191c;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+  -webkit-font-smoothing: antialiased;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

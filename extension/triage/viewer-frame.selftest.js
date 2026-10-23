@@ -43,14 +43,15 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
       querySelector: (s) => (webscreen && s.includes("data-screen=web") ? {} : null)
     }
   });
-  vm.runInContext(src, vm.createContext(win));
+  const ctx = vm.createContext(win);
+  vm.runInContext(src, ctx);
   const key = (key, o = {}) => {
     const target = o.target || { closest: () => null };
     for (const l of listeners) if (l.type === "keydown") l.fn({ key, keyCode: o.keyCode || 0, isComposing: Boolean(o.isComposing), repeat: false, metaKey: false, ctrlKey: Boolean(o.ctrlKey), altKey: false, target, composedPath: () => [target] });
   };
   const go = (pathname) => ((win.location.pathname = pathname), Promise.all(ticks.map((f) => f())));
   const fire = (type) => listeners.filter((l) => l.type === type).forEach((l) => l.fn({}));
-  return { sent, listeners, attrs, key, go, fire, ticks, asks };
+  return { sent, listeners, attrs, key, go, fire, ticks, asks, ctx };
 }
 
 // The viewer frame: marked, forwards T and Esc to the extension origin only.
@@ -100,6 +101,13 @@ function frame({ parentOrigin = EXT, top = false, fullscreen = null, webscreen =
   console.error(e);
   process.exit(1);
 });
+// The 番剧 title line: 季名 and the episode from the page title, nothing from a title that is not a 番剧's.
+{
+  const f = frame();
+  assert.strictEqual(f.ctx.viewerTitleText("造物说：一共分几步第2集-纪录片-全集-高清独家在线观看-bilibili-哔哩哔哩", "造物说：一共分几步"), "造物说：一共分几步 第2集");
+  assert.strictEqual(f.ctx.viewerTitleText("哔哩哔哩 (゜-゜)つロ 干杯~-bilibili", "造物说：一共分几步"), "");
+  assert.strictEqual(f.ctx.viewerTitleText("造物说：一共分几步第2集-纪录片", ""), "");
+}
 // Typing in B站's boxes and IME composition never forward.
 {
   const f = frame();
