@@ -571,11 +571,24 @@ async function seenSyncOnce(force, started) {
   return { pages: ran, dropped };
 }
 
-// type 2 = video, the only type triage-folder-items keeps.
-async function triageFolderIds(mediaId) {
+// The bvids of a folder, as the page compares them with its lists. The types triage-folder-items keeps: 2 = video,
+// TRIAGE_OGV = 番剧 episodes. ids gives a type-24 番剧 episode a BV id computed from its episode id as if that were an
+// aid, another video's: a 番剧 entry is mapped to its bvid by its "id:type", which list items carry as ep (fresh: the
+// list just read; then the folder's cached list and 已出分拣范围, where one hidden from the list still is). One no list
+// knows stays "id:type", which never matches a BV id.
+async function triageFolderIds(mediaId, fresh = []) {
   if (mediaId === TRIAGE_TOVIEW) return (await triageToviewList()).map((m) => m.bvid);
   const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/ids?media_id=${mediaId}&platform=web`);
-  return (data || []).filter((m) => m.type === 2).map((m) => m.bvid || m.bv_id);
+  const list = (data || []).filter((m) => m.type === 2 || TRIAGE_OGV.includes(m.type));
+  if (list.every((m) => m.type === 2)) return list.map((m) => m.bvid || m.bv_id);
+  const K = MdgLimits.KEYS;
+  let got = {};
+  try {
+    got = await chrome.storage.local.get([K.triageSnapshot(mediaId), K.triageRemoved]);
+  } catch {} // unread caches only leave the 番剧 unmapped
+  const known = [...fresh, ...(got[K.triageSnapshot(mediaId)]?.items || []), ...Object.values(got[K.triageRemoved] || {}).map((r) => r?.item)];
+  const byEp = new Map(known.filter((it) => it?.ep).map((it) => [it.ep, it.bvid]));
+  return list.map((m) => (m.type === 2 ? m.bvid || m.bv_id : byEp.get(`${m.id}:${m.type}`) || `${m.id}:${m.type}`));
 }
 
 // created/list (paged) is used instead of list-all because only it returns each folder's cover.
@@ -907,7 +920,28 @@ async function focusOrOpenPage(page, url = page) {
 // else reaches a write's form fields (resources joins aids into "aid:2,…") or a URL.
 const triageNumId = (v) => (typeof v === "number" || typeof v === "string") && /^\d+$/.test(String(v));
 const triageFolderId = (v) => v === TRIAGE_TOVIEW || triageNumId(v);
-const triageAids = (v) => (Array.isArray(v) && v.every(triageNumId) ? v : []);
+// A page's message names a favorite by its archive aid; a 番剧 episode's carries ":42" (fav-base.js favRes). Folder writes
+// send "aid:2" or "aid:42": B站 takes 42 + aid for a 番剧 episode it stores as "episode id:24" too, the form its own
+// 番剧 page favorites with. 稍后再看 takes the bare aid of either. triageRes is the one place that turns it into B站's form.
+const TRIAGE_OGV = [24, 42];
+const triageResOk = (v) => triageNumId(v) || (typeof v === "string" && /^\d+:42$/.test(v));
+const triageRes = (v) => {
+  const [rid, type = "2"] = String(v).split(":");
+  return { rid, type: Number(type), resource: `${rid}:${type}` };
+};
+const triageAids = (v) => (Array.isArray(v) && v.every(triageResOk) ? v : []);
+// The inverse of sites.js biliAvToBv; "" for anything that is not a BV id. A type-24 favorite's id is its episode id,
+// so its archive aid comes from the list's (correct) bvid.
+function triageBvToAv(bvid) {
+  if (!/^BV1[0-9A-Za-z]{9}$/.test(bvid || "")) return "";
+  const table = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf";
+  const c = [...bvid];
+  [c[3], c[9]] = [c[9], c[3]];
+  [c[4], c[7]] = [c[7], c[4]];
+  let n = 0n;
+  for (const ch of c.slice(3)) n = n * 58n + BigInt(table.indexOf(ch));
+  return String((n ^ 23442827791579n) & ((1n << 51n) - 1n));
+}
 
 const TRIAGE_HANDLERS = {
   "triage-open": (msg) => triageOpenPage(msg?.hash),
@@ -940,7 +974,10 @@ const TRIAGE_HANDLERS = {
         // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
         seen: m.progress,
         // 播放量 comes with the list; no extra request.
-        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined
+        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined,
+        // A 番剧 episode redirects to its /bangumi/ page and has a pgc_label (season_id can be 0 on a video): marked so a
+        // write into a folder sends aid:42; B站 would store aid:2 as an odd video entry.
+        ...((/\/bangumi\//.test(m.redirect_url || "") || m.pgc_label) && { ogv: true })
       }));
       return { items, ids: items.map((it) => it.bvid), info: { title: MdgErrors.LABEL.watchLater, intro: "" } };
     }
@@ -951,7 +988,8 @@ const TRIAGE_HANDLERS = {
       if (pn > 1) await new Promise((r) => setTimeout(r, 300));
       let data;
       try {
-        data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/list?media_id=${mediaId}&ps=${TriageUi.FAV_PAGE_SIZE}&pn=${pn}`);
+        // Without platform=web the list leaves 番剧 episodes out.
+        data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/resource/list?media_id=${mediaId}&ps=${TriageUi.FAV_PAGE_SIZE}&pn=${pn}&platform=web`);
       } catch (e) {
         // Keep what earlier pages returned; the page must not treat a partial list as the whole folder.
         if (pn === 1) throw e;
@@ -959,11 +997,14 @@ const TRIAGE_HANDLERS = {
       }
       info ||= data?.info ? { title: data.info.title || "", intro: data.info.intro || "" } : null;
       for (const m of data?.medias || []) {
-        if (m.type !== 2) continue;
+        const ogv = TRIAGE_OGV.includes(m.type);
+        if (m.type !== 2 && !ogv) continue;
         items.push({
           bvid: m.bvid || m.bv_id,
-          aid: m.id,
-          title: m.title,
+          aid: ogv ? triageBvToAv(m.bvid || m.bv_id) : m.id,
+          ...(ogv && { ogv: true, ep: `${m.id}:${m.type}` }),
+          // A 番剧 episode: title is the season's, intro the episode's (第1集 …); its counts are all 0.
+          title: ogv && m.intro ? `${m.title} ${m.intro}` : m.title,
           cover: m.cover,
           upper: m.upper?.name || "",
           // The UP's mid finds its 关注 UP 标签 in the player; snapshots saved before have none (matched by name).
@@ -971,9 +1012,9 @@ const TRIAGE_HANDLERS = {
           duration: m.duration,
           pubdate: m.pubtime,
           favTime: m.fav_time,
-          intro: m.intro,
+          intro: ogv ? "" : m.intro,
           invalid: m.attr !== 0,
-          play: Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
+          play: !ogv && Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
         });
       }
       if (!data?.has_more) break;
@@ -985,7 +1026,7 @@ const TRIAGE_HANDLERS = {
     }
     // The id list is what 所有收藏夹 later checks against: it can hold entries the paged list leaves out, so comparing
     // it with the items would flag the folder every time. null when it fails; the check then falls back to the items.
-    const ids = await triageFolderIds(mediaId).catch(() => null);
+    const ids = await triageFolderIds(mediaId, items).catch(() => null);
     return { items, ids, info };
   },
 
@@ -1000,9 +1041,10 @@ const TRIAGE_HANDLERS = {
   // Which of the user's folders hold this video (Bilibili's own 收藏 dialog asks the same): one request per video, no
   // folder's contents are read. The page passes back the mid of its first answer, so one check asks nav once.
   "triage-fav-where": async ({ aid, mid: known }) => {
-    if (!triageNumId(aid)) throw triageError("缺少 aid");
+    if (!triageResOk(aid)) throw triageError("缺少 aid");
     const mid = triageNumId(known) ? known : await triageMid();
-    const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=2&rid=${aid}`);
+    const { rid, type } = triageRes(aid);
+    const data = await triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/created/list-all?up_mid=${mid}&type=${type}&rid=${rid}`);
     return { mid, folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
   },
 
@@ -1029,24 +1071,25 @@ const TRIAGE_HANDLERS = {
     const list = triageAids(aids);
     if (!triageFolderId(mediaId) || !list.length) throw triageError("缺少 mediaId 或 aids");
     if (mediaId === TRIAGE_TOVIEW) {
-      for (const aid of list) await triageBiliPost("/x/v2/history/toview/del", { aid });
+      for (const a of list) await triageBiliPost("/x/v2/history/toview/del", { aid: triageRes(a).rid });
       return { done: list.length };
     }
     await triageBiliPost("/x/v3/fav/resource/batch-del", {
       media_id: mediaId,
-      resources: list.map((a) => `${a}:2`).join(","),
+      resources: list.map((a) => triageRes(a).resource).join(","),
       platform: "web"
     });
     return { done: list.length };
   },
 
   "triage-refav": async ({ mediaId, aid }) => {
-    if (!triageFolderId(mediaId) || !triageNumId(aid)) throw triageError("缺少 mediaId 或 aid");
+    if (!triageFolderId(mediaId) || !triageResOk(aid)) throw triageError("缺少 mediaId 或 aid");
     if (mediaId === TRIAGE_TOVIEW) {
-      await triageBiliPost("/x/v2/history/toview/add", { aid });
+      await triageBiliPost("/x/v2/history/toview/add", { aid: triageRes(aid).rid });
       return {};
     }
-    await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: mediaId, del_media_ids: "" });
+    const { rid, type } = triageRes(aid);
+    await triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: mediaId, del_media_ids: "" });
     return {};
   },
 
@@ -1062,9 +1105,10 @@ const TRIAGE_HANDLERS = {
       const stayed = [];
       let stayedError = "";
       for (const aid of list) {
-        await triageBiliPost("/x/v3/fav/resource/deal", { rid: aid, type: 2, add_media_ids: to, del_media_ids: "" });
+        const { rid, type } = triageRes(aid);
+        await triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: to, del_media_ids: "" });
         if (move && from) {
-          await triageBiliPost("/x/v2/history/toview/del", { aid }).catch((e) => {
+          await triageBiliPost("/x/v2/history/toview/del", { aid: rid }).catch((e) => {
             if (e.code === MdgErrors.CODE.THROTTLED) throw e;
             stayed.push(aid);
             stayedError = e.message;
@@ -1077,7 +1121,7 @@ const TRIAGE_HANDLERS = {
       src_media_id: from,
       tar_media_id: to,
       mid: await triageMid(),
-      resources: list.map((a) => `${a}:2`).join(","),
+      resources: list.map((a) => triageRes(a).resource).join(","),
       platform: "web"
     });
     return { done: list.length };

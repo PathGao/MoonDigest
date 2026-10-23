@@ -545,7 +545,7 @@ async function checkWhere(token) {
     alive,
     line: (d, t) => `核对视频的收藏状态 ${d}/${t}`,
     next: () => (i < list.length ? { it: list[i++] } : null),
-    act: ({ it }) => send({ type: "triage-fav-where", aid: it.aid, mid }),
+    act: ({ it }) => send({ type: "triage-fav-where", aid: favRes(it), mid }),
     done({ it }, x) {
       if (!alive()) return;
       mid ||= x.data?.mid;

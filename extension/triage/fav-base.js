@@ -251,6 +251,10 @@ const el = {};
 ].forEach((id) => (el[id] = $(id)));
 
 // ---------- utils ----------
+// What a B站 write names a favorite by: its archive aid, with ":42" for a 番剧 episode (ogv). The background turns it
+// into each endpoint's form (triage-bg.js triageRes). fav carries { bvid, aid, ogv } between writes and undo.
+const favRes = (it) => (it.ogv ? `${it.aid}:42` : it.aid);
+const favRef = ({ bvid, aid, ogv }) => ({ bvid, aid, ...(ogv && { ogv }) });
 // Not logged in to B站 (the background's NOT_LOGGED_IN, B站's -101), on a read or a write in either mode: the 去登录 banner.
 function send(msg) {
   return sendRaw(msg).then((r) => (MdgErrors.action(r.code) === "login" && showLogin(), r));

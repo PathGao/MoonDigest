@@ -1853,6 +1853,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.undo();
     assert.deepStrictEqual([plain(shared.folders), plain(shared.left), plain(store[t.K.decisions("B")])], [["A", "B"], [], {}]);
   }
+  // A 番剧 episode in 稍后再看 and two folders: 稍后再看's cached list may lack the mark, the folders' have it, and the merge keeps the
+  // mark whichever comes first. Every place gets "aid:42" (the background sends 稍后再看 the bare aid); the records and
+  // U keep it.
+  {
+    const ep = { bvid: "BVep", aid: "714816118", title: "番剧" };
+    const [one] = plain(t.mergeFolderItems([{ id: "toview", items: [ep] }, { id: "A", items: [{ ...ep, ogv: true }] }, { id: "B", items: [{ ...ep, ogv: true }] }]));
+    assert.deepStrictEqual([one.folders, one.ogv], [["toview", "A", "B"], true]);
+    openFake("all", [one]);
+    t.S.folderDecisions = { toview: {}, A: {}, B: {} };
+    t.S.folders = t.S.allFolders = [{ id: "toview", title: "稍后再看" }, { id: "A", title: "甲" }, { id: "B", title: "乙" }];
+    t.pickUnfavFolders = async () => ["toview", "A", "B"];
+    const from = sent.length;
+    await t.fav.unfav("BVep");
+    assert.deepStrictEqual(plain(sent.slice(from).map((m) => [m.mediaId, m.aids])), [["toview", ["714816118:42"]], ["A", ["714816118:42"]], ["B", ["714816118:42"]]]);
+    assert.strictEqual(store[t.K.decisions("A")].BVep.ogv, true);
+    await t.undo();
+    assert.deepStrictEqual(plain(sent.slice(from + 3).map((m) => [m.type, m.mediaId, m.aid])), ["toview", "A", "B"].map((f) => ["triage-refav", f, "714816118:42"]));
+    // A video's are unchanged: its bare aid everywhere.
+    assert.strictEqual(vm.runInContext("favRes", ctx)(item(7)), 1007);
+  }
   Object.assign(t.S, savedTags);
 
   // A 保留 made in one folder shows in another; folder records keep only 取消收藏; U removes it everywhere.

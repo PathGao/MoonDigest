@@ -448,6 +448,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.play)], [1234, undefined]);
   t.fetch = jsonRes({ code: 0, data: { list: [{ bvid: "BV6", aid: 6, title: "t6", state: 0, stat: { view: 77 } }, { bvid: "BV7", aid: 7, title: "t7", state: 0 }] } });
   assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.play)], [77, undefined]);
+  // 稍后再看 marks a 番剧 episode by its /bangumi/ redirect or pgc_label, never by season_id (a video may carry 0).
+  t.fetch = jsonRes({ code: 0, data: { list: [
+    { bvid: "BV14X4y1G7C7", aid: 714816118, state: 0, redirect_url: "https://www.bilibili.com/bangumi/play/ep397236", pgc_label: "纪录片", season_title: "造物说" },
+    { bvid: "BVp", aid: 8, state: 0, redirect_url: "", pgc_label: "电影" },
+    { bvid: "BV6", aid: 6, state: 0, season_id: 0, redirect_url: "", pgc_label: "" }
+  ] } });
+  assert.deepStrictEqual([...(await folderItems({ mediaId: "toview" })).items.map((it) => it.ogv)], [true, true, undefined]);
   // The UP's mid is kept (as a string) for the player's UP 标签 line; none when B站 gives none.
   t.fetch = jsonRes({ code: 0, data: { medias: [{ ...media(4), upper: { mid: 42, name: "甲" } }, media(5)], has_more: false } });
   assert.deepStrictEqual([...(await folderItems({ mediaId: 1 })).items.map((it) => it.upperMid)], ["42", undefined]);
@@ -462,6 +469,50 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   };
   const head = await folderItems({ mediaId: 1, known: ["BV1", "BV2", "BV3"] });
   assert.deepStrictEqual(JSON.parse(JSON.stringify([pages, head.items.map((it) => it.bvid), head.head])), [[1, 2], ["BV9", "BV1", "BV2", "BV3"], true]);
+  // A 番剧 episode (type 24) is listed only with platform=web. Its id is the episode id; its aid is the archive's, from the
+  // list's bvid (BV14X4y1G7C7 is av714816118), and it is marked ogv. ids keys it by "id:type", not the BV id it
+  // miscomputes from the episode id. Audio (12) stays out.
+  const urls = [];
+  t.fetch = async (url) => {
+    urls.push(url);
+    return /resource\/ids/.test(url)
+      ? jsonRes({ code: 0, data: [{ id: 1, type: 2, bvid: "BV1" }, { id: 397236, type: 24, bvid: "BV11x411F7Tx" }, { id: 5, type: 12, bvid: "BVa" }] })()
+      : jsonRes({ code: 0, data: { medias: [media(1), { id: 397236, type: 24, bvid: "BV14X4y1G7C7", title: "造物说", intro: "第1集 另一个我", attr: 0, cnt_info: { play: 0 }, ogv: { season_id: 38374 } }, { ...media(5), type: 12 }], has_more: false } })();
+  };
+  const ogv = await folderItems({ mediaId: 1 });
+  assert.match(urls[0], /resource\/list\?.*&platform=web/);
+  assert.deepStrictEqual(plain(ogv.items.map(({ bvid, aid, ogv, title, intro, play }) => ({ bvid, aid, ogv, title, intro, play }))), [
+    { bvid: "BV1", aid: 1, title: "t1" },
+    { bvid: "BV14X4y1G7C7", aid: "714816118", ogv: true, title: "造物说 第1集 另一个我", intro: "" }
+  ]);
+  assert.strictEqual(ogv.items[1].ep, "397236:24");
+  assert.deepStrictEqual(plain(ogv.ids), ["BV1", "BV14X4y1G7C7"], "ids maps the episode to the bvid of the list just read");
+  // G2: one B站 hides from the list but keeps in ids is mapped by the folder's cached list, or by 已出分拣范围 once it is
+  // recorded there, so the page sees it still in the folder (hidden), like a video. An old cache without ep, or none,
+  // leaves "id:type", which matches no video.
+  {
+    const ids = vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-folder-ids"];
+    const cached = { bvid: "BV14X4y1G7C7", ep: "397236:24" };
+    const withStore = (got) => ({ storage: { local: { get: async () => got } } });
+    t.fetch = jsonRes({ code: 0, data: [{ id: 1, type: 2, bvid: "BV1" }, { id: 397236, type: 24, bvid: "BV11x411F7Tx" }] });
+    const realChrome = t.chrome;
+    t.chrome = withStore({ triage_snapshot_1: { items: [cached] } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "BV14X4y1G7C7"]);
+    // So a folder holding a 番剧 and unchanged since is not seen as changed (所有收藏夹 would reload it every time).
+    const core = vm.createContext({});
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "triage-core.js"), "utf8"), core);
+    const snap = { items: [{ bvid: "BV1" }, cached], ids: ["BV1", "BV14X4y1G7C7"] };
+    t.chrome = withStore({ triage_snapshot_1: snap });
+    assert.strictEqual(core.TriageCore.idsChanged(snap.ids, (await ids({ mediaId: 1 })).bvids), false, "a 番剧 alone does not mark the folder changed");
+    t.chrome = withStore({ triage_removed: { BV14X4y1G7C7: { item: cached, hidden: true } } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "BV14X4y1G7C7"]);
+    t.chrome = withStore({ triage_snapshot_1: { items: [{ bvid: "BV14X4y1G7C7" }] } });
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
+    t.chrome = {};
+    assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
+    t.chrome = realChrome;
+  }
+  assert.deepStrictEqual(["BV1GJ411x7h7", "BV17x411w7KC", "x"].map(vm.runInContext("triageBvToAv", ctx)), ["80433022", "170001", ""]);
 
   // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
   const store = {};
@@ -770,6 +821,46 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(await H["triage-fav-where"]({ aid: 1 })), { mid: 7, folders: [{ id: "3", title: "甲" }] });
     await H["triage-fav-where"]({ aid: 2, mid: 7 });
     assert.deepStrictEqual(urls.filter((u) => /nav/.test(u)).length, 1);
+    // A 番剧 favorite comes as "aid:42" (fav-base.js favRes): folder writes and lookups name it so, the form B站 takes for
+    // it; 稍后再看 gets the bare aid. A video's stays "aid:2" and its bare aid.
+    t.fetch = async (url, opts) => {
+      if (/web-interface\/nav/.test(url)) return { ok: true, status: 200, json: async () => ({ code: 0, data: { isLogin: true, mid: 7 } }) };
+      const u = new URL(url);
+      calls.push([u.pathname, Object.fromEntries(opts?.body ? new URLSearchParams(opts.body) : u.searchParams)]);
+      return { ok: true, status: 200, json: async () => ({ code: 0, data: { list: [] } }) };
+    };
+    calls.length = 0;
+    const O = "714816118:42";
+    await H["triage-unfav"]({ mediaId: "1", aids: [10, O] });
+    await H["triage-transfer"]({ from: "1", to: "2", aids: [O, 11], move: true });
+    await H["triage-transfer"]({ from: "1", to: "2", aids: [O], move: false });
+    await H["triage-refav"]({ mediaId: "1", aid: O });
+    await H["triage-refav"]({ mediaId: "1", aid: 10 });
+    await H["triage-transfer"]({ from: "", to: "2", aids: [O], move: false });
+    await H["triage-fav-where"]({ aid: O, mid: 7 });
+    await H["triage-fav-where"]({ aid: 10, mid: 7 });
+    await H["triage-unfav"]({ mediaId: "toview", aids: [O, 10] });
+    await H["triage-refav"]({ mediaId: "toview", aid: O });
+    await H["triage-transfer"]({ from: "toview", to: "2", aids: [O], move: true });
+    assert.deepStrictEqual(plain(calls.splice(0).map(([p, f]) => [p, f.resources || (f.rid ? `${f.rid}:${f.type}` : f.aid)])), [
+      ["/x/v3/fav/resource/batch-del", "10:2,714816118:42"],
+      ["/x/v3/fav/resource/move", "714816118:42,11:2"],
+      ["/x/v3/fav/resource/copy", "714816118:42"],
+      ["/x/v3/fav/resource/deal", "714816118:42"],
+      ["/x/v3/fav/resource/deal", "10:2"],
+      ["/x/v3/fav/resource/deal", "714816118:42"],
+      ["/x/v3/fav/folder/created/list-all", "714816118:42"],
+      ["/x/v3/fav/folder/created/list-all", "10:2"],
+      ["/x/v2/history/toview/del", "714816118"],
+      ["/x/v2/history/toview/del", "10"],
+      ["/x/v2/history/toview/add", "714816118"],
+      ["/x/v3/fav/resource/deal", "714816118:42"],
+      ["/x/v2/history/toview/del", "714816118"]
+    ]);
+    // Only 42 rides along: an episode id ("397236:24") or any other type never reaches B站.
+    await assert.rejects(H["triage-unfav"]({ mediaId: "1", aids: ["397236:24"] }), /缺少 mediaId 或 aids/);
+    await assert.rejects(H["triage-refav"]({ mediaId: "1", aid: "10:12" }), /缺少 mediaId 或 aid/);
+    assert.strictEqual(calls.length, 0, "nothing was sent");
   }
 
   // The folder list pages through created/list (which carries the cover) until has_more is false; covers are https.

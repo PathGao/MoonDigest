@@ -17,8 +17,11 @@
         const dec = d[it.bvid];
         if (dec?.action === "unfav" && !refavorited(it, dec)) continue;
         const m = map.get(it.bvid);
-        if (m) m.folders.push(id);
-        else map.set(it.bvid, { ...it, folders: [id] });
+        // One list marking an episode 番剧 (a 稍后再看 snapshot from before it did may not) marks it for every write.
+        if (m) {
+          m.folders.push(id);
+          if (it.ogv) m.ogv = true;
+        } else map.set(it.bvid, { ...it, folders: [id] });
       }
     }
     return [...map.values()];

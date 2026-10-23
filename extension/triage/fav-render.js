@@ -372,7 +372,7 @@ window.addEventListener("beforeunload", (e) => {
 const unfavBatchItems = (batch) =>
   Object.entries(S.decisions)
     .filter(([b, d]) => d.action === "unfav" && d.batch === batch && d.aid && !S.itemMap.has(b))
-    .map(([bvid, d]) => ({ bvid, aid: d.aid }));
+    .map(([bvid, d]) => favRef({ bvid, ...d }));
 
 let listDeferred = false;
 // The card a Shift+click picks from: the last one picked by click or X.
