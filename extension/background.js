@@ -169,7 +169,7 @@ async function readWebPage(tab) {
     return { ...page, pageAccess: "failed", pageError: error?.timeout ? error.message : "浏览器不允许读取这个页面" };
   }
   // The tab moved on between the tab read and the extraction: the text is another page's, never stored under this URL.
-  if (!MdgSites.sameContext(String(read?.url || ""), url)) return { ...page, pageAccess: "failed", pageError: "读取时页面已跳转" };
+  if (read?.url && !MdgSites.sameContext(String(read.url), url)) return { ...page, pageAccess: "failed", pageError: "读取时页面已跳转" };
   if (!String(read?.content || "").trim()) return { ...page, pageAccess: "failed", pageError: "没有找到正文" };
   return {
     ...page,
@@ -621,6 +621,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
     endChat(chats.current, { type: "silent" });
     const run = chats.next();
+    const prompt = String(msg.prompt || "");
+    let raw = "";
     try {
       armWatchdog(run, STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first), "AI_TIMEOUT");
       const providers = await run.step(loadAiProviders());
@@ -636,9 +638,7 @@ chrome.runtime.onConnect.addListener((port) => {
         post({ type: "error", error: problem.text, code: problem.code });
         return;
       }
-      const prompt = String(msg.prompt || "");
-      let raw = "";
-      const answered = await streamChat({
+      await streamChat({
         provider: { ...provider, apiKey },
         context: msg.context || {},
         userPrompt: prompt,
@@ -651,13 +651,17 @@ chrome.runtime.onConnect.addListener((port) => {
         getAbortMeta: () => run.meta,
         onActivity: () => armWatchdog(run, STREAM_TIMEOUT_MS.idle, MdgErrors.aiStalled(STREAM_TIMEOUT_MS.idle), "AI_STALLED")
       });
-      if (answered && run.orphan) await finishOrphanReply({ ...run.reply, prompt, raw });
     } catch (e) {
       if (MdgCommon.isStale(e)) postStreamAbort(post, run.meta);
       else post({ type: "error", error: String(e?.message || e) });
     } finally {
-      clearTimeout(run.watchdog);
-      if (run.orphan) orphanKeepAlive(false);
+      // Ended here, so a port closing later finds nothing to orphan. An orphan's answer goes in whatever came, as the
+      // panel keeps a partial one and drops the question of an empty one (patchReply).
+      endChat(run, { type: "silent" });
+      if (run.orphan) {
+        await finishOrphanReply({ ...run.reply, prompt, raw }).catch((error) => console.warn("[MDG] orphan reply not saved", error));
+        orphanKeepAlive(false);
+      }
     }
   });
 });

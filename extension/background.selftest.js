@@ -291,7 +291,9 @@ process.on("exit", (code) => {
   // such a reply runs.
   {
     const wasChrome = ctx.chrome;
-    const store = { [ctx.MdgLimits.KEYS.aiConversations]: [{ id: "c1", messages: [{ role: "user", content: "q" }], updatedAt: 1 }, { id: "c2", messages: [{ role: "user", content: "q" }], updatedAt: 1 }] };
+    const conv = (id) => ({ id, messages: [{ role: "user", content: "q" }], updatedAt: 1 });
+    const store = { [ctx.MdgLimits.KEYS.aiConversations]: ["c1", "c2", "c3", "c4", "c5"].map(conv) };
+    const stored = (id) => store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === id).messages;
     const pings = [];
     const timers = [];
     ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}`, getPlatformInfo: () => pings.push(1) }, storage: { local: area(store) } };
@@ -318,7 +320,7 @@ process.on("exit", (code) => {
     await wait(10);
     port.disconnect();
     await chat;
-    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2"]);
+    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2", "c3", "c4", "c5"]);
     // 停止, then the port closes (the panel deleted the conversation): aborted, nothing written.
     port = openPort();
     ctx.fetch = stalling();
@@ -338,6 +340,33 @@ process.on("exit", (code) => {
     port.disconnect();
     await chat;
     assert.deepStrictEqual([aborted, timers.filter(Boolean).length], [true, 0]);
+    // F1: a detached reply that ended while the panel was still open is no orphan when the port closes afterwards:
+    // nothing is pinged, and the panel's own write (not here) keeps the answer.
+    port = openPort();
+    ctx.fetch = slowReply();
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c3", promptIndex: 0 });
+    await chat;
+    port.disconnect();
+    await wait(5);
+    assert.deepStrictEqual([timers.filter(Boolean).length, stored("c3").length], [0, 1]);
+    // F2: an orphaned reply that fails midway keeps what came, as the panel does; one that fails before a word takes
+    // its question away, so the conversation never ends in two questions in a row.
+    port = openPort();
+    ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "半" }) }]);
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c4", promptIndex: 0 });
+    await wait(10);
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual(stored("c4"), [{ role: "user", content: "q" }, { role: "assistant", content: "半" }], "the stalled reply's half");
+    port = openPort();
+    ctx.fetch = async () => ({ ok: false, status: 401, text: async () => "" });
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c5", promptIndex: 0 });
+    port.disconnect();
+    await chat;
+    assert.deepStrictEqual([stored("c5"), timers.filter(Boolean).length], [[], 0], "no answer: the question goes, the ping stops");
     [ctx.setInterval, ctx.clearInterval] = realInterval;
     ctx.chrome = wasChrome;
   }
@@ -678,7 +707,7 @@ process.on("exit", (code) => {
           if (files) return calls.push(...files), (loaded = true), [];
           calls.push(`parse ${args[0]}`);
           // The parsed document names its own URL (location.href), the page's unless a test moves it.
-          return [{ result: loaded && typeof func === "function" ? { ...page, url: page.url ?? tabUrl } : null }];
+          return [{ result: loaded && typeof func === "function" && page ? { ...page, url: page.url ?? tabUrl } : null }];
         }
       }
     };
@@ -709,6 +738,12 @@ process.on("exit", (code) => {
     got = await read();
     assert.deepStrictEqual([got.pageAccess, got.pageError, got.url, "pageMarkdown" in got], ["failed", "读取时页面已跳转", "https://example.com/a?x=1", false]);
     delete page.url;
+    // Nothing parsed at all (no URL came back either): the no-body reason, not a navigation.
+    const whole = page;
+    page = null;
+    got = await read();
+    assert.deepStrictEqual([got.pageAccess, got.pageError], ["failed", "没有找到正文"]);
+    page = whole;
     calls.splice(0);
     // The popup's note of a web page (popup-page-note): the side panel's note file, with the page's newest conversation.
     {

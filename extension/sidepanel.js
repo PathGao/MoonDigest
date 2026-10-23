@@ -1704,7 +1704,13 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   turnAnchor = { run, node: question, top: -Infinity };
   const reply = appendAssistantPlaceholder();
   state.dispatch({ type: "QUESTION", prompt: text });
-  const hasContext = await ensureCurrentContextForSend();
+  let hasContext = false;
+  try {
+    hasContext = await ensureCurrentContextForSend();
+  } catch (error) {
+    // A load or a save that failed: the question goes back, the turn ends (below), the next send is not blocked.
+    console.error(error);
+  }
   // Another conversation now (the tab moved to another video, another was opened) ended the turn: the question was
   // not asked there. Nor when the tab left the video while the context loaded, or a saved video no longer resolves to one.
   const here = hasContext && state.view().turn === "loading";

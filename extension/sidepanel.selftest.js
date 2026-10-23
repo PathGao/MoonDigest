@@ -1541,6 +1541,29 @@ const tick = () => new Promise((r) => setImmediate(r));
     [ctx.ensureCurrentContextForSend, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder] = prev;
   }
 
+  // F3: the context load (or a save in one of its effects) throws: the turn ends, the question goes back, and the next
+  // send is not blocked.
+  {
+    const prev = [ctx.ensureCurrentContextForSend, ctx.appendUserMessage, ctx.appendAssistantPlaceholder, ctx.console];
+    ctx.console = { ...console, error() {} };
+    ctx.appendUserMessage = () => stubEl();
+    ctx.appendAssistantPlaceholder = () => stubEl();
+    state.dispatch({ type: "NEW" });
+    show(video);
+    ctx.ensureCurrentContextForSend = async () => {
+      throw new Error("QUOTA_BYTES quota exceeded");
+    };
+    vm.runInContext('providers = [{}]; els.input.value = "会失败"; els.modelSelect.value = "p"', ctx);
+    await ctx.sendMessage();
+    assert.deepStrictEqual([view().turn, els.input.value], ["idle", "会失败"]);
+    let loads = 0;
+    ctx.ensureCurrentContextForSend = async () => (loads++, false);
+    await ctx.sendMessage();
+    assert.deepStrictEqual([loads, view().turn], [1, "idle"], "the next send gets through the gate");
+    els.input.value = "";
+    [ctx.ensureCurrentContextForSend, ctx.appendUserMessage, ctx.appendAssistantPlaceholder, ctx.console] = prev;
+  }
+
   // Gap 11: two platform loads overlap (init's and a settings change's): the older one answering last writes nothing.
   {
     const realSend = ctx.chrome.runtime.sendMessage;
