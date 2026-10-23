@@ -13,7 +13,16 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # The ruleset requires "check": the Linux run keeps that name, Windows reports as "check (windows)".
+    name: ${{ matrix.os == 'windows-latest' && 'check (windows)' || 'check' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:

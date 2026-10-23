@@ -92,16 +92,7 @@ assert.strictEqual(L.KEYS.seen("BV1"), "seen_BV1");
 assert.strictEqual(L.KEYS.follow("tag_map"), "follow_tag_map");
 assert.deepStrictEqual({ ...L.followFull({ list: 1, last_wip: undefined }) }, { follow_list: 1, follow_last_wip: undefined });
 assert.deepStrictEqual({ ...L.followShort({ follow_list: 1, follow_tag_map: 2, triage_notes: 3 }) }, { list: 1, tag_map: 2 });
-const sources = [];
-const walk = (dir) => {
-  for (const entry of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!/^dev/.test(entry.name)) walk(rel);
-    } else if (entry.name.endsWith(".js") && !entry.name.endsWith(".selftest.js") && rel !== "limits.js") sources.push(rel);
-  }
-};
-walk(".");
+const sources = PS.walk(".", (d) => /^dev/.test(d)).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "limits.js");
 assert.ok(sources.includes("triage/triage.js") && sources.length > 15, `scanned ${sources.length} files`);
 for (const file of sources) {
   const text = fs.readFileSync(path.join(__dirname, file), "utf8");

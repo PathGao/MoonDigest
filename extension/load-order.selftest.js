@@ -10,14 +10,7 @@ const assert = require("assert");
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
 const PS = require("./page-sources.selftest.js");
-const files = [];
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) walk(rel);
-    else if (e.name.endsWith(".js") && !e.name.endsWith(".selftest.js")) files.push(rel);
-  }
-})(".");
+const files = PS.walk().filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js"));
 
 // Globals: whatever a file publishes as globalThis.X = ...
 const definedBy = {};

@@ -17,6 +17,9 @@ const assert = require("assert");
 
 const root = __dirname;
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
+const PS = require("./page-sources.selftest.js");
+// Our own scripts: not the dev mocks, not vendor/'s.
+const ownScripts = PS.walk(".", (d) => /^(dev|vendor$)/.test(d)).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js"));
 const ctx = vm.createContext({});
 ctx.globalThis = ctx;
 vm.runInContext(read("errors.js"), ctx);
@@ -105,17 +108,9 @@ const EXEMPT = {
   "dev-sidepanel/index.html": "开发用的 mock 页，加载的就是 sidepanel.js",
   "manifest:badges.js": "B站页面封面上的标记：不显示这些错误，也没有补救按钮"
 };
-const htmls = [];
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) e.name !== "vendor" && walk(rel);
-    else if (e.name.endsWith(".html")) htmls.push(rel);
-  }
-})(".");
 const loads = {};
-for (const html of htmls) {
-  const srcs = [...read(html).matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map((m) => path.normalize(path.join(path.dirname(html), m[1])));
+for (const html of PS.walk(".", (d) => d === "vendor").filter((f) => f.endsWith(".html"))) {
+  const srcs = PS.pageScripts(html);
   if (srcs.includes("errors.js")) loads[html] = srcs;
 }
 for (const group of JSON.parse(read("manifest.json")).content_scripts) {
@@ -144,16 +139,10 @@ const NOT_ENTRIES = {
   "options.js": "设置页 (EXEMPT above): 测试连接's 授权 goes through grantOrigin(message, code)"
 };
 const INVENTORY = /MdgErrors\.(action|text|fromResp|grantOrigin|subtitleMissing|remedies|messageOf)\(|["'](AI_[A-Z_]+|OBSIDIAN(?:_DOWN)?|THROTTLED|NOT_LOGGED_IN)["']|\bCODE\.[A-Z_]+|openOptionsPage|"open-options"|LABEL\.retry|isBiliVideoGone|aiSettingsCode|aiEnds/;
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) !/^(dev|vendor$)/.test(e.name) && walk(rel);
-    else if (rel.endsWith(".js") && !rel.endsWith(".selftest.js") && !(rel in ENTRIES) && !(rel in NOT_ENTRIES)) {
-      const hit = read(rel).split("\n").find((l) => !/^\s*\/\//.test(l) && INVENTORY.test(l));
-      check(!hit, `2b. ${rel} handles errors (${hit?.trim().slice(0, 80)}): add it to ENTRIES or NOT_ENTRIES with a reason`);
-    }
-  }
-})(".");
+for (const rel of ownScripts.filter((f) => !(f in ENTRIES) && !(f in NOT_ENTRIES))) {
+  const hit = read(rel).split("\n").find((l) => !/^\s*\/\//.test(l) && INVENTORY.test(l));
+  check(!hit, `2b. ${rel} handles errors (${hit?.trim().slice(0, 80)}): add it to ENTRIES or NOT_ENTRIES with a reason`);
+}
 for (const f of Object.keys(NOT_ENTRIES)) check(fs.existsSync(path.join(root, f)), `2b. NOT_ENTRIES lists ${f}, which is gone`);
 
 // 3. Static checks over the entries.
@@ -248,15 +237,9 @@ const NOTE_FLOW = {
   "messages.js": "the message list"
 };
 const NOTE_FLOW_RE = /["'](write-video-note|export-note)["']|MdgOverwriteDialog\.choose/;
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) !/^(dev|vendor$)/.test(e.name) && walk(rel);
-    else if (rel.endsWith(".js") && !rel.endsWith(".selftest.js") && !(rel in NOTE_FLOW)) {
-      read(rel).split("\n").forEach((l, i) => !isComment(l) && NOTE_FLOW_RE.test(l) && check(false, `4. ${rel}:${i + 1} sends a note request or opens its dialog itself (use MdgNoteActions.run): ${l.trim().slice(0, 120)}`));
-    }
-  }
-})(".");
+for (const rel of ownScripts.filter((f) => !(f in NOTE_FLOW))) {
+  read(rel).split("\n").forEach((l, i) => !isComment(l) && NOTE_FLOW_RE.test(l) && check(false, `4. ${rel}:${i + 1} sends a note request or opens its dialog itself (use MdgNoteActions.run): ${l.trim().slice(0, 120)}`));
+}
 for (const f of Object.keys(NOTE_FLOW)) check(NOTE_FLOW_RE.test(read(f)), `4. NOTE_FLOW lists ${f}, which no longer names them`);
 
 if (failures.length) {

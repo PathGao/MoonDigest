@@ -8,17 +8,21 @@ const path = require("path");
 const assert = require("assert");
 
 const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
-const walk = (dir, out = []) => {
+// The files under dir (relative to extension/), leaving out the folders skip(name) names. Paths use / on every OS, as
+// the manifest and the pages do: with Windows' \ they matched nothing those name.
+const walk = (dir = ".", skip = () => false, out = []) => {
   for (const e of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) walk(rel, out);
+    const rel = path.posix.join(dir, e.name);
+    if (e.isDirectory()) skip(e.name) || walk(rel, skip, out);
     else out.push(rel);
   }
   return out;
 };
-const all = walk(".");
+const all = walk();
 // dev/ folders and dev-sidepanel/ hold mocks and the dev preview: they are runtimes for load-order, not shipped code.
-const isDev = (f) => f.split(path.sep).some((part) => /^dev/.test(part));
+const isDev = (f) => f.split("/").some((part) => /^dev/.test(part));
+// The scripts a page loads, as paths from extension/.
+const pageScripts = (page) => [...read(page).matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map((m) => path.posix.join(path.posix.dirname(page), m[1]));
 
 // [{ where, files, dev }]: where is a page's path, "background.js", or a content_scripts entry's last file.
 const runtimes = [];
@@ -27,8 +31,7 @@ for (const c of JSON.parse(read("manifest.json")).content_scripts) runtimes.push
 const calls = [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].map((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 runtimes.push({ where: "background.js", files: [...calls[0], "background.js", ...calls.slice(1).flat()], dev: false });
 for (const page of all.filter((f) => f.endsWith(".html"))) {
-  const files = [...read(page).matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => path.normalize(path.join(path.dirname(page), m[1])));
-  runtimes.push({ where: page, files, dev: isDev(page) });
+  runtimes.push({ where: page, files: pageScripts(page), dev: isDev(page) });
 }
 
 // The scripts a runtime loads (both content_scripts entries that end in content.js, for "content.js").
@@ -56,7 +59,7 @@ const pageCode = [...new Set([...runtimes.filter((r) => !r.dev).flatMap((r) => o
 // The files' text as one string.
 const text = (files) => files.map(read).join("\n");
 
-module.exports = { read, text, runtimes, scripts, own, shipped, pageCode, triage, favorites, follow };
+module.exports = { read, text, walk, pageScripts, runtimes, scripts, own, shipped, pageCode, triage, favorites, follow };
 
 if (require.main === module) {
   // messages.js is the message list messages.selftest.js checks; it is not shipped.
@@ -68,5 +71,10 @@ if (require.main === module) {
   assert.ok(own("background.js").includes("triage/follow-bg.js") && !own("background.js").includes("triage/shared.js"));
   assert.ok(favorites.includes("triage/fav-page.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
   assert.ok(bothModes.every((f) => scripts("triage/triage.html").includes(f)), "bothModes names files the page loads");
+  // The selftests list files through walk only: eleven copies of it once disagreed on Windows' \. A selftest that
+  // reads a directory of its own (not extension/) is named here with why.
+  const OWN_DIRS = { "triage/triage.selftest.js": "reads back the notes it unzipped into a temp folder" };
+  const readers = all.filter((f) => f.endsWith(".selftest.js") && f !== "page-sources.selftest.js" && read(f).split("\n").some((l) => !/^\s*\/\//.test(l) && l.includes("readdirSync(")));
+  assert.deepStrictEqual(readers, Object.keys(OWN_DIRS), `selftests reading directories themselves (use walk): ${readers.join(", ")}`);
   console.log("page-sources selftest ok");
 }

@@ -16,15 +16,7 @@ const vm = require("vm");
 
 const root = __dirname;
 const read = (f) => fs.readFileSync(path.join(root, f), "utf8");
-const files = [];
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      if (!/^dev/.test(e.name)) walk(rel);
-    } else if (e.name.endsWith(".js") && !e.name.endsWith(".selftest.js") && rel !== "messages.js") files.push(rel);
-  }
-})(".");
+const files = require("./page-sources.selftest.js").walk(".", (d) => /^dev/.test(d)).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "messages.js");
 // Comments out, strings kept (field names and types live in them), same offsets.
 const blank = (s) => s.replace(/\/\*[\s\S]*?\*\/|(^|[^:"'`\\])\/\/.*$/gm, (m, pre = "") => pre + m.slice(pre.length).replace(/[^\n]/g, " "));
 const src = Object.fromEntries(files.map((f) => [f, blank(read(f))]));
@@ -210,7 +202,7 @@ const NOT_FROM_WEB = {
   "export-note": "note-actions.js sends it for 复制 / 下载; the video page (content.js) only writes",
   "ensure-reader-content": "errors.js sends it from tabMessage, which needs chrome.tabs: only the popup and the side panel call it with inject"
 };
-const contentScripts = new Set(JSON.parse(read("manifest.json")).content_scripts.flatMap((g) => g.js).map(path.normalize));
+const contentScripts = new Set(JSON.parse(read("manifest.json")).content_scripts.flatMap((g) => g.js));
 const definer = (name, open) => files.find((g) => new RegExp(`(?:const|let)\\s+${name}\\s*=\\s*\\${open}`).test(src[g]));
 for (const f of files) {
   for (const m of src[f].matchAll(/(?<!function\s+)triageListen\(\s*([^,]+),\s*([\w$]+),\s*(\[[^\]]*\]|[\w$]+)/g)) {

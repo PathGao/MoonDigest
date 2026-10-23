@@ -1,0 +1,2 @@
+# LF on every checkout: the selftests read sources line by line, and a Windows clone would get CRLF.
+* text=auto eol=lf

@@ -16,13 +16,8 @@ const ALLOWED = [
 ];
 const TEXT = /\.(js|mjs|css|html|json|md|svg|txt|py|sh|yml)$/;
 
-const files = [];
-const walk = (rel) => {
-  const abs = path.join(root, rel);
-  if (fs.statSync(abs).isDirectory()) for (const name of fs.readdirSync(abs)) walk(path.join(rel, name));
-  else if (TEXT.test(rel)) files.push(rel.split(path.sep).join("/"));
-};
-["extension", "docs", "README.md"].forEach(walk);
+// Paths from the repository root: the walk starts at extension/'s parent.
+const files = require("./page-sources.selftest.js").walk("..", (d) => d === ".git").map((f) => f.slice("../".length)).filter((f) => /^(extension\/|docs\/|README\.md$)/.test(f) && TEXT.test(f));
 assert.ok(files.includes("extension/content.js") && files.includes("docs/ARCHITECTURE.md"), `scanned ${files.length} files`);
 
 const self = "extension/naming.selftest.js";

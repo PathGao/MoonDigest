@@ -3,24 +3,16 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 
-const files = [];
-const walk = (dir) => {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const file = path.join(dir, entry.name);
-    // vendor/: third-party code, not our pages.
-    if (entry.isDirectory()) entry.name !== "vendor" && walk(file);
-    else if (/\.(html|js)$/.test(entry.name) && !entry.name.endsWith(".selftest.js")) files.push(file);
-  }
-};
-walk(__dirname);
+// vendor/: third-party code, not our pages.
+const files = require("./page-sources.selftest.js").walk(".", (d) => d === "vendor").filter((f) => /\.(html|js)$/.test(f) && !f.endsWith(".selftest.js"));
 
 const missing = [];
 for (const file of files) {
-  const source = fs.readFileSync(file, "utf8");
+  const source = fs.readFileSync(path.join(__dirname, file), "utf8");
   for (const match of source.matchAll(/<(?:input|select|textarea)\b(?:\$\{[^}]*\}|[^>])*>/g)) {
     if (/\s(?:id|name)\s*=/.test(match[0])) continue;
     const line = source.slice(0, match.index).split("\n").length;
-    missing.push(`${path.relative(__dirname, file).split(path.sep).join("/")}:${line}`);
+    missing.push(`${file}:${line}`);
   }
 }
 

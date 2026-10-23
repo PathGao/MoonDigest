@@ -760,7 +760,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
         assert.match(unzip(["-t", zip]), /No errors detected/);
         unzip(["-q", zip, "-d", path.join(dir, "out")]);
         assert.deepStrictEqual(fs.readdirSync(path.join(dir, "out")).sort(), plain(files.map((f) => f.name)).sort(), "extracts under the same names");
-        assert.strictEqual(fs.statSync(path.join(dir, "out", "干货.md")).mode & 0o777, 0o644, "extracted notes are readable");
+        // Windows keeps no Unix permission bits to check.
+        if (process.platform !== "win32") assert.strictEqual(fs.statSync(path.join(dir, "out", "干货.md")).mode & 0o777, 0o644, "extracted notes are readable");
         for (const f of files) assert.strictEqual(unzip(["-p", zip, f.name]), f.text, `unzip finds ${f.name} by its UTF-8 name`);
       }
       // The central directory read back by hand: UTF-8 flag, stored, CRC and name per entry.
