@@ -101,10 +101,6 @@
 
   const KIND_ORDER = { manual: 0, auto: 1, ai: 1, translated: 2 };
 
-  function normalizeSubtitleLang(value) {
-    return SUBTITLE_LANGS[value] ? value : "auto";
-  }
-
   function langMatches(lang, target) {
     const code = String(lang || "").toLowerCase();
     const hant = /^zh-(hant|tw|hk|mo)\b/.test(code);
@@ -1554,7 +1550,6 @@
     cleanComment,
     trimReason,
     rankTracks,
-    normalizeSubtitleLang,
     pickPreferredTrack,
     trackUrlKey,
     subtitleCache: { key: subtitleCacheKey, load: loadSubtitleCache, save: saveSubtitleCache },

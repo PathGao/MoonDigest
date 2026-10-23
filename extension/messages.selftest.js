@@ -206,7 +206,10 @@ for (const [type, e] of Object.entries(M)) {
 // 6. Each triageListen(prefix, HANDLERS, web types) against the list: the types of the file that defines HANDLERS that a
 // content script sends. The web types are an array literal there or a const array (obsidian.js's, registered by background.js).
 // NOT_FROM_WEB: types a content-script file sends only from extension pages, and why.
-const NOT_FROM_WEB = { "export-note": "note-actions.js sends it for 复制 / 下载; the video page (content.js) only writes" };
+const NOT_FROM_WEB = {
+  "export-note": "note-actions.js sends it for 复制 / 下载; the video page (content.js) only writes",
+  "ensure-reader-content": "errors.js sends it from tabMessage, which needs chrome.tabs: only the popup and the side panel call it with inject"
+};
 const contentScripts = new Set(JSON.parse(read("manifest.json")).content_scripts.flatMap((g) => g.js).map(path.normalize));
 const definer = (name, open) => files.find((g) => new RegExp(`(?:const|let)\\s+${name}\\s*=\\s*\\${open}`).test(src[g]));
 for (const f of files) {

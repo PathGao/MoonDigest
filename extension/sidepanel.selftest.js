@@ -1232,6 +1232,23 @@ const chatOn = (context) => {
     await ctx.jumpToAssistantTimestamp(5, "0:05");
     ctx.chrome.runtime.lastError = undefined;
     assert.deepStrictEqual(notices.filter((n) => n[2]).map((n) => n[0]), ["时间跳转失败：请刷新网页后重试", `时间跳转失败：${ctx.MdgErrors.TEXT.pageSilent}`], "M3: a page that did not answer says the one sentence");
+    // F5: a video page without the script gets it from the background (ensure-reader-content), as in the popup, then seeks.
+    {
+      let injected = false;
+      const asked = [];
+      const prevSend = ctx.chrome.runtime.sendMessage;
+      ctx.chrome.runtime.sendMessage = async (m) => (asked.push(m.type), m.type === "ensure-reader-content" && (injected = true), { ok: true });
+      ctx.chrome.tabs.sendMessage = (id, msg, cb) => {
+        if (injected) return cb({ ok: true });
+        ctx.chrome.runtime.lastError = { message: "Could not establish connection. Receiving end does not exist." };
+        cb(undefined);
+        ctx.chrome.runtime.lastError = undefined;
+      };
+      notices.length = 0;
+      await ctx.jumpToAssistantTimestamp(7, "0:07");
+      assert.deepStrictEqual([asked.filter((t) => t === "ensure-reader-content"), notices.filter((n) => n[2])], [["ensure-reader-content"], []]);
+      ctx.chrome.runtime.sendMessage = prevSend;
+    }
     ctx.showConversationContextNotice = prevNotice;
     // C363: the tab closed while it loads: said at once, not after 15 seconds as a load timeout.
     ctx.chrome.tabs.get = async () => Promise.reject(new Error("No tab with id: 9"));

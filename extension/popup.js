@@ -32,10 +32,9 @@ let webNote = null;
 let webTabId = 0; // the web page's tab, which 刷新 reads again; 0 on a video page
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
-// The settings asked for as the popup opens: a web page's read says 写入 Obsidian only when it is on.
+// The settings asked for as the popup opens: a web page's read says 写入 Obsidian only when it is on. null again after a
+// failed read, so the next use asks again.
 let settingsLoad = null;
-// Only for when get-settings fails.
-const DEFAULT_SETTINGS = MdgSettings.DEFAULTS;
 const setDisabledReason = MdgErrors.setReason;
 // After 专注模式 or the side panel opened: long enough for the status to show before the popup closes.
 const CLOSE_DELAY_MS = 80;
@@ -57,12 +56,15 @@ async function init() {
   const tab = await MdgSites.activeTab();
   onVideoPage = Boolean(MdgSites.matchSite(tab?.url || ""));
   settingsLoad = getSettingsFromRuntime();
-  settingsLoad.then((settings) => {
-    el.sendBtn.hidden = !settings.obsidianEnabled;
-    try {
-      localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
-    } catch {}
-  });
+  settingsLoad.then(
+    (settings) => {
+      el.sendBtn.hidden = !settings.obsidianEnabled;
+      try {
+        localStorage.setItem(OBSIDIAN_SHOWN_KEY, settings.obsidianEnabled ? "1" : "0");
+      } catch {}
+    },
+    () => (settingsLoad = null)
+  );
   // Not a video page: nothing to read here, said instead of a failed fetch. A tab that is not even a web page
   // (chrome://, file:) is said as the side panel says it; on a web page only the video tools say NOT_VIDEO_PAGE.
   if (!onVideoPage) {
@@ -114,7 +116,13 @@ function bindEvents() {
   el.downloadBtn.addEventListener("click", async () => {
     const payload = await ensurePayload();
     if (!payload) return;
-    const settings = await (settingsLoad || getSettingsFromRuntime());
+    let settings;
+    try {
+      settings = await (settingsLoad || getSettingsFromRuntime());
+    } catch (error) {
+      setStatus(settingsFailed(error), true);
+      return;
+    }
     const format = MdgSettings.normalizeDownloadFormat(settings.downloadFormat);
     const content =
       format === "txt" ? payload.txt || payload.subtitlePreview || "" : payload.srt || "";
@@ -235,14 +243,22 @@ async function readWebNote(tabId) {
   if (!resp?.ok) {
     const reason = MdgErrors.text(resp);
     tools.forEach((button) => setDisabledReason(button, reason));
-    setStatus(reason, true);
+    // Web pages not granted yet: 允许读取网页 as in the side panel, then the page is read again.
+    const grant = MdgErrors.remedies(resp?.code).includes("grantPage")
+      ? { label: MdgErrors.LABEL.grantPage, run: () => MdgErrors.grantPages().then((granted) => granted && readWebNote(tabId)) }
+      : null;
+    setStatus(reason, true, false, grant);
     return;
   }
   webNote = { ref: resp.ref, filename: resp.filename, markdown: resp.content };
   tools.forEach((button) => setDisabledReason(button, ""));
   // As the video page says it after its read.
-  const { obsidianEnabled } = await (settingsLoad || getSettingsFromRuntime());
-  setStatus(obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
+  try {
+    const { obsidianEnabled } = await (settingsLoad || getSettingsFromRuntime());
+    setStatus(obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
+  } catch (error) {
+    setStatus(settingsFailed(error), true);
+  }
 }
 
 async function openOptions() {
@@ -287,12 +303,7 @@ function render(payload, { preserveStatus = false } = {}) {
   latestPayload = payload;
 
   if (!preserveStatus) {
-    const statusText = String(payload.status || "准备就绪");
-    const isErrorStatus = /失败|错误|不可用|不支持/.test(statusText);
-    setStatus(statusText, isErrorStatus);
-  }
-  if (payload.message && !preserveStatus) {
-    setStatus(payload.message, /失败|错误|不可用|不支持|请先/.test(payload.message));
+    setStatus(String(payload.status || "准备就绪"), payload.statusError === true);
   }
 
   setText(el.propTitle, payload.title || "-");
@@ -390,52 +401,21 @@ async function sendToContent(message) {
   }
 
   try {
-    return await sendMessageToTab(tabId, message);
+    return await MdgErrors.tabMessage(tabId, message, { inject: Boolean(MdgSites.matchSite(tab?.url || "")) });
   } catch (error) {
-    if (MdgErrors.noReceiver(error) && MdgSites.matchSite(tab?.url || "")) {
-      try {
-        await ensureContentScriptReady(tabId);
-        await MdgCommon.sleep(80);
-        return await sendMessageToTab(tabId, message);
-      } catch (retryError) {
-        error = retryError;
-      }
-    }
-
-    // Chrome's English (sendMessageToTab marks it) in the user's words; our own reasons pass through.
+    // Chrome's English (tabMessage marks it) in the user's words; our own reasons pass through.
     const normalizedError = MdgErrors.messageOf(MdgErrors.pageSilent(error));
     setStatus(normalizedError, true);
     return { ok: false, error: normalizedError, payload: latestPayload };
   }
 }
 
-async function ensureContentScriptReady(tabId) {
-  const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
-  if (!resp?.ok) {
-    throw MdgErrors.fromResp(resp, MdgErrors.TEXT.reloaded);
-  }
-}
-
-async function sendMessageToTab(tabId, message) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (resp) => {
-      if (chrome.runtime.lastError) {
-        reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true }));
-        return;
-      }
-      resolve(resp);
-    });
-  });
-}
-
+// Rejects when the background does not answer, as the video page's getSettings: 下载字幕 must not go on with the default
+// format as if it were the user's.
 async function getSettingsFromRuntime() {
-  try {
-    const resp = await chrome.runtime.sendMessage({ type: "get-settings" });
-    if (!resp?.ok) {
-      return { ...DEFAULT_SETTINGS };
-    }
-    return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+  const resp = await chrome.runtime.sendMessage({ type: "get-settings" });
+  if (!resp?.ok) throw MdgErrors.fromResp(resp);
+  return resp.settings || {};
 }
+
+const settingsFailed = (error) => `${MdgErrors.TEXT.settingsReadFailed}：${MdgErrors.messageOf(error)}`;

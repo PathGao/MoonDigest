@@ -109,7 +109,6 @@ assert.ok(/button\.setAttribute\("aria-busy"[^\n]*\n  \}\n  if \(!active\) syncO
 
 // 看多少算看完了 is parsed by settings.js's normalizeSeenThreshold (settings.selftest.js); the box's range and 「默认 N」
 // come from SEEN_THRESHOLD (J15).
-assert.ok(source.includes("seenThreshold: MdgSettings.normalizeSeenThreshold(elements.seenThreshold.value),"), "options.js parses 看多少算看完了 with normalizeSeenThreshold");
 assert.ok(source.includes("const { min, max, def } = MdgSettings.SEEN_THRESHOLD;") && source.includes("TriageUi.numBox(elements.seenThreshold, min, max, def);"), "seenThreshold's box reads SEEN_THRESHOLD");
 
 // The box behaves like the 分拣台's: a change or a save clamps it with TriageUi.clampNumber (above max is max, invalid is
@@ -215,7 +214,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const sent = [];
   let answer;
   const page = vm.createContext({
-    URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, hasUnsavedChanges: false,
+    URL, MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, escapeHtml: ctx.MdgErrors.escapeHtml, hasUnsavedChanges: false,
     AI_PRESETS: [{ id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", requiresKey: true }, { id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
     document: { createElement: () => row },
     elements: { aiProvidersList: { appendChild() {}, querySelectorAll: () => [row] } },
@@ -413,7 +412,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const fields = { ".ai-provider-baseurl": "https://api.example.com/v1", ".ai-provider-apikey": "k", ".ai-provider-model": "m", ".ai-provider-preset": "custom" };
   const row = { dataset: {}, querySelector: (sel) => (sel === ".ai-provider-status" ? status : sel === ".ai-provider-test" ? node() : { value: fields[sel] }) };
   const page = vm.createContext({
-    URL, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
+    URL, MdgSettings: ctx.MdgSettings, hasUnsavedChanges: true, AI_PRESETS: [{ id: "custom", requiresKey: true }],
     document: { createElement: node },
     chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) }, runtime: { sendMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true }) } }
   });
@@ -434,3 +433,38 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual([log.slice(1), status.textContent], [["ask https://api.example.com/*", "ask https://api.example.com/*", "test https://api.example.com/v1"], "连接成功，记得保存设置"]);
   console.log("options selftest: all passed");
 })().catch((e) => (console.error(e), process.exit(1)));
+
+// The form round trip: what loadSettings puts in the controls, readFormPayload gives back, key for key, for every setting
+// the page has (a switch flipped from its default, every box changed).
+(async () => {
+  const html = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
+  const els = Object.fromEntries([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, { id, value: "", checked: false, querySelectorAll: () => [] }]));
+  const S = ctx.MdgSettings;
+  const stored = S.normalizeSyncSettings({
+    ...Object.fromEntries(Object.entries(S.DEFAULTS).map(([k, v]) => [k, typeof v === "boolean" ? !v : v])),
+    noteFolder: "笔记/{{site}}", tags: "a, b", downloadFormat: "txt", youtubeSubtitleLang: "ja", playerAiQuickPrompt: "总结",
+    seenShow: "both", seenThreshold: 42, seenStyle: "veil", aiSystemPrompt: "规则", aiPresetPrompts: ["问一", "问二"],
+    webAiSystemPrompt: "网页规则", webAiSummaryPrompt: "网页总结", webAiPresetPrompts: ["网页问"], frontmatterFields: ["title"],
+    fixedFrontmatterProperties: [{ key: "评分", type: "number", value: "5" }], notePlaceholderSections: [{ title: "想法", position: "before_subtitle", content: "x" }]
+  });
+  const settings = { ...stored, obsidianApiBaseUrl: "http://127.0.0.1:27124", obsidianApiKey: "k" };
+  const rows = {};
+  const page = vm.createContext({
+    MdgSettings: S, MdgErrors: ctx.MdgErrors,
+    document: { querySelectorAll: (sel) => (sel === "[id]" ? Object.values(els) : [{ value: "title" }, { value: "url" }]), getElementById: (id) => els[id] },
+    getSettings: async () => settings, loadAiProviders: async () => [],
+    collectFixedPropertyRows: () => rows.fixed, collectNoteSectionRows: () => rows.sections,
+    renderFixedPropertyRows: (v) => (rows.fixed = v), renderNoteSectionRows: (v) => (rows.sections = v),
+    renderBiliMarks() {}, renderStorageLimits() {}, syncObsidianBody() {}, syncSeenRows() {}, syncBiliMarks() {}, renderAiProviders() {},
+    renderHostPermissionBanner() {}, hostPermissionUrls() {}, markSaved() {}
+  });
+  vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload"), fn("normalizeBaseUrl")].join("\n"), page);
+  await page.loadSettings();
+  const payload = page.readFormPayload();
+  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
+  assert.deepStrictEqual(Object.keys(payload).sort(), [...keys].sort(), "the page sends exactly its own settings");
+  assert.deepStrictEqual(plainOf(payload), plainOf(Object.fromEntries(keys.map((k) => [k, settings[k]]))));
+})().catch((e) => (console.error(e), process.exit(1)));
+function plainOf(v) {
+  return JSON.parse(JSON.stringify(v));
+}

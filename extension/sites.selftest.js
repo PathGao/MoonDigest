@@ -110,9 +110,6 @@ async function ytLanguageTests() {
   eq(S.rankTracks(await ytTracksOf(undefined, noZh)).at(-1).id, ".en>zh-Hans");
   // Any native Chinese track, Traditional included, means nothing is added under auto.
   eq((await ytTracksOf("auto", ytTracks)).length, ytTracks.length);
-  assert.strictEqual(S.normalizeSubtitleLang("zh-Hans"), "zh-Hans");
-  assert.strictEqual(S.normalizeSubtitleLang("fr"), "auto");
-  assert.strictEqual(S.normalizeSubtitleLang(undefined), "auto");
 }
 assert.strictEqual(S.pickPreferredTrack(ranked).id, "3");
 assert.strictEqual(S.trackUrlKey("https://a.com/p/x.json?auth_key=1"), "a.com/p/x.json");

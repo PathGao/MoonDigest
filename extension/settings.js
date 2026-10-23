@@ -1,5 +1,6 @@
 // The settings' defaults and the normalizers more than one context applies, in one place. The background owns the
-// stored settings (normalizeSyncSettings); pages and the content script use DEFAULTS only when get-settings fails.
+// stored settings (normalizeSyncSettings, which the settings page also runs over its form); pages and the content script
+// use DEFAULTS only when get-settings fails.
 // Loaded by the content scripts (manifest), background (importScripts) and the pages, before note.js, which reads it.
 // load-order.selftest.js checks every user of MdgSettings loads it first. Idempotent like limits.js.
 (() => {
@@ -23,6 +24,14 @@
     "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
     "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
     "自动过滤广告、废话和重复表达。",
+    "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
+    "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+  ].join("\n");
+  // An earlier version's default system prompt, word for word: a stored copy reads as today's (normalizeAiSystemPrompt).
+  const LEGACY_SYSTEM_PROMPT = [
+    "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
+    "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
+    "回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。",
     "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
     "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
   ].join("\n");
@@ -176,6 +185,10 @@
   const normalizeReaderLineHeight = oneOf("readerLineHeight");
   const normalizeReaderContentWidth = oneOf("readerContentWidth");
 
+  const normalizeSubtitleLang = (value) => (MdgCommon.SUBTITLE_LANGS[value] ? value : "auto");
+  const str = (value) => (typeof value === "string" ? value : "");
+  const normalizeAiSystemPrompt = (value) => (str(value).trim() === LEGACY_SYSTEM_PROMPT ? DEFAULTS.aiSystemPrompt : str(value).trim());
+
   // Every on/off setting (a boolean in DEFAULTS), by its default: default on stays on unless stored false, default off
   // is on only when stored true. A non-boolean (an imported file's "true") never flips a switch away from its default.
   function normalizeSwitches(settings) {
@@ -184,6 +197,30 @@
       if (typeof def === "boolean") out[k] = def ? out[k] !== false : out[k] === true;
     }
     return out;
+  }
+
+  // The sync settings as stored and read (background) and as the settings page's form gives them.
+  function normalizeSyncSettings(settings) {
+    const merged = normalizeSwitches(settings);
+    merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
+    merged.youtubeSubtitleLang = normalizeSubtitleLang(merged.youtubeSubtitleLang);
+    merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+    // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
+    merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
+    merged.seenShow = normalizeSeenShow(merged.seenShow);
+    merged.seenThreshold = normalizeSeenThreshold(merged.seenThreshold);
+    merged.seenStyle = normalizeSeenStyle(merged.seenStyle);
+    for (const key of Object.keys(READER_OPTIONS)) merged[key] = oneOf(key)(merged[key]);
+    // options.js and note.js map over it: a settings file may carry anything.
+    merged.frontmatterFields = Array.isArray(merged.frontmatterFields) ? merged.frontmatterFields.filter((f) => typeof f === "string") : DEFAULTS.frontmatterFields;
+    merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
+    merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
+    merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
+    merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
+    merged.webAiSystemPrompt = str(merged.webAiSystemPrompt).trim();
+    merged.webAiSummaryPrompt = normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt);
+    merged.webAiPresetPrompts = normalizeAiPresetPrompts(merged.webAiPresetPrompts);
+    return merged;
   }
 
   globalThis.MdgSettings = Object.freeze({
@@ -204,6 +241,9 @@
     normalizeSeenStyle,
     intIn,
     normalizeSwitches,
+    normalizeSyncSettings,
+    normalizeSubtitleLang,
+    normalizeAiSystemPrompt,
     normalizeSeenThreshold,
     normalizeApiKey,
     normalizeFrontmatterField,

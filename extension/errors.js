@@ -64,6 +64,8 @@
     obsidianFailed: "写入 Obsidian 失败",
     // A web page whose main text could not be read (readWebPage failed): the side panel and the popup lead its reason with this.
     pageReadFailed: "读取网页失败",
+    // get-settings did not answer: the popup and the video page stop instead of going on with the defaults.
+    settingsReadFailed: "读取设置失败",
     // A dropped connection (fetch's TypeError): the video page, 分拣台's B站 requests, 关注's paused refresh.
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 摘读记录, 分拣台); 「：原因」 follows.
@@ -151,6 +153,8 @@
     downloadMd: "下载 .md",
     writeObsidian: "写入 Obsidian",
     toSettings: "去设置",
+    // PAGE_GRANT's button (action grantPage): the side panel and the popup ask for every http(s) site (grantPages).
+    grantPage: "允许读取网页",
     retry: "重试",
     refresh: "刷新",
     history: "摘读记录",
@@ -269,7 +273,7 @@
     62012: GONE,
     // A web page by background.js readWebPage's pageAccess (pageCode): read failed (timeout, no main text: TEXT.pageReadFailed),
     // not granted yet (TEXT.pageGrant), or a tab nothing can read (chrome://, extension pages: TEXT.pageUnsupported).
-    // The background says these sentences itself, without a code.
+    // The sentences are pageText's.
     PAGE_FAILED: {},
     // A video page's content script did not answer (pageSilent): a second try fails alike, reloading the page helps.
     PAGE_SILENT: { text: TEXT.pageSilent, retry: false },
@@ -292,6 +296,12 @@
   const remedies = (code) => [...(CODES[code]?.action ? [CODES[code].action] : []), ...(CODES[code]?.retry === false ? [] : ["retry"])];
   const action = (code) => CODES[code]?.action || "none";
   const pageCode = (pageAccess) => ({ failed: CODE.PAGE_FAILED, needPermission: CODE.PAGE_GRANT, unsupported: CODE.PAGE_UNSUPPORTED })[pageAccess] || "";
+  // The sentence for a web page read (background.js readWebPage's { pageAccess, pageError }): "" when ready, undefined
+  // without a pageAccess.
+  const pageText = (page) =>
+    ({ ready: "", needPermission: TEXT.pageGrant, unsupported: TEXT.pageUnsupported, failed: `${TEXT.pageReadFailed}：${page?.pageError}` })[page?.pageAccess];
+  // grantPage: every http(s) site at once (optional host permissions). Asked inside the click: request needs its gesture.
+  const grantPages = () => chrome.permissions.request({ origins: ["http://*/*", "https://*/*"] }).catch(() => false);
   // Why a video has no subtitle ({ subtitleNeedLogin, subtitleFailure }, as subtitleMissing takes it) as a SUBTITLE_ code.
   const subtitleCode = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
     subtitleNeedLogin ? CODE.SUBTITLE_LOGIN : subtitleFailure ? CODE.SUBTITLE_FAILED : CODE.SUBTITLE_NONE;
@@ -333,6 +343,26 @@
   const pageSilent = (error) =>
     !error || error.chrome || CHROME_SILENT.test(String(error.message || "")) ? Object.assign(new Error(TEXT.pageSilent, { cause: error }), { code: CODE.PAGE_SILENT }) : error;
 
+  // chrome.tabs.sendMessage for the background, the popup and the side panel, with Chrome's error marked chrome: true
+  // (pageSilent words it). inject (pages only): a tab without the video page's script (noReceiver) gets it from the
+  // background (ensure-reader-content), then the message goes once more.
+  async function tabMessage(tabId, message, { frameId, inject = false } = {}) {
+    const send = () =>
+      new Promise((resolve, reject) =>
+        chrome.tabs.sendMessage(tabId, message, ...(frameId === undefined ? [] : [{ frameId }]), (resp) =>
+          chrome.runtime.lastError ? reject(Object.assign(new Error(chrome.runtime.lastError.message), { chrome: true })) : resolve(resp)
+        )
+      );
+    try {
+      return await send();
+    } catch (error) {
+      if (!inject || !noReceiver(error)) throw error;
+    }
+    const resp = await chrome.runtime.sendMessage({ type: "ensure-reader-content", tabId });
+    if (!resp?.ok) throw fromResp(resp, TEXT.reloaded);
+    return send();
+  }
+
   // What chrome.runtime calls throw in a content script whose extension was reloaded (badges.js checks
   // chrome.runtime.id instead).
   const reloaded = (error) => /Extension context invalidated/.test(String(error?.message || ""));
@@ -358,5 +388,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, subtitleCode, text, messageOf, fromResp, grantOrigin, noReceiver, pageSilent, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, pageText, grantPages, subtitleCode, text, messageOf, fromResp, grantOrigin, noReceiver, pageSilent, tabMessage, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();
