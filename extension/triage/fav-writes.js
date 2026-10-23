@@ -61,7 +61,7 @@ function unfavGone(bvid) {
 // aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
 // batch: when the batch 取消收藏 that made it started, so 最近取消收藏 can re-favorite that batch in one go.
 // elsewhere: the video is still in another chosen folder, so B站 pages other than a favorites page do not say 已取消收藏.
-const unfavRecord = (it, at, batch, elsewhere) => ({ action: "unfav", at, aid: it.aid, title: it.title, ...(batch && { batch }), ...(elsewhere && { elsewhere }) });
+const unfavRecord = (it, at, batch, elsewhere) => ({ action: "unfav", at, aid: it.aid, ...(it.ogv && { ogv: true }), title: it.title, ...(batch && { batch }), ...(elsewhere && { elsewhere }) });
 // The videos of chosen folders other than mediaId, by their cached lists. 稍后再看 is not a favorite, so it does not count.
 async function favedElsewhere(mediaId) {
   const others = chosenOtherIds(mediaId).filter((id) => id !== TOVIEW);
@@ -118,7 +118,7 @@ function chunksOf(items, one, make) {
   for (let i = 0; i < items.length; i += chunkSize(one)) out.push({ ...make(items.slice(i, i + chunkSize(one))), gap: chunkGap(one) });
   return out;
 }
-const refavChunk = (f, { bvid, aid }) => ({ msg: { type: "triage-refav", mediaId: f, aid }, keys: [bvid], folders: [f], gap: chunkGap(true) });
+const refavChunk = (f, it) => ({ msg: { type: "triage-refav", mediaId: f, aid: favRes(it) }, keys: [it.bvid], folders: [f], item: favRef(it), gap: chunkGap(true) });
 async function refavDone({ folders: [f], keys: [bvid] }) {
   bumpCount(f, 1);
   await patchDecisions(f, { [bvid]: null });
@@ -130,7 +130,7 @@ const stopWords = UI.stopWords;
 const undoBlocked = () => UI.busyText(W.busy(), { undo: true });
 const busyError = (r) => r.error || UI.busyText(r.busy);
 
-// Re-favorites items ([{ bvid, aid }]) into mediaId, one per request; the first failure stops it. It changes Bilibili,
+// Re-favorites items ([{ bvid, aid, ogv }]) into mediaId, one per request; the first failure stops it. It changes Bilibili,
 // so it runs to the end even after another folder opens. Returns { n, rest, error }.
 async function refavInto(mediaId, items) {
   const r = await W.run("refav", REFAV, { verb: REFAV, chunks: items.map((it) => refavChunk(mediaId, it)), folders: [mediaId], meta: { mediaId, verb: REFAV }, onChunk: refavDone });
@@ -158,7 +158,7 @@ async function refavGone(gone) {
   });
   render();
   const rest = {};
-  for (const c of chunks.slice(r.done)) (rest[c.folders[0]] ||= []).push({ bvid: c.keys[0], aid: c.msg.aid });
+  for (const c of chunks.slice(r.done)) (rest[c.folders[0]] ||= []).push(c.item);
   return { n: r.done, rest, error: busyError(r), stopped: r.stopped };
 }
 
@@ -187,7 +187,7 @@ function unfavManyStep(mediaId, items) {
     return redraw();
   });
 }
-// U on 所有收藏夹's batch 取消收藏: each video back in every folder it left (gone: folder → [{ bvid, aid }]). Elsewhere
+// U on 所有收藏夹's batch 取消收藏: each video back in every folder it left (gone: folder → [{ bvid, aid, ogv }]). Elsewhere
 // the ones left stay under each folder's 最近取消收藏.
 function goneStep(items, gone) {
   return favStep(items.length, refavAsk(items.length), async () => {
@@ -209,7 +209,7 @@ function unfavStep(it, prev, prevs) {
     let cut = "";
     let failed = false;
     for (const [mediaId, before] of Object.entries(prevs)) {
-      const { n, error, stopped } = await refavInto(mediaId, [{ bvid: it.bvid, aid: it.aid }]);
+      const { n, error, stopped } = await refavInto(mediaId, [favRef(it)]);
       if (!n) {
         cut = cutText(error, stopped);
         failed = Boolean(error);
@@ -254,7 +254,7 @@ const fav = {
     if (!folders.length) return;
     // The data waits for B站, the focus does not (DESIGN 改 B站 的操作和撤销): the card shows 正在取消收藏… and the next
     // card takes the focus now; B站's answer leaves the focus wherever it is by then.
-    const sending = W.single(UNFAV, folders.map((f) => ({ msg: { type: "triage-unfav", mediaId: f, aids: [it.aid] }, keys: [bvid], folders: [f] })), ({ folders: [f] }) => bumpCount(f, -1));
+    const sending = W.single(UNFAV, folders.map((f) => ({ msg: { type: "triage-unfav", mediaId: f, aids: [favRes(it)] }, keys: [bvid], folders: [f] })), ({ folders: [f] }) => bumpCount(f, -1));
     advanceFrom(bvid, before);
     const r = await sending;
     if (r.error) toast(`取消收藏失败：${r.limited ? MdgErrors.TEXT.biliThrottled : r.error}`, true);
@@ -289,7 +289,7 @@ const fav = {
     const gone = {}; // folder → the videos taken out of it
     const elsewhere = all ? null : await favedElsewhere(mediaId);
     const chunks = folders.flatMap((f) =>
-      chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map((it) => it.aid) }, keys: items.map((it) => it.bvid), folders: [f], items }))
+      chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map(favRes) }, keys: items.map((it) => it.bvid), folders: [f], items }))
     );
     let sent = 0;
     const r = await W.run("unfav", UNFAV_MANY, {
@@ -303,7 +303,7 @@ const fav = {
         const at = Date.now();
         const left = (it) => (all ? stillIn(it, [f, ...Object.keys(gone).filter((g) => gone[g].some((x) => x.bvid === it.bvid))]) : elsewhere.has(it.bvid));
         await patchDecisions(f, Object.fromEntries(items.map((it) => [it.bvid, unfavRecord(it, at, batch, left(it))])));
-        (gone[f] ||= []).push(...items.map(({ bvid, aid }) => ({ bvid, aid })));
+        (gone[f] ||= []).push(...items.map(favRef));
       }
     });
     if (r.busy) return;
@@ -328,12 +328,12 @@ const fav = {
         }
       }
       const videos = list.filter((it) => Object.values(gone).some((items) => items.some((x) => x.bvid === it.bvid)));
-      pushUndo(goneStep(videos.map(({ bvid, aid }) => ({ bvid, aid })), gone));
+      pushUndo(goneStep(videos.map(favRef), gone));
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏 ${videos.length} 个视频${UNDO}`, `${UNDO}已完成的`);
     } else if (done && all) {
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
-      pushUndo(unfavManyStep(mediaId, list.slice(0, done).map(({ bvid, aid }) => ({ bvid, aid }))));
+      pushUndo(unfavManyStep(mediaId, list.slice(0, done).map(favRef)));
       tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);
     } else if (done) {
       // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
@@ -370,7 +370,7 @@ const fav = {
         await chrome.storage.local.set({ [K.included]: S.included });
       }
       const { to, toName } = meta;
-      const chunks = chunksOf(list, add || from === TOVIEW, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map((it) => it.aid), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
+      const chunks = chunksOf(list, add || from === TOVIEW, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map(favRes), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
       return {
         verb,
         chunks,
@@ -383,7 +383,7 @@ const fav = {
           const kept = new Set((reply?.data?.stayed || []).map(String));
           stayed.n += kept.size;
           if (kept.size) stayed.error = reply.data.stayedError;
-          const left = items.filter((it) => !kept.has(String(it.aid)));
+          const left = items.filter((it) => !kept.has(String(favRes(it))));
           bumpCount(to, items.length);
           if (move) bumpCount(from, -left.length);
           if (chosen) await patchSnapshot(to, { add: items.map(plainItem) }, Boolean(target.create));
@@ -425,7 +425,7 @@ const fav = {
     const d = S.decisions[bvid];
     if (!d?.aid || W.busy()) return;
     const mediaId = S.mediaId;
-    const { error } = await refavInto(String(mediaId), [{ bvid, aid: d.aid }]);
+    const { error } = await refavInto(String(mediaId), [favRef({ bvid, ...d })]);
     if (error) return toast(`重新收藏失败：${error}`, true);
     if (mediaId !== S.mediaId) return;
     toast(`已重新收藏《${d.title || bvid}》`);
