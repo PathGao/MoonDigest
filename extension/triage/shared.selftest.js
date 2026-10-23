@@ -545,8 +545,8 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   assert.strictEqual(UI.intIn(0, 1, 50, 10), 10, "below the minimum is the default");
   // K12: the rule is written once, in settings.js; TriageUi.intIn and normalizeSeenThreshold are it.
   assert.strictEqual(UI.intIn, ctx.MdgSettings.intIn, "TriageUi.intIn is MdgSettings.intIn");
-  const ruleCopies = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === "dev" ? [] : ruleCopies(path.join(dir, e.name))) : e.name.endsWith(".js") && !e.name.endsWith(".selftest.js") && /Math\.round\(Number\(v\)\)/.test(fs.readFileSync(path.join(dir, e.name), "utf8")) ? [e.name] : []));
-  assert.deepStrictEqual(ruleCopies(path.join(__dirname, "..")), ["settings.js"], "the whole-number rule is written only in settings.js");
+  const ruleCopies = PS.walk(".", (d) => d === "dev").filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && /Math\.round\(Number\(v\)\)/.test(PS.read(f)));
+  assert.deepStrictEqual(ruleCopies, ["settings.js"], "the whole-number rule is written only in settings.js");
   for (const [f, src] of [...modes, ...["triage/triage-bg.js", "triage/follow-bg.js", "background.js"].map((f) => [f, PS.read(f)])]) {
     const bare = /intSetting|intervalSetting|Math\.floor\(Number\(|Number\((el\.\w+|\$\("\w+"\))\.value\)|Number\((s|days|merged)\.\w+\)|parseFloat\(merged\./;
     // background.js leaves its settings' numbers to MdgSettings.normalizeSyncSettings.

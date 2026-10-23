@@ -690,7 +690,9 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     const p = await followPage({
       store: page({ follow_view: { mode: "follow", tab: "feed" } }),
       handlers: { "follow-feed": () => (++calls === 2 ? { ok: false, code: "THROTTLED" } : feed) }, // 1: setMode's warm-up
-      setup: (ctx) => (ctx.TriageUi.BILI_HOLD_MS = 400)
+      // A second still reads 0:01 (whole seconds, rounded up) and leaves a slow machine time to look: at 400ms the
+      // countdown sometimes ran out before the assertion and the pill read no time at all.
+      setup: (ctx) => (ctx.TriageUi.BILI_HOLD_MS = 1000)
     });
     const { F } = p.FW;
     const pill = p.$("fwFoot").lastChild;

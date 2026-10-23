@@ -449,15 +449,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
 
   // Pages never talk to the vault themselves, and the folder template is applied only where paths are made.
   const read = (f) => fs.readFileSync(path.join(__dirname, f), "utf8");
-  const scripts = [];
-  const walk = (dir) => {
-    for (const e of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
-      const rel = path.join(dir, e.name);
-      if (e.isDirectory()) walk(rel);
-      else if (e.name.endsWith(".js") && !e.name.endsWith(".selftest.js")) scripts.push(rel);
-    }
-  };
-  walk(".");
+  const scripts = PS.walk().filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js"));
   for (const f of scripts) {
     assert.ok(f === "obsidian.js" || !/\/vault\/|"(obsidian-note-exists|write-obsidian-note|update-obsidian-ai-section)"/.test(read(f)), `${f} reaches the vault; send write-video-note`);
     assert.ok(["note.js", "obsidian.js"].includes(f) || !read(f).includes("resolveFolderTemplate("), `${f} builds a note path; use MdgNote.videoNotePath or sharedNoteFolder`);

@@ -7,13 +7,18 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ext = path.join(root, "extension");
-const chromeBin = process.env.CHROME
-  || (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
-// Every page the extension ships; dev previews stay out of the release and out of this check.
+const chromeBin = process.env.CHROME || {
+  darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  win32: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+}[process.platform] || "google-chrome";
+// Every page the extension ships; dev previews stay out of the release and out of this check. Paths use / on every
+// OS: they become the pages' URLs.
 const pages = fs.readdirSync(ext, { recursive: true })
+  .map((f) => f.split(path.sep).join("/"))
   .filter((f) => f.endsWith(".html") && !/(^|\/)dev[-/]/.test(f))
   .sort();
 // Ids the pages' scripts look up: getElementById("x"), the pages' $("x") shorthand, querySelector("#x ...").
@@ -27,7 +32,7 @@ for (const page of pages) {
   for (const m of html.matchAll(/\bid="([^"]+)"/g)) written.add(m[1]);
   const found = new Map();
   for (const [, src] of html.matchAll(/<script[^>]*src="([^"]+)"/g)) {
-    const file = path.normalize(path.join(path.dirname(page), src));
+    const file = path.posix.join(path.posix.dirname(page), src);
     const code = fs.readFileSync(path.join(ext, file), "utf8");
     for (const m of code.matchAll(/\bid\s*=\s*["'`]([\w-]+)["'`]/g)) written.add(m[1]);
     for (const m of code.matchAll(/(?:getElementById|(?<![\w.])\$)\(\s*["'`]([\w-]+)["'`]\s*\)|querySelector(?:All)?\(\s*["'`]#([\w-]+)/g)) {

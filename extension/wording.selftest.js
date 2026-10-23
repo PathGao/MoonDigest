@@ -28,15 +28,7 @@ const TABLE = { ...TEXT, ...LABEL };
 for (const f of ["limits.js", "settings.js", "tag-core.js", "typing.js", "triage/shared.js"]) vm.runInContext(read(f), ctx);
 assert.strictEqual(Object.keys(TABLE).length, Object.keys(TEXT).length + Object.keys(LABEL).length, "TEXT and LABEL keys overlap");
 
-const files = [];
-const walk = (dir) => {
-  for (const e of fs.readdirSync(path.join(__dirname, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name).split(path.sep).join("/");
-    if (e.isDirectory()) e.name !== "dev" && e.name !== "dev-sidepanel" && walk(rel);
-    else if (/\.(js|html)$/.test(e.name) && !e.name.endsWith(".selftest.js")) files.push(rel);
-  }
-};
-walk(".");
+const files = require("./page-sources.selftest.js").walk(".", (d) => d === "dev" || d === "dev-sidepanel").filter((f) => /\.(js|html)$/.test(f) && !f.endsWith(".selftest.js"));
 assert.ok(files.includes("content.js") && files.includes("triage/triage.html"), `found ${files.length} files`);
 
 // The string literals of a script: each quoted string, and each static piece of a template (split at ${…}).

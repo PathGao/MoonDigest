@@ -59,15 +59,7 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
   assert.strictEqual(E.escapeHtml("&lt;"), "&amp;lt;", "already-escaped text is escaped again, shown as typed");
   assert.deepStrictEqual([E.escapeHtml(null), E.escapeHtml(undefined), E.escapeHtml(0)], ["", "", "0"]);
   // Written once: no other script escapes HTML itself (a weaker copy once skipped > and ').
-  const scripts = [];
-  const walkJs = (dir) => {
-    for (const name of fs.readdirSync(path.join(__dirname, dir))) {
-      const rel = path.join(dir, name);
-      if (fs.statSync(path.join(__dirname, rel)).isDirectory()) name !== "dev" && name !== "vendor" && walkJs(rel);
-      else if (name.endsWith(".js") && !name.endsWith(".selftest.js") && rel !== "errors.js") scripts.push(rel);
-    }
-  };
-  walkJs(".");
+  const scripts = require("./page-sources.selftest.js").walk(".", (d) => d === "dev" || d === "vendor").filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "errors.js");
   for (const file of scripts) assert.ok(!/["'`]&(lt|gt|quot|#39|#60);["'`]\)|&#\$\{/.test(read(file)), `${file} escapes HTML itself; use MdgErrors.escapeHtml`);
 
   // 灰掉写原因 on a control already on the page: setReason here alone (TriageUi.setReason, the popup, side panel and 摘读记录 use it).

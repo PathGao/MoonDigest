@@ -13,7 +13,13 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # The ruleset requires "check": the Linux run keeps that name, Windows reports as "check (windows)".
+    name: ${{ matrix.os == 'windows-latest' && 'check (windows)' || 'check' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -24,7 +30,7 @@ jobs:
           node-version: 24
 
       - name: Selftests
-        run: for f in extension/*.selftest.js extension/triage/*.selftest.js extension/history/*.selftest.js; do node "$f" || exit 1; done
+        run: node scripts/selftest.mjs
 
       - name: Startup in Chrome
         run: node scripts/smoke.mjs

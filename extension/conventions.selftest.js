@@ -24,15 +24,7 @@ const vm = require("vm");
 
 const root = __dirname;
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const files = [];
-(function walk(dir) {
-  for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
-    if (e.isDirectory()) {
-      if (!/^(dev|vendor$)/.test(e.name)) walk(rel);
-    } else if (/\.(js|html)$/.test(e.name) && !e.name.endsWith(".selftest.js") && rel !== "messages.js") files.push(rel);
-  }
-})(".");
+const files = require("./page-sources.selftest.js").walk(".", (d) => /^(dev|vendor$)/.test(d)).filter((f) => /\.(js|html)$/.test(f) && !f.endsWith(".selftest.js") && f !== "messages.js");
 const lines = Object.fromEntries(files.map((f) => [f, read(f).split("\n")]));
 const isComment = (line) => /^\s*(\/\/|\*|\/\*|<!--)/.test(line);
 const at = (f, i) => `${f}:${i + 1}  ${lines[f][i].trim().slice(0, 160)}`;
