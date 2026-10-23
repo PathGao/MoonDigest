@@ -30,6 +30,7 @@ const ctx = vm.createContext({
   console,
   structuredClone,
   URL,
+  AbortController,
   setTimeout: (f) => setImmediate(f),
   clearTimeout: (id) => clearImmediate(id),
   document: { body: stubEl(), getElementById: stubEl, querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, createElement: stubEl },
@@ -80,9 +81,24 @@ const show = (payload) => {
 const chatOn = (context) => {
   state.dispatch({ type: "NEW" });
   show(context);
-  state.dispatch({ type: "SEND", prompt: "这个视频" });
+  ask("这个视频");
   state.dispatch({ type: "STREAM_ENDED", raw: "回答" });
 };
+// A question asked in the shown conversation (the turn: loading, then waiting), as sendMessage does around its context load.
+const ask = (prompt) => (state.dispatch({ type: "QUESTION", prompt }), state.dispatch({ type: "ASKED" }));
+// A fake reply shown in the panel: its handle, and the turn that goes with it.
+const streamOn = (stream) => {
+  ctx.stream = stream;
+  vm.runInContext("activeStream = stream", ctx);
+  ask(stream.prompt);
+};
+// Ends the reply shown, if any, so the next test starts from an idle turn.
+const endShown = () => {
+  const stream = vm.runInContext("activeStream", ctx);
+  if (stream) ctx.endStream(stream);
+};
+
+const tick = () => new Promise((r) => setImmediate(r));
 
 (async () => {
   // Switching tabs quickly: tab A's slow reply arrives after tab B's and must not replace it.
@@ -238,7 +254,8 @@ const chatOn = (context) => {
     messagesEl.querySelectorAll = () => [];
     assert.deepStrictEqual([asked, vm.runInContext("els.input.value", ctx), retries], [["快捷追问的话"], "还没写完的草稿", 1]);
     assert.ok(page.includes('btn.addEventListener("click", () => void sendMessage(visible[index]));'), "快捷追问 passes its text");
-    vm.runInContext("activeStream = null", ctx);
+    ctx.renderAssistantMessage = () => {};
+    endShown();
     Object.assign(ctx, { appendUserMessage: realUser, appendAssistantPlaceholder: realPlaceholder });
     ctx.chrome.runtime.connect = realConnect;
   }
@@ -391,15 +408,16 @@ const chatOn = (context) => {
     const realLoad = ctx.loadContextState;
     ctx.loadContextState = async () => true;
     let closed = 0;
-    const stream = { prompt: "还在回答", raw: "", port: { disconnect: () => closed++ } };
+    const told = [];
+    const stream = { prompt: "还在回答", raw: "", port: { disconnect: () => closed++, postMessage: (m) => told.push(m) } };
     state.dispatch({ type: "SAVED_CHANGED", list: [] });
     state.dispatch({ type: "NEW" });
     show(video);
-    ctx.stream = stream;
-    vm.runInContext("activeStream = stream", ctx);
-    state.dispatch({ type: "SEND", prompt: "还在回答" });
+    streamOn(stream);
     await ctx.startNewConversation();
     assert.strictEqual(closed, 0, "the reply is not cut off");
+    // The background learns which conversation the reply belongs to, to finish it there should the panel close.
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(told)), [{ action: "detach", conversationId: view().saved[0].id, promptIndex: 0 }]);
     assert.deepStrictEqual([vm.runInContext("activeStream", ctx), view().saved[0]?.messages[0]?.content, stream.conversationId === view().saved[0]?.id, view().messages.length], [null, "还在回答", true, 0]);
     // The reply ends: its answer goes after its question.
     stream.raw = "答";
@@ -410,12 +428,23 @@ const chatOn = (context) => {
     // Delete while answering: the shown conversation's reply is dropped.
     chatOn(video);
     const doomed = { prompt: "q", raw: "", port: { disconnect: () => closed++ } };
-    ctx.stream = doomed;
-    vm.runInContext("activeStream = stream", ctx);
-    state.dispatch({ type: "SEND", prompt: "q" });
+    streamOn(doomed);
     ctx.confirm = () => true;
     await ctx.deleteConversation(view().id);
     assert.deepStrictEqual([closed, vm.runInContext("activeStream", ctx), view().id], [1, null, ""]);
+    // Gap 1: a reply left for its saved conversation is cut off too when that conversation is deleted, here or on
+    // 摘读记录: 停止 goes down the port first (the background then aborts instead of finishing it), then the port closes.
+    for (const deleteIt of [(id) => ctx.deleteConversation(id), (id) => ctx.act({ type: "SAVED_CHANGED", list: view().saved.filter((c) => c.id !== id), previous: view().saved })]) {
+      state.dispatch({ type: "NEW" });
+      show(video);
+      const port = { sent: [], closed: 0, postMessage(m) { this.sent.push(m.action); }, disconnect() { this.closed++; } };
+      streamOn({ prompt: "后台还在答", raw: "", port });
+      await ctx.startNewConversation();
+      const left = view().saved[0].id;
+      assert.deepStrictEqual([port.sent, port.closed], [["detach"], 0]);
+      await deleteIt(left);
+      assert.deepStrictEqual([port.sent, port.closed, view().saved.some((c) => c.id === left)], [["detach", "stop"], 1, false], String(deleteIt));
+    }
     ctx.loadContextState = realLoad;
   }
 
@@ -500,7 +529,7 @@ const chatOn = (context) => {
   {
     // 导出对话 is disabled with its reason until there is a question with an answer.
     ctx.renderFollowups = () => {};
-    const exportState = () => vm.runInContext("activeStream = null; setStreamingUiState(false); [els.exportBtn.disabled, els.exportBtn.title]", ctx);
+    const exportState = () => vm.runInContext("syncSendUi(); [els.exportBtn.disabled, els.exportBtn.title]", ctx);
     state.dispatch({ type: "NEW" });
     show(video);
     assert.deepStrictEqual([...exportState()], [true, "当前没有可导出的对话"]);
@@ -691,11 +720,11 @@ const chatOn = (context) => {
     const els = vm.runInContext("els", ctx);
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "x1", contextUrl: video.url, isVideoContext: true, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }] }] });
     await ctx.act({ type: "OPEN", id: "x1" });
-    ctx.setStreamingUiState(false);
+    ctx.syncSendUi();
     assert.deepStrictEqual([els.copyConversationBtn.disabled, els.exportBtn.disabled], [false, false]);
     els.exportPopover.hidden = false;
     await ctx.act({ type: "NEW" });
-    ctx.setStreamingUiState(false);
+    ctx.syncSendUi();
     assert.strictEqual(els.exportPopover.hidden, true, "a conversation change closes the menu");
     for (const b of ["exportBtn", "copyConversationBtn", "downloadConversationBtn", "saveConversationBtn"]) {
       assert.deepStrictEqual([b, els[b].disabled, els[b].title], [b, true, "当前没有可导出的对话"]);
@@ -723,7 +752,7 @@ const chatOn = (context) => {
     els.syncStatus.hidden = false;
     const writing = ctx.saveCurrentConversationToObsidian();
     await new Promise((r) => setImmediate(r));
-    ctx.setStreamingUiState(false);
+    ctx.syncSendUi();
     assert.deepStrictEqual([els.saveConversationBtn.disabled, els.saveConversationBtn.title], [true, ctx.MdgErrors.TEXT.obsidianWriting]);
     void ctx.saveCurrentConversationToObsidian();
     await new Promise((r) => setImmediate(r));
@@ -737,13 +766,22 @@ const chatOn = (context) => {
     els.syncStatus.hidden = false;
     await ctx.act({ type: "NEW" });
     assert.strictEqual(els.syncStatus.hidden, true);
-    // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page.
-    ctx.setStreamingUiState(true, { stopping: true });
-    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [true, "正在停止生成"]);
-    ctx.setStreamingUiState(false);
-    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title], [false, ""]);
+    // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page. The button is
+    // drawn from the turn's phase: 停止 while a reply runs, 停止中 once asked to stop, 发送 again when it ends.
+    show(video);
+    const stopPort = { sent: [], postMessage(m) { this.sent.push(m.action); }, disconnect() {} };
+    streamOn({ prompt: "q", raw: "", node: stubEl(), notice: "", port: stopPort });
+    ctx.syncSendUi();
+    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.innerHTML.includes(ctx.MdgErrors.LABEL.stop), els.input.disabled], [false, true, true]);
+    await ctx.act({ type: "STOP" });
+    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title, stopPort.sent, view().turn], [true, "正在停止生成", ["stop"], "stopping"]);
+    await ctx.act({ type: "STOP" });
+    assert.deepStrictEqual(stopPort.sent, ["stop"], "a second 停止 is refused by the table");
+    ctx.renderAssistantMessage = () => {};
+    endShown();
+    assert.deepStrictEqual([els.sendBtn.disabled, els.sendBtn.title, view().turn], [false, "", "idle"]);
     // A web page by its pageAccess (background.js readWebPage): only a page whose main text was read can be asked about.
-    const sendFor = (payload) => (show(payload), ctx.setStreamingUiState(false), [els.sendBtn.disabled, els.sendBtn.title]);
+    const sendFor = (payload) => (show(payload), ctx.syncSendUi(), [els.sendBtn.disabled, els.sendBtn.title]);
     const GRANT = "读取网页正文要先允许一次，之后所有网页都能直接读";
     assert.deepStrictEqual(sendFor({ ...web("h14"), pageAccess: "needPermission" }), [true, GRANT]);
     assert.strictEqual(view().nonVideo, true);
@@ -798,7 +836,7 @@ const chatOn = (context) => {
     assert.strictEqual(await ctx.pageNote(web("note"), []), null, "no body: the conversation's own note");
     ctx.chrome.runtime.sendMessage = realSendNote;
     show(video);
-    ctx.setStreamingUiState(false);
+    ctx.syncSendUi();
   }
 
   // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
@@ -824,13 +862,35 @@ const chatOn = (context) => {
     const realSend = ctx.chrome.runtime.sendMessage;
     const said = [];
     ctx.showConversationContextNotice = (text, ms, opts) => said.push([text, opts?.error]);
-    ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "同步存储已满" });
+    // The list is read as stored before each edit (an edit on this panel's copy would write over the settings page's).
+    const settings = (list) => ({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, aiPresetPrompts: list } });
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "get-settings" ? settings([]) : { ok: false, error: "同步存储已满" });
     els.presetInput.value = "再讲讲";
     await ctx.addPresetPrompt();
     assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value, said], [[], "再讲讲", [["保存设置失败：同步存储已满", true]]]);
-    ctx.chrome.runtime.sendMessage = async () => ({ ok: true });
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "get-settings" ? settings([]) : { ok: true });
     await ctx.addPresetPrompt();
     assert.deepStrictEqual([[...vm.runInContext("aiPrefs", ctx).aiPresetPrompts], els.presetInput.value], [["再讲讲"], ""]);
+    // Gap 7: the settings page added one meanwhile: the edit adds to the stored list, not to this panel's older copy,
+    // and goes under the kind (video / web page) shown when × or 添加 was clicked, not the one shown when its turn comes.
+    const saved = [];
+    let release;
+    ctx.chrome.runtime.sendMessage = (m) => (m.type === "get-settings" ? Promise.resolve(settings(["再讲讲", "设置页加的"])) : (saved.push(m.settings), new Promise((r) => (release = () => r({ ok: true })))));
+    els.presetInput.value = "第三条";
+    const adding = ctx.addPresetPrompt();
+    await tick();
+    state.dispatch({ type: "NEW" });
+    show({ ...web("chips"), pageAccess: "ready", pageMarkdown: "正文" });
+    assert.strictEqual(vm.runInContext("presetKey()", ctx), "webAiPresetPrompts");
+    const removing = ctx.removePresetPrompt("网页追问");
+    release();
+    await adding;
+    await tick();
+    await tick();
+    release();
+    await removing;
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(saved)), [{ aiPresetPrompts: ["再讲讲", "设置页加的", "第三条"] }, { webAiPresetPrompts: [...ctx.MdgSettings.DEFAULTS.webAiPresetPrompts] }]);
+    show(video);
     vm.runInContext("aiPrefs.aiPresetPrompts = []", ctx);
     ctx.chrome.runtime.sendMessage = realSend;
     ctx.showConversationContextNotice = () => {};
@@ -846,9 +906,7 @@ const chatOn = (context) => {
     state.dispatch({ type: "NEW" });
     show(video);
     const stream = { prompt: "问", raw: "", notice: "", node: stubEl(), port: { disconnect() {} } };
-    ctx.stream = stream;
-    vm.runInContext("activeStream = stream", ctx);
-    state.dispatch({ type: "SEND", prompt: "问" });
+    streamOn(stream);
     ctx.endStream(stream, { error: "余额不足", code: "AI_QUOTA" });
     drawn.length = 0;
     real.renderInitialState();
@@ -890,10 +948,10 @@ const chatOn = (context) => {
     calls.length = 0;
     const prevInitial = ctx.renderInitialState;
     ctx.renderInitialState = () => calls.push("initial");
-    ctx.loadContextState = async () => (vm.runInContext("activeStream = {}", ctx), true);
+    ctx.loadContextState = async () => (ask("q"), true);
     await ctx.refreshContextManually();
     assert.deepStrictEqual(calls, []);
-    vm.runInContext("activeStream = null", ctx);
+    state.dispatch({ type: "STREAM_ENDED", raw: "" });
     ctx.loadContextState = realLoad;
     ctx.renderInitialState = prevInitial;
     [ctx.renderConversationMessages, ctx.resetConversationView] = prev;
@@ -907,11 +965,11 @@ const chatOn = (context) => {
     const prev = ctx.removeConversationContextNotice;
     ctx.removeConversationContextNotice = () => others++;
     ctx.__slow = { remove: () => cleared++ };
-    vm.runInContext("streamFirstTokenReceived = false; streamSlowNotice = __slow", ctx);
-    ctx.handleFirstStreamToken();
-    ctx.handleFirstStreamToken();
-    ctx.handleFirstStreamToken();
-    assert.deepStrictEqual([cleared, others], [1, 0]);
+    ask("q");
+    vm.runInContext("streamSlowNotice = __slow", ctx);
+    for (let i = 0; i < 3; i++) await ctx.act({ type: "TOKEN" });
+    assert.deepStrictEqual([cleared, others, view().turn], [1, 0, "streaming"]);
+    state.dispatch({ type: "STREAM_ENDED", raw: "" });
     ctx.removeConversationContextNotice = prev;
   }
 
@@ -925,11 +983,18 @@ const chatOn = (context) => {
     const shown = [];
     ctx.showSyncStatus = (text, opts = {}) => shown.push([Boolean(opts.error), Boolean(opts.settings), Boolean(opts.retry)]);
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "s", contextRef: { site: "bilibili", videoId: "BV1sync" }, messages: [{ role: "user", content: "q" }] }] });
+    state.dispatch({ type: "OPEN", id: "s" });
     for (const code of ["OBSIDIAN", "OBSIDIAN_DOWN"]) {
       ctx.chrome.runtime.sendMessage = async () => ({ ok: false, error: "x", code });
       await ctx.autoSyncConversation("s");
     }
     assert.deepStrictEqual(shown, [[true, true, true], [true, false, true]]);
+    // Gap 6: the status line is the shown conversation's: a sync that ends after another one is shown (or of a
+    // conversation left mid-reply) says nothing here.
+    shown.length = 0;
+    ctx.chrome.runtime.sendMessage = async () => (state.dispatch({ type: "NEW" }), { ok: true, path: "p.md", exists: true, text: "已更新 AI 问答：p.md" });
+    await ctx.autoSyncConversation("s");
+    assert.deepStrictEqual(shown, []);
     [ctx.showSyncStatus, ctx.chrome.runtime.sendMessage] = prev;
   }
 
@@ -957,7 +1022,6 @@ const chatOn = (context) => {
     [ctx.showConversationContextNotice, ctx.chrome.runtime.sendMessage] = prev;
   }
 
-  const tick = () => new Promise((r) => setImmediate(r));
   // A DOM element that keeps what the page does to it.
   const el = (extra = {}) => ({
     attrs: {}, listeners: {}, style: {}, dataset: {}, kids: [],
@@ -1051,14 +1115,15 @@ const chatOn = (context) => {
     const realSend = ctx.chrome.runtime.sendMessage;
     const saves = [];
     const pending = [];
+    let stored = ["a", "b", "c"];
     vm.runInContext('aiPrefs.aiPresetPrompts = ["a", "b", "c"]', ctx);
-    ctx.chrome.runtime.sendMessage = (m) => (saves.push([...m.settings.aiPresetPrompts]), new Promise((r) => pending.push(() => r({ ok: true }))));
+    ctx.chrome.runtime.sendMessage = (m) => (m.type === "get-settings" ? Promise.resolve({ ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, aiPresetPrompts: stored } }) : (saves.push([...m.settings.aiPresetPrompts]), new Promise((r) => pending.push(() => ((stored = m.settings.aiPresetPrompts), r({ ok: true }))))));
     const one = ctx.removePresetPrompt("a");
     const two = ctx.removePresetPrompt("b");
     await tick();
+    await tick();
     pending[0]();
-    await tick();
-    await tick();
+    for (let i = 0; i < 4; i++) await tick();
     pending[1]();
     await Promise.all([one, two]);
     assert.deepStrictEqual([saves, [...vm.runInContext("aiPrefs", ctx).aiPresetPrompts]], [[["b", "c"], ["c"]], ["c"]]);
@@ -1133,21 +1198,20 @@ const chatOn = (context) => {
     ctx.ensureCurrentContextForSend = async () => (vm.runInContext('els.input.value = "下一个问题"', ctx), true);
     state.dispatch({ type: "NEW" });
     show(video);
-    vm.runInContext('activeStream = null; els.input.value = "第一个问题"; els.modelSelect.value = "p"', ctx);
+    vm.runInContext('els.input.value = "第一个问题"; els.modelSelect.value = "p"', ctx);
     await ctx.sendMessage();
     assert.deepStrictEqual([asked, els.input.value], [["第一个问题"], "下一个问题"]);
     let slowGone = 0;
     ctx.__slow = { remove: () => slowGone++ };
     ctx.__now = vm.runInContext("activeStream", ctx);
-    vm.runInContext("activeStream = {}; streamFirstTokenReceived = false; streamSlowNotice = __slow", ctx);
+    vm.runInContext("activeStream = {}; streamSlowNotice = __slow", ctx);
     ctx.window.requestAnimationFrame = () => 0;
     listener({ type: "token", data: "x" });
-    assert.strictEqual(slowGone, 0);
+    assert.deepStrictEqual([slowGone, view().turn], [0, "waiting"]);
     vm.runInContext("activeStream = __now; streamSlowNotice = null", ctx);
     listener({ type: "error", error: "", code: "THROTTLED" });
-    assert.deepStrictEqual(errorsShown, ["B站限流，请稍后再试"]);
+    assert.deepStrictEqual([errorsShown, view().turn], [["B站限流，请稍后再试"], "idle"]);
     [ctx.chrome.runtime.connect, ctx.appendUserMessage, ctx.appendAssistantPlaceholder, ctx.ensureCurrentContextForSend, ctx.appendStreamError, ctx.renderAssistantMessage] = prev;
-    vm.runInContext("activeStream = null", ctx);
   }
 
   // C344: a redraw asked for while a reply streams (a detached reply ended into this conversation) happens when it ends.
@@ -1157,8 +1221,7 @@ const chatOn = (context) => {
     ctx.renderConversationMessages = () => draws++;
     ctx.renderAssistantMessage = () => {};
     const stream = { prompt: "p", raw: "r", notice: "", node: stubEl(), port: { disconnect() {} } };
-    ctx.__stream = stream;
-    vm.runInContext("activeStream = __stream", ctx);
+    streamOn(stream);
     await ctx.runEffect({ type: "redraw" });
     const during = draws;
     ctx.endStream(stream);
@@ -1180,7 +1243,7 @@ const chatOn = (context) => {
     ctx.ensureCurrentContextForSend = async () => ((hiddenWhileLoading = node.hidden), false);
     ctx.appendUserMessage = () => stubEl();
     ctx.appendAssistantPlaceholder = () => stubEl();
-    vm.runInContext('activeStream = null; sendPending = false; els.modelSelect.value = "p"', ctx);
+    vm.runInContext('els.modelSelect.value = "p"', ctx);
     made.find((b) => /重试/.test(b.innerHTML || "")).listeners.click();
     await tick();
     await tick();
@@ -1196,6 +1259,7 @@ const chatOn = (context) => {
     ctx.hideSyncStatus = () => hidden++;
     ctx.chrome.runtime.sendMessage = async () => ({ ok: true });
     state.dispatch({ type: "SAVED_CHANGED", list: [{ id: "s2", contextRef: { site: "bilibili", videoId: "BV1sync" }, messages: [{ role: "user", content: "q" }] }] });
+    state.dispatch({ type: "OPEN", id: "s2" });
     await ctx.autoSyncConversation("s2");
     assert.strictEqual(hidden, 1);
     [ctx.hideSyncStatus, ctx.chrome.runtime.sendMessage] = prev;
@@ -1355,6 +1419,149 @@ const chatOn = (context) => {
     ctx.linkifyAssistantTimestamps({});
     assert.deepStrictEqual(nodes.map((n) => n.replaced), [["看 ", "[1:15]", " 和 ", "[1:02:03]", " 两处"], undefined, undefined]);
     for (const k of ["createTreeWalker", "createDocumentFragment", "createTextNode", "Text", "NodeFilter"]) delete (k in ctx.document ? ctx.document : ctx)[k];
+  }
+
+  // Gap 3: a conversation reopened while the reply to its last question still runs refuses a second question (its
+  // history would lack that answer) and says why; the answer landing unlocks it.
+  {
+    const prev = [ctx.ensureCurrentContextForSend, ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    let loads = 0;
+    ctx.ensureCurrentContextForSend = async () => (loads++, true);
+    ctx.loadContextState = async () => true;
+    ctx.hydratePinnedConversationContext = async () => true;
+    ctx.appendUserMessage = () => stubEl();
+    ctx.appendAssistantPlaceholder = () => stubEl();
+    const realConnect = ctx.chrome.runtime.connect;
+    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const port = { sent: [], postMessage(m) { this.sent.push(m.action); }, disconnect() {} };
+    const stream = { prompt: "慢问题", raw: "", notice: "", node: stubEl(), port };
+    streamOn(stream);
+    await ctx.startNewConversation();
+    const left = view().saved[0].id;
+    await ctx.act({ type: "OPEN", id: left });
+    vm.runInContext('providers = [{}]; els.input.value = "第二个问题"; els.modelSelect.value = "p"', ctx);
+    await ctx.sendMessage();
+    assert.deepStrictEqual([loads, ctx.readOnlyReason(), ctx.followupBlockReason(), els.input.value], [0, "上一个回答还在生成，结束后才能继续问", "上一个回答还在生成，结束后才能继续问", "第二个问题"]);
+    stream.raw = "慢答案";
+    ctx.renderAssistantMessage = () => {};
+    ctx.endStream(stream);
+    await tick();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify([ctx.readOnlyReason(), view().messages.map((m) => m.content)])), ["", ["慢问题", "慢答案"]]);
+    els.input.value = "";
+    ctx.chrome.runtime.connect = realConnect;
+    [ctx.ensureCurrentContextForSend, ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder] = prev;
+  }
+
+  // Gap 4: every effect of an act starts before its save is awaited. Leaving a reply for its conversation while a
+  // draft is typed, then opening another conversation during that save: the draft goes under the video's new
+  // conversation, and the one opened shows its own (empty) box, never the other's text.
+  {
+    const KEY = ctx.MdgLimits.KEYS.aiConversations;
+    const [get, set] = [ctx.chrome.storage.local.get, ctx.chrome.storage.local.set];
+    let release;
+    ctx.chrome.storage.local.get = async (k) => ({ [k]: [] });
+    ctx.chrome.storage.local.set = () => new Promise((r) => (release = r));
+    const prevHydrate = ctx.hydratePinnedConversationContext;
+    ctx.hydratePinnedConversationContext = async () => true;
+    const convs = [{ id: "A4", contextUrl: "https://www.bilibili.com/video/BV1AAAA", contextRef: { site: "bilibili", videoId: "BV1AAAA", url: "https://www.bilibili.com/video/BV1AAAA" }, messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }], updatedAt: 1 }];
+    state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
+    state.dispatch({ type: "SAVED_CHANGED", list: [...convs, { ...convs[0], id: "B4", contextUrl: "https://www.bilibili.com/video/BV1BBBB", contextRef: { site: "bilibili", videoId: "BV1BBBB", url: "https://www.bilibili.com/video/BV1BBBB" } }] });
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const videoKey = view().draftKey;
+    vm.runInContext("drafts.clear()", ctx);
+    streamOn({ prompt: "问V", raw: "", notice: "", node: stubEl(), port: { postMessage() {}, disconnect() {} } });
+    els.input.value = "问V的草稿";
+    const opening = ctx.act({ type: "OPEN", id: "A4" });
+    await tick();
+    assert.deepStrictEqual([els.input.value, vm.runInContext("drafts", ctx).get(videoKey)], ["", "问V的草稿"], "the draft moved before the save finished");
+    await ctx.act({ type: "OPEN", id: "B4" });
+    release();
+    await opening;
+    assert.deepStrictEqual([els.input.value, vm.runInContext("drafts", ctx).get("A4"), vm.runInContext("drafts", ctx).get(videoKey)], ["", undefined, "问V的草稿"]);
+    vm.runInContext("drafts.clear()", ctx);
+    endShown();
+    ctx.hydratePinnedConversationContext = prevHydrate;
+    Object.assign(ctx.chrome.storage.local, { get, set });
+  }
+
+  // Gap 5: a history item opened while 新对话 waits for the tab's context wins, and AI 总结 from outside asked twice
+  // opens the later one only.
+  {
+    const prev = [ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.act];
+    ctx.hydratePinnedConversationContext = async () => true;
+    let release;
+    ctx.loadContextState = () => new Promise((r) => (release = r));
+    const starting = ctx.startNewConversation();
+    await tick();
+    const [btn] = (() => {
+      const made = [];
+      els.historyList.querySelectorAll = (sel) => (sel === ".sp-history-open" ? made : []);
+      made.push({ listeners: {}, addEventListener(t, f) { this.listeners[t] = f; }, getAttribute: () => "A4" });
+      realRenderHistoryList();
+      els.historyList.querySelectorAll = () => [];
+      return made;
+    })();
+    btn.listeners.click();
+    await tick();
+    release(true);
+    await starting;
+    assert.strictEqual(view().id, "A4", "the item opened stays; 新对话 does nothing after its wait");
+    const calls = [];
+    ctx.act = async (event) => (calls.push([event.type, event.ref?.videoId || ""]), []);
+    ctx.loadContextState = () => new Promise((r) => (release = r));
+    activeTab = { id: 7, url: "https://example.com/" };
+    const req = (id) => ({ id, tabId: 7, prompt: "总结", createdAt: Date.now() });
+    const first = ctx.handlePlayerAiQuickActionRequest(req("q1"));
+    await tick();
+    await tick();
+    const second = ctx.handlePlayerAiQuickActionRequest(req("q2"));
+    release(true);
+    await tick();
+    await tick();
+    release(true);
+    assert.deepStrictEqual([await first, await second, calls], [false, true, [["SUMMARY", ""]]]);
+    [ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.act] = prev;
+  }
+
+  // Gap 10: a question typed in a saved conversation that is deleted while its context loads leaves no draft behind.
+  {
+    const prev = [ctx.ensureCurrentContextForSend, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
+    ctx.hydratePinnedConversationContext = async () => true;
+    ctx.appendUserMessage = () => stubEl();
+    ctx.appendAssistantPlaceholder = () => stubEl();
+    await ctx.act({ type: "OPEN", id: "B4" });
+    ctx.confirm = () => true;
+    ctx.ensureCurrentContextForSend = async () => (await ctx.deleteConversation("B4"), true);
+    vm.runInContext('els.input.value = "给B4的"; els.modelSelect.value = "p"', ctx);
+    await ctx.sendMessage();
+    assert.deepStrictEqual([vm.runInContext("drafts", ctx).has("B4"), view().id, els.input.value], [false, "", ""]);
+    [ctx.ensureCurrentContextForSend, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder] = prev;
+  }
+
+  // Gap 11: two platform loads overlap (init's and a settings change's): the older one answering last writes nothing.
+  {
+    const realSend = ctx.chrome.runtime.sendMessage;
+    ctx.renderModelSelect = () => {};
+    const pending = [];
+    ctx.chrome.runtime.sendMessage = (m) => new Promise((r) => {
+      const later = pending.length >= 2;
+      pending.push(() => r(m.type === "ai-providers-list" ? { ok: true, providers: [{ id: later ? "new" : "old", enabled: true, model: "m" }] } : { ok: true, settings: ctx.MdgSettings.DEFAULTS }));
+    });
+    const older = ctx.loadProvidersAndPrefs();
+    const newer = ctx.loadProvidersAndPrefs();
+    pending[2]();
+    pending[3]();
+    await newer;
+    assert.strictEqual(vm.runInContext("providers[0].id", ctx), "new");
+    pending[0]();
+    pending[1]();
+    await older;
+    assert.strictEqual(vm.runInContext("providers[0].id", ctx), "new", "the older load's answer is dropped");
+    ctx.chrome.runtime.sendMessage = realSend;
+    vm.runInContext("providers = [{}]", ctx);
   }
 
   console.log("sidepanel selftest: all passed");

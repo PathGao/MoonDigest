@@ -5,7 +5,7 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const ctx = vm.createContext({ console, URL });
+const ctx = vm.createContext({ console, URL, AbortController });
 ctx.globalThis = ctx;
 // note.js for M2: every note's AI 问答 takes the conversation the panel restores.
 for (const f of ["common.js", "limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "note.js", "sidepanel-state.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
@@ -38,7 +38,7 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
     ...p.dispatch({ type: "TAB_READ", tab: { url: tabUrl, title }, follow }),
     ...p.dispatch({ type: "CONTEXT_ARRIVED", payload, follow })
   ];
-  p.ask = (prompt, raw) => (p.dispatch({ type: "SEND", prompt }), raw === undefined ? [] : p.dispatch({ type: "STREAM_ENDED", raw }));
+  p.ask = (prompt, raw) => (p.dispatch({ type: "QUESTION", prompt }), p.dispatch({ type: "ASKED" }), raw === undefined ? [] : p.dispatch({ type: "STREAM_ENDED", raw }));
   if (tab) p.load(tab, { follow: true });
   return p;
 }
@@ -242,15 +242,15 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   const opened = p.dispatch({ type: "OPEN", id: "h" });
   assert.deepStrictEqual(plain(opened.at(-1)), { type: "resolve", silent: true });
   assert.deepStrictEqual([p.view().context.pending, p.view().context.subtitleMarkdown], [true, ""]);
-  const epoch = p.view().epoch;
+  const { run } = p.view();
   p.dispatch({ type: "OPEN", id: "g" });
-  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: video("BV1hh") })), [], "stale");
+  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", run, payload: video("BV1hh") })), [], "stale");
   assert.strictEqual(p.view().context.url, v("BV1gg"));
-  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", epoch: p.view().epoch, payload: video("BV1gg", { subtitleMarkdown: "full" }) })), [{ type: "resolved" }]);
+  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", run: p.view().run, payload: video("BV1gg", { subtitleMarkdown: "full" }) })), [{ type: "resolved" }]);
   assert.deepStrictEqual([p.view().context.subtitleMarkdown, p.view().context.pending], ["full", undefined]);
   // A failed resolve ends the pending state, and says it was pending.
   p.dispatch({ type: "OPEN", id: "h" });
-  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", epoch: p.view().epoch, payload: null })), [{ type: "resolveFailed", wasPending: true }]);
+  assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", run: p.view().run, payload: null })), [{ type: "resolveFailed", wasPending: true }]);
   assert.strictEqual(p.view().context.pending, false);
   // The tab's own video: the live context, nothing to resolve.
   const q = panel({ list: [saved("a", video("BV1aa"))] });
@@ -357,10 +357,10 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
 // conversation.
 {
   const p = panel();
-  p.dispatch({ type: "SEND", prompt: "q" });
+  p.ask("q");
   p.dispatch({ type: "STREAM_ENDED", raw: "", failure: { error: "坏了", code: "AI_QUOTA" } });
   assert.deepStrictEqual([plain(p.view().unanswered), p.view().messages.length, p.view().saved.length], [{ prompt: "q", error: "坏了", code: "AI_QUOTA" }, 0, 0]);
-  p.dispatch({ type: "SEND", prompt: "q" });
+  p.ask("q");
   assert.strictEqual(p.view().unanswered, null, "sent again");
   p.dispatch({ type: "STREAM_ENDED", raw: "", failure: { stopped: "已停止生成" } });
   p.dispatch({ type: "NEW" });
@@ -568,6 +568,97 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   const p = panel({ tab: null, list });
   p.load(video(bv, part(2, "c2")), { follow: true });
   assert.deepStrictEqual([...p.view().history.map((c) => c.id)].sort(), ["p2", "p2ByUrl", "p2OldCid"]);
+}
+
+// ---- the turn: one phase, stepped by the table; every pair not in it is refused and changes nothing ----
+{
+  const ALLOWED = {
+    QUESTION: ["idle"],
+    ASKED: ["loading"],
+    UNSENT: ["loading"],
+    TOKEN: ["waiting", "streaming", "stopping"],
+    STOP: ["waiting", "streaming"],
+    STREAM_ENDED: ["waiting", "streaming", "stopping"]
+  };
+  const INTO = {
+    idle: [],
+    loading: [{ type: "QUESTION", prompt: "q" }],
+    waiting: [{ type: "QUESTION", prompt: "q" }, { type: "ASKED" }],
+    streaming: [{ type: "QUESTION", prompt: "q" }, { type: "ASKED" }, { type: "TOKEN" }],
+    stopping: [{ type: "QUESTION", prompt: "q" }, { type: "ASKED" }, { type: "STOP" }]
+  };
+  const at = (phase) => {
+    const p = panel();
+    for (const event of INTO[phase]) p.dispatch(event);
+    assert.strictEqual(p.view().turn, phase);
+    return p;
+  };
+  const picture = (p) => plain([p.view().turn, p.view().streaming, p.view().loading, p.view().messages, p.view().unanswered, p.view().saved.length]);
+  for (const [event, phases] of Object.entries(ALLOWED)) {
+    for (const phase of Object.keys(INTO).filter((name) => !phases.includes(name))) {
+      const p = at(phase);
+      const before = picture(p);
+      assert.deepStrictEqual(plain(p.dispatch({ type: event, prompt: "q", raw: "a" })), [], `${event} in ${phase} is refused`);
+      assert.deepStrictEqual(picture(p), before, `${event} in ${phase} changes nothing`);
+    }
+  }
+  // The steps the table allows, in order, with what each one tells the page.
+  const p = panel();
+  assert.deepStrictEqual(plain(p.dispatch({ type: "QUESTION", prompt: "q" })), []);
+  assert.deepStrictEqual([p.view().turn, p.view().loading, p.view().streaming, p.view().bound], ["loading", true, false, false]);
+  assert.deepStrictEqual(plain(p.dispatch({ type: "ASKED" })), []);
+  assert.deepStrictEqual([p.view().turn, p.view().streaming, p.view().bound, p.view().context.url], ["waiting", true, true, v("BV1aa")]);
+  assert.deepStrictEqual(plain(p.dispatch({ type: "TOKEN" })), [{ type: "answering" }], "the first word");
+  assert.deepStrictEqual(plain(p.dispatch({ type: "TOKEN" })), [], "the next ones say nothing");
+  assert.deepStrictEqual(plain(p.dispatch({ type: "STOP" })), [{ type: "stop" }]);
+  assert.deepStrictEqual([p.view().turn, p.view().streaming], ["stopping", true]);
+  assert.deepStrictEqual(plain(p.dispatch({ type: "TOKEN" })), [], "a word after 停止 is kept, quietly");
+  assert.deepStrictEqual(types(p.dispatch({ type: "STREAM_ENDED", raw: "a" })), ["save", "autoSync"]);
+  assert.strictEqual(p.view().turn, "idle");
+  // The question drawn while its context loads: another conversation lets it go without a word; the panel's UNSENT
+  // after that is refused. The reply in flight keeps the context it was asked in, not the one loaded since.
+  const q = panel();
+  q.dispatch({ type: "QUESTION", prompt: "q" });
+  assert.deepStrictEqual(types(q.dispatch({ type: "NEW" })), ["hidePopovers", "draft"], "no detach, no dropStream");
+  assert.deepStrictEqual([q.view().turn, plain(q.dispatch({ type: "UNSENT" })), q.view().turn], ["idle", [], "idle"]);
+  q.dispatch({ type: "QUESTION", prompt: "q" });
+  q.load(video("BV1cc"));
+  assert.strictEqual(q.view().turn, "idle", "the tab moved to another video while the context loaded: the question is let go");
+  q.dispatch({ type: "QUESTION", prompt: "q" });
+  q.dispatch({ type: "ASKED" });
+  q.load(blank, { follow: true });
+  assert.strictEqual(q.view().context.url, v("BV1cc"), "kept while the reply runs");
+}
+
+// ---- detached replies: deleting their conversation cuts them off; reopening it allows no second question ----
+{
+  const leave = (p) => p.dispatch({ type: "NEW" }).find((e) => e.type === "detach");
+  // Deleted here.
+  const p = panel();
+  p.ask("q1");
+  const d1 = leave(p);
+  assert.deepStrictEqual(types(p.dispatch({ type: "DELETED", id: d1.conversationId })), ["dropReply", "save"]);
+  assert.deepStrictEqual(p.dispatch({ type: "DELETED", id: d1.conversationId }).find((e) => e.type === "dropReply"), undefined, "cut once");
+  assert.deepStrictEqual(types(p.dispatch({ ...d1, type: "REPLY_FINISHED", prompt: "q1", raw: "late" })), [], "the late answer finds no conversation");
+  // Deleted on 摘读记录 (the stored list lost it), while another conversation shows.
+  const q = panel();
+  q.ask("q2");
+  const d2 = leave(q);
+  const before = q.view().saved;
+  const effects = q.dispatch({ type: "SAVED_CHANGED", list: before.filter((c) => c.id !== d2.conversationId), previous: before });
+  assert.deepStrictEqual(plain(effects), [{ type: "dropReply", conversationId: d2.conversationId }]);
+  assert.strictEqual(q.view().id, "", "the fresh conversation stays");
+  // Still saved: nothing is cut, and this page's own save coming back changes nothing.
+  const r = panel();
+  r.ask("q3");
+  const d3 = leave(r);
+  assert.deepStrictEqual(types(r.dispatch({ type: "SAVED_CHANGED", list: r.view().saved, previous: r.view().saved })), []);
+  // Reopened while the reply runs: the conversation says so, until the reply lands.
+  r.dispatch({ type: "OPEN", id: d3.conversationId });
+  assert.deepStrictEqual([r.view().replyDetached, r.view().streaming], [true, false]);
+  r.dispatch({ ...d3, type: "REPLY_FINISHED", prompt: "q3", raw: "a3" });
+  assert.deepStrictEqual(plain([r.view().replyDetached, r.view().messages.map((m) => m.content)]), [false, ["q3", "a3"]]);
+  assert.strictEqual(panel().view().replyDetached, false, "a fresh conversation");
 }
 
 console.log("sidepanel-state selftest: all passed");

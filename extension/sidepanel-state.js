@@ -1,7 +1,8 @@
 // The side panel's conversation and the video it is about, with every rule that decides them: which video the panel
 // follows, which conversation owns a context, a reply or the input draft, when AI 总结 fills the input.
 // Pure: no chrome.*, no DOM. sidepanel.js feeds it what happened (dispatch) and runs the effects it returns, and reads
-// the conversation and its context only through view(). sidepanel.html loads it before sidepanel.js.
+// the conversation and its context only through view(). sidepanel.html loads it before sidepanel.js; the background
+// loads it for patchReply, the one rule that puts a detached reply's answer into its conversation.
 (() => {
   // ---- contexts and saved conversations ----
 
@@ -152,17 +153,42 @@
 
   // ---- the state ----
 
+  // The shown conversation's turn: idle → loading (the question drawn, its context loading) → waiting (asked, no word
+  // yet) → streaming → idle, with stopping between 停止 and the end. Only step() moves it; a pair not in the table is
+  // refused and changes nothing. Leaving the conversation (setConv, detach) ends it from any phase.
+  const TURN_STEPS = {
+    QUESTION: { idle: "loading" },
+    ASKED: { loading: "waiting" },
+    UNSENT: { loading: "idle" },
+    TOKEN: { waiting: "streaming", streaming: "streaming", stopping: "stopping" },
+    STOP: { waiting: "stopping", streaming: "stopping" },
+    STREAM_ENDED: { waiting: "idle", streaming: "idle", stopping: "idle" }
+  };
+  const IN_FLIGHT = new Set(["waiting", "streaming", "stopping"]);
+  const idleTurn = () => ({ phase: "idle", prompt: "", context: null, key: "" });
+  const inFlight = (s) => IN_FLIGHT.has(s.turn.phase);
+  function step(s, event) {
+    const next = TURN_STEPS[event][s.turn.phase];
+    if (!next) return false;
+    s.turn.phase = next;
+    return true;
+  }
+
   // live: the active tab (context is its payload, or the placeholder of a video followed from its URL alone).
   // conv: the shown conversation. pinned is its own context's description once it has one (saved, opened from a
   // reference, or asked in); resolved is that context loaded; failed: loading it failed, so it is no longer pending.
-  // epoch moves whenever another conversation is shown; fillEpoch is the epoch whose AI 总结 prompt is still to fill.
-  // unanswered: the last question when its reply failed or stopped before a word came, kept only to draw it again.
-  // streaming: the reply in flight and the context it was asked in. previousId: the 上一个视频 bar's conversation.
+  // fill: its AI 总结 prompt is still to fill. unanswered: the last question when its reply failed or stopped before a
+  // word came, kept only to draw it again. convs (MdgCommon.latest): the shown conversation's run; showing another one
+  // ends it, so a load or a drawing begun on the one before can tell.
+  // turn: the phase above, with the question and, once asked, the context it was asked in. detached: the saved
+  // conversations whose reply still runs after the panel left them. previousId: the 上一个视频 bar's conversation.
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
-      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: 0, fillEpoch: -1, unanswered: null, autoSend: null },
-      streaming: null,
+      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null },
+      convs: MdgCommon.latest(),
+      turn: idleTurn(),
+      detached: new Set(),
       previousId: "",
       saved: [],
       unsaved: { created: new Set(), deleted: new Set() }
@@ -177,14 +203,14 @@
     if (pinned) {
       return resolved || buildContextPlaceholder(pinned.contextRef, pinned.isVideoContext && !failed);
     }
-    return s.streaming ? s.streaming.context : s.live.context;
+    return inFlight(s) ? s.turn.context : s.live.context;
   }
 
   function shownKey(s) {
     if (s.conv.pinned) {
       return s.conv.pinned.contextKey || buildContextKey(shown(s));
     }
-    return s.streaming ? s.streaming.key : s.live.key;
+    return inFlight(s) ? s.turn.key : s.live.key;
   }
 
   // One rule for a conversation's own context: the tab's loaded context when it is the same video, else load it.
@@ -196,7 +222,7 @@
   function view(s) {
     const context = shown(s);
     const key = shownKey(s);
-    const { id, pinned, messages, resolved, epoch, unanswered } = s.conv;
+    const { id, pinned, messages, resolved, unanswered } = s.conv;
     const target = shownPartUrl(s);
     return {
       context,
@@ -206,10 +232,14 @@
       pinned,
       messages,
       resolved,
-      epoch,
+      run: s.convs.current,
       unanswered,
-      streaming: Boolean(s.streaming),
-      bound: Boolean(pinned || s.streaming),
+      turn: s.turn.phase,
+      loading: s.turn.phase === "loading",
+      streaming: inFlight(s),
+      // The reply to this conversation's last question still runs since the panel left it: no second question until it lands.
+      replyDetached: Boolean(id) && s.detached.has(id),
+      bound: Boolean(pinned) || inFlight(s),
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
       nonVideo: (pinned || context)?.isVideoContext === false,
       // The conversation's own video is not the one in the tab.
@@ -232,7 +262,7 @@
     return {
       shownUrl: shownPartUrl(s),
       hasMessages: s.conv.messages.length > 0,
-      bound: Boolean(s.conv.pinned || s.streaming),
+      bound: Boolean(s.conv.pinned) || inFlight(s),
       lastVideoUrl: s.live.lastVideoUrl,
       hasContext: Boolean(context)
     };
@@ -240,17 +270,18 @@
 
   // The only place the shown conversation changes. The draft belongs to the conversation: another one puts the input's
   // text away under the one left and brings back its own (the draft effect, filled in by dispatchAround). A reply still
-  // running here is dropped, so callers that keep it detach it first.
+  // running here is dropped, so callers that keep it detach it first; a question still loading its context is let go.
   function setConv(s, conversation = null) {
     const effects = [];
-    if (s.streaming) {
-      s.streaming = null;
+    if (inFlight(s)) {
       effects.push({ type: "dropStream" });
     }
+    s.turn = idleTurn();
     if (!conversation?.id || conversation.id !== s.conv.id) {
       effects.push({ type: "draft" });
     }
-    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, epoch: s.conv.epoch + 1, fillEpoch: -1, unanswered: null, autoSend: null };
+    s.convs.next();
+    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null };
     if (conversation) {
       s.conv.id = conversation.id;
       s.conv.pinned = {
@@ -348,14 +379,21 @@
 
   // Leaving a conversation while the AI answers: the question goes into it now, and the reply follows it there.
   function detach(s) {
-    if (!s.streaming) {
+    if (!inFlight(s)) {
       return [];
     }
-    const { prompt, context, key } = s.streaming;
-    s.streaming = null;
+    const { prompt, context, key } = s.turn;
+    s.turn = idleTurn();
     s.conv.messages.push({ role: "user", content: prompt });
     persist(s, context, key);
+    s.detached.add(s.conv.id);
     return [{ type: "detach", conversationId: s.conv.id, promptIndex: s.conv.messages.length - 1 }, { type: "save" }];
+  }
+
+  // A detached reply's conversation is gone (deleted here or on 摘读记录): the reply is cut off, so it cannot bring the
+  // conversation back or spend the AI platform on nobody.
+  function dropReply(s, id) {
+    return s.detached.delete(id) ? [{ type: "dropReply", conversationId: id }] : [];
   }
 
   // s.saved is newest first: the newest conversation of ref (MdgSites.isConversationOf, as every note's AI 问答 takes it).
@@ -374,14 +412,14 @@
       effects.push({ type: "previous", id: previous.id });
     }
     effects.push(...setConv(s), ...restoreLatest(s, context));
-    if (!s.conv.messages.length) s.conv.fillEpoch = s.conv.epoch;
+    if (!s.conv.messages.length) s.conv.fill = true;
     effects.push({ type: "followed" });
     return effects;
   }
 
   function open(s, id) {
     const conversation = s.saved.find((item) => item.id === id);
-    if (!conversation || (s.streaming && id === s.conv.id)) {
+    if (!conversation || (inFlight(s) && id === s.conv.id)) {
       return [];
     }
     return [...detach(s), ...setConv(s, conversation), ...resolveIfNeeded(s, true)];
@@ -493,9 +531,10 @@
       case "GRANT_DENIED":
         s.conv.autoSend = null;
         return [];
-      // A conversation's own context loaded (payload) or failed; a load started for an earlier conversation is ignored.
+      // A conversation's own context loaded (payload) or failed; a load started for an earlier conversation (its run
+      // ended) is ignored.
       case "CONTEXT_RESOLVED": {
-        if (event.epoch !== s.conv.epoch || !s.conv.pinned) {
+        if (!event.run?.alive || !s.conv.pinned) {
           return [];
         }
         if (!event.payload) {
@@ -523,36 +562,39 @@
         return summary(s, event);
       // The empty conversation offers AI 总结: a video switch asked for it, so it fills the input, once.
       case "SUMMARY_SHOWN": {
-        if (!event.prompt || s.conv.fillEpoch !== s.conv.epoch) {
+        if (!event.prompt || !s.conv.fill) {
           return [];
         }
-        s.conv.fillEpoch = -1;
+        s.conv.fill = false;
         return [{ type: "fill", prompt: event.prompt }];
       }
-      // Deleting the shown conversation drops a reply in flight too, so it cannot bring the conversation back.
+      // Deleting the shown conversation drops a reply in flight too, so it cannot bring the conversation back; so is
+      // a detached reply of the deleted one.
       case "DELETED": {
         s.saved = s.saved.filter((item) => item.id !== event.id);
         s.unsaved.created.delete(event.id);
         s.unsaved.deleted.add(event.id);
-        return [...(event.id && event.id === s.conv.id ? setConv(s) : []), { type: "save" }];
+        return [...(event.id && event.id === s.conv.id ? setConv(s) : []), ...dropReply(s, event.id), { type: "save" }];
       }
       // The stored list changed (the history page deletes conversations too). The shown one deleted there is dropped
-      // like a delete here, with a reply in flight too, so neither the next question nor that reply can save it back.
-      // One saved later (another window's panel on the same conversation) takes its messages, so the next save here
-      // keeps them.
+      // like a delete here, with a reply in flight too, so neither the next question nor that reply can save it back;
+      // a detached reply whose conversation went is cut off alike. One saved later (another window's panel on the
+      // same conversation) takes its messages, so the next save here keeps them.
       case "SAVED_CHANGED": {
-        const stored = (list) => Array.isArray(list) && list.some((item) => item?.id === s.conv.id);
+        const stored = (list, id) => Array.isArray(list) && list.some((item) => item?.id === id);
+        const gone = (id) => stored(event.previous, id) && !stored(event.list, id);
         s.saved = mergeSaved(event.list, s.saved, s.unsaved);
-        if (s.conv.id && stored(event.previous) && !stored(event.list)) {
-          return setConv(s);
+        const effects = [...s.detached].filter(gone).flatMap((id) => dropReply(s, id));
+        if (s.conv.id && gone(s.conv.id)) {
+          return [...effects, ...setConv(s)];
         }
         const mine = s.conv.id ? s.saved.find((item) => item.id === s.conv.id) : null;
         if (!mine || !s.conv.pinned || mine.updatedAt <= (Number(s.conv.pinned.updatedAt) || 0)) {
-          return [];
+          return effects;
         }
         s.conv.messages = mine.messages.map((m) => ({ ...m }));
         s.conv.pinned = { ...s.conv.pinned, updatedAt: mine.updatedAt };
-        return [{ type: "redraw" }];
+        return [...effects, { type: "redraw" }];
       }
       // A save wrote these ids' creation or deletion.
       case "SAVED_WRITTEN":
@@ -561,40 +603,54 @@
         return [];
       case "PAGE_HYDRATED":
         return pageHydrated(s, event);
-      case "SEND":
-        s.streaming = { prompt: event.prompt, context: shown(s), key: shownKey(s) };
+      // The question is drawn while its context loads; the turn steps forward (TURN_STEPS) or the event is refused.
+      case "QUESTION":
+        if (!step(s, event.type)) return [];
+        s.turn.prompt = event.prompt;
+        return [];
+      // The question goes: the reply belongs to the context it is asked in, which the conversation keeps until it ends.
+      case "ASKED": {
+        const [context, key] = [shown(s), shownKey(s)];
+        if (!step(s, event.type)) return [];
+        Object.assign(s.turn, { context, key });
         s.conv.unanswered = null;
         return [];
+      }
+      case "UNSENT":
+        step(s, event.type);
+        return [];
+      // A word of the reply: the first one says the AI is answering (the page takes down its slow notice).
+      case "TOKEN": {
+        const waited = s.turn.phase === "waiting";
+        return step(s, event.type) && waited ? [{ type: "answering" }] : [];
+      }
+      case "STOP":
+        return step(s, event.type) ? [{ type: "stop" }] : [];
       // The shown conversation's reply ended; one with an answer is saved. failure: how one without a word ended
       // ({ stopped, notice, error, code }), drawn again with its question until the next send.
       case "STREAM_ENDED": {
-        const stream = s.streaming;
-        s.streaming = null;
-        if (!stream || !String(event.raw || "").trim()) {
-          if (stream && event.failure) s.conv.unanswered = { prompt: stream.prompt, ...event.failure };
+        const turn = s.turn;
+        if (!step(s, event.type)) return [];
+        s.turn = idleTurn();
+        if (!String(event.raw || "").trim()) {
+          if (event.failure) s.conv.unanswered = { prompt: turn.prompt, ...event.failure };
           return [];
         }
-        s.conv.messages.push({ role: "user", content: stream.prompt }, { role: "assistant", content: event.raw });
-        persist(s, stream.context, stream.key);
+        s.conv.messages.push({ role: "user", content: turn.prompt }, { role: "assistant", content: event.raw });
+        persist(s, turn.context, turn.key);
         return [{ type: "save" }, { type: "autoSync", id: s.conv.id }];
       }
       // A detached reply ended: the answer goes after its question, or the question goes when nothing came back.
       case "REPLY_FINISHED": {
         const { conversationId, promptIndex, prompt, raw } = event;
+        s.detached.delete(conversationId);
         const conversation = s.saved.find((item) => item.id === conversationId);
         if (!conversation) {
           return [];
         }
-        const patch = (messages) => {
-          if (messages[promptIndex]?.role !== "user" || messages[promptIndex].content !== prompt || messages[promptIndex + 1]?.role === "assistant") {
-            return;
-          }
-          if (raw.trim()) messages.splice(promptIndex + 1, 0, { role: "assistant", content: raw });
-          else messages.splice(promptIndex, 1);
-        };
         const messages = conversation.messages.slice();
-        patch(messages);
-        if (conversationId === s.conv.id) patch(s.conv.messages);
+        patchReply(messages, event);
+        if (conversationId === s.conv.id) patchReply(s.conv.messages, event);
         s.saved = normalizeConversations(s.saved.map((item) => (item.id === conversationId ? { ...item, messages, updatedAt: Date.now() } : item)));
         return [{ type: "save" }, { type: "autoSync", id: conversationId }];
       }
@@ -617,6 +673,18 @@
       default:
         throw new Error(`unknown event ${event.type}`);
     }
+  }
+
+  // A detached reply's answer put after its question in a conversation's messages, in place: the question must still be
+  // at promptIndex with no answer yet; nothing came back (raw empty), the question goes. The background applies the
+  // same rule to the stored conversation when the panel closed before the reply ended. Returns whether it changed them.
+  function patchReply(messages, { promptIndex, prompt, raw }) {
+    if (messages[promptIndex]?.role !== "user" || messages[promptIndex].content !== prompt || messages[promptIndex + 1]?.role === "assistant") {
+      return false;
+    }
+    if (String(raw || "").trim()) messages.splice(promptIndex + 1, 0, { role: "assistant", content: raw });
+    else messages.splice(promptIndex, 1);
+    return true;
   }
 
   // One successful page lookup settles a conversation's page metadata; without the flag every open refetched it.
@@ -658,6 +726,7 @@
     create,
     decideFollow,
     mergeSaved,
+    patchReply,
     buildConversationContextRef,
     needsConversationPageHydration
   };
