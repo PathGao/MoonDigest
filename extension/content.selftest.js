@@ -101,6 +101,16 @@ assert.ok(entries.length && entries.every((c) => JSON.stringify(c.js) === JSON.s
 const scripts = [...entries[0].js];
 assert.strictEqual(scripts.pop(), "content.js", "content.js loads last");
 for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+// The manifest and MdgSites.matchSite each say which pages are video pages. Chrome matches a pattern's path against
+// the path and the query, so B站's /list/watchlater?bvid=… missed an exact "/list/watchlater" (#394's testing).
+{
+  const glob = (p) => new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`);
+  const injected = (url) => entries.some((c) => c.matches.some((m) => glob(m).test(url)));
+  for (const url of ["https://www.bilibili.com/video/BV1GJ411x7h7/?p=2", "https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7&oid=80433022", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"]) {
+    assert.ok(ctx.MdgSites.matchSite(url), `matchSite takes ${url}`);
+    assert.ok(injected(url), `the manifest injects content.js into ${url}`);
+  }
+}
 vm.runInContext(`${source}\n;globalThis.state = state;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
