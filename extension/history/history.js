@@ -221,7 +221,7 @@ function setAiProposal(p) {
 async function clearRecent() {
   AI.recent = null;
   recentFilter = false;
-  await chrome.storage.local.remove(AI_RECENT).catch(() => {});
+  await MdgLimits.update(AI_RECENT, () => null).catch(() => {});
   render();
 }
 // 摘读记录设置 (AI_SETTINGS), as 关注's follow_ai_settings: seeded from the 收藏夹 values on first use and stored then,

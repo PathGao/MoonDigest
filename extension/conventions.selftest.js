@@ -10,7 +10,7 @@
 //      thrown Error has Chinese words (b. no English-only Error that e.message would show).
 //   5. A shared record is read-modified-written through its module's serial writer: 视频备注 only through
 //      MdgLimits.saveVideoNote (a), follow-bg.js's follow_* keys only through followUpdate (b), the pages' tags only
-//      through MdgTagStore (c).
+//      through MdgTagStore (c), and a key some writer changes under its lock has no unlocked write (d).
 //   6. Page paths and the file-name rule are MdgCommon's (ARCHITECTURE: common.js).
 //   7. Tab matching, conversation picking and Chrome's messaging errors are answered once (MdgSites, MdgErrors).
 // Fails on any hit of 1, 2a, 2b, 3c, 3d, 5c, 6 and 7. 3a, 3b, 4 and 5 fail on a hit that is not in ALLOW below, and on an ALLOW
@@ -68,7 +68,9 @@ const ALLOW = [
   ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],
   ["sites.js", 'new Error("no wbi_img")', "例外：biliWbiQuery 吞掉它，follow-bg.js 的 followWbiData 换成「拿不到 WBI 签名密钥」"],
   // 5a
-  ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"]
+  ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
+  // 5d
+  ["triage/fav-page.js", "noteOwnWrites({ [K.included]: included });", "例外：不是写入，是记下自己将写的值，好认出随后的 storage 回声；真正的写在下一行的 MdgLimits.update"]
 ];
 // Each line covers exactly one hit: a second line like it is a new case and needs its own reason.
 const used = ALLOW.map(() => 0);
@@ -309,6 +311,54 @@ const ALIASES = { "content.js": { readingChapterVisible: "readerChapterVisible" 
     });
   }
   section("5c. 页面不经 MdgTagStore 写标签键或自建撤销栈", tagHits, "any");
+
+  // 5d. A key some writer changes under its lock (MdgLimits.update, the 分拣台's storeEdit, updateConversations,
+  // updateReadingMarks) has no other write: a whole value set from an older read drops what the locked edit wrote
+  // (ARCHITECTURE: 同一个存储键的读改写只有一条路). A key is a MdgLimits.KEYS name under a file's spellings of it: KEYS.x,
+  // const A = KEYS.x, { x: A } = KEYS, and T.n where const T = { n: KEYS.x }; fav-*.js also see fav-base.js's.
+  // A write is an object key ([A]: …), storeSet(A, …) or a remove of A.
+  const js = files.filter((f) => f.endsWith(".js") && f !== "limits.js");
+  const spellings = (text) => {
+    const names = new Map();
+    const add = (key, re) => names.set(key, [...(names.get(key) || []), re]);
+    for (const m of text.matchAll(/\b(?:MdgLimits\.)?KEYS\.(\w+)\b/g)) add(m[1], `(?:MdgLimits\\.)?KEYS\\.${m[1]}\\b`);
+    for (const m of text.matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*(?:MdgLimits\.)?KEYS\.(\w+)\b/g)) add(m[2], `\\b${m[1]}\\b`);
+    for (const m of text.matchAll(/\{([^{}]*)\}\s*=\s*(?:MdgLimits\.)?KEYS\b/g)) {
+      for (const own of m[1].matchAll(/\b(\w+)\b(?:\s*:\s*([\w$]+))?/g)) add(own[1], `\\b${own[2] || own[1]}\\b`);
+    }
+    for (const m of text.matchAll(/([\w$]+)\s*:\s*(?:MdgLimits\.)?KEYS\.(\w+)\b/g)) {
+      const table = [...text.slice(0, m.index).matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*\{/g)].at(-1);
+      if (table) add(m[2], `\\b${table[1]}\\.${m[1]}\\b`);
+    }
+    // A key of the file's own written as a literal in a key table (const K = { aiRecent: "triage_ai_recent" }).
+    for (const m of text.matchAll(/([\w$]+)\s*:\s*"(\w+)"/g)) {
+      const table = [...text.slice(0, m.index).matchAll(/(?:const|let|var)\s+([\w$]+)\s*=\s*\{/g)].at(-1);
+      if (table) add(`"${m[2]}"`, `\\b${table[1]}\\.${m[1]}\\b`);
+    }
+    return names;
+  };
+  const scope = (f) => [f, ...(/^triage\/fav-/.test(f) && f !== "triage/fav-base.js" ? ["triage/fav-base.js"] : [])].map(textOf).join("\n");
+  const keyRe = (names) => `(?:${names.join("|")})`;
+  const locked = new Set(["aiConversations", "readingMarks"]);
+  for (const f of js) {
+    const text = textOf(f);
+    for (const [key, names] of spellings(scope(f))) {
+      if (new RegExp(`\\b(?:MdgLimits\\.update|storeEdit)\\(\\s*${keyRe(names)}\\s*,`).test(text)) locked.add(key);
+    }
+  }
+  const rawHits = [];
+  for (const f of js) {
+    const names = spellings(scope(f));
+    for (const key of locked) {
+      if (!names.has(key)) continue;
+      const k = keyRe(names.get(key));
+      const write = new RegExp(`[{,]\\s*\\[\\s*${k}\\s*\\]\\s*:|\\bstoreSet\\(\\s*${k}\\s*,|\\.remove\\(\\s*(?:\\[[^\\]]*)?${k}`);
+      lines[f].forEach((line, i) => {
+        if (!isComment(line) && write.test(line)) rawHits.push(hitAt(f, i, `  （${key}）`));
+      });
+    }
+  }
+  section("5d. 有锁的键又被整份写", rawHits, "allow");
 }
 
 // 6. What common.js holds is not written again: an extension page's path for getURL (MdgCommon.PAGES; a page's own
