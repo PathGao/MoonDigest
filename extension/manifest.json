@@ -7,6 +7,9 @@
   "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab", "sidePanel", "cookies", "declarativeNetRequest", "alarms"],
   "host_permissions": [
     "https://www.bilibili.com/*",
+    "https://space.bilibili.com/*",
+    "https://search.bilibili.com/*",
+    "https://t.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
     "https://www.youtube.com/*",
@@ -32,7 +35,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.bilibili.com/list/watchlater*",
+        "https://www.bilibili.com/list/*",
         "https://www.youtube.com/*"
       ],
       "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "content.js"],

@@ -346,6 +346,7 @@
     id: "bilibili",
     label: "B站",
     domain: "bilibili.com",
+    pageHost: "www.bilibili.com",
     hosts: ["www.bilibili.com", "api.bilibili.com", "hdslb.com"],
     match(url) {
       const parsed = parseUrl(url);
@@ -353,7 +354,8 @@
         return false;
       }
       const path = parsed.pathname.replace(/\/+$/, "");
-      return path.startsWith("/video/") || path === "/list/watchlater";
+      // /list/: the playlist player, 稍后再看 (/list/watchlater) and a 收藏夹 or 合集 played through (/list/ml…).
+      return path.startsWith("/video/") || path.startsWith("/list/");
     },
     parseRef(url) {
       const id = biliExtractBvid(url);
@@ -1050,6 +1052,7 @@
     id: "youtube",
     label: "YouTube",
     domain: "youtube.com",
+    pageHost: "www.youtube.com",
     hosts: ["www.youtube.com", "youtu.be", "i.ytimg.com"],
     // The player API answers 403 to requests carrying a chrome-extension://
     // Origin, so meta/tracks are fetched from inside the page only.
@@ -1413,6 +1416,14 @@
     return Object.values(SITES).find((site) => site.match(url)) || null;
   }
 
+  // The site whose video page url is, on the host content.js runs on (the manifest's). matchSite also takes the links a
+  // note keeps (youtu.be, m.youtube.com, music.youtube.com): no page of ours, so the popup and side panel read them as
+  // web pages instead of offering what the content script cannot do there.
+  function matchPage(url) {
+    const site = matchSite(url);
+    return site && parseUrl(url)?.hostname === site.pageHost ? site : null;
+  }
+
   function parseRef(url) {
     return matchSite(url)?.parseRef(url) || null;
   }
@@ -1534,6 +1545,7 @@
     SITES,
     waitTabLoaded,
     matchSite,
+    matchPage,
     parseRef,
     cleanUrl,
     videoUrl,

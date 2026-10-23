@@ -54,7 +54,7 @@ init().catch((error) => {
 async function init() {
   bindEvents();
   const tab = await MdgSites.activeTab();
-  onVideoPage = Boolean(MdgSites.matchSite(tab?.url || ""));
+  onVideoPage = Boolean(MdgSites.matchPage(tab?.url || ""));
   settingsLoad = getSettingsFromRuntime();
   settingsLoad.then(
     (settings) => {
@@ -401,7 +401,7 @@ async function sendToContent(message) {
   }
 
   try {
-    return await MdgErrors.tabMessage(tabId, message, { inject: Boolean(MdgSites.matchSite(tab?.url || "")) });
+    return await MdgErrors.tabMessage(tabId, message, { inject: Boolean(MdgSites.matchPage(tab?.url || "")) });
   } catch (error) {
     // Chrome's English (tabMessage marks it) in the user's words; our own reasons pass through.
     const normalizedError = MdgErrors.messageOf(MdgErrors.pageSilent(error));
