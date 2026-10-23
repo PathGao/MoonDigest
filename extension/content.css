@@ -1177,7 +1177,8 @@ body[data-mdg-reader-mode="1"] .video-info-container,
 body[data-mdg-reader-mode="1"] .video-info-detail,
 body[data-mdg-reader-mode="1"] .video-sections-content-list,
 body[data-mdg-reader-mode="1"] .video-container-v1,
-body[data-mdg-reader-mode="1"] .video-container-v3 {
+body[data-mdg-reader-mode="1"] .video-container-v3,
+body[data-mdg-reader-mode="1"] #__next .main-container {
   background: var(--mdg-bg) !important;
   color: var(--mdg-text);
 }
@@ -1207,6 +1208,8 @@ body[data-mdg-reader-mode="1"] .left-container,
 body[data-mdg-reader-mode="1"] .scroll-sticky,
 body[data-mdg-reader-mode="1"] #playerWrap,
 body[data-mdg-reader-mode="1"] .player-wrap,
+body[data-mdg-reader-mode="1"] #bilibili-player-wrap,
+body[data-mdg-reader-mode="1"] .festival-video-player,
 body[data-mdg-reader-mode="1"] h1.video-title,
 body[data-mdg-reader-mode="1"] .video-info-container,
 body[data-mdg-reader-mode="1"] #viewbox_report,
@@ -1276,7 +1279,9 @@ body[data-mdg-reader-mode="1"] #mdg-reading-inline-host::before {
 }
 
 body[data-mdg-reader-mode="1"] #playerWrap,
-body[data-mdg-reader-mode="1"] .player-wrap {
+body[data-mdg-reader-mode="1"] .player-wrap,
+body[data-mdg-reader-mode="1"] #bilibili-player-wrap,
+body[data-mdg-reader-mode="1"] .festival-video-player {
   border: 1px solid var(--mdg-border);
   border-radius: 0;
   box-shadow: var(--mdg-reader-shadow);
@@ -1287,8 +1292,19 @@ body[data-mdg-reader-mode="1"] .player-wrap {
   max-height: var(--mdg-reader-player-rendered-height, none) !important;
 }
 
+/* 番剧 and 活动页 have no title above the player: it starts level with the transcript panel. 番剧's wrap takes its
+   height from its padding and its player fills it absolutely. */
+body[data-mdg-reader-mode="1"] #bilibili-player-wrap,
+body[data-mdg-reader-mode="1"] .festival-video-player {
+  position: relative !important;
+  margin-top: 64px !important;
+  padding: 0 !important;
+}
+
 body[data-mdg-reader-mode="1"] #playerWrap > *,
 body[data-mdg-reader-mode="1"] .player-wrap > *,
+body[data-mdg-reader-mode="1"] #bilibili-player-wrap > *,
+body[data-mdg-reader-mode="1"] .festival-video-player > *,
 body[data-mdg-reader-mode="1"] #playerWrap .bpx-player-container,
 body[data-mdg-reader-mode="1"] #playerWrap .bpx-player-video-area,
 body[data-mdg-reader-mode="1"] #playerWrap .bpx-player-primary-area,

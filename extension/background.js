@@ -446,15 +446,19 @@ const BACKGROUND_HANDLERS = {
   "settings-import": (message) => importSettings(message.file).then((file) => ({ ok: true, file })),
 
   // The content script's isolated world cannot reach the player API; a MAIN-world read can, and chrome.scripting is not
-  // subject to the page CSP. Only the watch page's own content script may ask, and only for its tab.
-  "yt-player-response": (_message, sender) => {
+  // subject to the page CSP. Only a video page's own content script may ask, and only for its own frame: YouTube's
+  // player response, B站's bpx manifest (sites.js playerRef).
+  "page-player": (_message, sender) => {
     const tabId = sender?.tab?.id;
-    if (!tabId || !/^https:\/\/www\.youtube\.com\//.test(String(sender.url || ""))) return { ok: false, error: "not a YouTube tab" };
+    if (!tabId || !MdgSites.matchPage(String(sender.url || ""))) return { ok: false, error: "not a video page" };
     return chrome.scripting
       .executeScript({
-        target: { tabId },
+        target: { tabId, frameIds: [sender.frameId || 0] },
         world: "MAIN",
-        func: () => document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
+        func: () =>
+          location.hostname === "www.bilibili.com"
+            ? globalThis.player?.getManifest?.() ?? null
+            : document.getElementById("movie_player")?.getPlayerResponse?.() ?? globalThis.ytInitialPlayerResponse ?? null
       })
       .then((results) => ({ ok: true, data: results?.[0]?.result ?? null }));
   },
@@ -1194,5 +1198,5 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
-triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "yt-player-response", "fetch-json"], (r) => r);
+triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json"], (r) => r);
 triageListen(null, OBSIDIAN_HANDLERS, OBSIDIAN_WEB_TYPES, (r) => ({ ok: true, ...r }));

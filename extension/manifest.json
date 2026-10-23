@@ -36,6 +36,8 @@
     {
       "matches": [
         "https://www.bilibili.com/list/*",
+        "https://www.bilibili.com/bangumi/play/*",
+        "https://www.bilibili.com/festival/*",
         "https://www.youtube.com/*"
       ],
       "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "content.js"],

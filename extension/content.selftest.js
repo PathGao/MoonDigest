@@ -261,6 +261,34 @@ const settle = async () => {
     Object.assign(t, prev);
   }
 
+  // 番剧 and 活动页 URLs name no BV id: the video comes from the player (sites.js playerRef), awaited while it still plays
+  // the episode before an in-page switch. A 活动页 switches video without changing its URL: the player's is the change.
+  {
+    const saved = { send: t.sendRuntimeMessage, changed: t.videoChanged, site: t.currentSite, href: t.location.href };
+    t.currentSite = () => t.MdgSites.matchSite(t.location.href);
+    let playing = { p: 1, aid: 117455577942856, cid: 42817818257, episodeId: 6913562 };
+    t.sendRuntimeMessage = async (m) => (m.type === "page-player" ? { ok: true, data: playing } : {});
+    t.location.href = "https://www.bilibili.com/bangumi/play/ep6694803";
+    const waiting = t.waitPlayerRef(state.fetchRunId);
+    await new Promise((r) => setImmediate(r));
+    playing = { p: 1, aid: 2, cid: 20, episodeId: 6694803 };
+    assert.strictEqual((await waiting)?.part.cid, "20", "the URL's episode, not the one still playing");
+    assert.strictEqual(t.computeCurrentClipSignature(), "/bangumi/play/ep6694803");
+
+    const changes = [];
+    t.videoChanged = () => changes.push(playing.bvid);
+    t.location.href = "https://www.bilibili.com/festival/bnj2025";
+    Object.assign(state, { videoId: "BV1ZUfsYpEXy", cid: "1" });
+    for (const bvid of ["BV1ZUfsYpEXy", "BV1b1fZYeEdi"]) {
+      playing = { p: 1, aid: 3, cid: bvid === state.videoId ? 1 : 2, bvid };
+      await t.checkPlayerChange();
+    }
+    assert.deepStrictEqual(changes, ["BV1b1fZYeEdi"]);
+    Object.assign(state, { videoId: "", cid: "" });
+    Object.assign(t, { sendRuntimeMessage: saved.send, videoChanged: saved.changed, currentSite: saved.site });
+    t.location.href = saved.href;
+  }
+
   // V2: 专注模式 shows the transcript once it is here; only the note waits for the hot comments.
   {
     const prev = Object.fromEntries(["refreshDerivedContent", "renderReadingView", "moveReadingMainInline", "startReaderPlayerObserver"].map((k) => [k, t[k]]));

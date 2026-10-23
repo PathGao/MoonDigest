@@ -481,7 +481,7 @@ process.on("exit", (code) => {
       onConnect(port);
       assert.deepStrictEqual(seen, ["disconnect"]);
     }
-    for (const type of ["open-options", "player-ai-quick-action", "yt-player-response", "write-video-note"]) {
+    for (const type of ["open-options", "player-ai-quick-action", "page-player", "write-video-note"]) {
       let refused = null;
       const kept = onMessage.some((fn) => fn({ type }, web, (r) => (refused = r)) === true);
       assert.ok(kept && !refused, `${type} from a video page`);

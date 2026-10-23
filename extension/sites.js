@@ -355,14 +355,16 @@
       }
       const path = parsed.pathname.replace(/\/+$/, "");
       // /list/: the playlist player, 稍后再看 (/list/watchlater) and a 收藏夹 or 合集 played through (/list/ml…).
-      return path.startsWith("/video/") || path.startsWith("/list/");
+      // /bangumi/play/ (番剧、影视) and /festival/ (活动页) play videos their URL may not name: playerRef names them.
+      return ["/video/", "/list/", "/bangumi/play/", "/festival/"].some((prefix) => path.startsWith(prefix));
     },
     parseRef(url) {
-      const id = biliExtractBvid(url);
+      const parsed = parseUrl(url);
+      // A 活动页 keeps the ?bvid= it was opened with after another video is picked there: only its player tells.
+      const id = parsed?.pathname.startsWith("/festival/") ? "" : biliExtractBvid(url);
       if (!id) {
         return null;
       }
-      const parsed = parseUrl(url);
       const index = positiveInt(parsed?.searchParams.get("p"), 1);
       const part = {
         index,
@@ -371,6 +373,19 @@
         oid: String(parsed?.searchParams.get("oid") || "").trim()
       };
       return { site: "bilibili", id, part, url: bilibili.canonicalUrl(id, index) };
+    },
+    // The video of a page whose URL names none (番剧 ep…/ss…, 活动页), from its bpx player's getManifest() (read in the
+    // page's MAIN world): aid and cid, bvid on a 活动页 only; every 番剧 episode is its own one-part video. Null until the
+    // player has loaded the episode an ep URL names (an in-page episode switch changes the URL first).
+    playerRef(url, manifest) {
+      const aid = positiveInt(manifest?.aid);
+      const ep = String(url || "").match(/\/bangumi\/play\/ep(\d+)/)?.[1];
+      if (!aid || !manifest.cid || (ep && String(manifest.episodeId) !== ep)) {
+        return null;
+      }
+      const id = /^BV[0-9A-Za-z]+$/.test(String(manifest.bvid || "")) ? manifest.bvid : biliAvToBv(aid);
+      const index = positiveInt(manifest.p, 1);
+      return { site: "bilibili", id, part: { index, cid: String(manifest.cid) }, url: bilibili.canonicalUrl(id, index) };
     },
     canonicalUrl(id, partIndex = 1) {
       const suffix = positiveInt(partIndex, 1) > 1 ? `?p=${positiveInt(partIndex, 1)}` : "";
@@ -536,7 +551,8 @@
     reader: {
       playerHost: [".bpx-player-container", ".bpx-player-video-area", "#bilibili-player"],
       playerLayout: [".bpx-player-container", ".bpx-docker", ".bpx-player-video-area", ".bpx-player-primary-area", ".bpx-player-inner", ".scroll-sticky", "#bilibili-player", "#playerWrap", ".player-wrap"],
-      playerWrap: ["#playerWrap", ".player-wrap"],
+      // /video/ and /list/, 番剧 (#bilibili-player-wrap), 活动页 (.festival-video-player).
+      playerWrap: ["#playerWrap", ".player-wrap", "#bilibili-player-wrap", ".festival-video-player"],
       miniPlayer: [".bpx-player-mini-warp", ".bpx-player-mini-close"],
       miniClose: [".bpx-player-mini-close"],
       endingPanel: [".bpx-player-ending-panel", ".bpx-player-ending-related"],
@@ -1493,9 +1509,14 @@
   // part of it), a web page by its URL without # (buildContextKey). The one rule of the side panel, the background's
   // write of a page not open (tabNote) and 摘读记录's 继续问. A watch-later URL names its part by oid, the part's cid:
   // ref's cid places it, or live (the tab's loaded context) when it has that cid; otherwise it reads as P1.
+  // A video page whose URL names no video (番剧, 活动页: playerRef) shows live's video, and is the same page as another
+  // such URL with its path (mdg_reader and tracking params aside), as the content script's clip signature reads it.
   function sameContext(url, ref, { live = null, anyPart = false } = {}) {
     const target = contextRef(typeof ref === "string" ? { url: ref } : ref);
-    const tab = parseRef(url);
+    const named = parseRef(url);
+    const unnamed = !named && Boolean(matchPage(url));
+    const tab = named || (unnamed && live?.videoId && !live.pending ? { site: live.site, id: live.videoId, part: { index: partIndex(contextRef(live)) } } : null);
+    if (!tab && unnamed && !target.videoId && matchPage(target.url)) return parseUrl(url).pathname === parseUrl(target.url).pathname;
     if (!tab || !target.videoId) return !tab && !target.videoId && buildContextKey({ url }) === buildContextKey({ url: target.url });
     if (tab.site !== target.site || tab.id !== target.videoId) return false;
     if (anyPart) return true;
