@@ -309,7 +309,9 @@ const ids = {
   readingFollowResumeBtn: "mdg-reading-follow-resume",
   readingTranscriptTailSpacer: "mdg-reading-tail-spacer",
   // In the page's DOM, next to its player: the transcript column focus mode moves there.
-  readingInlineHost: "mdg-reading-inline-host"
+  readingInlineHost: "mdg-reading-inline-host",
+  // Above the player of a page without a title of its own (番剧, 活动页).
+  readingPageTitle: "mdg-reading-page-title"
 };
 
 // Focus mode's attributes on <html> and <body>: set while it is open, cleared together on close and by the guard.
@@ -357,11 +359,30 @@ const life = new AbortController();
 
 init();
 
-// Every focus-mode entry goes through here; the view only opens in reader mode.
+// Every focus-mode entry goes through here; the view only opens in reader mode. A Shorts page has no room for the
+// transcript beside its vertical player: the same video's watch page loads instead and enters from its URL.
 function markReaderMode() {
+  const watchUrl = shortsReaderUrl();
+  if (watchUrl) {
+    // Back returns to the Short, not to a URL that comes straight back here.
+    replaceReaderModeUrl(stripReaderModeUrl());
+    location.assign(watchUrl);
+    return;
+  }
   stepReader("mark");
   document.documentElement.setAttribute(READER_MODE, "1");
   document.body.setAttribute(READER_MODE, "1");
+}
+
+// The watch page asking for 专注模式 of the YouTube Short at url, "" for any other page.
+function shortsReaderUrl(url = location.href) {
+  const ref = new URL(url).pathname.startsWith("/shorts/") && MdgSites.parseRef(url);
+  if (ref?.site !== "youtube") {
+    return "";
+  }
+  const watch = new URL(ref.url);
+  watch.searchParams.set(MdgCommon.READER_PARAM, "1");
+  return watch.href;
 }
 
 function standDown() {
@@ -1733,6 +1754,13 @@ function closeReadingView() {
   window.setTimeout(() => cleanupReaderFloatingArtifacts(), 220);
 }
 
+function renderReadingPageTitle() {
+  const node = document.getElementById(ids.readingPageTitle);
+  if (node) {
+    node.textContent = node.title = state.title || "";
+  }
+}
+
 function renderReadingView() {
   const titleNode = document.querySelector(".mdg-reading-title");
   const metaNode = byId(ids.readingMeta);
@@ -1747,6 +1775,7 @@ function renderReadingView() {
   if (titleNode) {
     titleNode.textContent = state.title || READER_NAME;
   }
+  renderReadingPageTitle();
   if (metaNode) {
     metaNode.textContent = buildReadingMetaLine();
   }
@@ -2402,6 +2431,7 @@ function applyReaderPageFocus() {
     playerHost,
     titleNode,
     document.getElementById(ids.readingInlineHost),
+    document.getElementById(ids.readingPageTitle),
     document.querySelector(".mdg-reading-rail")
   ].filter(Boolean);
 
@@ -2466,6 +2496,12 @@ function moveReadingMainInline() {
   if (rail && (rail.parentElement !== hostParent || rail.previousElementSibling !== playerWrap)) {
     playerWrap.insertAdjacentElement("afterend", rail);
   }
+  // 番剧 and 活动页 show no title above their player: the video's goes there, as on /video/.
+  const pageTitle = document.getElementById(ids.readingPageTitle) || (currentSite()?.playerRef && !queryFirst(reader().title) && Object.assign(document.createElement("h1"), { id: ids.readingPageTitle }));
+  if (pageTitle && pageTitle.nextElementSibling !== playerWrap) {
+    playerWrap.insertAdjacentElement("beforebegin", pageTitle);
+    renderReadingPageTitle();
+  }
   const hostAnchor = rail || playerWrap;
   if (inlineHost.parentElement !== hostParent || inlineHost.previousElementSibling !== hostAnchor) {
     hostAnchor.insertAdjacentElement("afterend", inlineHost);
@@ -2498,6 +2534,7 @@ function restoreReadingMainInline() {
     layout.prepend(rail);
   }
   inlineHost?.remove();
+  document.getElementById(ids.readingPageTitle)?.remove();
   state.readingMainOriginalParent = null;
   state.readingMainOriginalNextSibling = null;
 }
@@ -2566,6 +2603,13 @@ function findReaderTitleContainer() {
   return title;
 }
 
+// A class naming a floating (mini, picture-in-picture) player. YouTube puts ytp-rounded-miniplayer-not-regular-wide-video
+// on every player of a vertical video in place: taking it for a mini player collapsed the watch page's player to 0px.
+function hasFloatingPlayerClass(node) {
+  const className = typeof node?.className === "string" ? node.className : "";
+  return /mini|picture|float|fixed-player/i.test(className.replace(/\bytp-rounded-miniplayer-not-regular-wide-video\b/g, ""));
+}
+
 function dismissReaderMiniPlayer(playerHost = state.readingPlayerHost) {
   const explicitClose = Array.from(document.querySelectorAll(sel(reader().miniClose))).find(isVisibleReaderControl);
   if (explicitClose) {
@@ -2578,7 +2622,7 @@ function dismissReaderMiniPlayer(playerHost = state.readingPlayerHost) {
   }
 
   const computed = window.getComputedStyle(playerHost);
-  const fixedLike = computed.position === "fixed" || /mini|picture|float|fixed-player/i.test(playerHost.className || "");
+  const fixedLike = computed.position === "fixed" || hasFloatingPlayerClass(playerHost);
   if (!fixedLike) {
     return false;
   }
@@ -3306,7 +3350,6 @@ function normalizeReaderPlayerContainer(playerHost = state.readingPlayerHost) {
 
   while (current && current !== document.body && depth < 12) {
     const computed = window.getComputedStyle(current);
-    const className = typeof current.className === "string" ? current.className : "";
     const isPlayerLayoutNode = current.matches?.(sel(reader().playerLayout));
     const isExplicitMiniNode = current.matches?.(
       sel([...reader().miniPlayer, "[class*='mini-player']", "[class*='picture-in-picture']"])
@@ -3314,7 +3357,7 @@ function normalizeReaderPlayerContainer(playerHost = state.readingPlayerHost) {
     const hasFloatingPosition = computed.position === "fixed" || computed.position === "sticky";
     const isMiniLike =
       hasFloatingPosition ||
-      /mini|picture|float|fixed-player/i.test(className) ||
+      hasFloatingPlayerClass(current) ||
       current.matches?.(sel(reader().miniPlayer));
     const shouldReset = state.readingViewOpen
       ? Boolean(isExplicitMiniNode || (isPlayerLayoutNode && isMiniLike))

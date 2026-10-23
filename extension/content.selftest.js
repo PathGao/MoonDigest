@@ -896,6 +896,32 @@ const settle = async () => {
     assert.strictEqual(source.match(/enterReaderMode\(\)\.catch/g).length, 1, "one catch for every entry");
     Object.assign(t, saved);
   }
+  // 专注模式 on a YouTube Short opens the same video's watch page (from its URL); the Short itself never enters, and
+  // Back returns to it without the request.
+  {
+    const short = "https://www.youtube.com/shorts/dQw4w9WgXcQ";
+    const watch = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&mdg_reader=1";
+    assert.strictEqual(t.shortsReaderUrl(short), watch);
+    for (const url of ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://www.youtube.com/shorts/", "https://www.bilibili.com/video/BV1GJ411x7h7/"]) assert.strictEqual(t.shortsReaderUrl(url), "");
+    const saved = { href: t.location.href, ...Object.fromEntries(["replaceReaderModeUrl", "ensureUiReady", "removePlayerAiQuickActionButton", "setReadingNotice"].map((k) => [k, t[k]])) };
+    const went = [];
+    const phase = state.readerPhase;
+    Object.assign(t, { replaceReaderModeUrl: (u) => (t.location.href = u), ensureUiReady() {}, removePlayerAiQuickActionButton() {}, setReadingNotice: (m) => went.push(m) });
+    t.location.assign = (u) => went.push(t.location.href, u);
+    t.location.href = short;
+    const reply = await new Promise((resolve) => listeners.message.forEach((f) => f({ type: "popup-trigger-reading-view", readerUrl: `${short}?mdg_reader=1` }, {}, resolve)));
+    await settle();
+    assert.deepStrictEqual([reply.ok, went, state.readerPhase], [true, [short, watch], phase]);
+    delete t.location.assign;
+    Object.assign(t, saved);
+    t.location.href = saved.href;
+  }
+  // A vertical video's YouTube player is no mini player (its class says miniplayer); a minimized one still is.
+  {
+    const player = (className) => ({ className });
+    assert.strictEqual(t.hasFloatingPlayerClass(player("html5-video-player ytp-rounded-miniplayer-not-regular-wide-video ytp-autohide")), false);
+    for (const c of ["html5-video-player ytp-player-minimized", "bpx-player-mini-warp", "picture-in-picture"]) assert.strictEqual(t.hasFloatingPlayerClass(player(c)), true, c);
+  }
   // J12: 专注模式's info bar says 发布日期, as everywhere else.
   {
     const was = state.uploadDate;
