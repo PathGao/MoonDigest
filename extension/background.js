@@ -563,7 +563,9 @@ const BACKGROUND_HANDLERS = {
       (payload) => ({ ok: true, payload })
     ),
   "ai-sidepanel-resolve-context": (message) => resolveAiSidepanelContext(message.contextRef || {}).then((payload) => ({ ok: true, payload })),
-  "ai-sidepanel-resolve-page-ref": (message) => resolveAiSidepanelPageRef(message.contextRef || {}).then((payload) => ({ ok: true, payload }))
+  "ai-sidepanel-resolve-page-ref": (message) => resolveAiSidepanelPageRef(message.contextRef || {}).then((payload) => ({ ok: true, payload })),
+  // The replies still running for panels that closed (orphanRuns): a reopened panel attaches to one through the chat port.
+  "ai-replies-running": () => ({ ok: true, replies: [...orphanRuns.values()].filter((run) => run.alive).map((run) => run.reply) })
 };
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -578,7 +580,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
   // One run per chat on this port (MdgCommon.latest): 停止, the watchdog or a newer chat ends it, which aborts its
   // request; so does the panel closing, unless the panel named the reply's conversation (detach), which this end then
-  // finishes by itself (finishOrphanReply). meta: how a run ended, for the words the panel gets (postStreamAbort).
+  // finishes by itself (finishOrphanReply) and a reopened panel may attach to (attach: run.post then goes to that port,
+  // and its 停止 ends this run). meta: how a run ended, for the words the panel gets (postStreamAbort).
   const chats = MdgCommon.latest();
   // The panel may have closed: a message to a dead port throws, and there is nobody left to tell.
   const post = (message) => {
@@ -586,6 +589,8 @@ chrome.runtime.onConnect.addListener((port) => {
       port.postMessage(message);
     } catch {}
   };
+  // The orphaned run this port attached to, if any.
+  let attachedRun = null;
   // The first end names how it ended; a later one (the port closing after 停止) changes nothing.
   const endChat = (run, meta) => {
     clearTimeout(run.watchdog);
@@ -601,26 +606,38 @@ chrome.runtime.onConnect.addListener((port) => {
   };
 
   port.onDisconnect.addListener(() => {
+    if (attachedRun) return orphan(attachedRun);
     const run = chats.current;
     if (!run.reply || !run.alive) return endChat(run, { type: "silent" });
-    run.orphan = true;
-    orphanKeepAlive(true);
+    run.lost = true;
+    orphan(run);
   });
 
   port.onMessage.addListener(async (msg) => {
     if (!msg) return;
     if (msg.action === "stop") {
-      endChat(chats.current, { type: "stopped", reason: MdgErrors.TEXT.aiStopped });
+      endChat(attachedRun || chats.current, { type: "stopped", reason: MdgErrors.TEXT.aiStopped });
       return;
     }
     if (msg.action === "detach") {
       chats.current.reply = { conversationId: String(msg.conversationId || ""), promptIndex: Number(msg.promptIndex) || 0 };
       return;
     }
+    if (msg.action === "attach") {
+      // A reply that ended already (its write is in the stored list) or that another panel took: nothing more comes.
+      const run = orphanRuns.get(String(msg.conversationId || ""));
+      if (!run?.alive || run.attached) return post({ type: "done" });
+      attachedRun = run;
+      run.attached = true;
+      run.post = post;
+      orphanKeepAlive(false);
+      return;
+    }
     if (msg.action !== "chat") return;
 
     endChat(chats.current, { type: "silent" });
     const run = chats.next();
+    run.post = post;
     const prompt = String(msg.prompt || "");
     let raw = "";
     try {
@@ -645,22 +662,23 @@ chrome.runtime.onConnect.addListener((port) => {
         history: Array.isArray(msg.history) ? msg.history : [],
         post: (message) => {
           if (message.type === "token") raw += String(message.data || "");
-          post(message);
+          run.post(message);
         },
         signal: run.signal,
         getAbortMeta: () => run.meta,
         onActivity: () => armWatchdog(run, STREAM_TIMEOUT_MS.idle, MdgErrors.aiStalled(STREAM_TIMEOUT_MS.idle), "AI_STALLED")
       });
     } catch (e) {
-      if (MdgCommon.isStale(e)) postStreamAbort(post, run.meta);
-      else post({ type: "error", error: String(e?.message || e) });
+      if (MdgCommon.isStale(e)) postStreamAbort(run.post, run.meta);
+      else run.post({ type: "error", error: String(e?.message || e) });
     } finally {
-      // Ended here, so a port closing later finds nothing to orphan. An orphan's answer goes in whatever came, as the
-      // panel keeps a partial one and drops the question of an empty one (patchReply).
+      // Ended here, so a port closing later finds nothing to orphan. A lost run's answer goes in whatever came, as the
+      // panel keeps a partial one and drops the question of an empty one (patchReply); an attached panel only shows it.
       endChat(run, { type: "silent" });
-      if (run.orphan) {
+      if (run.lost) {
+        orphanRuns.delete(run.reply.conversationId);
         await finishOrphanReply({ ...run.reply, prompt, raw }).catch((error) => console.warn("[MDG] orphan reply not saved", error));
-        orphanKeepAlive(false);
+        if (!run.attached) orphanKeepAlive(false);
       }
     }
   });
@@ -668,10 +686,19 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // A reply whose panel closed before it ended (the panel had named its conversation: detach) goes into that
 // conversation as the panel would have put it (SidepanelState.patchReply); a conversation deleted meanwhile gets
-// nothing. The worker's idle timer is reset every 20 s while one runs (as 关注's followKeepAlive does), since nothing
-// else keeps it alive once the port is gone; a worker killed anyway leaves the question without its answer.
+// nothing. Until then it is in orphanRuns, where a reopened panel finds it (ai-replies-running, attach). The worker's
+// idle timer is reset every 20 s while one runs unattached (as 关注's followKeepAlive does), since nothing else keeps
+// it alive once the port is gone; a worker killed anyway leaves the question without its answer.
+const orphanRuns = new Map();
 let orphanReplies = 0;
 let orphanPinger = 0;
+function orphan(run) {
+  if (!run.alive) return;
+  run.attached = false;
+  run.post = () => {};
+  orphanRuns.set(run.reply.conversationId, run);
+  orphanKeepAlive(true);
+}
 async function finishOrphanReply({ conversationId, promptIndex, prompt, raw }) {
   await MdgLimits.updateConversations((list) => list.map((c) => {
     if (c?.id !== conversationId) return c;

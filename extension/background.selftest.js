@@ -292,7 +292,7 @@ process.on("exit", (code) => {
   {
     const wasChrome = ctx.chrome;
     const conv = (id) => ({ id, messages: [{ role: "user", content: "q" }], updatedAt: 1 });
-    const store = { [ctx.MdgLimits.KEYS.aiConversations]: ["c1", "c2", "c3", "c4", "c5"].map(conv) };
+    const store = { [ctx.MdgLimits.KEYS.aiConversations]: ["c1", "c2", "c3", "c4", "c5", "c6", "c7"].map(conv) };
     const stored = (id) => store[ctx.MdgLimits.KEYS.aiConversations].find((c) => c.id === id).messages;
     const pings = [];
     const timers = [];
@@ -320,7 +320,7 @@ process.on("exit", (code) => {
     await wait(10);
     port.disconnect();
     await chat;
-    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2", "c3", "c4", "c5"]);
+    assert.deepStrictEqual(store[ctx.MdgLimits.KEYS.aiConversations].map((c) => c.id), ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]);
     // 停止, then the port closes (the panel deleted the conversation): aborted, nothing written.
     port = openPort();
     ctx.fetch = stalling();
@@ -367,6 +367,40 @@ process.on("exit", (code) => {
     port.disconnect();
     await chat;
     assert.deepStrictEqual([stored("c5"), timers.filter(Boolean).length], [[], 0], "no answer: the question goes, the ping stops");
+    // Attach: a reopened panel asks which replies still run, attaches to one by id, gets what comes from now on and
+    // 停止 ends it; while attached nothing is pinged (its port keeps the worker). The end is still written here.
+    port = openPort();
+    ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "一" }) }, { after: 40, chunk: sse({ content: "二" }) }, { after: 300, chunk: sse({ content: "三" }) }, { after: 0, done: true }]);
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c6", promptIndex: 0 });
+    await wait(15);
+    port.disconnect();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify((await ask({ type: "ai-replies-running" })).replies)), [{ conversationId: "c6", promptIndex: 0 }]);
+    const again = openPort();
+    again.fn({ action: "attach", conversationId: "c6" });
+    assert.strictEqual(timers.filter(Boolean).length, 0, "attached: no ping");
+    await wait(50);
+    assert.deepStrictEqual(again.out.map((m) => m.data), ["二"], "only what came after the attach");
+    again.fn({ action: "stop" });
+    await chat;
+    assert.deepStrictEqual([again.out.at(-1).type, stored("c6")], ["stopped", [{ role: "user", content: "q" }, { role: "assistant", content: "一二" }]]);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify((await ask({ type: "ai-replies-running" })).replies)), [], "ended: no longer listed");
+    // Nothing to attach to (ended, or never orphaned): done at once. An attached panel closing orphans the reply again.
+    const none = openPort();
+    none.fn({ action: "attach", conversationId: "c6" });
+    assert.deepStrictEqual(none.out.map((m) => m.type), ["done"]);
+    port = openPort();
+    ctx.fetch = streamingFetch([{ after: 5, chunk: sse({ content: "甲" }) }, { after: 30, chunk: sse({ content: "乙" }) }, { after: 0, done: true }]);
+    chat = port.fn(CHAT);
+    port.fn({ action: "detach", conversationId: "c7", promptIndex: 0 });
+    await wait(15);
+    port.disconnect();
+    const brief = openPort();
+    brief.fn({ action: "attach", conversationId: "c7" });
+    brief.disconnect();
+    assert.strictEqual(timers.filter(Boolean).length, 1, "orphaned again: pinged again");
+    await chat;
+    assert.deepStrictEqual([stored("c7"), timers.filter(Boolean).length, brief.out], [[{ role: "user", content: "q" }, { role: "assistant", content: "甲乙" }], 0, []]);
     [ctx.setInterval, ctx.clearInterval] = realInterval;
     ctx.chrome = wasChrome;
   }

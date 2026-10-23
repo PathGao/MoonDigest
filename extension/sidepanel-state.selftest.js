@@ -653,12 +653,49 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   r.ask("q3");
   const d3 = leave(r);
   assert.deepStrictEqual(types(r.dispatch({ type: "SAVED_CHANGED", list: r.view().saved, previous: r.view().saved })), []);
-  // Reopened while the reply runs: the conversation says so, until the reply lands.
-  r.dispatch({ type: "OPEN", id: d3.conversationId });
-  assert.deepStrictEqual([r.view().replyDetached, r.view().streaming], [true, false]);
-  r.dispatch({ ...d3, type: "REPLY_FINISHED", prompt: "q3", raw: "a3" });
-  assert.deepStrictEqual(plain([r.view().replyDetached, r.view().messages.map((m) => m.content)]), [false, ["q3", "a3"]]);
-  assert.strictEqual(panel().view().replyDetached, false, "a fresh conversation");
+  // Reopened while the reply runs: re-attached, the reply is the turn again (streaming, 停止 works) and ends as a normal
+  // reply: the answer after the saved question, once.
+  const opened = r.dispatch({ type: "OPEN", id: d3.conversationId });
+  assert.deepStrictEqual(plain(opened.filter((e) => e.type === "reattach")), [{ type: "reattach", conversationId: d3.conversationId }]);
+  assert.deepStrictEqual([r.view().turn, r.view().streaming, r.view().messages.length], ["streaming", true, 1]);
+  assert.deepStrictEqual(plain(r.dispatch({ type: "STOP" })), [{ type: "stop" }], "停止 after re-attach");
+  assert.deepStrictEqual(types(r.dispatch({ type: "STREAM_ENDED", raw: "a3" })), ["save", "autoSync"]);
+  assert.deepStrictEqual(plain([r.view().turn, r.view().messages.map((m) => m.content), r.view().saved.find((c) => c.id === d3.conversationId).messages.map((m) => m.content)]), ["idle", ["q3", "a3"], ["q3", "a3"]]);
+  // Away again mid-reply, then back: detached again without saving twice, re-attached again; it lands once.
+  const t = panel();
+  t.ask("q4");
+  const d4 = leave(t);
+  t.dispatch({ type: "OPEN", id: d4.conversationId });
+  const away = t.dispatch({ type: "NEW" });
+  assert.deepStrictEqual(plain(away.filter((e) => e.type === "detach" || e.type === "save")), [{ type: "detach", ...d4 }], "no second save of the question");
+  t.dispatch({ type: "OPEN", id: d4.conversationId });
+  assert.strictEqual(t.view().turn, "streaming");
+  t.dispatch({ type: "STREAM_ENDED", raw: "" });
+  assert.deepStrictEqual(plain(t.view().saved.find((c) => c.id === d4.conversationId)?.messages ?? []), [], "nothing came: the question goes");
+  // Back after the reply already landed: a saved answer, nothing to re-attach.
+  const u = panel();
+  u.ask("q5");
+  const d5 = leave(u);
+  u.dispatch({ ...d5, type: "REPLY_FINISHED", prompt: "q5", raw: "a5" });
+  const back = u.dispatch({ type: "OPEN", id: d5.conversationId });
+  assert.deepStrictEqual(plain([back.some((e) => e.type === "reattach"), u.view().turn, u.view().messages.map((m) => m.content)]), [false, "idle", ["q5", "a5"]]);
+  // The background's replies (ORPHANS): the shown conversation attaches at once; its end comes from the stored list, so
+  // an external end changes no messages. One whose conversation is loading a question does not take the turn (REATTACH
+  // only from idle), and stays detached for later.
+  const w = panel({ list: [saved("o1", video("BV1o1"), [{ role: "user", content: "问" }]), saved("o2", video("BV1o2"), [{ role: "user", content: "问2" }])] });
+  w.dispatch({ type: "OPEN", id: "o1" });
+  assert.deepStrictEqual(plain(w.dispatch({ type: "ORPHANS", replies: [{ conversationId: "o1", promptIndex: 0 }, { conversationId: "o2", promptIndex: 0 }, { conversationId: "nope", promptIndex: 0 }] })), [{ type: "reattach", conversationId: "o1" }]);
+  assert.deepStrictEqual([w.view().turn, plain(w.dispatch({ type: "STREAM_ENDED", raw: "半", external: true })), w.view().messages.length], ["streaming", [], 1]);
+  assert.ok(w.dispatch({ type: "OPEN", id: "o2" }).some((e) => e.type === "reattach"), "o2 attaches when shown");
+  w.dispatch({ type: "STREAM_ENDED", raw: "", external: true });
+  const x = panel({ list: [saved("o3", video("BV1o3"), [{ role: "user", content: "问" }])] });
+  x.dispatch({ type: "OPEN", id: "o3" });
+  x.dispatch({ type: "QUESTION", prompt: "再问" });
+  assert.deepStrictEqual(plain(x.dispatch({ type: "ORPHANS", replies: [{ conversationId: "o3", promptIndex: 0 }] })), [], "REATTACH refused while loading");
+  assert.strictEqual(x.view().turn, "loading");
+  x.dispatch({ type: "UNSENT" });
+  x.dispatch({ type: "NEW" });
+  assert.ok(x.dispatch({ type: "OPEN", id: "o3" }).some((e) => e.type === "reattach"), "kept for the next show");
 }
 
 console.log("sidepanel-state selftest: all passed");

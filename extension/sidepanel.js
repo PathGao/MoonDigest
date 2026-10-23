@@ -28,9 +28,6 @@ const NOTICE_MS = 3000;
 const NOTICE_LONG_MS = 4000;
 // A history conversation whose B站 video was deleted or hidden: no retry brings it back, so it is only read.
 const VIDEO_GONE = "视频已失效，这段对话只能查看，不能继续提问。";
-// A conversation reopened while the reply to its last question still runs (it was left mid-reply): a second question
-// would go without that answer in its history.
-const REPLY_RUNNING = "上一个回答还在生成，结束后才能继续问";
 
 const els = {
   contextChip: document.getElementById("spContextChip"),
@@ -135,6 +132,9 @@ async function init() {
   if (state.view().bound) updateContextChip();
   else renderInitialState();
   autosizeInput();
+  // Replies the background finished for a panel that closed, still running: shown again, their conversation attaches.
+  const running = await chrome.runtime.sendMessage({ type: "ai-replies-running" }).catch(() => null);
+  if (running?.ok) await act({ type: "ORPHANS", replies: running.replies });
   initCompleted = true;
   await consumePendingPlayerAiQuickAction();
 }
@@ -305,11 +305,9 @@ function autosizeInput() {
 // What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
 const sourceKind = () => (state.view().nonVideo ? "网页" : "视频");
 
-// Why the shown conversation cannot be asked in now: a web page not read, a video that is gone, or its last reply
-// still running since the panel left it.
+// Why the shown conversation cannot be asked in at all: a web page not read, or a video that is gone.
 function readOnlyReason() {
-  const { nonVideo, context, replyDetached } = state.view();
-  if (replyDetached) return REPLY_RUNNING;
+  const { nonVideo, context } = state.view();
   return nonVideo ? pageReason(context) : contextFailure()?.gone ? VIDEO_GONE : "";
 }
 
@@ -560,6 +558,8 @@ async function runEffect(effect) {
       } catch {}
       return closeStream(stream);
     }
+    case "reattach":
+      return reattachStream(effect.conversationId);
     case "draft": {
       const typed = els.input.value.trim() ? els.input.value : "";
       drafts.delete(effect.from);
@@ -616,6 +616,24 @@ function releaseActiveStream({ type, conversationId, promptIndex }) {
   try {
     stream.port.postMessage({ action: "detach", conversationId, promptIndex });
   } catch {}
+}
+
+// The conversation shown again holds a reply still running: the stream this panel kept for it (what came so far is
+// drawn, the rest streams into the bubble), or, after the panel was closed and reopened, the background's (attach by
+// id: it forwards what comes from now on and writes the whole answer itself, so this end only shows it).
+function reattachStream(conversationId) {
+  let stream = detachedStreams.get(conversationId);
+  detachedStreams.delete(conversationId);
+  if (!stream) {
+    stream = { port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }), prompt: "", raw: "", notice: "", frame: 0, attached: true };
+    bindStreamPort(stream);
+    stream.port.postMessage({ action: "attach", conversationId });
+  }
+  stream.node = appendAssistantPlaceholder();
+  activeStream = stream;
+  if (stream.raw) scheduleStreamRender(stream);
+  syncSendUi();
+  scrollToBottom();
 }
 
 // Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
@@ -1750,9 +1768,24 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   state.dispatch({ type: "ASKED" });
   syncSendUi();
   startStreamSlowNoticeTimer();
+  bindStreamPort(stream);
 
-  // No message follows closeStream's disconnect (Chrome dispatches none to a disconnected port), so nothing here
-  // checks for one. A reply that left for its saved conversation says nothing about the one asked here now.
+  stream.port.postMessage({
+    action: "chat",
+    providerId,
+    context: {
+      ...context,
+      aiSystemPrompt: systemPromptFor(context)
+    },
+    prompt: text,
+    history: state.view().messages
+  });
+}
+
+// What the port says about a reply, into its stream. No message follows closeStream's disconnect (Chrome dispatches
+// none to a disconnected port), so nothing here checks for one. A reply that left for its saved conversation says
+// nothing about the one asked here now.
+function bindStreamPort(stream) {
   stream.port.onMessage.addListener((msg) => {
     if (!msg) {
       return;
@@ -1773,17 +1806,6 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   });
   // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
   stream.port.onDisconnect.addListener(() => endStream(stream, { error: "连接中断：扩展可能已重新加载，可重试" }));
-
-  stream.port.postMessage({
-    action: "chat",
-    providerId,
-    context: {
-      ...context,
-      aiSystemPrompt: systemPromptFor(context)
-    },
-    prompt: text,
-    history: state.view().messages
-  });
 }
 
 function appendUserMessage(text) {
@@ -1854,14 +1876,17 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   const { node, raw, prompt, notice } = stream;
   const saved = Boolean(raw.trim());
   const failed = !saved && Boolean(stopped || error);
-  // An unanswered failure is not saved, so state keeps it for every redraw (去设置 and a focus change redraw).
-  void act({ type: "STREAM_ENDED", raw, failure: failed ? { stopped, notice, error, code } : null });
+  // An unanswered failure is not saved, so state keeps it for every redraw (去设置 and a focus change redraw). A reply
+  // attached from the background is written by it: the stored list then brings the whole answer (SAVED_CHANGED).
+  void act({ type: "STREAM_ENDED", raw, failure: failed ? { stopped, notice, error, code } : null, external: Boolean(stream.attached) });
   if (failed) {
     node.innerHTML = "";
+  } else if (stream.attached && !saved) {
+    node.remove();
   } else {
     renderAssistantMessage(node, raw);
   }
-  appendReplyEnd(node, { prompt, raw, stopped, notice, error, code, saved });
+  if (node.isConnected) appendReplyEnd(node, { prompt, raw, stopped, notice, error, code, saved });
   syncSendUi();
   if (redrawAfterStream) {
     redrawAfterStream = false;

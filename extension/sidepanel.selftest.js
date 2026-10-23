@@ -1421,37 +1421,89 @@ const tick = () => new Promise((r) => setImmediate(r));
     for (const k of ["createTreeWalker", "createDocumentFragment", "createTextNode", "Text", "NodeFilter"]) delete (k in ctx.document ? ctx.document : ctx)[k];
   }
 
-  // Gap 3: a conversation reopened while the reply to its last question still runs refuses a second question (its
-  // history would lack that answer) and says why; the answer landing unlocks it.
+  // Re-attach: a conversation shown again while the reply it left still streams in this panel takes the reply back as
+  // its turn: what came so far is drawn, the rest streams on, 停止 works, the end lands once. Leaving again detaches it
+  // again. Shown again after the reply landed: a saved answer, nothing to re-attach.
   {
-    const prev = [ctx.ensureCurrentContextForSend, ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder];
-    let loads = 0;
-    ctx.ensureCurrentContextForSend = async () => (loads++, true);
+    const prev = [ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage, ctx.scheduleStreamRender, ctx.chrome.runtime.connect];
     ctx.loadContextState = async () => true;
     ctx.hydratePinnedConversationContext = async () => true;
-    ctx.appendUserMessage = () => stubEl();
-    ctx.appendAssistantPlaceholder = () => stubEl();
-    const realConnect = ctx.chrome.runtime.connect;
+    ctx.renderAssistantMessage = () => {};
+    // No port is opened for a reply this panel holds, or for one that already landed.
     ctx.chrome.runtime.connect = () => ({ onMessage: { addListener() {} }, onDisconnect: { addListener() {} }, postMessage() {}, disconnect() {} });
+    const bubbles = [];
+    ctx.appendAssistantPlaceholder = () => (bubbles.push(stubEl()), bubbles.at(-1));
+    const drawn = [];
+    ctx.scheduleStreamRender = (stream) => drawn.push(stream.raw);
     state.dispatch({ type: "NEW" });
     show(video);
     const port = { sent: [], postMessage(m) { this.sent.push(m.action); }, disconnect() {} };
     const stream = { prompt: "慢问题", raw: "", notice: "", node: stubEl(), port };
     streamOn(stream);
     await ctx.startNewConversation();
-    const left = view().saved[0].id;
-    await ctx.act({ type: "OPEN", id: left });
-    vm.runInContext('providers = [{}]; els.input.value = "第二个问题"; els.modelSelect.value = "p"', ctx);
-    await ctx.sendMessage();
-    assert.deepStrictEqual([loads, ctx.readOnlyReason(), ctx.followupBlockReason(), els.input.value], [0, "上一个回答还在生成，结束后才能继续问", "上一个回答还在生成，结束后才能继续问", "第二个问题"]);
-    stream.raw = "慢答案";
-    ctx.renderAssistantMessage = () => {};
+    const a = view().saved[0].id;
+    stream.raw = "前半";
+    await ctx.act({ type: "OPEN", id: a });
+    assert.deepStrictEqual([vm.runInContext("activeStream", ctx) === stream, vm.runInContext("detachedStreams", ctx).has(a), bubbles.length, drawn, view().turn, els.sendBtn.innerHTML.includes(ctx.MdgErrors.LABEL.stop)], [true, false, 1, ["前半"], "streaming", true]);
+    assert.strictEqual(stream.node, bubbles[0], "the rest streams into the new bubble");
+    await ctx.act({ type: "STOP" });
+    assert.deepStrictEqual([port.sent, view().turn], [["detach", "stop"], "stopping"]);
+    // Away again, back again: detached once more, re-attached once more.
+    await ctx.startNewConversation();
+    assert.deepStrictEqual([port.sent.at(-1), vm.runInContext("detachedStreams", ctx).get(a) === stream, view().saved.find((c) => c.id === a).messages.length], ["detach", true, 1]);
+    await ctx.act({ type: "OPEN", id: a });
+    assert.deepStrictEqual([vm.runInContext("activeStream", ctx) === stream, view().turn], [true, "streaming"]);
+    stream.raw = "前半后半";
     ctx.endStream(stream);
     await tick();
-    assert.deepStrictEqual(JSON.parse(JSON.stringify([ctx.readOnlyReason(), view().messages.map((m) => m.content)])), ["", ["慢问题", "慢答案"]]);
-    els.input.value = "";
-    ctx.chrome.runtime.connect = realConnect;
-    [ctx.ensureCurrentContextForSend, ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendUserMessage, ctx.appendAssistantPlaceholder] = prev;
+    assert.deepStrictEqual(JSON.parse(JSON.stringify([view().turn, view().messages.map((m) => m.content), view().saved.find((c) => c.id === a).messages.map((m) => m.content)])), ["idle", ["慢问题", "前半后半"], ["慢问题", "前半后半"]]);
+    // Landed while away: back to a saved answer, no bubble, no turn.
+    bubbles.length = 0;
+    state.dispatch({ type: "NEW" });
+    show(video);
+    const later = { prompt: "问二", raw: "", notice: "", node: stubEl(), port: { sent: [], postMessage(m) { this.sent.push(m.action); }, disconnect() {} } };
+    streamOn(later);
+    await ctx.startNewConversation();
+    const b = view().saved[0].id;
+    later.raw = "答二";
+    ctx.endStream(later);
+    await tick();
+    await ctx.act({ type: "OPEN", id: b });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify([bubbles.length, view().turn, view().messages.map((m) => m.content)])), [0, "idle", ["问二", "答二"]]);
+    [ctx.loadContextState, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage, ctx.scheduleStreamRender, ctx.chrome.runtime.connect] = prev;
+  }
+
+  // Attach: the panel reopened while the background still finishes a reply for a saved conversation (ORPHANS): showing
+  // it opens a port with attach, what comes from now on streams into a bubble, 停止 goes down that port, and the end is
+  // the background's write (the stored list brings the whole answer), not a write from here.
+  {
+    const prev = [ctx.chrome.runtime.connect, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage];
+    ctx.hydratePinnedConversationContext = async () => true;
+    ctx.renderAssistantMessage = () => {};
+    let listener;
+    const sent = [];
+    ctx.chrome.runtime.connect = () => ({ onMessage: { addListener: (f) => (listener = f) }, onDisconnect: { addListener() {} }, postMessage: (m) => sent.push(m), disconnect() {} });
+    const bubble = stubEl();
+    ctx.appendAssistantPlaceholder = () => bubble;
+    const o = { id: "orphan1", contextUrl: video.url, contextRef: { site: "bilibili", videoId: video.videoId, url: video.url }, messages: [{ role: "user", content: "后台在答" }], updatedAt: 5 };
+    state.dispatch({ type: "SAVED_WRITTEN", ...view().unsaved });
+    state.dispatch({ type: "SAVED_CHANGED", list: [o] });
+    // Shown already when the background answers (init shows the tab's conversation before it asks): attached at once.
+    await ctx.act({ type: "OPEN", id: "orphan1" });
+    assert.deepStrictEqual(sent, [], "nothing known yet: no port");
+    await ctx.act({ type: "ORPHANS", replies: [{ conversationId: "orphan1", promptIndex: 0 }] });
+    assert.deepStrictEqual([JSON.parse(JSON.stringify(sent)), view().turn], [[{ action: "attach", conversationId: "orphan1" }], "streaming"]);
+    ctx.window.requestAnimationFrame = (f) => (f(), 0);
+    listener({ type: "token", data: "后" });
+    assert.ok(bubble.innerHTML.includes("后"), "a token from now on shows");
+    await ctx.act({ type: "STOP" });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent.at(-1))), { action: "stop" });
+    listener({ type: "done" });
+    await tick();
+    assert.deepStrictEqual([view().turn, view().messages.length], ["idle", 1], "the end writes nothing here");
+    await ctx.act({ type: "SAVED_CHANGED", list: [{ ...o, messages: [...o.messages, { role: "assistant", content: "后台写的全文" }], updatedAt: 9 }], previous: [o] });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(view().messages.map((m) => m.content))), ["后台在答", "后台写的全文"]);
+    [ctx.chrome.runtime.connect, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage] = prev;
   }
 
   // Gap 4: every effect of an act starts before its save is awaited. Leaving a reply for its conversation while a

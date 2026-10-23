@@ -155,9 +155,11 @@
 
   // The shown conversation's turn: idle → loading (the question drawn, its context loading) → waiting (asked, no word
   // yet) → streaming → idle, with stopping between 停止 and the end. Only step() moves it; a pair not in the table is
-  // refused and changes nothing. Leaving the conversation (setConv, detach) ends it from any phase.
+  // refused and changes nothing. Leaving the conversation (setConv, detach) ends it from any phase; coming back to one
+  // whose reply still runs (detached) re-attaches it: streaming again, its question already in the messages (turn.reply).
   const TURN_STEPS = {
     QUESTION: { idle: "loading" },
+    REATTACH: { idle: "streaming" },
     ASKED: { loading: "waiting" },
     UNSENT: { loading: "idle" },
     TOKEN: { waiting: "streaming", streaming: "streaming", stopping: "stopping" },
@@ -165,7 +167,7 @@
     STREAM_ENDED: { waiting: "idle", streaming: "idle", stopping: "idle" }
   };
   const IN_FLIGHT = new Set(["waiting", "streaming", "stopping"]);
-  const idleTurn = () => ({ phase: "idle", prompt: "", context: null, key: "" });
+  const idleTurn = () => ({ phase: "idle", prompt: "", context: null, key: "", reply: null });
   const inFlight = (s) => IN_FLIGHT.has(s.turn.phase);
   function step(s, event) {
     const next = TURN_STEPS[event][s.turn.phase];
@@ -180,15 +182,17 @@
   // fill: its AI 总结 prompt is still to fill. unanswered: the last question when its reply failed or stopped before a
   // word came, kept only to draw it again. convs (MdgCommon.latest): the shown conversation's run; showing another one
   // ends it, so a load or a drawing begun on the one before can tell.
-  // turn: the phase above, with the question and, once asked, the context it was asked in. detached: the saved
-  // conversations whose reply still runs after the panel left them. previousId: the 上一个视频 bar's conversation.
+  // turn: the phase above, with the question and, once asked, the context it was asked in; reply: { conversationId,
+  // promptIndex } once re-attached, the question being saved already. detached: the saved conversations whose reply
+  // still runs after the panel left them, by id → { promptIndex, prompt } (this panel's streams, or the background's
+  // after a panel closed: ORPHANS). previousId: the 上一个视频 bar's conversation.
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
       conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null },
       convs: MdgCommon.latest(),
       turn: idleTurn(),
-      detached: new Set(),
+      detached: new Map(),
       previousId: "",
       saved: [],
       unsaved: { created: new Set(), deleted: new Set() }
@@ -237,8 +241,6 @@
       turn: s.turn.phase,
       loading: s.turn.phase === "loading",
       streaming: inFlight(s),
-      // The reply to this conversation's last question still runs since the panel left it: no second question until it lands.
-      replyDetached: Boolean(id) && s.detached.has(id),
       bound: Boolean(pinned) || inFlight(s),
       // Only videos can be asked about: a web page gives the AI nothing to read, and a conversation saved on one stays read-only.
       nonVideo: (pinned || context)?.isVideoContext === false,
@@ -282,6 +284,7 @@
     }
     s.convs.next();
     s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null };
+    effects.push(...reattach(s, conversation));
     if (conversation) {
       s.conv.id = conversation.id;
       s.conv.pinned = {
@@ -377,23 +380,55 @@
     return normalizeConversations(kept.concat([...mine.values()].filter((c) => created.has(c.id) && !have.has(c.id))));
   }
 
-  // Leaving a conversation while the AI answers: the question goes into it now, and the reply follows it there.
+  // Leaving a conversation while the AI answers: the question goes into it now, and the reply follows it there. A
+  // re-attached reply leaves again as it was (its question is saved already).
   function detach(s) {
     if (!inFlight(s)) {
       return [];
     }
-    const { prompt, context, key } = s.turn;
+    const { prompt, context, key, reply } = s.turn;
     s.turn = idleTurn();
+    if (reply) {
+      s.detached.set(reply.conversationId, { promptIndex: reply.promptIndex, prompt });
+      return [{ type: "detach", ...reply }];
+    }
     s.conv.messages.push({ role: "user", content: prompt });
     persist(s, context, key);
-    s.detached.add(s.conv.id);
-    return [{ type: "detach", conversationId: s.conv.id, promptIndex: s.conv.messages.length - 1 }, { type: "save" }];
+    const promptIndex = s.conv.messages.length - 1;
+    s.detached.set(s.conv.id, { promptIndex, prompt });
+    return [{ type: "detach", conversationId: s.conv.id, promptIndex }, { type: "save" }];
+  }
+
+  // Shown again while its reply still runs: the reply is the turn once more (the page draws what came so far and
+  // streams the rest into it; a reply the background holds is attached by id). conversation: the one setConv shows.
+  function reattach(s, conversation) {
+    const reply = conversation?.id ? s.detached.get(conversation.id) : null;
+    if (!reply || !step(s, "REATTACH")) return [];
+    s.detached.delete(conversation.id);
+    s.turn.prompt = reply.prompt;
+    s.turn.reply = { conversationId: conversation.id, promptIndex: reply.promptIndex };
+    return [{ type: "reattach", conversationId: conversation.id }];
   }
 
   // A detached reply's conversation is gone (deleted here or on 摘读记录): the reply is cut off, so it cannot bring the
   // conversation back or spend the AI platform on nobody.
   function dropReply(s, id) {
     return s.detached.delete(id) ? [{ type: "dropReply", conversationId: id }] : [];
+  }
+
+  // A detached reply ended: the answer goes after its question, or the question goes when nothing came back
+  // (patchReply), in the saved list and in the shown conversation when it is the one.
+  function finishReply(s, { conversationId, promptIndex, prompt, raw }) {
+    s.detached.delete(conversationId);
+    const conversation = s.saved.find((item) => item.id === conversationId);
+    if (!conversation) {
+      return [];
+    }
+    const messages = conversation.messages.slice();
+    patchReply(messages, { promptIndex, prompt, raw });
+    if (conversationId === s.conv.id) patchReply(s.conv.messages, { promptIndex, prompt, raw });
+    s.saved = normalizeConversations(s.saved.map((item) => (item.id === conversationId ? { ...item, messages, updatedAt: Date.now() } : item)));
+    return [{ type: "save" }, { type: "autoSync", id: conversationId }];
   }
 
   // s.saved is newest first: the newest conversation of ref (MdgSites.isConversationOf, as every note's AI 问答 takes it).
@@ -584,7 +619,7 @@
         const stored = (list, id) => Array.isArray(list) && list.some((item) => item?.id === id);
         const gone = (id) => stored(event.previous, id) && !stored(event.list, id);
         s.saved = mergeSaved(event.list, s.saved, s.unsaved);
-        const effects = [...s.detached].filter(gone).flatMap((id) => dropReply(s, id));
+        const effects = [...s.detached.keys()].filter(gone).flatMap((id) => dropReply(s, id));
         if (s.conv.id && gone(s.conv.id)) {
           return [...effects, ...setConv(s)];
         }
@@ -627,11 +662,13 @@
       case "STOP":
         return step(s, event.type) ? [{ type: "stop" }] : [];
       // The shown conversation's reply ended; one with an answer is saved. failure: how one without a word ended
-      // ({ stopped, notice, error, code }), drawn again with its question until the next send.
+      // ({ stopped, notice, error, code }), drawn again with its question until the next send. A re-attached reply ends
+      // as a detached one does; external: the background holds and writes it, so the stored list brings the answer.
       case "STREAM_ENDED": {
         const turn = s.turn;
         if (!step(s, event.type)) return [];
         s.turn = idleTurn();
+        if (turn.reply) return event.external ? [] : finishReply(s, { ...turn.reply, prompt: turn.prompt, raw: String(event.raw || "") });
         if (!String(event.raw || "").trim()) {
           if (event.failure) s.conv.unanswered = { prompt: turn.prompt, ...event.failure };
           return [];
@@ -640,19 +677,16 @@
         persist(s, turn.context, turn.key);
         return [{ type: "save" }, { type: "autoSync", id: s.conv.id }];
       }
-      // A detached reply ended: the answer goes after its question, or the question goes when nothing came back.
-      case "REPLY_FINISHED": {
-        const { conversationId, promptIndex, prompt, raw } = event;
-        s.detached.delete(conversationId);
-        const conversation = s.saved.find((item) => item.id === conversationId);
-        if (!conversation) {
-          return [];
+      case "REPLY_FINISHED":
+        return finishReply(s, event);
+      // The background's replies that outlived a panel ({ conversationId, promptIndex }): detached here, so showing one
+      // of their conversations attaches to it, the shown one now included.
+      case "ORPHANS": {
+        for (const { conversationId, promptIndex } of event.replies || []) {
+          const prompt = s.saved.find((item) => item.id === conversationId)?.messages[promptIndex];
+          if (prompt?.role === "user" && !s.detached.has(conversationId)) s.detached.set(conversationId, { promptIndex, prompt: prompt.content });
         }
-        const messages = conversation.messages.slice();
-        patchReply(messages, event);
-        if (conversationId === s.conv.id) patchReply(s.conv.messages, event);
-        s.saved = normalizeConversations(s.saved.map((item) => (item.id === conversationId ? { ...item, messages, updatedAt: Date.now() } : item)));
-        return [{ type: "save" }, { type: "autoSync", id: conversationId }];
+        return reattach(s, s.conv);
       }
       // 重试 replaces the failed turn instead of repeating the question below it.
       case "RETRY": {
