@@ -167,6 +167,8 @@
     readerLineHeight: ["compact", "tight", "normal", "relaxed", "loose"],
     readerContentWidth: ["compact", "narrow", "medium", "wide", "full"]
   });
+  // 专注模式's own settings: the only ones a video page saves (save-settings from a content script).
+  const READER_KEYS = Object.freeze([...Object.keys(READER_OPTIONS), "readerChapterVisible"]);
   const oneOf = (key) => (value) => (READER_OPTIONS[key].includes(value) ? value : DEFAULTS[key]);
   const normalizeReaderTheme = oneOf("readerTheme");
   const normalizeReaderFontScale = oneOf("readerFontScale");
@@ -194,6 +196,7 @@
     MAX_PRESET_PROMPTS,
     SEEN_THRESHOLD,
     READER_OPTIONS,
+    READER_KEYS,
     SEEN_SHOW,
     normalizeSeenShow,
     seenOn,

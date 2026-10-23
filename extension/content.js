@@ -331,7 +331,7 @@ const PLAYER_RETRY_MS = 500;
 // Smaller than this is a thumbnail or a preview, not the player.
 const MIN_PLAYER = { width: 240, height: 120 };
 // The appearance settings focus mode changes itself; a change to them does not touch the note.
-const READER_KEYS = ["readerTheme", "readerFontScale", "readerLetterSpacing", "readerLineHeight", "readerContentWidth", "readerChapterVisible"];
+const { READER_KEYS } = MdgSettings;
 // 排版's steppers in the settings panel, in order: the control's id, its name, the setting it changes (its values are
 // MdgSettings.READER_OPTIONS[settingKey]), where state keeps it, and each value's name.
 const READER_STEPPERS = [

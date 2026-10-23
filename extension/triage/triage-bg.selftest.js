@@ -1000,6 +1000,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     const web = "https://www.bilibili.com/video/BV1";
     assert.deepStrictEqual(plain(await ask({ type: "x-ok", n: 1 }, web)), { ok: false, error: "网页不能发送 x-ok" });
     assert.deepStrictEqual(plain(await ask({ type: "x-web" }, web)), { ok: true, data: "web" });
+    // Without a prefix (background.js): only the table's own types, its reply as is; a triage- type is left alone.
+    t.chrome.runtime.onMessage = { addListener() {} };
+    const B = t.triageListen(null, { "y-ok": () => ({ ok: true, x: 1 }) }, [], (r) => r);
+    const askB = (message) => new Promise((resolve) => (B(message, { url: "chrome-extension://me/options.html" }, resolve) === false ? resolve("unanswered") : 0));
+    assert.deepStrictEqual(plain(await askB({ type: "y-ok" })), { ok: true, x: 1 });
+    assert.strictEqual(await askB({ type: "x-ok" }), "unanswered");
+    assert.strictEqual(await askB({ type: "constructor" }), "unanswered");
     t.chrome = realChrome;
   }
 

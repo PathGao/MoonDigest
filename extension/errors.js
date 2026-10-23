@@ -56,6 +56,8 @@
     aiEmpty: "AI 平台没有返回回答",
     // The connection dropped once the platform had answered (background.js streamChat): code AI_STALLED, only 重试.
     aiDropped: "回复中断：连接断了",
+    // The answer hit the model's output limit (finish_reason length): code AI_TRUNCATED (分拣台, the side panel).
+    aiTruncated: "模型输出被截断",
     // A write to Obsidian that failed without the background saying why (video page, side panel, history page).
     obsidianWriteFailed: "Local REST API 写入失败",
     // Any failed write to Obsidian, on every entry (popup, video page, side panel, 摘读记录, 分拣台); 「：原因」 follows.
@@ -245,7 +247,8 @@
     // No access to the AI provider's origin yet (noAccess): every request fails alike, so 分拣台 stops its run; the fix
     // is 授权 (grantOrigin reads the origin from the words), not the settings page.
     AI_ACCESS: { action: "grant" },
-    // 分拣台 only: the model's answer hit the output limit (max_tokens); its banner offers 打开收藏夹设置.
+    // The model's answer hit the output limit (TEXT.aiTruncated): 重试 on the side panel; 分拣台's banner also offers
+    // 打开收藏夹设置 for its 输出上限.
     AI_TRUNCATED: {},
     // 分拣台 only: AI 平台 still limited after AI_THROTTLE_WAITS waits in a row.
     AI_GAVE_UP: { action: "settings" },

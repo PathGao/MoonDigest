@@ -10,10 +10,12 @@ let onConnect;
 const onMessage = [];
 const anything = new Proxy(function () {}, { get: () => anything, apply: () => anything });
 const runtime = new Proxy({}, {
-  get: (_, k) => (k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : k === "onMessage" ? { addListener: (fn) => onMessage.push(fn) } : anything)
+  get: (_, k) =>
+    k === "onConnect" ? { addListener: (fn) => (onConnect = fn) } : k === "onMessage" ? { addListener: (fn) => onMessage.push(fn) } : k === "getURL" ? (p) => `chrome-extension://me/${p}` : anything
 });
-// A runtime message as a page sends it: the first listener that keeps the channel open answers.
-const ask = (message) => new Promise((resolve) => onMessage.some((fn) => fn(message, {}, resolve) === true));
+// A runtime message as a page sends it (the side panel by default): the first listener that keeps the channel open answers.
+const PANEL = { url: "chrome-extension://me/sidepanel.html" };
+const ask = (message, sender = PANEL) => new Promise((resolve) => onMessage.some((fn) => fn(message, sender, resolve) === true));
 const chrome = new Proxy({}, { get: (_, k) => (k === "runtime" ? runtime : anything) });
 
 const ctx = vm.createContext({
@@ -60,6 +62,7 @@ function chat() {
   return new Promise((resolve) => {
     const port = {
       name: "sidepanel-chat",
+      sender: { url: "chrome-extension://me/sidepanel.html" },
       onDisconnect: { addListener() {} },
       onMessage: { addListener: (fn) => fn({ action: "chat", providerId: "p", prompt: "q", context: { isVideoContext: true, subtitleMarkdown: "字幕" } }) },
       postMessage: (m) => {
@@ -239,7 +242,7 @@ process.on("exit", (code) => {
 
   // Saving a partial payload (the options page has no reading-view controls) keeps every key it omits.
   const stored = { readerTheme: "dark", readerFontScale: "l", aiPresetPrompts: ["a"] };
-  ctx.chrome = { storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
+  ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}` }, storage: { sync: area(stored), local: area({ obsidianApiKey: "k" }) } };
   await ctx.saveSettings({ aiPresetPrompts: [], noteFolder: "N" });
   assert.strictEqual(stored.readerTheme, "dark");
   assert.strictEqual(stored.readerFontScale, "l");
@@ -372,6 +375,17 @@ process.on("exit", (code) => {
   // A platform that ignores stream:true and answers with one plain completion: that answer, not 「回答为空」.
   ctx.fetch = streamingFetch([raw(JSON.stringify({ choices: [{ message: { content: "整段回答" } }] })), { after: 0, done: true }]);
   assert.deepStrictEqual((await chat()).map((m) => m.data || m.type), ["整段回答", "done"]);
+  // An answer cut at the output limit (finish_reason length) keeps its tokens and ends in 分拣台's AI_TRUNCATED, with
+  // [DONE], without it, and as one plain completion; the table's remedies for it are the panel's 重试.
+  const cut = { error: ctx.MdgErrors.TEXT.aiTruncated, code: "AI_TRUNCATED" };
+  const lengthEnd = `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }] })}\n\n`;
+  for (const tail of [[raw(lengthEnd), raw("data: [DONE]\n\n")], [raw(lengthEnd)]]) {
+    ctx.fetch = streamingFetch([{ after: 0, chunk: sse({ content: "半句" }) }, ...tail, { after: 0, done: true }]);
+    assert.deepStrictEqual((await chat()).map((m) => m.data || `${m.type} ${m.error} ${m.code}`), ["半句", `error ${cut.error} ${cut.code}`]);
+  }
+  ctx.fetch = streamingFetch([raw(JSON.stringify({ choices: [{ message: { content: "整段" }, finish_reason: "length" }] })), { after: 0, done: true }]);
+  assert.deepStrictEqual((await chat()).map((m) => m.data || `${m.type} ${m.error} ${m.code}`), ["整段", `error ${cut.error} ${cut.code}`]);
+  assert.deepStrictEqual([...ctx.MdgErrors.remedies("AI_TRUNCATED")], ["retry"]);
   // An HTTP error whose body stalls until the watchdog fires: the timeout, as on the other paths, not the HTTP error.
   ctx.fetch = async (url, { signal }) => ({ ok: false, status: 500, text: () => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError()))) });
   assert.deepStrictEqual((await chat()).map((m) => m.code), ["AI_TIMEOUT"]);
@@ -422,6 +436,52 @@ process.on("exit", (code) => {
     assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
   }
 
+  // A B站 or YouTube page's script (a hijacked renderer too) gets only the types content.js sends: it cannot send a saved
+  // AI key to an address of its choice (ai-providers-test), save settings other than 专注模式's, or read the Obsidian key.
+  {
+    const web = { tab: { id: 5 }, url: "https://www.bilibili.com/video/BV1" };
+    const was = { chrome: ctx.chrome, test: ctx.testAiConnection, keys: ctx.loadAiProviderKeys, settings: ctx.getMergedSettings };
+    const tested = [];
+    const written = [];
+    ctx.testAiConnection = async (args) => (tested.push(args), { ok: true });
+    ctx.loadAiProviderKeys = async () => ({ p: "saved-key" });
+    ctx.getMergedSettings = async () => ({ readerTheme: "light", obsidianApiKey: "vault-key" });
+    ctx.chrome = { runtime: { getURL: (p) => `chrome-extension://me/${p}` }, storage: { sync: { set: async (o) => written.push(o) }, local: { set: async (o) => written.push(o) } } };
+    const probe = { type: "ai-providers-test", providerId: "p", baseUrl: "https://evil.example/v1", model: "m" };
+    assert.deepStrictEqual({ ...(await ask(probe, web)) }, { ok: false, error: "网页不能发送 ai-providers-test" });
+    assert.deepStrictEqual(tested, [], "the key never leaves");
+    assert.deepStrictEqual({ ...(await ask(probe)) }, { ok: true }, "the settings page's 测试连接 still works");
+    assert.deepStrictEqual([tested[0].apiKey, tested[0].baseUrl], ["saved-key", "https://evil.example/v1"]);
+    for (const type of ["settings-import", "ai-providers-save", "ai-providers-delete", "test-obsidian-connection", "ai-sidepanel-get-state", "popup-page-note"]) {
+      assert.strictEqual((await ask({ type }, web)).error, `网页不能发送 ${type}`, type);
+    }
+    assert.match((await ask({ type: "save-settings", settings: { readerTheme: "dark", obsidianBaseUrl: "https://evil.example" } }, web)).error, /专注模式/);
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual({ ...(await ask({ type: "save-settings", settings: { readerTheme: "dark" } }, web)) }, { ok: true }, "专注模式's look from the video page");
+    assert.deepStrictEqual({ ...(await ask({ type: "save-settings", settings: { obsidianBaseUrl: "http://127.0.0.1:27123" } })) }, { ok: true }, "any setting from the settings page");
+    assert.deepStrictEqual(written.map((o) => Object.keys(o).join()), ["readerTheme", "obsidianBaseUrl"]);
+    assert.ok(!("obsidianApiKey" in (await ask({ type: "get-settings" }, web)).settings), "a video page does not get the Obsidian key");
+    assert.strictEqual((await ask({ type: "get-settings" })).settings.obsidianApiKey, "vault-key");
+    // What content.js sends still reaches its handler (an answer other than the refusal; fetch-json's own URL check).
+    assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: "https://evil.example/" }, web)) }, { ok: false, error: "URL not allowed" });
+    // obsidian.js's: the video page writes its note; exporting one (a remembered note's text) and syncing the side
+    // panel's AI section are the extension pages'.
+    for (const type of ["export-note", "sync-video-note-ai"]) assert.strictEqual((await ask({ type }, web)).error, `网页不能发送 ${type}`, type);
+    // The side panel's chat port: a page's script is disconnected before anything is read or sent.
+    {
+      const seen = [];
+      const port = { name: "sidepanel-chat", sender: web, disconnect: () => seen.push("disconnect"), onDisconnect: { addListener: () => seen.push("listen") }, onMessage: { addListener: () => seen.push("listen") }, postMessage: (m) => seen.push(m) };
+      onConnect(port);
+      assert.deepStrictEqual(seen, ["disconnect"]);
+    }
+    for (const type of ["open-options", "player-ai-quick-action", "yt-player-response", "write-video-note"]) {
+      let refused = null;
+      const kept = onMessage.some((fn) => fn({ type }, web, (r) => (refused = r)) === true);
+      assert.ok(kept && !refused, `${type} from a video page`);
+    }
+    Object.assign(ctx, { chrome: was.chrome, testAiConnection: was.test, loadAiProviderKeys: was.keys, getMergedSettings: was.settings });
+  }
+
   // F1: 去设置 from the popup, the video page and 分拣台 focuses an open settings page instead of opening another.
   {
     const was = ctx.chrome;
@@ -469,6 +529,7 @@ process.on("exit", (code) => {
     let refuse = false;
     const calls = [];
     ctx.chrome = {
+      runtime: { getURL: (p) => `chrome-extension://me/${p}` },
       tabs: { get: async (id) => ({ id, url: tabUrl, title: "标签标题" }) },
       permissions: { contains: async ({ origins }) => (calls.push(origins[0]), granted) },
       scripting: {
@@ -524,10 +585,8 @@ process.on("exit", (code) => {
       calls.splice(0);
       delete stored[ctx.MdgLimits.KEYS.obsidianNotePaths];
       ctx.chrome.storage = { local: { get: async () => stored } };
-      // Only an extension page asks: a content script (sender.tab) is refused.
-      let refused;
-      onMessage.forEach((fn) => fn({ type: "popup-page-note", tabId: 1 }, { tab: { id: 9 } }, (r) => (refused ||= r)));
-      assert.strictEqual(refused?.ok, false);
+      // Only the popup asks: an extension page in a tab (sender.tab) is refused too.
+      assert.strictEqual((await ask({ type: "popup-page-note", tabId: 1 }, { tab: { id: 9 }, url: "chrome-extension://me/popup.html" })).ok, false);
       // No main text: the side panel's words.
       const text = page.content;
       page.content = "  ";
@@ -797,7 +856,7 @@ process.on("exit", (code) => {
     const ictx = vm.createContext({
       console, setTimeout, clearTimeout, URL, URLSearchParams, TextDecoder, TextEncoder, AbortController, AbortSignal,
       chrome: fake({
-        runtime: fake({ getManifest: () => manifest, lastError: undefined, onInstalled: { addListener: (fn) => installed.push(fn) }, onMessage: { addListener: (fn) => onMessage.push(fn) } }),
+        runtime: fake({ getManifest: () => manifest, lastError: undefined, onInstalled: { addListener: (fn) => installed.push(fn) }, onMessage: { addListener: (fn) => onMessage.push(fn) }, getURL: (p) => `chrome-extension://x/${p}` }),
         tabs: fake({
           query: async ({ url }) => [...new Map(url.flatMap((u) => tabsByMatch[u] || []).map((t) => [t.id, t])).values()],
           get: async (id) => ({ id, url: "chrome-extension://x/triage/triage.html" }),
@@ -830,12 +889,12 @@ process.on("exit", (code) => {
     await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "player-ai-quick-action", contextRef }, { tab: { id: 7 }, frameId: 3 }, resolve)));
     const request = Object.values(stored.at(-1))[0];
     assert.deepStrictEqual([request.tabId, request.frameId, request.contextRef], [7, 3, contextRef]);
-    const reply = await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD" }, {}, resolve)));
+    const reply = await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD" }, { url: "chrome-extension://x/sidepanel.html" }, resolve)));
     assert.deepStrictEqual(JSON.parse(JSON.stringify(sentTo)), [[7, { type: "sidepanel-get-context", refresh: false, videoId: "BV1xx411c7mD" }, { frameId: 3 }]]);
     assert.deepStrictEqual([reply.ok, reply.payload.subtitleMarkdown, reply.payload.url, reply.payload.isVideoContext], [true, "picked", "https://www.bilibili.com/video/BV1xx411c7mD/", true]);
     // The side panel's 刷新 is refresh on both messages (popup-refresh too), never force / forceRefresh.
     sentTo.length = 0;
-    await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD", refresh: true }, {}, resolve)));
+    await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "ai-sidepanel-get-state", tabId: 7, frameId: 3, videoId: "BV1xx411c7mD", refresh: true }, { url: "chrome-extension://x/sidepanel.html" }, resolve)));
     assert.strictEqual(sentTo[0][1].refresh, true);
     // The ✦ AI 总结按钮 switch stops only the player button (no source); 专注模式 (reader) and the popup still open AI 总结.
     ictx.getMergedSettings = async () => ({ enablePlayerAiQuickAction: false, playerAiQuickPrompt: "" });
@@ -845,7 +904,7 @@ process.on("exit", (code) => {
     const opened = [];
     ictx.focusOrOpenPage = async (page) => opened.push(page);
     ictx.chrome.runtime.getURL = (p) => `chrome-extension://x/${p}`;
-    assert.ok((await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "history-open" }, {}, resolve)))).ok);
+    assert.ok((await new Promise((resolve) => onMessage.forEach((fn) => fn({ type: "history-open" }, { url: "chrome-extension://x/sidepanel.html" }, resolve)))).ok);
     assert.deepStrictEqual(opened, ["chrome-extension://x/history/history.html"]);
     for (const f of PS.pageCode) assert.ok(!/forceRefresh|message\.force\b|"popup-refresh", force\b/.test(PS.read(f)), `${f}: the refresh flag is named refresh`);
     for (const f of ["popup.js", "sidepanel.js", "options.js"]) assert.ok(fs.readFileSync(path.join(__dirname, f), "utf8").includes('"history-open"'), `${f} opens 摘读记录 by history-open`);
