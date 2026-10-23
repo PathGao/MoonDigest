@@ -475,8 +475,8 @@ body {
   background: var(--action-hover);
 }
 
-/* One filled button per view: once something is typed, send is the next step and the summary steps back. */
-body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
+/* One filled button per view: once the user types their own words, send is the next step and the summary steps back. */
+body.sp-typed .sp-summary-btn {
   background: var(--field-bg);
   color: var(--text);
 }
@@ -1286,13 +1286,13 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   color: var(--text-2);
 }
 
-#spInput:not(:placeholder-shown) + .sp-send-btn:not(.is-stop) {
+body.sp-typed .sp-send-btn:not(.is-stop) {
   border-color: var(--action);
   background: var(--action);
   color: var(--on-action);
 }
 
-#spInput:not(:placeholder-shown) + .sp-send-btn:not(.is-stop):hover {
+body.sp-typed .sp-send-btn:not(.is-stop):hover {
   background: var(--action-hover);
 }
 

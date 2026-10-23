@@ -289,6 +289,15 @@ function bindEvents() {
 function autosizeInput() {
   els.input.style.height = "auto";
   els.input.style.height = `${els.input.scrollHeight}px`;
+  syncFilledButton();
+}
+
+// One filled button: send once the input holds the user's own words; AI 总结 while it is empty or holds just the summary
+// prompt (the fill), where AI 总结 sends that same text.
+function syncFilledButton() {
+  const text = els.input.value.trim();
+  const summary = suggestionsNode?.querySelector('[data-act="summary"]');
+  document.body.classList.toggle("sp-typed", Boolean(text) && !(summary?.checkVisibility() && text === summary.title.trim()));
 }
 
 // What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
@@ -843,6 +852,7 @@ function renderSuggestions() {
     node.querySelector('[data-act="summary"]')?.addEventListener("click", () => sendSummary(summary.prompt));
     node.querySelector('[data-act="retry"]')?.addEventListener("click", () => void refreshContextManually());
     if (video) void renderTriageSummary(node);
+    syncFilledButton();
   }
   if (!summary) {
     return;
