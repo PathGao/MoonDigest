@@ -251,30 +251,33 @@
   const scans = MdgCommon.latest(); // ended when triage data or the page changes, so an in-flight scan drops its stale reads
   let superseded = false; // a fresh copy took over (standDown)
   const observer = new MutationObserver((records) => onMutations(records));
-  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key", "data-server-rendered"] };
+  const OBSERVE = { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "data-key", "data-server-rendered", "data-mdg-ssr"] };
 
   // BewlyCat draws its own pages (首页, 收藏, 稍后再看…) inside #bewly's open shadow root. Only that root is searched:
   // Bilibili's comment section is nested shadow roots too, and its video links should stay unmarked.
   const bewlyRoot = () => document.getElementById("bewly")?.shadowRoot || null;
-  // The video and /list/ player pages are server-rendered: #app carries data-server-rendered until Vue hydrates it, in
-  // one synchronous step that drops the attribute (a mutation on #app, which looks at all of it). See markUps.
-  const SSR = "[data-server-rendered]";
+  // Server-rendered markup Vue has yet to hydrate: #app's data-server-rendered on the Vue 2 pages (video, /list/),
+  // <html>'s data-mdg-ssr on the Vue 3 ones (home, search; hydration.js). Nothing in it is marked until the attribute
+  // goes, in one step, a mutation that looks at all it covered (#394). Vue 2 meeting one node of ours in #app gives up
+  // hydrating and draws all of #app anew, the player with it; Vue 3 reports a mismatch and takes our marks out.
+  const SSR = "[data-server-rendered], [data-mdg-ssr]";
   const findAll = (sel) => {
     if (lineOnly) return [];
     const r = bewlyRoot();
     const list = [...document.querySelectorAll(sel)];
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
   };
+  const hydrated = (list) => (document.querySelector(SSR) ? list.filter((n) => !n.closest(SSR)) : list);
   // What a run looks at: the queued nodes (each one, what it holds and the match it sits in), or null for the whole page.
   const scanned = (scope, sel) => {
-    if (!scope || lineOnly) return findAll(sel);
+    if (!scope || lineOnly) return hydrated(findAll(sel));
     const out = new Set();
     for (const r of scope) {
       const up = r.closest(sel);
       if (up) out.add(up);
       for (const n of r.querySelectorAll(sel)) out.add(n);
     }
-    return [...out];
+    return hydrated([...out]);
   };
   let bewlyHooked = null;
   // Page CSS doesn't reach into a shadow root, so it gets its own copy of badges.css. True when newly hooked: what
@@ -300,7 +303,7 @@
   const favFid = () => (surface === "fav" ? new URLSearchParams(location.search).get("fid") || "" : "");
   // The video a player page shows: /video/BV… or, on the 稍后再看 / 收藏夹 player (/list/…), ?bvid= (surfaceOf's "video").
   // /list/ml… opens without ?bvid=, which B站 adds as Vue hydrates #app: until then the title's own link names it, so
-  // the line is drawn with the title and not pushed in under it at hydration.
+  // hydration adding it is no page change.
   const pageBvid = () =>
     /^\/(?:video|list)\//.test(location.pathname)
       ? bvidFromHref(location.pathname + location.search) || bvidFromHref(document.querySelector(".video-info-title a[href]")?.getAttribute("href"))
@@ -323,11 +326,9 @@
 
   // ---- When to look: the nodes a page change added are marked in the MutationObserver callback itself, which runs
   // before the browser paints, from what is already in memory; a mark B站 takes out with its own re-render is back in
-  // the same callback. The video page's title block is one: our line, there before Vue hydrates the block, makes
-  // hydration throw the block away and draw it anew once, about 2s in (without the line it is never replaced). Adding
-  // it late is what pushed the player down. The whole page is looked at, in
-  // the next animation frame, at start, after in-page navigation, when the tab comes back into view and when more
-  // than MAX nodes piled up in one callback (the parser at document_start); data changes do it too, throttled
+  // the same callback. Server-rendered markup is the exception: it waits for hydration (SSR). The whole page is looked
+  // at, in the next animation frame, at start, after in-page navigation, when the tab comes back into view and when
+  // more than MAX nodes piled up in one callback (the parser at document_start); data changes do it too, throttled
   // (schedule). ----
   // The player's own nodes (danmaku, progress, subtitles) change every frame and hold nothing that is marked.
   // ponytail: a video link B站 adds inside the player is marked only by a whole-page look; watch its mutations if the
@@ -474,9 +475,8 @@
   }
 
   // Links to a space that are not an UP's name where the marks go (DESIGN 产品决策 · B站 页面上的标记): the /list/
-  // player's 「UP主的全部视频」 above the playlist (a box there, before Vue hydrates #app, makes Vue redraw the block and
-  // tear the player down, #394; the UP line under the name has the tags), the 字幕作者 under a video's description and
-  // the page footer's links.
+  // player's 「UP主的全部视频」 above the playlist (the UP line under the name has the tags), the 字幕作者 under a
+  // video's description and the page footer's links.
   const NOT_NAMES = ".action-list-body-top, .subtitle-maker-list, .bili-footer";
 
   async function markUps(scan, scope) {
@@ -490,9 +490,6 @@
       if (!spot) continue;
       // The video page's UP name: its tags get their own line under the name row.
       const row = a.classList.contains("up-name") && a.closest(".up-detail-top");
-      // Its line, there before Vue hydrates #app, breaks the hydration, and with it the player's 网页全屏 and the
-      // comments (#394); it waits for it. The other marks in #app don't, and drawn late they make the cards jump.
-      if (row && row.closest(SSR)) continue;
       spots.push(row ? [row, mid, rules.owner, spot.textContent] : [spot, mid, ruleFor(a)]);
     }
     // The nickname only on the space's own pages: its 收藏夹 page shows no UP tags.
@@ -1171,9 +1168,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Below the views / danmaku / date row; the title alone when that row isn't there.
     const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
     if (!parts || !anchor) return void old?.remove();
-    // On /list/, Vue redrawing the title's block for a line there before hydration restarts the player (#394): the line
-    // waits for #app to drop data-server-rendered. /video/ draws it with the title (#345).
-    if (location.pathname.startsWith("/list/") && anchor.closest(SSR)) return;
+    if (anchor.closest(SSR)) return;
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;

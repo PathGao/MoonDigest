@@ -555,6 +555,7 @@ assert.ok(!biliSaysSeen(h("a", {}, h("div", { class: "bili-cover-card__stats" },
   await surfacePages();
   await reloadedCopy();
   await incremental();
+  await hydration();
   console.log("badges selftest ok");
 })().catch((e) => {
   console.error(e);
@@ -830,9 +831,11 @@ async function surfacePages() {
     follow_tag_map: { 1: ["a"] },
     follow_list: { list: ["1"] }
   };
-  const page = async (location, body, viewer, sync = {}) => {
-    const doc = Object.assign(h("html", {}, body), { getElementById: () => null, createElement: (t) => h(t), getAttribute: (k) => (typeof viewer === "string" && k === "data-mdg-viewer" ? viewer : null) });
+  const page = async (location, body, viewer, sync = {}, htmlAttrs = {}) => {
+    const doc = Object.assign(h("html", htmlAttrs, body), { getElementById: () => null, createElement: (t) => h(t), getAttribute: (k) => (typeof viewer === "string" && k === "data-mdg-viewer" ? viewer : null) });
     doc.documentElement = doc;
+    // A document's querySelector also finds <html>.
+    doc.querySelector = (sel) => (doc.matches(sel) ? doc : El.prototype.querySelector.call(doc, sel));
     const reads = [];
     const listen = [];
     const win = {
@@ -999,35 +1002,37 @@ async function surfacePages() {
   assert.strictEqual(boxAfter(footUp), null, "the page footer's links: no UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
 
-  // #394: before Vue hydrates the server-rendered #app, the UP name's line waits (the cards beside it don't); once it
-  // drops the attribute, the line is drawn.
-  const ssrRow = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, "甲"));
-  const ssrRec = author();
-  const app = h("div", { id: "app", "data-server-rendered": "true" }, h("div", { class: "up-detail" }, ssrRow), ssrRec);
-  const outside = author();
-  const ssr = await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, app, outside));
-  assert.strictEqual(ssrRow.nextSibling, null, "not hydrated yet: no line under the UP name");
-  assert.ok(boxAfter(ssrRec) && boxAfter(outside), "the cards, in #app or not, are marked at once");
-  app.removeAttribute("data-server-rendered");
-  ssr.win.mutate([{ type: "attributes", target: app, attributeName: "data-server-rendered", addedNodes: [], removedNodes: [] }]);
-  await new Promise((r) => setTimeout(r, 30));
-  assert.ok(ssrRow.nextSibling?.classList.contains("mdg-ups-line") && boxAfter(ssrRec), "hydrated: the line under the UP name");
-  // #394: on /list/ the line under the title waits for hydration too (drawn before it, Vue redraws the block and restarts
-  // the player); on /video/ it comes with the title (#345).
+  // #394: before Vue hydrates the server-rendered markup, nothing in it is marked; once the attribute goes, all of it is.
+  // Vue 2 (/video/, /list/): #app's data-server-rendered. The UP name's line, a recommendation's UP tags and the line
+  // under the title all wait.
   store.triage_analysis_BV1GJ411x7h7 = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" };
-  const ssrTitle = async (pathname, search) => {
-    const app = h("div", { id: "app", "data-server-rendered": "true" }, h("div", { class: "video-info-title" }, h("h1", { class: "video-title" }, "标题")));
-    return { app, p: await page({ hostname: "www.bilibili.com", pathname, search }, h("body", {}, app), false, { showBiliVerdicts: true }) };
-  };
-  const onVideo = await ssrTitle("/video/BV1GJ411x7h7", "");
-  assert.ok(onVideo.p.doc.querySelector(".mdg-line"), "/video/ before hydration: the line under the title at once");
-  const onList = await ssrTitle("/list/486906719", "?bvid=BV1GJ411x7h7");
-  assert.strictEqual(onList.p.doc.querySelector(".mdg-line"), null, "/list/ before hydration: no line under the title yet");
-  onList.app.removeAttribute("data-server-rendered");
-  onList.p.win.mutate([{ type: "attributes", target: onList.app, attributeName: "data-server-rendered", addedNodes: [], removedNodes: [] }]);
-  await new Promise((r) => setTimeout(r, 30));
-  assert.match(onList.p.doc.querySelector(".mdg-line")?.textContent || "", /讲 Rust 所有权/, "/list/ hydrated: the line under the title");
+  for (const [pathname, search] of [["/video/BV1GJ411x7h7", ""], ["/list/486906719", "?bvid=BV1GJ411x7h7"]]) {
+    const row = h("div", { class: "up-detail-top" }, h("a", { href: "//space.bilibili.com/1/", class: "up-name" }, "甲"));
+    const rec = author();
+    const title = h("div", { class: "video-info-title" }, h("h1", { class: "video-title" }, "标题"));
+    const app = h("div", { id: "app", "data-server-rendered": "true" }, title, h("div", { class: "up-detail" }, row), rec);
+    const outside = author();
+    const p = await page({ hostname: "www.bilibili.com", pathname, search }, h("body", {}, app, outside), false, { showBiliVerdicts: true });
+    assert.deepStrictEqual([row.nextSibling, boxAfter(rec), p.doc.querySelector(".mdg-line")], [null, null, null], `${pathname}, Vue 2 not hydrated yet: nothing in #app`);
+    assert.ok(boxAfter(outside), `${pathname}, outside #app: marked at once`);
+    app.removeAttribute("data-server-rendered");
+    p.win.mutate([{ type: "attributes", target: app, attributeName: "data-server-rendered", addedNodes: [], removedNodes: [] }]);
+    await new Promise((r) => setTimeout(r, 30));
+    assert.ok(row.nextSibling?.classList.contains("mdg-ups-line") && boxAfter(rec), `${pathname}, Vue 2 hydrated: the UP name's line and the card`);
+    assert.match(p.doc.querySelector(".mdg-line")?.textContent || "", /讲 Rust 所有权/, `${pathname}, Vue 2 hydrated: the line under the title`);
+  }
   delete store.triage_analysis_BV1GJ411x7h7;
+  // Vue 3 (home, search): <html>'s data-mdg-ssr (hydration.js). A card's watch progress waits (its video mark goes
+  // through the same scanned).
+  store.seen_BV1xx411c7mD = [60, 1];
+  const v3Cover = h("a", { href: "//www.bilibili.com/video/BV1xx411c7mD" }, h("div", {}, h("img")));
+  const v3 = await page({ hostname: "www.bilibili.com", pathname: "/" }, h("body", {}, h("div", { id: "app" }, v3Cover)), undefined, { seenShow: "both" }, { "data-mdg-ssr": "" });
+  assert.strictEqual(v3Cover.querySelector(".mdg-seen"), null, "Vue 3 not hydrated yet: the card's progress waits");
+  v3.doc.removeAttribute("data-mdg-ssr");
+  v3.win.mutate([{ type: "attributes", target: v3.doc, attributeName: "data-mdg-ssr", addedNodes: [], removedNodes: [] }]);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(v3Cover.querySelector(".mdg-seen"), "Vue 3 hydrated: the card's progress");
+  delete store.seen_BV1xx411c7mD;
 
   // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
   Object.assign(store, {
@@ -1286,4 +1291,56 @@ async function incremental() {
   mutate([{ type: "childList", target: body, addedNodes: [], removedNodes: [pop] }]);
   await settle();
   assert.strictEqual(hrefs, 0, "no card read again");
+}
+
+// hydration.js: <html> carries data-mdg-ssr from the store state the HTML sets to the mount that hydrates, or to 5s
+// after load; a createApp mount and state set after the HTML leave it as it is. Only while it is there do elements
+// have the __vue_app__ hook.
+async function hydration() {
+  const load = () => {
+    class Element {
+      attrs = {};
+      hasAttribute(k) { return k in this.attrs; }
+      setAttribute(k, v) { this.attrs[k] = String(v); }
+      removeAttribute(k) { delete this.attrs[k]; }
+    }
+    const html = new Element();
+    const document = { documentElement: html, readyState: "loading" };
+    const timers = [];
+    const onLoad = [];
+    const win = vm.createContext({ document, Element, queueMicrotask, setTimeout: (f, ms) => timers.push([f, ms]), addEventListener: (t, f) => t === "load" && onLoad.push(f) });
+    vm.runInContext("var window = this;", win);
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "hydration.js"), "utf8"), win);
+    const hooked = () => Object.getOwnPropertyNames(Element.prototype).includes("__vue_app__");
+    return { Element, html, document, win, timers, onLoad, hooked, ssr: () => html.hasAttribute("data-mdg-ssr") };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const p = load();
+  assert.deepStrictEqual([p.ssr(), p.hooked()], [false, false], "no store state yet: nothing to wait for, elements untouched");
+  const csr = new p.Element();
+  csr.__vue_app__ = "csr";
+  assert.strictEqual(csr.__vue_app__, "csr", "a page without __pinia mounts as before");
+  vm.runInContext("window.__pinia = { search: 1 }", p.win);
+  assert.deepStrictEqual([p.ssr(), p.hooked()], [true, true], "store state in the HTML: server-rendered, the hook on");
+  assert.strictEqual(vm.runInContext("window.__pinia.search", p.win), 1, "B站 reads its state back");
+  const footer = new p.Element();
+  footer.__vue_app__ = "footer";
+  footer.setAttribute("data-v-app", "");
+  await tick();
+  assert.ok(p.ssr() && footer.__vue_app__ === "footer", "a createApp mount: still waiting");
+  const app = new p.Element();
+  app.__vue_app__ = "app";
+  await tick();
+  assert.deepStrictEqual([p.ssr(), p.hooked(), app.__vue_app__], [false, false, "app"], "the hydrating mount: done, the hook gone");
+  p.document.readyState = "complete";
+  vm.runInContext("window.__pinia = {}", p.win);
+  assert.deepStrictEqual([p.ssr(), p.hooked()], [false, false], "state set after the HTML: nothing to wait for");
+
+  // No hydration seen (B站 mounts some other way): 5s after load the marks are drawn anyway.
+  const q = load();
+  vm.runInContext("window.__pinia = {}", q.win);
+  q.onLoad.forEach((f) => f());
+  assert.deepStrictEqual([q.ssr(), q.timers.map(([, ms]) => ms)], [true, [5000]], "loaded: 5s more");
+  q.timers.forEach(([f]) => f());
+  assert.deepStrictEqual([q.ssr(), q.hooked()], [false, false], "5s after load: done, the hook gone");
 }
