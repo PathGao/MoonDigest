@@ -267,7 +267,16 @@
     const list = [...document.querySelectorAll(sel)];
     return r ? list.concat([...r.querySelectorAll(sel)]) : list;
   };
-  const hydrated = (list) => (document.querySelector(SSR) ? list.filter((n) => !n.closest(SSR)) : list);
+  // Applied when a scan looks and again right before it writes: the attribute can come while the scan waits for its
+  // reads, and the mutation of its going looks at all it covered again. at: the node of an entry (a text node for some
+  // UP chips' spots).
+  const hydrated = (list, at = (n) => n) => {
+    if (!document.querySelector(SSR)) return list;
+    return list.filter((x) => {
+      const n = at(x);
+      return !(n.nodeType === 1 ? n : n.parentElement)?.closest(SSR);
+    });
+  };
   // What a run looks at: the queued nodes (each one, what it holds and the match it sits in), or null for the whole page.
   const scanned = (scope, sel) => {
     if (!scope || lineOnly) return hydrated(findAll(sel));
@@ -499,7 +508,7 @@
     const idx = nameEls.length || surface === "feed" ? who || (await whoIs()) : null;
     if (!enabled || !upOn || !scan.alive) return; // stood down, the marks or the UP tags switched off, or the page changed, while reading
     for (const el of nameEls) spots.push([el, nameMid(el, idx), ruleFor(el)]);
-    const writes = spots.map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
+    const writes = hydrated(spots, ([spot]) => spot).map(([spot, mid, rule, name]) => upChip(spot, mid, rule, name));
     if (onFeed()) writes.push(...feedFilter(idx));
     for (const w of writes) w?.();
   }
@@ -892,7 +901,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     if (seenCfg.on) await loadSeen(covers, scan);
     if (!scan.alive) return;
     if (!triageOn) {
-      const writes = covers.map(markCover);
+      const writes = hydrated(covers).map(markCover);
       for (const w of writes) w?.();
       return;
     }
@@ -911,7 +920,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!enabled) return;
     // Every style read first, then every DOM write, so the page recalculates styles once rather than per card.
-    const writes = [...anchors.map(markAnchor), ...covers.map(markCover)];
+    const writes = [...hydrated(anchors).map(markAnchor), ...hydrated(covers).map(markCover)];
     for (const w of writes) w?.();
     markVideoLine(here);
   }
