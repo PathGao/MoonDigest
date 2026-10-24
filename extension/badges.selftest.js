@@ -230,7 +230,8 @@ assert.strictEqual(where("https://www.bilibili.com/video/BV1GJ411x7h7"), "video"
 assert.strictEqual(where("https://www.bilibili.com/list/watchlater?bvid=BV1GJ411x7h7"), "video");
 assert.strictEqual(where("https://www.bilibili.com/"), "card");
 assert.strictEqual(where("https://www.bilibili.com/?page=Home&tab=ForYou"), "card");
-assert.strictEqual(where("https://search.bilibili.com/all?keyword=x"), "card");
+assert.strictEqual(where("https://search.bilibili.com/all?keyword=x"), "search");
+assert.strictEqual(where("https://search.bilibili.com/video?keyword=x"), "search");
 assert.strictEqual(where("https://space.bilibili.com/2773586/favlist?fid=1"), "fav");
 assert.strictEqual(where("https://www.bilibili.com/?page=Favorites"), "fav");
 assert.strictEqual(where("https://www.bilibili.com/watchlater/list"), "later");
@@ -243,8 +244,8 @@ assert.strictEqual(where("https://space.bilibili.com/2773586"), "space");
 assert.strictEqual(where("https://space.bilibili.com/2773586/video"), "space");
 const show = (k) => { const r = SURFACES[k]; return `${r.novideo ? "x" : r.vtags ? "V" : "-"}${r.ups ? "U" : "-"}${r.plus[0] || "-"}${r.above ? "^" : ""}`; };
 assert.deepStrictEqual(Object.keys(SURFACES).map((k) => `${k}:${show(k)}`), [
-  "card:VUh", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "owner:xUa", "nick:xUa", "video:VU-", "popover:VU-", "popfeed:xU-"
-], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」");
+  "card:VUh", "search:V--", "fav:V--^", "later:VUh", "history:VUh", "feed:xUh", "space:V--", "owner:xUa", "nick:xUa", "video:VU-", "popover:VU-", "popfeed:xU-"
+], "the approved matrix: 动态 (page and popover) shows no video marks, popovers and recommendations no 「+」, 收藏夹 no UP tags, owner names always offer 「+ UP 标签」, the search page no UP tags (#394)");
 assert.ok(SURFACES.popover.tight && SURFACES.popfeed.tight, "popovers: 看到 N% without ✓");
 assert.deepStrictEqual(Object.keys(SURFACES).filter((k) => SURFACES[k].corner), ["history"], "only 历史 swaps the veil for the corner tag");
 
@@ -254,11 +255,12 @@ assert.deepStrictEqual(Object.keys(ROWS).sort(), Object.keys(SURFACES).sort(), "
 const grid = (k) => Object.keys(COLS).map((c) => (allowed(k, c) ? "✓" : "-")).join("");
 assert.deepStrictEqual(Object.keys(ROWS).map((k) => `${k}:${grid(k)}`), [
   "card:✓✓✓✓✓", "popover:✓✓✓-✓", "popfeed:--✓-✓", "feed:--✓✓✓", "video:✓✓✓-✓", "owner:--✓✓-",
-  "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "nick:--✓✓-", "space:✓✓--✓"
+  "search:✓✓--✓", "fav:✓✓--✓", "later:✓✓✓✓✓", "history:✓✓✓✓✓", "nick:--✓✓-", "space:✓✓--✓"
 ], "columns: AI 判断, 视频标签, UP 标签, 「+ UP 标签」, 观看进度");
 // K31, K32: card covers every page without a row of its own; video covers the 合集 list beside a video too.
-assert.deepStrictEqual([ROWS.card, ROWS.video], ["首页、搜索和其他页面", "视频页的推荐、合集和播放列表"]);
+assert.deepStrictEqual([ROWS.card, ROWS.search, ROWS.video], ["首页和其他页面", "搜索页", "视频页的推荐、合集和播放列表"]);
 assert.deepStrictEqual(plain(normalizeOff(["fav.vtags", "fav.ups", "nope.seen", "card.vtags", "card.vtags", 3, null])), ["fav.vtags", "card.vtags"], "only cells that exist, once");
+assert.deepStrictEqual(plain(normalizeOff(["search.ups", "search.plus", "search.vtags"])), ["search.vtags"], "a stored search-page UP cell from before the search row is dropped");
 const all = rulesWith([]);
 assert.ok(Object.keys(SURFACES).every((k) => all[k].ups === allowed(k, "ups") && all[k].seen === allowed(k, "seen")), "nothing off: each surface as offered");
 const off = rulesWith(["card.verdict", "card.plus", "popover.seen", "fav.ups"]);
@@ -936,6 +938,19 @@ async function surfacePages() {
   assert.strictEqual(boxAfter(inPop).querySelector(".mdg-up-add"), null, "header popover: no 「+」 (so no orphaned picker)");
   assert.ok(boxAfter(inPop).querySelector(".mdg-more"), "header popover: the 「+N」 that fitBoxes shows when the tags don't fit");
 
+  // #394: the search page's cards, built like the home page's, and the /list/ player's 「UP主的全部视频」 link above the
+  // playlist get no UP tags; a box there breaks B站's page as Vue hydrates it. Cards beside the /list/ player keep theirs.
+  const owner = () => h("a", { href: "//space.bilibili.com/1", class: "bili-video-card__info--owner" }, h("span", { class: "bili-video-card__info--author" }, "甲"));
+  const homeCard = owner();
+  await page({ hostname: "www.bilibili.com", pathname: "/" }, h("body", {}, homeCard));
+  const searchCard = owner();
+  const search = await page({ hostname: "search.bilibili.com", pathname: "/all", search: "?keyword=x" }, h("body", {}, searchCard));
+  assert.deepStrictEqual([!!boxAfter(homeCard), search.doc.querySelectorAll(".mdg-ups").length], [true, 0], "search page cards: no UP tags, the home page's same card has them");
+  const listHead = h("a", { href: "//space.bilibili.com/1/", class: "list-display-name" }, " UP主的全部视频 ");
+  const listRec = author();
+  const list = await page({ hostname: "www.bilibili.com", pathname: "/list/1", search: "?bvid=BV1GJ411x7h7" }, h("body", {}, h("div", { class: "action-list-body-top" }, listHead), h("div", { class: "right-container" }, listRec)));
+  assert.deepStrictEqual([list.doc.querySelectorAll(".action-list-body-top .mdg-ups").length, !!boxAfter(listRec)], [0, true], "/list/ playlist head: no UP tags, the cards beside it have them");
+
   // In-page navigation to a 收藏夹 page (no reload, only DOM changes): the card's UP tags go under the new page's rules.
   home.win.location = { hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" };
   home.win.mutate([{ type: "childList", target: home.doc.querySelector("body"), addedNodes: [h("div")], removedNodes: [] }]);
@@ -975,6 +990,12 @@ async function surfacePages() {
   assert.strictEqual(line.querySelector(".mdg-up-add").dataset.name, "甲", "the picker names the UP, not the whole row");
   assert.strictEqual(line.querySelector(".mdg-up-add").textContent, "+ UP 标签");
   assert.ok(boxAfter(rec), "recommendations beside the video: UP tags");
+  const maker = h("a", { href: "//space.bilibili.com/1", class: "subtitle-maker-name" }, "甲");
+  await page({ hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7" }, h("body", {}, h("ul", { class: "subtitle-maker-list" }, h("li", { class: "subtitle-maker" }, maker))));
+  assert.strictEqual(maker.querySelector(".mdg-ups"), null, "a 字幕作者 under the description: no UP tags");
+  const footUp = author();
+  await page({ hostname: "www.bilibili.com", pathname: "/" }, h("body", {}, h("div", { class: "bili-footer" }, footUp)));
+  assert.strictEqual(boxAfter(footUp), null, "the page footer's links: no UP tags");
   assert.strictEqual(boxAfter(rec).querySelector(".mdg-up-add"), null, "recommendations beside the video: no 「+」");
 
   // #394: before Vue hydrates the server-rendered #app, the UP name's line waits (the cards beside it don't); once it
@@ -1097,8 +1118,11 @@ async function incremental() {
   };
   const dm = h("div", { class: "bpx-player-row-dm-wrap" });
   const recs = h("div", { class: "rec-list" });
-  const info = h("div", { class: "video-info-container" }, h("h1", { class: "video-title" }, "标题"), h("div", { class: "video-info-meta" }));
-  const body = h("body", {}, info, h("div", { id: "bilibili-player" }, dm), recs);
+  // /list/'s title links to the playing video itself.
+  const titleLink = h("a", { class: "video-title-href", href: `//www.bilibili.com/video/${BV}` }, "标题");
+  const info = h("div", { class: "video-info-container" }, h("div", { class: "video-info-title" }, h("h1", { class: "video-title" }, titleLink)), h("div", { class: "video-info-meta" }));
+  const footLink = h("a", { href: "//www.bilibili.com/video/BV1xx411c7mD" }, h("div", { class: "title" }, "高级弹幕"));
+  const body = h("body", {}, info, h("div", { id: "bilibili-player" }, dm), recs, h("div", { class: "bili-footer" }, footLink));
   const walker = (root) => {
     const texts = [];
     const walk = (n) => n.childNodes.forEach((k) => (k.nodeType === 3 ? k.data.trim() && texts.push(k) : walk(k)));
@@ -1146,6 +1170,8 @@ async function incremental() {
   const tick = () => new Promise((r) => setTimeout(r, 0));
   await settle();
   assert.match(doc.querySelector(".mdg-line")?.textContent || "", /讲 Rust 所有权/, "the line under the title on start");
+  assert.strictEqual(titleLink.querySelector(".mdg-badge"), null, "the playing video's own title link: no mark, the line has it");
+  assert.strictEqual(footLink.querySelector(".mdg-badge"), null, "a video link in the page footer: no mark");
   const add = (parent, node) => (parent.append(node), mutate([{ type: "childList", target: parent, addedNodes: [node], removedNodes: [] }]));
   const card = (bvid) => h("a", { href: `//www.bilibili.com/video/${bvid}` }, h("div", { class: "title" }, "视频标题"));
 
