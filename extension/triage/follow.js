@@ -12,7 +12,7 @@ const {
   sideIds, SOURCE, OUT_KINDS, outKind, groupMoveLabel, regrouped, groupCalls, groupTargets, sideMids, visibleUps,
   SORTS, OUT_SORTS, SORT_DIR, dirLabel, mergeFeed, FEED_SORTS, feedOrdered, feedCounts, feedList, feedLeaving,
   stepIn, normAi, followAiSettings, aiRequests, settingsProblem, normDays,
-  keptOrder, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
+  keptOrder, syncJob, syncing, syncFinished, viewRecord, latestBvid, aiBlocked, withAllowRemove, favUpMid, playingMid, unknownLast, aiBare,
   syncView
 } = globalThis.FollowCore;
 
@@ -130,7 +130,7 @@ async function load() {
     tags: got.tags || [],
     map: got.tag_map || {},
     gone: got.unfollowed || {},
-    jobs: got.jobs || {},
+    jobs: syncJob(got.jobs),
     recent: got.ai_recent || null,
     stats: got.stats || {},
     groups: got.groups || []
@@ -312,7 +312,7 @@ function renderSide() {
 // A sync takes minutes, so like 粗看 / 细看 it also leads row 3's right end as the primary button, with its count.
 const runSlot = () => {
   const j = D.jobs || {};
-  return `<span id="fwRunSlot">${j.running ? `<button type="button" class="primary" data-fw-stop aria-label="${STOP_SYNC}">${STOP_SYNC}${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
+  return `<span id="fwRunSlot">${syncing(j) ? `<button type="button" class="primary" data-fw-stop aria-label="${STOP_SYNC}">${STOP_SYNC}${j.total ? ` ${j.done || 0}/${j.total}` : ""}</button>` : ""}</span>`;
 };
 // The progress pill, as in 收藏夹 (runs' table): while the sync job runs it takes 刷新's place (progress, the B站限流
 // countdown, 暂停刷新, the word row 3 uses); otherwise a B站 write (停止), then AI 打标签 running or waiting to be confirmed (查看).
@@ -323,8 +323,8 @@ function renderSync() {
   const slot = $("fwRunSlot");
   if (slot) slot.outerHTML = runSlot();
   const btn = $("fwRefreshBtn");
-  btn.disabled = Boolean(j.running);
-  if (j.running) btn.setAttribute("aria-busy", "true");
+  btn.disabled = syncing(j);
+  if (syncing(j)) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
   const { job, stopping, ...a } = runs.pill(PILL) || {};
   const stop = job === "follow-write" && stopping && { ...PILL_BTN[job], label: MdgErrors.LABEL.stopping, reason: UI.WRITE_STOPPING };
@@ -365,7 +365,7 @@ function renderLogin() {
   if (F.mode !== "follow") return;
   const j = D.jobs || {};
   const login = (code) => MdgErrors.action(code) === "login"; // follow-bg.js reports B站's -101 as NOT_LOGGED_IN
-  const err = !j.running && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
+  const err = j.state === "failed" && login(j.errorCode) ? j.error : login(F.feed?.errorCode) ? F.feed.error : "";
   if (err !== loginSeen) T.loginBanner(Boolean(err));
   loginSeen = err;
 }
@@ -373,7 +373,7 @@ function renderHead() {
   const at = D.list?.at || 0;
   const j = D.jobs || {};
   // As 收藏夹's. On B站限流 follow-bg.js's error is MdgErrors.TEXT.biliThrottled.
-  const err = !j.running && j.error ? `刷新失败：${j.error}` : "";
+  const err = j.state === "failed" ? `刷新失败：${j.error}` : "";
   const out = F.side === "out";
   E.title.innerHTML = out ? UI.titleHtml(UI.removedName, sideCount("out")) : UI.titleHtml("关注", D.list ? sideCount("all") : null);
   renderLogin();
@@ -438,9 +438,8 @@ function renderUps() {
   let { list, counts } = visibleUps(D, rows, out ? { side: F.side, q: F.q, sort: F.outSort.sort, dir: F.outSort.dir, kind: F.kind, source: F.source, tagState: F.tagState, tags: F.tags } : { side: F.side, status: F.status, q: F.q, sort: F.sort, dir: F.dir, recent: F.recentFilter ? recentAll : null, recentAll, tagState: F.tagState, tags: F.tags });
   // A refresh rewrites the data every second for minutes: meanwhile the cards keep their order (newly listed ones go
   // last), and are sorted again once it ends, or when you change what is listed or the sort (fromTop).
-  const syncing = Boolean(D.jobs?.running);
-  if (syncing && F.order) list = keptOrder(list, F.order);
-  F.order = syncing ? list : null;
+  if (syncing(D.jobs) && F.order) list = keptOrder(list, F.order);
+  F.order = syncing(D.jobs) ? list : null;
   shown = list;
   // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
@@ -492,7 +491,7 @@ function cleanBtn(list) {
 
 function emptyHtml() {
   const j = D.jobs || {};
-  const act = j.running ? `<p class="muted" aria-busy="true">${UI.REFRESHING}…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync" class="primary"');
+  const act = syncing(j) ? `<p class="muted" aria-busy="true">${UI.REFRESHING}…读到就显示在这里</p>` : UI.refreshEmpty('data-fw="sync" class="primary"');
   return UI.emptyState(NO_DATA, "读取关注列表和视频投稿，按最后投稿时间分为活跃、慢更、断更；视频投稿里没有的 UP 主再逐个查询。只读，不改 B站。", act);
 }
 
@@ -500,11 +499,11 @@ function emptyHtml() {
 function hintHtml() {
   if (!D.list || F.side === "out") return "";
   const parts = [];
-  if (D.list.complete === false && !D.jobs?.running) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
+  if (D.list.complete === false && !syncing(D.jobs)) parts.push(`<p class="fw-hint warn">这次关注列表没读全，没有把任何人记成已取消关注。下次刷新会再读。</p>`);
   const counts = unknownLast(D, rows);
   const open = counts.unchecked + counts.stale;
   if (open) {
-    const running = D.jobs?.running;
+    const running = syncing(D.jobs);
     const stale = counts.stale ? `「待查」= ${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才分得清慢更还是断更。` : "";
     const act = running ? `<span class="muted" aria-busy="true">正在查，状态边查边更新</span>` : `<button type="button" data-fw="sync">${MdgErrors.LABEL.refresh}（约 ${Math.max(1, Math.ceil(open / 60))} 分钟）</button>`;
     parts.push(`<p class="fw-hint">${open} 个 UP 主还不知道最后投稿时间。${stale}${act}</p>`);
@@ -513,7 +512,7 @@ function hintHtml() {
 }
 
 // The UP 主 whose videos the sync is reading now, as 粗看's 分析中… cards.
-const checking = () => (D.jobs?.running && D.jobs.phase === "arc" ? D.jobs.cur || "" : "");
+const checking = () => (syncing(D.jobs) && D.jobs.phase === "arc" ? D.jobs.cur || "" : "");
 
 function upCard(mid) {
   const u = rows.get(mid);
@@ -806,8 +805,8 @@ const holdLabel = (h) => (h.why === "throttled" ? UI.BILI_STUCK : MdgErrors.TEXT
 // the requests go slower for a while (follow-bg.js FOLLOW_CFG.slowForMs).
 runs.put("sync", () => {
   const j = D.jobs || {};
-  if (!j.running) return null;
-  const held = j.hold?.until > nowSec();
+  if (!syncing(j)) return null;
+  const held = j.state === "holding" && j.hold.until > nowSec();
   const slowed = !held && (j.slowUntil || 0) > nowSec();
   const text = `${slowed ? "B站限流变慢 · " : ""}${j.step || PHASE[j.phase] || UI.REFRESHING}${j.total ? ` ${j.done || 0}/${j.total}` : j.done ? ` ${j.done}` : ""}`;
   return { text, done: j.done || 0, total: j.total || 0, slowed, wait: held && { until: j.hold.until * 1000, label: holdLabel(j.hold) } };
@@ -1597,11 +1596,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (!keys.length) return;
   if (keys.every((k) => k === "jobs")) {
     const was = checking();
-    const running = Boolean(D.jobs?.running);
-    D.jobs = fc.jobs.newValue || {};
+    const running = syncing(D.jobs);
+    D.jobs = syncJob(fc.jobs.newValue);
     if (F.mode === "follow") renderHead();
     // A run starting or ending changes the hint above the list, and the 查投稿中… card moves on: redraw the list for them.
-    if (F.mode === "follow" && F.tab === "ups" && (!D.list || checking() !== was || running !== Boolean(D.jobs.running))) renderUps();
+    if (F.mode === "follow" && F.tab === "ups" && (!D.list || checking() !== was || running !== syncing(D.jobs))) renderUps();
     return;
   }
   if (redrawTimer) return;
@@ -1613,7 +1612,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 // 「N 秒后重试」 counts down.
 setInterval(() => {
-  if (F.mode === "follow" && D.jobs?.running && D.jobs.hold?.until) renderHead();
+  if (F.mode === "follow" && D.jobs?.state === "holding") renderHead();
 }, 1000);
 
 // Leaving the viewer (× or Esc) clears the playing mark. Opening or closing it re-lays the list, as in 收藏夹: the card

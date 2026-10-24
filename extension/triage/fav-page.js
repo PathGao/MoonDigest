@@ -131,6 +131,7 @@ function followShared(changes) {
     const c = changes[K[name]];
     if (!c) continue;
     if (ownEcho(K[name], c)) continue;
+    if (editsInFlight.has(K[name])) redrawAfterEdit.add(K[name]);
     const value = c.newValue ?? structuredClone(empty);
     if (name === "kept") followKept(value);
     else S[name] = value;
@@ -182,25 +183,32 @@ function followKept(kept) {
 // ---------- 待播 ----------
 // triage_basket is the 待播 in order: [{ bvid, title, cover?, upper?, duration?, opened? }]; the copied
 // fields show videos outside the open folder (entries from before they were copied have only the title).
-const saveBasket = () => storeSet(K.basket, S.basket);
+// One change (edit(list) → the next list) applied to the page's copy at once and to the stored one by read-modify-write
+// (storeEdit), so two tabs' 待播 changes both land; the page then shows what was written.
+function editBasket(edit) {
+  S.basket = edit(S.basket);
+  return storeEdit(K.basket, [], edit).then((b) => {
+    if (b) S.basket = b;
+  });
+}
+const basketPut = (b, x) => (b.some((y) => y.bvid === x.bvid) ? b : [...b, x]);
 
 function toggleBasket(bvid) {
   const i = S.basket.findIndex((x) => x.bvid === bvid);
   const it = S.itemMap.get(bvid);
   if (i >= 0) {
-    removeBasketItems([i]);
+    const written = removeBasketItems([i]);
     toast(BASKET_REMOVED);
-    return;
+    return written;
   }
-  if (it) {
-    S.basket.push({ bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration });
-    toast(`已加入待播《${shortTitle(it)}》`);
-    el.basket.classList.remove("bump");
-    void el.basket.offsetWidth;
-    el.basket.classList.add("bump");
-  }
-  saveBasket();
+  if (!it) return;
+  const written = editBasket((b) => basketPut(b, { bvid, title: it.title, cover: it.cover, upper: it.upper, duration: it.duration }));
+  toast(`已加入待播《${shortTitle(it)}》`);
+  el.basket.classList.remove("bump");
+  void el.basket.offsetWidth;
+  el.basket.classList.add("bump");
   render();
+  return written;
 }
 
 // The list keeps the order videos were added in. Opening one only marks it; only 移除 removes it —
@@ -208,17 +216,19 @@ function toggleBasket(bvid) {
 function openBasketItem(i) {
   const x = S.basket[i];
   if (!x) return;
-  x.opened = true;
-  saveBasket();
-  openViewer(x);
+  editBasket((b) => b.map((y) => (y.bvid === x.bvid ? { ...y, opened: true } : y)));
+  openViewer({ ...x, opened: true });
 }
 
 // 移除 and 清空 take videos out of the list, nothing else; favorites and decisions are untouched. U puts them back
 // (basketStep), each at its place.
 function basketStep(removed) {
-  return pageStep("basket", 0, "", () => {
-    for (const { i, x } of removed) if (!S.basket.some((y) => y.bvid === x.bvid)) S.basket.splice(i, 0, x);
-    saveBasket();
+  return pageStep("basket", 0, "", async () => {
+    await editBasket((b) => {
+      const next = [...b];
+      for (const { i, x } of removed) if (!next.some((y) => y.bvid === x.bvid)) next.splice(i, 0, x);
+      return next;
+    });
     return `已撤销：放回待播 ${removed.length} 个`;
   });
 }
@@ -226,16 +236,17 @@ function removeBasketItems(indexes) {
   const removed = indexes.filter((i) => S.basket[i]).sort((a, b) => a - b).map((i) => ({ i, x: S.basket[i] }));
   if (!removed.length) return;
   const gone = new Set(removed.map((r) => r.x.bvid));
-  S.basket = S.basket.filter((x) => !gone.has(x.bvid));
-  saveBasket();
+  const written = editBasket((b) => b.filter((x) => !gone.has(x.bvid)));
   pushUndo(basketStep(removed));
   render();
+  return written;
 }
 
 function clearBasket() {
   const n = S.basket.length;
-  removeBasketItems(S.basket.map((_, i) => i));
+  const written = removeBasketItems(S.basket.map((_, i) => i));
   toast(`已清空待播 ${n} 个${UNDO}`);
+  return written;
 }
 
 function renderBasket() {

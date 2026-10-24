@@ -12,15 +12,15 @@ const pageStep = (kind, n, askKind, fn) => ({
   kind,
   ask: askKind && n > 1 ? UI.undoAsk(askKind, n, "视频") : null,
   undo: async () => {
-    const text = fn();
+    const text = await fn();
     render();
     setFocus(S.focused);
     return text;
   }
 });
 const keepStep = (bvids) =>
-  pageStep("keepMany", bvids.length, "keep", () => {
-    patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
+  pageStep("keepMany", bvids.length, "keep", async () => {
+    await patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
     const it = bvids.length === 1 && S.itemMap.get(bvids[0]);
     if (it) S.focused = it.bvid;
     return it ? `已撤销：保留《${shortTitle(it)}》` : `已撤销：批量保留 ${bvids.length} 个`;
@@ -42,16 +42,22 @@ function patchDecisions(mediaId, patch) {
     await storeSet(K.decisions(mediaId), unfavOnly(stored));
   });
 }
-// 保留 is one list for every folder; a null value deletes.
+// 保留 is one list for every folder; a null value deletes. The patch goes onto the page's copy at once and onto the stored
+// list by read-modify-write, so a 保留 another tab set meanwhile stays; the page then takes what was written.
 function patchKept(patch) {
-  for (const [b, v] of Object.entries(patch)) {
-    if (v) S.kept[b] = S.decisions[b] = v;
-    else {
-      delete S.kept[b];
-      delete S.decisions[b];
+  const apply = (kept) => {
+    for (const [b, v] of Object.entries(patch)) {
+      if (v) kept[b] = v;
+      else delete kept[b];
     }
+    return kept;
+  };
+  apply(S.kept);
+  for (const [b, v] of Object.entries(patch)) {
+    if (v) S.decisions[b] = v;
+    else delete S.decisions[b];
   }
-  return storeSet(K.kept, S.kept);
+  return storeEdit(K.kept, {}, apply).then((kept) => kept && followKept(kept));
 }
 // A 取消收藏 undone or overtaken by a re-favorite on B站: the video's 保留, if any, shows again.
 function unfavGone(bvid) {
@@ -86,11 +92,12 @@ function keepOne(bvid) {
   if (prev?.action === "keep") return;
   if (prev?.action === "unfav") return toast(KEEP_UNFAVED, true);
   const before = visibleItems();
-  patchKept({ [bvid]: { action: "keep", at: Date.now() } });
+  const written = patchKept({ [bvid]: { action: "keep", at: Date.now() } });
   pushUndo(keepStep([bvid]));
   toast(`已保留《${shortTitle(it)}》${UNDO}`);
   render();
   advanceFrom(bvid, before);
+  return written;
 }
 
 // ---------- 收藏夹's B站 writes ----------
@@ -598,8 +605,9 @@ async function recoverRemoved(ids) {
 function batchKeep(list) {
   if (!list.length) return;
   const at = Date.now();
-  patchKept(Object.fromEntries(list.map((it) => [it.bvid, { action: "keep", at }])));
+  const written = patchKept(Object.fromEntries(list.map((it) => [it.bvid, { action: "keep", at }])));
   pushUndo(keepStep(list.map((it) => it.bvid)));
   toast(`已标记保留 ${list.length} 个${UNDO}`);
   render();
+  return written;
 }

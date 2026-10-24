@@ -309,7 +309,17 @@ const aiTags = {
 };
 const openAi = () => TagDialogs.ai.open(aiTags);
 
+// ✦ AI 打标签's last instructions (the dialog's history), on the page's copy at once and on the stored list by
+// read-modify-write, so an instruction another tab ran meanwhile stays; the page then takes what was written.
+function addAiHistory(instruction) {
+  S.aiHistory = UI.aiHistoryAdd(S.aiHistory, instruction);
+  return storeEdit(K.aiHistory, [], (h) => UI.aiHistoryAdd(h, instruction)).then((h) => {
+    if (h) S.aiHistory = h;
+  });
+}
+
 // instruction, scope and allowRemove come from the dialog, which has checked that there is an instruction and items.
+
 async function runAiCommand({ instruction, scope, allowRemove }) {
   if (aiRunning() || S.mediaId === REMOVED) return;
   const items = aiScopeItems(scope);
@@ -337,8 +347,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   });
   // In 所有收藏夹 a video in no chosen folder has no part: nothing may be left to send.
   if (!from) return;
-  S.aiHistory = UI.aiHistoryAdd(S.aiHistory, instruction);
-  storeSet(K.aiHistory, S.aiHistory);
+  addAiHistory(instruction);
   const partOf = (i) => {
     const part = parts.findLast((x) => x.from <= i);
     return [part, i - part.from];
@@ -375,8 +384,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   const { proposal: p, errors } = await running;
   if (p) {
     for (const t of p.newTags) if (t.folder) t.where = folderName(t.folder);
-    S.ai.proposals[folder] = p;
-    saveAiProposals();
+    await editAiProposals(folder, p);
   }
   renderTop();
   // Open, the dialog turns to the proposal (or, in another folder, back to its form).

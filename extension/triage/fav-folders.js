@@ -596,9 +596,8 @@ async function cleanRemoved(list) {
     const set = new Set(bvids);
     const rec = await storeGet(K.removed, {});
     for (const b of bvids) {
-      for (const map of [rec, S.notes, S.kept, S.analyses, S.titleRes]) delete map[b];
+      for (const map of [rec, S.notes, S.analyses, S.titleRes]) delete map[b];
     }
-    S.basket = S.basket.filter((x) => !set.has(x.bvid));
     const decisionKeys = (await MdgLimits.storageKeys(chrome.storage.local)).filter((k) => k.startsWith(KEYS.triageDecisionsPrefix));
     const decisions = await chrome.storage.local.get(decisionKeys);
     for (const map of [...Object.values(decisions), S.decisions, ...Object.values(S.folderDecisions)]) for (const b of bvids) delete map[b];
@@ -610,9 +609,12 @@ async function cleanRemoved(list) {
       notePending.delete(b);
       await MdgLimits.saveVideoNote(b, "", (notes) => storeSet(K.notes, notes));
     }
-    const write = { [K.removed]: rec, ...tagsDb.without(bvids), [K.kept]: S.kept, [K.basket]: S.basket };
+    const write = { [K.removed]: rec, ...tagsDb.without(bvids) };
     noteOwnWrites(write);
     if (!(await store(write))) return;
+    // 保留 and 待播 are every tab's: each by read-modify-write, only these videos taken out.
+    await patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
+    await editBasket((b) => b.filter((x) => !set.has(x.bvid)));
     S.removedCount = Object.keys(rec).length;
     setItems(S.items.filter((it) => !set.has(it.bvid)));
     toast(`已清理 ${list.length} 个视频`);

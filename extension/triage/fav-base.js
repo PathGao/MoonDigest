@@ -163,9 +163,7 @@ const S = {
       return this.proposals[S.mediaId] || null;
     },
     set proposal(p) {
-      if (p) this.proposals[S.mediaId] = p;
-      else delete this.proposals[S.mediaId];
-      saveAiProposals();
+      editAiProposals(S.mediaId, p);
     }
   }
 };
@@ -314,6 +312,29 @@ let storeFailShown = false;
 function storeSet(key, value) {
   noteOwnWrites({ [key]: value });
   return store({ [key]: value });
+}
+// A record every 分拣台 tab writes (保留, 待播, 判断标准, 「AI 刚打的」, the AI proposals, the AI instructions) changed by
+// read-modify-write (MdgLimits.update, one at a time across the tabs): edit(the stored value, empty when none) returns what
+// to write, so only this change lands and another tab's stays. Resolves what was written (the caller takes it as the
+// page's copy), or undefined when the write failed, toasted as storeSet's.
+// Another tab's change that lands while an edit waits replaces the page's copy and draws it without this tab's change;
+// the caller takes the written value once the edit resolves, so the page draws again after that (redrawAfterEdit).
+const editsInFlight = new Map();
+const redrawAfterEdit = new Set();
+function storeEdit(key, empty, edit) {
+  editsInFlight.set(key, (editsInFlight.get(key) || 0) + 1);
+  return MdgLimits.update(key, (stored) => {
+    const next = edit(stored ?? structuredClone(empty));
+    noteOwnWrites({ [key]: next });
+    return next;
+  })
+    .then((next) => ((storeFailShown = false), next), (e) => void storeFailed([key], e))
+    .finally(() => {
+      const left = editsInFlight.get(key) - 1;
+      if (left) editsInFlight.set(key, left);
+      else editsInFlight.delete(key);
+      if (!left && redrawAfterEdit.delete(key)) setTimeout(render);
+    });
 }
 // Writes obj to storage.local; a failure is logged and toasted once until a write succeeds again (关注 writes through
 // this too). Resolves false on failure.

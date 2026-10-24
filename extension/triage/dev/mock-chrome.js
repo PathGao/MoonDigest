@@ -433,7 +433,7 @@
       ...(withGroups ? { follow_groups: [{ id: 101, name: "每周必看", count: 18 }, { id: 102, name: "学习区", count: 18 }] } : {}),
       // 粉丝数 for two thirds of them; the rest are 粉丝数未查.
       follow_stats: Object.fromEntries(mids.filter((_, i) => i % 3).map((m, i) => [m, { follower: [1234567, 89012, 4321, 560000, 23, 150000, 9876][i % 7], at: nowS - DAY }])),
-      follow_jobs: { running: false, startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600, lastFinishedAt: nowS - 3 * 3600 }
+      follow_jobs: { state: "done", startedAt: nowS - 3 * 3600 - 300, finishedAt: nowS - 3 * 3600 }
     };
     if (/[?&]cond\b/.test(location.search)) full.follow_ai_recent = { at: Date.now() - 3600000, mids: [mids[0], mids[8], mids[10]] };
     if (fmode !== "empty") Object.assign(store, structuredClone(full));
@@ -453,12 +453,12 @@
       (async () => {
         for (const [phase, step, total, run] of steps) {
           for (let k = 0; k < total && !job.stop; k++) {
-            await setJobs({ running: true, phase, step, done: k, total, startedAt, slowUntil: job.slowUntil || 0, ...(phase === "arc" ? { cur: todo[k] } : {}) });
+            await setJobs({ state: "running", phase, step, done: k, total, startedAt, slowUntil: job.slowUntil || 0, ...(phase === "arc" ? { cur: todo[k] } : {}) });
             if (phase === "arc" && k === 2 && !job.held) {
               job.held = true;
               // After the wait it goes on 「B站限流变慢」 for the rest of this run.
               job.slowUntil = Math.floor(Date.now() / 1000) + 600;
-              await setJobs({ running: true, phase, step, done: k, total, startedAt, cur: todo[k], slowUntil: job.slowUntil, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
+              await setJobs({ state: "holding", phase, step, done: k, total, startedAt, cur: todo[k], slowUntil: job.slowUntil, hold: { until: Math.floor(Date.now() / 1000) + 4, why: "throttled" } });
               await wait(4000);
             }
             await wait(700);
@@ -466,7 +466,7 @@
           }
         }
         const done = Math.floor(Date.now() / 1000);
-        await setJobs(job.stop ? { running: false, startedAt, finishedAt: store.follow_jobs?.finishedAt || 0 } : { running: false, startedAt, finishedAt: done, lastFinishedAt: done });
+        await setJobs(job.stop ? { state: "stopped", startedAt } : { state: "done", startedAt, finishedAt: done });
         if (!job.stop) chrome.storage.local.set({ follow_list: { ...store.follow_list, at: done } });
         job = null;
       })();
