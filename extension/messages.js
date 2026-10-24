@@ -43,7 +43,8 @@
 
     // The video page (content.js): the background's proxies for it, and what the popup, side panel and background ask it
     "page-player": { from: ["content.js", "triage/viewer-frame.js"], to: "background.js", request: ["ref"], response: ["data"] },
-    "fetch-json": { from: ["content.js"], to: "background.js", request: ["url"], response: ["data", "status"] },
+    "fetch-json": { from: ["content.js"], to: "background.js", request: ["url", "id"], response: ["data", "status"] },
+    "fetch-json-cancel": { from: ["content.js"], to: "background.js", request: ["id"], response: [] },
     "mdg-video-changed": { from: ["content.js"], to: "sidepanel.js", request: [], response: [] },
     "popup-get-state": { from: ["popup.js"], to: "content.js", request: [], response: ["payload"], builder: "content.js:getPopupPayload", payload: POPUP_PAYLOAD },
     "popup-refresh": { from: ["popup.js", "sidepanel.js", "background.js"], to: "content.js", request: ["refresh"], response: ["payload"] },

@@ -311,7 +311,7 @@ function triageBiliData(json) {
 // (triageBiliJson). No whole answer, body included, in TRIAGE_BILI_CFG.timeoutMs (MdgErrors.NET_TIMEOUT_MS, the video
 // page's own fetches use it too) aborts the request; that and a dropped connection are NETWORK.
 const TRIAGE_BILI_CFG = { timeoutMs: MdgErrors.NET_TIMEOUT_MS };
-async function triageBiliFetch(url, init = {}) {
+async function triageBiliFetch(url, init = {}, signal) {
   const ms = TRIAGE_BILI_CFG.timeoutMs;
   return triageRace(ms, () => triageError(MdgErrors.netTimeout(ms), "NETWORK"), async (signal) => {
     const res = await fetch(url, { ...init, credentials: "include", signal }).catch((e) => {
@@ -319,13 +319,17 @@ async function triageBiliFetch(url, init = {}) {
       throw triageError(e?.name === "TypeError" ? MdgErrors.TEXT.netDown : `${MdgErrors.TEXT.netDown}：${e?.message || e}`, "NETWORK");
     });
     return triageBiliJson(res);
-  });
+  }, signal);
 }
 
 // run(signal) with a deadline: past ms the signal aborts and the call rejects with timeoutError(). Racing the timer
-// (not just aborting) also ends a fetch or body read that ignores the abort.
-async function triageRace(ms, timeoutError, run) {
+// (not just aborting) also ends a fetch or body read that ignores the abort. An outer signal (the video page's
+// fetch-json-cancel) aborts it too, with its reason.
+async function triageRace(ms, timeoutError, run, outer) {
   const ctl = new AbortController();
+  const stop = () => ctl.abort(outer.reason);
+  if (outer?.aborted) stop();
+  else outer?.addEventListener("abort", stop, { once: true });
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
@@ -337,6 +341,7 @@ async function triageRace(ms, timeoutError, run) {
     return await Promise.race([run(ctl.signal), timeout]);
   } finally {
     clearTimeout(timer);
+    outer?.removeEventListener("abort", stop);
   }
 }
 
@@ -350,15 +355,16 @@ const TRIAGE_BILI_GET = { cache: "no-store", referrer: `${TRIAGE_BILI_WEB}/`, re
 // Without pace (收藏夹) it is one try; the caller backs off on THROTTLED. pace (关注's long syncs) =
 // { slot, hold, cfg: { strikes, backoffMs, netRetry } }: every try waits for slot(); a dropped connection holds the
 // queue netRetry[i] ms and tries again; risk control holds it backoffMs (and drops the WBI key, a stale one answers
-// -352 too) and gives up with THROTTLED on the strikes-th time.
-async function triageBiliGetJson(url, pace) {
+// -352 too) and gives up with THROTTLED on the strikes-th time. signal (the video page's fetch-json-cancel) aborts the
+// try in flight.
+async function triageBiliGetJson(url, pace, signal) {
   let net = 0;
   for (let strike = 1; ; strike++) {
     const u = typeof url === "function" ? await url() : url;
     await pace?.slot();
     let json = null;
     try {
-      json = await triageBiliFetch(u, TRIAGE_BILI_GET);
+      json = await triageBiliFetch(u, TRIAGE_BILI_GET, signal);
     } catch (e) {
       if (!pace) throw e;
       if (e.code === "NETWORK" && net < pace.cfg.netRetry.length) {

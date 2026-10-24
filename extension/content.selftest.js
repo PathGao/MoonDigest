@@ -345,6 +345,28 @@ const settle = async () => {
     Object.assign(t, { fetch: saved.fetch, sendRuntimeMessage: saved.send, currentSite: saved.site, AbortSignal: saved.AbortSignal });
   }
 
+  // A video change tells the background to abort the proxied request it was waiting for (fetch-json-cancel, same id);
+  // one that answered first is not cancelled when the run ends later, and the wait for it rejected nothing.
+  {
+    const savedSend = t.sendRuntimeMessage;
+    const sent = [];
+    let answer;
+    t.sendRuntimeMessage = (m) => (sent.push(m), m.type === "fetch-json" ? new Promise((r) => (answer = r)) : Promise.resolve({ ok: true }));
+    const stale = t.fetchJsonInBackground("https://api.bilibili.com/x", t.clipRuns.current.signal).then(() => "answered", (e) => (t.MdgCommon.isStale(e) ? "stale" : e.message));
+    t.clipRuns.next();
+    assert.strictEqual(await stale, "stale");
+    assert.deepStrictEqual(sent.map((m) => m.type), ["fetch-json", "fetch-json-cancel"]);
+    assert.ok(Number.isInteger(sent[0].id) && sent[0].id === sent[1].id, "the cancel names the request");
+    sent.length = 0;
+    const done = t.fetchJsonInBackground("https://api.bilibili.com/y", t.clipRuns.current.signal);
+    answer({ ok: true, data: { code: 0 } });
+    assert.deepStrictEqual(await done, { code: 0 });
+    t.clipRuns.next();
+    await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual(sent.map((m) => m.type), ["fetch-json"], "an answered request is not cancelled");
+    t.sendRuntimeMessage = savedSend;
+  }
+
   // V6: a video change in 专注模式 reads the new video at once, without waiting for the player to report a duration.
   // Until its info is read the title is the same video's for another part, else none (the page may still show the last one).
   // Entering 专注模式 joins the read in flight or reads a video not read yet; it never forces a reread of a video

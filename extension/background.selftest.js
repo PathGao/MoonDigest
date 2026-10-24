@@ -662,6 +662,25 @@ process.on("exit", (code) => {
     assert.deepStrictEqual([late.error, late.code], [ctx.MdgErrors.netTimeout(20), "NETWORK"]);
     ctx.fetch = async (url, init) => ({ ok: true, json: async () => ({ code: 0, data: { referrer: init.referrer } }) });
     assert.deepStrictEqual({ ...(await ask({ type: "fetch-json", url: bili })).data.data }, { referrer: "https://www.bilibili.com/" }, "the whole JSON, sent as B站 pages send it");
+
+    // fetch-json-cancel aborts the page's own request in flight, by its id: another tab's cancel with the same id, and
+    // an id that is not in flight, abort nothing. The entry goes when the request settles.
+    const inFlight = () => vm.runInContext("proxiedFetches.size", ctx);
+    const seen = [];
+    ctx.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => (seen.push(url), reject(Object.assign(new Error("aborted"), { name: "AbortError" })))));
+    const tab = (id, documentId = "d1") => ({ tab: { id }, documentId, frameId: 0, url: "https://www.bilibili.com/video/BV1" });
+    const pending = ask({ type: "fetch-json", url: bili, id: 1 }, tab(5));
+    await new Promise((r) => setTimeout(r, 5));
+    assert.strictEqual(inFlight(), 1);
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(6))).ok, true, "another tab's id 1 is not this request");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(5, "d0"))).ok, true, "the tab's earlier page, back from the cache, has its own id 1");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 2 }, tab(5))).ok, true, "an unknown id is ignored");
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepStrictEqual([seen, inFlight()], [[], 1], "still in flight");
+    assert.strictEqual((await ask({ type: "fetch-json-cancel", id: 1 }, tab(5))).ok, true);
+    // Node's own timer: a request only the 30 s timeout would end must read as a failure, not a wait.
+    const ended = await Promise.race([pending, new Promise((r) => setTimeout(() => r({ ok: "still pending" }), 100))]);
+    assert.deepStrictEqual([seen, ended.ok, ended.code, inFlight()], [[bili], false, "NETWORK", 0], "the fetch saw the abort; the entry is gone");
   }
 
   // A B站 or YouTube page's script (a hijacked renderer too) gets only the types content.js sends: it cannot send a saved
@@ -1054,6 +1073,21 @@ process.on("exit", (code) => {
   const { local: _, ...older } = file;
   await ctx.importSettings(older);
   assert.deepStrictEqual(importLocal.triage_included_folders, ["7"]);
+  // An import during a 分拣台 tick (MdgLimits.update under the key's lock) waits for it: the tick's read-modify-write
+  // lands first and the import replaces it, instead of the tick writing its stale list over the import. Same for 判断标准.
+  {
+    const held = [];
+    const release = (p) => (held.push(p), new Promise((r) => (p.release = r)));
+    const tick = ctx.MdgLimits.update("triage_included_folders", async (stored) => (await release({}), [...stored, "9"]));
+    const edit = ctx.MdgLimits.update("triage_folder_criteria", async (stored) => (await release({}), { ...stored, 9: "新" }));
+    await new Promise((r) => setTimeout(r, 5));
+    const importing = ctx.importSettings(file);
+    await new Promise((r) => setTimeout(r, 5));
+    assert.deepStrictEqual([importLocal.triage_included_folders, importLocal.triage_folder_criteria], [["7"], { 11: "只留菜谱" }], "the import waits for the held writes");
+    held.forEach((p) => p.release());
+    await Promise.all([tick, edit, importing]);
+    assert.deepStrictEqual([importLocal.triage_included_folders, importLocal.triage_folder_criteria], [["11", "toview"], { 11: "只留菜谱" }], "the import's lists win, written after the tick's");
+  }
 
   // R2: a key goes with the host it was saved for. An imported row that keeps its id but moves to another origin, or a
   // moved Obsidian address, drops that key; a row on the same origin and an unrelated key stay.
