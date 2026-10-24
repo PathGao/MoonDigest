@@ -927,7 +927,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(350);
     assert.ok(entry(pageKey) && !entry("page:https://example.com/other"), html);
     await filterClick("recent-done");
-    assert.ok(entry("page:https://example.com/other") && store[RECENT] === undefined && !els.stateRow.innerHTML.includes("AI 刚打的"), html);
+    assert.ok(entry("page:https://example.com/other") && store[RECENT] === null && !els.stateRow.innerHTML.includes("AI 刚打的"), html);
     // U on the 应用: asks (2 records), puts both records' tags back, deletes the tag it made.
     await reset();
     ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "triage-settings-get" ? { ok: false } : { ok: true, data: answer });
