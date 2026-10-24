@@ -5,9 +5,9 @@
   // marks get their own line above the title; novideo: no video marks at all (new videos, never triaged); names: author
   // names only, no covers; corner: the corner tag, never the veil; tight: small covers, so 看到 N% drops its ✓.
   const SURFACES = {
-    card: { vtags: true, ups: true, plus: "hover" }, // home and every page without a row of its own (B站 and BewlyCat)
-    // No UP tags: Vue takes a box after a card's UP name for its own date as it hydrates, and drops the date (#394).
-    search: { vtags: true, ups: false, plus: "" },
+    // Home, search and every page without a row of its own (B站 and BewlyCat). No UP tags: Vue takes a box after a
+    // card's UP name for its own date as it hydrates the server-rendered cards, and drops the date (#394).
+    card: { vtags: true, ups: false, plus: "" },
     fav: { vtags: true, ups: false, plus: "", above: true },
     later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
     history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史
@@ -22,13 +22,12 @@
   // The settings page's table: a row per surface, a column per kind of mark. Most met first: the home page, its header
   // popovers and 动态, then the video page, then the pages one goes to on purpose.
   const ROWS = {
-    card: "首页和其他页面", // every page without a row of its own (热门, 分区, 番剧 …)
+    card: "首页、搜索和其他页面", // every page without a row of its own (热门, 分区, 番剧 …)
     popover: "顶栏弹窗（收藏、历史、稍后再看）",
     popfeed: "顶栏动态弹窗",
     feed: "动态页（UP 标签含筛选条）",
     video: "视频页的推荐、合集和播放列表",
     owner: "视频页 UP 名字",
-    search: "搜索页",
     fav: "收藏夹页",
     later: MdgErrors.LABEL.watchLater,
     history: "历史",

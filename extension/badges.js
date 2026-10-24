@@ -172,7 +172,6 @@
     if (page === "WatchLater" || /^\/watchlater(?:\/|$)/.test(path)) return "later";
     if (host === "t.bilibili.com" || page === "Moments") return "feed";
     if (host === "space.bilibili.com") return "space";
-    if (host === "search.bilibili.com") return "search";
     if (/^\/(?:video|list)\//.test(path)) return "video";
     return "card";
   }
@@ -1172,6 +1171,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Below the views / danmaku / date row; the title alone when that row isn't there.
     const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
     if (!parts || !anchor) return void old?.remove();
+    // On /list/, Vue redrawing the title's block for a line there before hydration restarts the player (#394): the line
+    // waits for #app to drop data-server-rendered. /video/ draws it with the title (#345).
+    if (location.pathname.startsWith("/list/") && anchor.closest(SSR)) return;
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;
