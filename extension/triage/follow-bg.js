@@ -257,9 +257,22 @@ async function followWbiData(base, params) {
   return j.data;
 }
 
+// feed/all 偶尔回 4101133「请求数据发生错误，请刷新或稍后重试」，同一个 offset 过几秒再问就好。不是风控，不暂停队列，按断网的间隔重试。
+const FOLLOW_FEED_PASSING = 4101133;
+async function followFeedData(url) {
+  for (const wait of [...FOLLOW_CFG.netRetry, null]) {
+    try {
+      return await followGetData(url);
+    } catch (e) {
+      if (e.code !== FOLLOW_FEED_PASSING || wait === null) throw e;
+      await followSleep(wait);
+    }
+  }
+}
+
 async function followFeedPage(offset = "") {
   const url = `${FOLLOW_API}/x/polymer/web-dynamic/v1/feed/all?${followQuery({ type: "video", offset })}`;
-  const d = await followAgain(() => followGetData(url), (d) => !offset && !d?.items?.length);
+  const d = await followAgain(() => followFeedData(url), (d) => !offset && !d?.items?.length);
   return { items: (d?.items || []).map(followFeedItem).filter(Boolean), offset: String(d?.offset || ""), hasMore: !!d?.has_more };
 }
 

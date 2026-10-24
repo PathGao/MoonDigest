@@ -368,7 +368,8 @@ init();
 function markReaderMode() {
   const watchUrl = shortsReaderUrl();
   if (watchUrl) {
-    // Back returns to the Short, not to a URL that comes straight back here.
+    // Back returns to the Short, not to a URL that comes straight back here. Opened from an mdg_reader URL, the Short
+    // is still loading and Chrome replaces its history entry with the watch page: Back skips it.
     replaceReaderModeUrl(stripReaderModeUrl());
     location.assign(watchUrl);
     return;
