@@ -1,5 +1,6 @@
-// Shared modules must load before the top-level code below reads them (e.g. MdgLimits).
-importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js");
+// Shared modules must load before the top-level code below reads them (e.g. MdgLimits). sidepanel-state.js only for
+// SidepanelState.patchReply (a reply finished after the panel closed).
+importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js");
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };
@@ -167,6 +168,8 @@ async function readWebPage(tab) {
   } catch (error) {
     return { ...page, pageAccess: "failed", pageError: error?.timeout ? error.message : "浏览器不允许读取这个页面" };
   }
+  // The tab moved on between the tab read and the extraction: the text is another page's, never stored under this URL.
+  if (read?.url && !MdgSites.sameContext(String(read.url), url)) return { ...page, pageAccess: "failed", pageError: "读取时页面已跳转" };
   if (!String(read?.content || "").trim()) return { ...page, pageAccess: "failed", pageError: "没有找到正文" };
   return {
     ...page,
@@ -188,7 +191,7 @@ async function extractWebPage(tabId) {
     if (typeof Defuddle !== "function") return null;
     // The live document, as Obsidian Web Clipper does: Defuddle reads its computed styles, and only renames srcSet and promotes noscript lazy images.
     const r = new Defuddle(document, { markdown: true, useAsync: false }).parse();
-    return { title: r.title, author: r.author, published: r.published, site: r.site, description: r.description, wordCount: r.wordCount, content: String(r.content || "").slice(0, max) };
+    return { url: location.href, title: r.title, author: r.author, published: r.published, site: r.site, description: r.description, wordCount: r.wordCount, content: String(r.content || "").slice(0, max) };
   };
   const run = async () => {
     const target = { tabId };
@@ -560,7 +563,9 @@ const BACKGROUND_HANDLERS = {
       (payload) => ({ ok: true, payload })
     ),
   "ai-sidepanel-resolve-context": (message) => resolveAiSidepanelContext(message.contextRef || {}).then((payload) => ({ ok: true, payload })),
-  "ai-sidepanel-resolve-page-ref": (message) => resolveAiSidepanelPageRef(message.contextRef || {}).then((payload) => ({ ok: true, payload }))
+  "ai-sidepanel-resolve-page-ref": (message) => resolveAiSidepanelPageRef(message.contextRef || {}).then((payload) => ({ ok: true, payload })),
+  // The replies still running for panels that closed (orphanRuns): a reopened panel attaches to one through the chat port.
+  "ai-replies-running": () => ({ ok: true, replies: [...orphanRuns.values()].filter((run) => run.alive).map((run) => run.reply) })
 };
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -573,84 +578,152 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 
-  let activeAbortController = null;
-  let activeAbortMeta = null;
-  let watchdogId = 0;
-
-  const clearWatchdog = () => {
-    clearTimeout(watchdogId);
-    watchdogId = 0;
+  // One run per chat on this port (MdgCommon.latest): 停止, the watchdog or a newer chat ends it, which aborts its
+  // request; so does the panel closing, unless the panel named the reply's conversation (detach), which this end then
+  // finishes by itself (finishOrphanReply) and a reopened panel may attach to (attach: run.post then goes to that port,
+  // and its 停止 ends this run). meta: how a run ended, for the words the panel gets (postStreamAbort).
+  const chats = MdgCommon.latest();
+  // The panel may have closed: a message to a dead port throws, and there is nobody left to tell.
+  const post = (message) => {
+    try {
+      port.postMessage(message);
+    } catch {}
   };
-
+  // The orphaned run this port attached to, if any.
+  let attachedRun = null;
+  // The first end names how it ended; a later one (the port closing after 停止) changes nothing.
+  const endChat = (run, meta) => {
+    clearTimeout(run.watchdog);
+    if (!run.alive) return;
+    run.meta = meta;
+    run.end();
+  };
   // code: AI_TIMEOUT (no first answer: maybe a wrong address or model, so 去设置) or AI_STALLED (the reply stopped
   // midway: only 重试 helps).
-  const armWatchdog = (ms, reason, code) => {
-    clearWatchdog();
-    watchdogId = setTimeout(() => abortActiveRequest({ type: "timeout", reason, code }), ms);
-  };
-
-  const clearActiveRequestState = () => {
-    clearWatchdog();
-    activeAbortController = null;
-    activeAbortMeta = null;
-  };
-
-  const abortActiveRequest = (meta = null) => {
-    activeAbortMeta = meta;
-    clearWatchdog();
-    if (activeAbortController && !activeAbortController.signal.aborted) {
-      activeAbortController.abort();
-    }
+  const armWatchdog = (run, ms, reason, code) => {
+    clearTimeout(run.watchdog);
+    run.watchdog = setTimeout(() => endChat(run, { type: "timeout", reason, code }), ms);
   };
 
   port.onDisconnect.addListener(() => {
-    abortActiveRequest({ type: "silent" });
-    clearActiveRequestState();
+    if (attachedRun) return orphan(attachedRun);
+    const run = chats.current;
+    if (!run.reply || !run.alive) return endChat(run, { type: "silent" });
+    run.lost = true;
+    orphan(run);
   });
 
   port.onMessage.addListener(async (msg) => {
     if (!msg) return;
     if (msg.action === "stop") {
-      abortActiveRequest({ type: "stopped", reason: MdgErrors.TEXT.aiStopped });
+      endChat(attachedRun || chats.current, { type: "stopped", reason: MdgErrors.TEXT.aiStopped });
+      return;
+    }
+    // The panel saved the question itself (it left the conversation mid-reply): the answer alone is to be put in.
+    if (msg.action === "detach") {
+      chats.current.reply = { conversationId: String(msg.conversationId || ""), promptIndex: Number(msg.promptIndex) || 0 };
+      return;
+    }
+    if (msg.action === "attach") {
+      // A reply that ended already (its write is in the stored list) or that another panel took: nothing more comes.
+      const run = orphanRuns.get(String(msg.conversationId || ""));
+      if (!run?.alive || run.attached) return post({ type: "done" });
+      attachedRun = run;
+      run.attached = true;
+      run.post = post;
+      orphanKeepAlive(false);
       return;
     }
     if (msg.action !== "chat") return;
 
+    endChat(chats.current, { type: "silent" });
+    const run = chats.next();
+    run.post = post;
+    // Where the answer belongs from the start, so the port dropping (the panel closed, whatever it showed) orphans the
+    // run instead of aborting it; record: the conversation as the panel would save it, when it is not saved yet.
+    const reply = msg.reply && typeof msg.reply === "object" ? msg.reply : null;
+    if (reply?.conversationId) run.reply = { conversationId: String(reply.conversationId), promptIndex: Number(reply.promptIndex) || 0, ...(reply.record && typeof reply.record === "object" && { record: reply.record }) };
+    const prompt = String(msg.prompt || "");
+    let raw = "";
     try {
-      abortActiveRequest({ type: "silent" });
-      clearActiveRequestState();
-      activeAbortController = new AbortController();
-      armWatchdog(STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first), "AI_TIMEOUT");
-      const providers = await loadAiProviders();
+      armWatchdog(run, STREAM_TIMEOUT_MS.first, MdgErrors.aiTimeout(STREAM_TIMEOUT_MS.first), "AI_TIMEOUT");
+      const providers = await run.step(loadAiProviders());
       const provider = providers.find((p) => p.id === msg.providerId);
       if (!provider) {
-        port.postMessage({ type: "error", error: "没找到选中的 AI 平台", code: MdgErrors.CODE.AI_SETUP });
+        post({ type: "error", error: "没找到选中的 AI 平台", code: MdgErrors.CODE.AI_SETUP });
         return;
       }
-      const keys = await loadAiProviderKeys();
+      const keys = await run.step(loadAiProviderKeys());
       const apiKey = keys[provider.id] || "";
       const problem = aiProviderProblem(provider, apiKey);
       if (problem) {
-        port.postMessage({ type: "error", error: problem.text, code: problem.code });
+        post({ type: "error", error: problem.text, code: problem.code });
         return;
       }
       await streamChat({
         provider: { ...provider, apiKey },
         context: msg.context || {},
-        userPrompt: msg.prompt || "",
+        userPrompt: prompt,
         history: Array.isArray(msg.history) ? msg.history : [],
-        port,
-        signal: activeAbortController.signal,
-        getAbortMeta: () => activeAbortMeta,
-        onActivity: () => armWatchdog(STREAM_TIMEOUT_MS.idle, MdgErrors.aiStalled(STREAM_TIMEOUT_MS.idle), "AI_STALLED")
+        post: (message) => {
+          if (message.type === "token") raw += String(message.data || "");
+          run.post(message);
+        },
+        signal: run.signal,
+        getAbortMeta: () => run.meta,
+        onActivity: () => armWatchdog(run, STREAM_TIMEOUT_MS.idle, MdgErrors.aiStalled(STREAM_TIMEOUT_MS.idle), "AI_STALLED")
       });
     } catch (e) {
-      port.postMessage({ type: "error", error: String(e?.message || e) });
+      if (MdgCommon.isStale(e)) postStreamAbort(run.post, run.meta);
+      else run.post({ type: "error", error: String(e?.message || e) });
     } finally {
-      clearActiveRequestState();
+      // Ended here, so a port closing later finds nothing to orphan. A lost run's answer goes in whatever came, as the
+      // panel keeps a partial one and drops the question of an empty one (patchReply); an attached panel only shows it.
+      endChat(run, { type: "silent" });
+      if (run.lost) {
+        orphanRuns.delete(run.reply.conversationId);
+        await finishOrphanReply({ ...run.reply, prompt, raw }).catch((error) => console.warn("[MDG] orphan reply not saved", error));
+        if (!run.attached) orphanKeepAlive(false);
+      }
     }
   });
 });
+
+// A reply whose panel closed before it ended (the panel had named its conversation: detach) goes into that
+// conversation as the panel would have put it (SidepanelState.patchReply); a conversation deleted meanwhile gets
+// nothing. Until then it is in orphanRuns, where a reopened panel finds it (ai-replies-running, attach). The worker's
+// idle timer is reset every 20 s while one runs unattached (as 关注's followKeepAlive does), since nothing else keeps
+// it alive once the port is gone; a worker killed anyway leaves the question without its answer.
+const orphanRuns = new Map();
+let orphanReplies = 0;
+let orphanPinger = 0;
+function orphan(run) {
+  if (!run.alive) return;
+  run.attached = false;
+  run.post = () => {};
+  orphanRuns.set(run.reply.conversationId, run);
+  orphanKeepAlive(true);
+}
+// The panel closed while the reply was shown: its question is not stored yet, so it goes in first (at its place, as the
+// panel would have put it), and a conversation not saved at all (its first question) is created from record, with an
+// answer only; one deleted meanwhile (no record, not in the list) gets nothing.
+async function finishOrphanReply({ conversationId, promptIndex, record, prompt, raw }) {
+  await MdgLimits.updateConversations((list) => {
+    const stored = list.find((c) => c?.id === conversationId);
+    if (!stored) return record && String(raw || "").trim() ? [{ ...record, messages: [...(record.messages || []), { role: "assistant", content: raw }], updatedAt: Date.now() }, ...list] : list;
+    const messages = (Array.isArray(stored.messages) ? stored.messages : []).map((m) => ({ ...m }));
+    if (messages.length === promptIndex) messages.push({ role: "user", content: prompt });
+    return SidepanelState.patchReply(messages, { promptIndex, prompt, raw }) ? list.map((c) => (c === stored ? { ...c, messages, updatedAt: Date.now() } : c)) : list;
+  });
+}
+function orphanKeepAlive(on) {
+  orphanReplies += on ? 1 : -1;
+  if (orphanReplies > 0 && !orphanPinger) orphanPinger = setInterval(() => chrome.runtime?.getPlatformInfo?.(), 20000);
+  if (orphanReplies <= 0 && orphanPinger) {
+    clearInterval(orphanPinger);
+    orphanPinger = 0;
+  }
+}
 
 // Install and update migrate old keys only. Defaults are never written to sync: every reader fills them in
 // (getMergedSettings, sync.get(DEFAULTS)), so a changed default reaches everyone who never set that setting.
@@ -726,6 +799,10 @@ function checkSyncItems(payload) {
   if (big) throw Object.assign(new Error(`${SYNC_ITEM_NAMES[big] || big}太长，存不下：最多约 2700 个汉字（英文约 8000 个字符）`), { field: big });
 }
 
+// Saving and importing settings run one at a time (MdgLimits.locked): an import's remove of the keys its file lacks
+// would otherwise drop a key a save wrote between its set and its remove.
+const settingsLocked = (fn) => MdgLimits.locked("mdg-settings", fn);
+
 // Callers send partial settings (the options page has no reading-view controls). Only the keys they send are written,
 // so two pages saving at once never write back each other's keys from a stale read.
 async function saveSettings(settings) {
@@ -734,10 +811,10 @@ async function saveSettings(settings) {
   const syncPayload = Object.fromEntries(Object.keys(payload).filter((k) => k !== "obsidianApiKey").map((k) => [k, normalized[k]]));
   checkSyncItems(syncPayload);
 
-  await Promise.all([
+  await settingsLocked(() => Promise.all([
     chrome.storage.sync.set(syncPayload),
     "obsidianApiKey" in payload && chrome.storage.local.set({ obsidianApiKey: MdgSettings.normalizeApiKey(payload.obsidianApiKey) })
-  ]);
+  ]));
 }
 
 // Every setting (收藏夹 and 关注 included) lives in sync, except the 分拣台's folder choice (收藏夹设置) and each folder's
@@ -783,13 +860,15 @@ async function importSettings(file) {
   if (!(file.schemaVersion <= SETTINGS_FILE_VERSION)) throw new Error("这个文件来自更新的版本，先更新 MoonDigest 再导入");
   const settings = withoutApiKeys(file.settings);
   checkSyncItems(settings);
-  const currentSync = await chrome.storage.sync.get(null);
-  await chrome.storage.sync.set(settings);
-  await chrome.storage.sync.remove(Object.keys(currentSync).filter((k) => !(k in settings)));
-  if (folders) await chrome.storage.local.set({ [FOLDERS_KEY]: folders.map(String) });
-  if (criteria) await chrome.storage.local.set({ [CRITERIA_KEY]: criteria });
-  await serialAiProviders(() => dropMovedKeys(currentSync, settings));
-  await initializeSettingsStorage();
+  await settingsLocked(async () => {
+    const currentSync = await chrome.storage.sync.get(null);
+    await chrome.storage.sync.set(settings);
+    await chrome.storage.sync.remove(Object.keys(currentSync).filter((k) => !(k in settings)));
+    if (folders) await chrome.storage.local.set({ [FOLDERS_KEY]: folders.map(String) });
+    if (criteria) await chrome.storage.local.set({ [CRITERIA_KEY]: criteria });
+    await serialAiProviders(() => dropMovedKeys(currentSync, settings));
+    await initializeSettingsStorage();
+  });
 }
 
 // A saved key belongs to the host it was saved for (options.js savedKeyApplies): a key whose platform row, or the
@@ -1088,8 +1167,8 @@ async function hostPermissionError(url) {
 }
 
 // The caller checked the provider (aiProviderProblem); loadAiProviders normalized its baseUrl (normalizeAiProvider).
-async function streamChat({ provider, context, userPrompt, history, port, signal, getAbortMeta, onActivity }) {
-  if (!port) return;
+// post(message) carries the stream to the panel. Resolves true when the reply came whole (done).
+async function streamChat({ provider, context, userPrompt, history, post, signal, getAbortMeta, onActivity }) {
   const { baseUrl } = provider;
 
   const { messages, notices } = buildAiMessages({
@@ -1099,7 +1178,7 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     systemPrompt: context?.aiSystemPrompt || ""
   });
   if (notices.length) {
-    port.postMessage({ type: "notice", text: notices.join("；") });
+    post({ type: "notice", text: notices.join("；") });
   }
 
   let response;
@@ -1108,12 +1187,12 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     response = await postChat({ baseUrl, apiKey: provider.apiKey, signal }, { model: provider.model, messages, stream: true, temperature: provider.temperature });
   } catch (e) {
     if (signal?.aborted) {
-      postStreamAbort(port, getAbortMeta?.());
-      return;
+      postStreamAbort(post, getAbortMeta?.());
+      return false;
     }
     const err = await aiFetchError(baseUrl);
-    port.postMessage({ type: "error", error: err.message, code: err.code });
-    return;
+    post({ type: "error", error: err.message, code: err.code });
+    return false;
   }
 
   // The 分拣台's classification (triage-bg.js); the code tells the panel whether 重试 can help.
@@ -1121,39 +1200,41 @@ async function streamChat({ provider, context, userPrompt, history, port, signal
     const text = await response.text().catch(() => "");
     // Stopped or timed out while the error body was read: that is what happened, as on the other two paths.
     if (signal?.aborted) {
-      postStreamAbort(port, getAbortMeta?.());
-      return;
+      postStreamAbort(post, getAbortMeta?.());
+      return false;
     }
     const e = triageAiHttpError(response.status, text);
-    port.postMessage({ type: "error", error: e.message, ...(e.code && { code: e.code }) });
-    return;
+    post({ type: "error", error: e.message, ...(e.code && { code: e.code }) });
+    return false;
   }
 
   try {
     let answered = false;
     for await (const token of parseOpenAISSE(response, onActivity)) {
       answered = true;
-      port.postMessage({ type: "token", data: token });
+      post({ type: "token", data: token });
     }
     // Only thinking, or nothing: an error the panel shows with 重试, not an empty bubble.
-    port.postMessage(answered ? { type: "done" } : { type: "error", error: MdgErrors.TEXT.aiEmpty });
+    post(answered ? { type: "done" } : { type: "error", error: MdgErrors.TEXT.aiEmpty });
+    return answered;
   } catch (e) {
     if (signal?.aborted) {
-      postStreamAbort(port, getAbortMeta?.());
-      return;
+      postStreamAbort(post, getAbortMeta?.());
+      return false;
     }
     // A connection dropped mid-reply is a TypeError ("network error"). The platform did answer, so it is a stall
     // (only 重试), not AI_NETWORK (去设置: maybe a wrong address).
     const err = e instanceof TypeError ? triageError(MdgErrors.TEXT.aiDropped, "AI_STALLED") : e;
-    port.postMessage({ type: "error", error: String(err?.message || err), ...(err?.code && { code: err.code }) });
+    post({ type: "error", error: String(err?.message || err), ...(err?.code && { code: err.code }) });
+    return false;
   }
 }
 
-function postStreamAbort(port, abortMeta) {
+function postStreamAbort(post, abortMeta) {
   if (abortMeta?.type === "stopped") {
-    port.postMessage({ type: "stopped", reason: abortMeta.reason || MdgErrors.TEXT.aiStopped });
+    post({ type: "stopped", reason: abortMeta.reason || MdgErrors.TEXT.aiStopped });
   } else if (abortMeta?.type === "timeout") {
-    port.postMessage({ type: "error", error: abortMeta.reason, code: abortMeta.code });
+    post({ type: "error", error: abortMeta.reason, code: abortMeta.code });
   }
 }
 

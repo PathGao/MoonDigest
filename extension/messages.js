@@ -1,8 +1,8 @@
 // Every message between the extension's contexts, in one list: chrome.runtime / chrome.tabs messages and the 分拣台
 // player frame's postMessage. Loaded nowhere at runtime; messages.selftest.js holds the code to it (every type sent is
 // here and handled, the fields a sender passes are listed, the listed fields are read by the handler, a builder returns
-// exactly the listed payload). Not here: the side panel's chat port (MdgCommon.CHAT_PORT: { action: "chat" | "stop" } in,
-// token / notice / done / stopped / error out), which background.js and sidepanel.js own between them.
+// exactly the listed payload). Not here: the side panel's chat port (MdgCommon.CHAT_PORT: { action: "chat" | "stop" |
+// "detach" | "attach" } in, token / notice / done / stopped / error out), which background.js and sidepanel.js own between them.
 //   from      the files that send it
 //   to        the file whose listener answers it
 //   request   the fields besides type
@@ -64,6 +64,7 @@
     "ai-sidepanel-get-state": { from: ["sidepanel.js"], to: "background.js", request: ["tabId", "refresh", "frameId", "videoId"], response: ["payload"] },
     "ai-sidepanel-resolve-context": { from: ["sidepanel.js"], to: "background.js", request: ["contextRef"], response: ["payload"] },
     "ai-sidepanel-resolve-page-ref": { from: ["sidepanel.js"], to: "background.js", request: ["contextRef"], response: ["payload"] },
+    "ai-replies-running": { from: ["sidepanel.js"], to: "background.js", request: [], response: ["replies"] },
 
     // Obsidian (obsidian.js, the one writer)
     "write-video-note": { from: ["note-actions.js"], to: "obsidian.js", request: ["ref", "mode", "conversation", "page", "pageChoice"], response: ["ask", "path", "hasAiSection", "aiOff", "fullReason", "kind", "text", "title"] },

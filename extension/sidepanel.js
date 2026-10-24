@@ -69,23 +69,24 @@ const { buildConversationContextRef, needsConversationPageHydration } = Sidepane
 // I/O, runs the effects it returns (act) and draws what view() says.
 const state = SidepanelState.create();
 let providers = [];
-// The reply in flight: its port and the node it streams into. state knows it as streaming.
+// The port of the reply shown and the node it streams into, while state.view().streaming (the phase itself is
+// state.view().turn). Replies that left for their saved conversation (detach) wait in detachedStreams by that
+// conversation's id until they end.
 let activeStream = null;
-let sendPending = false;
+const detachedStreams = new Map();
 let suggestionsNode = null;
 // The AI settings as get-settings returns them; MdgSettings.DEFAULTS until then or when it fails.
 let aiPrefs = aiPrefsOf(MdgSettings.DEFAULTS);
 // The question just sent here, held at the top of the panel while its reply grows below it (the turn anchor of
-// assistant-ui's turnAnchor="top"): { epoch, node, top }, top being where it was last scrolled to. The spacer after the
-// reply makes the room to scroll it up there and shrinks to nothing once the reply fills the panel. Nothing follows the
-// reply down; the reader scrolls. Until they do, something growing above it (the note card a first save shows) scrolls
-// it back up; top is null once they have.
+// assistant-ui's turnAnchor="top"): { run, node, top }, run being its conversation's (state.view().run), top where it was
+// last scrolled to. The spacer after the reply makes the room to scroll it up there and shrinks to nothing once the
+// reply fills the panel. Nothing follows the reply down; the reader scrolls. Until they do, something growing above it
+// (the note card a first save shows) scrolls it back up; top is null once they have.
 let turnAnchor = null;
 const turnSpacer = document.createElement("div");
 let liveContextSyncTimer = 0;
 let streamSlowNoticeTimer = 0;
 let streamSlowNotice = null;
-let streamFirstTokenReceived = false;
 // A redraw asked for while a reply streams (a detached reply ended into this conversation, another window saved it):
 // done when that reply ends, so the answer it brought shows.
 let redrawAfterStream = false;
@@ -102,9 +103,15 @@ let initCompleted = false;
 // What a context load waits for before it places the tab's video (init's reads: the saved conversations it may restore,
 // the platforms the empty state depends on). The context itself is asked for meanwhile.
 let initReads = null;
-let contextLoadSeq = 0;
+// Context loads replace each other (MdgCommon.latest): only the newest writes the context.
+const contextLoads = MdgCommon.latest();
 let contextLoad = null;
 let contextLoadFollow = false;
+// The user's latest choice of conversation (新对话, AI 总结 from outside, a history item): one made while an earlier
+// one still waits for the tab's context wins, and the earlier one does nothing when its wait ends.
+const choices = MdgCommon.latest();
+// Platform and settings loads (loadProvidersAndPrefs), declared here because init loads them at once.
+const prefLoads = MdgCommon.latest();
 let previousVideoExpanded = false;
 let previousVideoBarSignature = "";
 // The 上一个视频 bar's conversation is only known gone once the saved list is read (init reads both at once).
@@ -120,6 +127,12 @@ async function init() {
   // The tab's video shows from its URL (its saved conversation, or a placeholder) as soon as these are read; its
   // subtitles and comments, read meanwhile, fill it in.
   initReads = Promise.all([loadProvidersAndPrefs(), loadSavedConversations(), loadPreviousVideoConversationId()]);
+  // Replies the background still runs for a panel that closed: known before the first conversation shows, so showing
+  // one of theirs attaches to it at once and no question goes without the answer under way.
+  const running = chrome.runtime.sendMessage({ type: "ai-replies-running" }).catch(() => null);
+  await initReads.catch(() => {});
+  const replies = (await running)?.replies;
+  if (Array.isArray(replies)) await act({ type: "ORPHANS", replies });
   await loadContextState();
   // A conversation was drawn when it was shown; the empty state shows what the payload brought.
   if (state.view().bound) updateContextChip();
@@ -213,10 +226,11 @@ function bindEvents() {
   els.downloadConversationBtn?.addEventListener("click", () => {
     void downloadCurrentConversation();
   });
-  // One button in place: 发送, or 停止 while a reply streams.
+  // One button in place: 发送, or 停止 while a reply streams (a click while it stops, or while the question's context
+  // loads, is refused by the turn's table).
   els.sendBtn.addEventListener("click", () => {
-    if (activeStream) stopActiveStream();
-    else void sendMessage();
+    if (state.view().turn === "idle") void sendMessage();
+    else void act({ type: "STOP" });
   });
   els.presetAddBtn.addEventListener("click", addPresetPrompt);
   els.presetInput.addEventListener("input", syncPresetAdd);
@@ -294,9 +308,15 @@ function autosizeInput() {
 // What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
 const sourceKind = () => (state.view().nonVideo ? "网页" : "视频");
 
-// Why the shown conversation cannot be asked in at all: a web page not read, or a video that is gone.
+// A conversation whose last reply still runs where this panel cannot show it (the background before it is attached,
+// another window's panel): a second question would go without that answer in its history.
+const REPLY_RUNNING = "上一个回答还在生成，结束后才能继续问";
+
+// Why the shown conversation cannot be asked in now: a web page not read, a video that is gone, or its last reply
+// still running out of reach.
 function readOnlyReason() {
-  const { nonVideo, context } = state.view();
+  const { nonVideo, context, replyDetached } = state.view();
+  if (replyDetached) return REPLY_RUNNING;
   return nonVideo ? pageReason(context) : contextFailure()?.gone ? VIDEO_GONE : "";
 }
 
@@ -320,15 +340,18 @@ const systemPromptFor = (context) => (isPage(context) ? aiPrefs.webAiSystemPromp
 const presetKey = () => (isPage(state.view().context) ? "webAiPresetPrompts" : "aiPresetPrompts");
 const presetPrompts = () => aiPrefs[presetKey()] || [];
 
-function setStreamingUiState(isStreaming, { stopping = false } = {}) {
-  const blocked = isStreaming ? "" : readOnlyReason();
+// The input, the send / stop button and the 正在生成… line, drawn from the turn's phase: safe to call at any time.
+function syncSendUi() {
+  const { turn, streaming } = state.view();
+  const stopping = turn === "stopping";
+  const blocked = streaming ? "" : readOnlyReason();
   // The input says why too: while streaming the 正在生成… line's words, else the send button's.
-  setDisabledReason(els.input, isStreaming ? els.generating.textContent : blocked);
+  setDisabledReason(els.input, streaming ? els.generating.textContent : blocked);
   renderFollowups();
-  els.generating.hidden = !isStreaming;
+  els.generating.hidden = !streaming;
   setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked);
-  els.sendBtn.classList.toggle("is-stop", isStreaming);
-  els.sendBtn.innerHTML = isStreaming ? (stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop) : `${AI_SPARK}发送`;
+  els.sendBtn.classList.toggle("is-stop", streaming);
+  els.sendBtn.innerHTML = streaming ? (stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop) : `${AI_SPARK}发送`;
   syncExportButtons();
 }
 
@@ -341,11 +364,21 @@ function syncExportButtons() {
 }
 
 
+// Platform and settings loads replace each other (init's and a settings change's can overlap): an older one that
+// answers last writes nothing.
 async function loadProvidersAndPrefs({ preferredProviderId = "" } = {}) {
-  const [providersResp, settingsResp] = await Promise.all([
-    chrome.runtime.sendMessage({ type: "ai-providers-list" }).catch((error) => ({ ok: false, error: error.message })),
-    chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => ({ ok: false }))
-  ]);
+  const run = prefLoads.next();
+  let answers;
+  try {
+    answers = await run.step(Promise.all([
+      chrome.runtime.sendMessage({ type: "ai-providers-list" }).catch((error) => ({ ok: false, error: error.message })),
+      chrome.runtime.sendMessage({ type: "get-settings" }).catch(() => ({ ok: false }))
+    ]));
+  } catch (error) {
+    if (MdgCommon.isStale(error)) return;
+    throw error;
+  }
+  const [providersResp, settingsResp] = answers;
   const providersRead = Boolean(providersResp?.ok && Array.isArray(providersResp.providers));
   providersError = providersRead ? "" : `读取 AI 平台失败：${MdgErrors.text(providersResp)}`;
   providers = providersRead ? providersResp.providers.filter((p) => p.enabled) : [];
@@ -393,7 +426,7 @@ function syncModelSelectTitle() {
 async function refreshProvidersAndPrefsAfterExternalChange() {
   const previousProviderId = String(els.modelSelect?.value || localStorage.getItem(SELECTED_PROVIDER_KEY) || "").trim();
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  if (activeStream) {
+  if (state.view().streaming) {
     return;
   }
   renderHistoryList();
@@ -443,8 +476,9 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     return false;
   }
 
+  const choice = choices.next();
   const activeTab = await MdgSites.activeTab().catch(() => null);
-  if (activeTab?.id && request.tabId !== activeTab.id) {
+  if (!choice.alive || (activeTab?.id && request.tabId !== activeTab.id)) {
     return false;
   }
 
@@ -458,10 +492,13 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
     }
     await chrome.storage.local.remove(PLAYER_AI_QUICK_ACTION_STORAGE_KEY).catch(() => null);
   }
+  if (!choice.alive) return false;
 
   // A reference (分拣台, 摘读记录) names its video; otherwise AI 总结 is about the tab's, so read it first.
   if (!request.contextRef) await loadContextState({ silent: true });
-  else if (request.frameId) viewerFrame = { tabId: request.tabId, frameId: request.frameId, videoId: String(request.contextRef.videoId || "") };
+  else if (request.frameId) setViewerFrame({ tabId: request.tabId, frameId: request.frameId, videoId: String(request.contextRef.videoId || "") });
+  // A later choice (another request, 新对话, a history item) while the tab was read: this one is not shown over it.
+  if (!choice.alive) return false;
   await act({ type: "SUMMARY", prompt: !request.contextRef && isPage(state.view().live.context) ? aiPrefs.webAiSummaryPrompt : request.prompt, ref: request.contextRef });
   return true;
 }
@@ -480,13 +517,15 @@ function fillPrompt(prompt) {
 
 // Runs an event through the state and does what it asks. A reply leaving the conversation is let go first; another
 // conversation is then drawn afresh, before the effects that show on it (the draft, AI 总结, 正在加载原视频信息…).
+// Every effect starts before anything is awaited: the draft and the fill land on the conversation just shown, not on
+// whichever shows once a save (a storage write) is done, and the next act finds the input box as the state says.
 async function act(event) {
-  const epoch = state.view().epoch;
+  const { run } = state.view();
   const effects = state.dispatch(event);
   for (const effect of effects) {
     if (effect.type === "detach" || effect.type === "dropStream") releaseActiveStream(effect);
   }
-  if (state.view().epoch !== epoch) {
+  if (!run.alive) {
     // Another conversation: the 导出对话 menu and the auto-sync status were about the one before.
     hideExportPopover();
     hideSyncStatus();
@@ -496,7 +535,7 @@ async function act(event) {
     renderHistoryList();
     renderInitialState();
   }
-  for (const effect of effects) await runEffect(effect);
+  await Promise.all(effects.map((effect) => runEffect(effect)));
   return effects;
 }
 
@@ -506,6 +545,30 @@ async function runEffect(effect) {
       return saveConversations();
     case "autoSync":
       return scheduleAutoSync(effect.id);
+    case "answering":
+      // The first word: the slow notice goes, and only it (a notice shown while the reply waited stays).
+      return clearStreamRuntimeState();
+    case "stop":
+      syncSendUi();
+      try {
+        activeStream.port.postMessage({ action: "stop" });
+      } catch {
+        endStream(activeStream, { stopped: MdgErrors.TEXT.aiStopped });
+      }
+      return;
+    case "dropReply": {
+      // Its conversation is gone: 停止 before the port closes, so the background cuts the request off instead of
+      // finishing it for a conversation that no longer exists.
+      const stream = detachedStreams.get(effect.conversationId);
+      if (!stream) return;
+      detachedStreams.delete(effect.conversationId);
+      try {
+        stream.port.postMessage({ action: "stop" });
+      } catch {}
+      return closeStream(stream);
+    }
+    case "reattach":
+      return reattachStream(effect.conversationId);
     case "draft": {
       const typed = els.input.value.trim() ? els.input.value : "";
       drafts.delete(effect.from);
@@ -544,7 +607,8 @@ async function runEffect(effect) {
 
 // Switching videos or conversations mid-reply hands the reply to its saved conversation (state saved the question
 // there), which then becomes the previous-video bar. The port stays open, so the background keeps streaming while the
-// new one is usable at once. A dropped reply (its conversation deleted) is cut off.
+// new one is usable at once; the background is told which conversation the reply belongs to, so it finishes it there
+// even if the panel closes. A dropped reply (its conversation deleted) is cut off.
 function releaseActiveStream({ type, conversationId, promptIndex }) {
   const stream = activeStream;
   activeStream = null;
@@ -553,34 +617,61 @@ function releaseActiveStream({ type, conversationId, promptIndex }) {
     return;
   }
   if (type === "dropStream") {
+    // 停止 before the port closes, as dropReply does: a reply the background knows the conversation of would otherwise
+    // run on as an orphan.
+    try {
+      stream.port.postMessage({ action: "stop" });
+    } catch {}
     closeStream(stream);
     return;
   }
-  stream.conversationId = conversationId;
-  stream.promptIndex = promptIndex;
+  Object.assign(stream, { conversationId, promptIndex });
+  detachedStreams.set(conversationId, stream);
+  // The question is saved now: the background need not create the conversation itself.
+  try {
+    stream.port.postMessage({ action: "detach", conversationId, promptIndex });
+  } catch {}
+}
+
+// The conversation shown again holds a reply still running: the stream this panel kept for it (what came so far is
+// drawn, the rest streams into the bubble), or, after the panel was closed and reopened, the background's (attach by
+// id: it forwards what comes from now on and writes the whole answer itself, so this end only shows it).
+function reattachStream(conversationId) {
+  let stream = detachedStreams.get(conversationId);
+  detachedStreams.delete(conversationId);
+  if (!stream) {
+    stream = { port: chrome.runtime.connect({ name: MdgCommon.CHAT_PORT }), prompt: "", raw: "", notice: "", frame: 0, attached: true };
+    bindStreamPort(stream);
+    stream.port.postMessage({ action: "attach", conversationId });
+  }
+  stream.node = appendAssistantPlaceholder();
+  activeStream = stream;
+  if (stream.raw) scheduleStreamRender(stream);
+  syncSendUi();
+  scrollToBottom();
 }
 
 // Tab switches and sends overlap their loads; only the newest one writes the context, and an older caller gets the
-// newest one's result (contextLoadSeq, contextLoad and contextLoadFollow are declared above init, which loads at once).
+// newest one's result (contextLoads, contextLoad and contextLoadFollow are declared above init, which loads at once).
 // A follow asked for by a superseded load carries over to the newer one.
 function loadContextState(opts = {}) {
-  const seq = ++contextLoadSeq;
+  const run = contextLoads.next();
   contextLoadFollow ||= Boolean(opts.follow);
-  const run = readContextState({ ...opts, follow: contextLoadFollow }, () => seq !== contextLoadSeq);
-  contextLoad = run;
+  const load = readContextState({ ...opts, follow: contextLoadFollow }, run);
+  contextLoad = load;
   const settle = () => {
-    if (seq === contextLoadSeq) contextLoadFollow = false;
+    if (run.alive) contextLoadFollow = false;
   };
-  run.then(settle, settle);
-  return run;
+  load.then(settle, settle);
+  return load;
 }
 
-async function readContextState({ refresh = false, silent = false, follow = false }, superseded) {
+async function readContextState({ refresh = false, silent = false, follow = false }, run) {
   const tab = await MdgSites.activeTab();
-  if (superseded()) return contextLoad;
+  if (!run.alive) return contextLoad;
   const request = tab?.id ? chrome.runtime.sendMessage({ type: "ai-sidepanel-get-state", tabId: tab.id, refresh }).catch((error) => ({ ok: false, error: error.message })) : null;
   await initReads?.catch(() => {});
-  if (superseded()) return contextLoad;
+  if (!run.alive) return contextLoad;
   const atTab = await act({ type: "TAB_READ", tab: tab?.id ? { url: tab.url, title: tab.title } : null, follow });
   const followed = atTab.some((effect) => effect.type === "followed");
   if (!tab?.id) {
@@ -592,7 +683,7 @@ async function readContextState({ refresh = false, silent = false, follow = fals
   }
 
   const resp = await request;
-  if (superseded()) return contextLoad;
+  if (!run.alive) return contextLoad;
 
   const ok = Boolean(resp?.ok && resp.payload);
   // A web page always answers; only reading a video fails, said as the popup and 专注模式 say it. A video deleted or
@@ -648,7 +739,7 @@ function updateContextChip() {
   renderFollowups();
   // A page read since (允许读取网页, the tab back on the page, 继续问 from 摘读记录 opening it) unlocks sending in a
   // conversation that stays, and takes down the 打开这个网页后才能继续问 drawn under it.
-  if (!activeStream) setStreamingUiState(false);
+  syncSendUi();
   if (state.view().nonVideo && state.view().messages.length && !readOnlyReason()) removeCenteredState();
   const { context, mismatch } = state.view();
   if (!context) {
@@ -698,7 +789,7 @@ async function openCurrentContextUrl() {
 
 function renderInitialState() {
   // A question waiting for its video stands in for the empty state, which comes back if it is not sent.
-  if (waiting()) return;
+  if (state.view().loading) return;
   updateSidepanelLayoutState();
   const { context, messages, unanswered } = state.view();
   // A conversation stays readable without a platform; sending then says why (the model select and 快捷追问 too).
@@ -745,7 +836,7 @@ function resetConversationView(stateHtml = "", { retry = false, grant = false } 
     return;
   }
   emptyStateShown = shown;
-  drawnEpoch = -1;
+  drawnRun = null;
   clearMessages();
   if (stateHtml) {
     const stateNode = document.createElement("div");
@@ -828,7 +919,7 @@ function suggestionsContent() {
 // read is in. AI 总结 is offered (SUMMARY_SHOWN) at every call: the fill is per conversation, not per drawing.
 function renderSuggestions() {
   const node = suggestionsNode;
-  if (!node || waiting()) {
+  if (!node || state.view().loading) {
     return;
   }
   renderFollowups();
@@ -892,7 +983,7 @@ function followupBlockReason() {
   if (readOnly) {
     return readOnly;
   }
-  if (activeStream) {
+  if (state.view().streaming) {
     return els.generating.textContent;
   }
   if (context?.pending) {
@@ -1028,6 +1119,7 @@ function renderHistoryList() {
 
   els.historyList.querySelectorAll(".sp-history-open").forEach((btn) => {
     btn.addEventListener("click", () => {
+      choices.next();
       void act({ type: "OPEN", id: String(btn.getAttribute("data-id") || "") });
       hideHistoryPopover();
     });
@@ -1190,14 +1282,12 @@ async function loadPreviousVideoConversationId() {
   renderPreviousVideoBar();
 }
 
-// state already names the bar's conversation (id); this keeps it for the session and draws the bar collapsed.
+// state already names the bar's conversation (id); this keeps it for the session and draws the bar collapsed. Writes go
+// in call order under the key's own lock (the side panels are its only writers), so two follows in a row leave the
+// later one stored.
 function setPreviousVideoConversation(id) {
   previousVideoExpanded = false;
-  if (id) {
-    void chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: id }).catch(() => {});
-  } else {
-    void chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY).catch(() => {});
-  }
+  void MdgLimits.locked("mdg-previous-conversation", () => (id ? chrome.storage.session?.set({ [PREVIOUS_VIDEO_CONVERSATION_KEY]: id }) : chrome.storage.session?.remove(PREVIOUS_VIDEO_CONVERSATION_KEY))).catch(() => {});
   renderPreviousVideoBar();
 }
 
@@ -1272,6 +1362,7 @@ function handlePreviousVideoBarClick(event) {
     void act({ type: "PREVIOUS_DISMISSED" });
   } else if (action === "resume") {
     previousVideoExpanded = false;
+    choices.next();
     void act({ type: "OPEN", id: conversation.id });
   } else if (action === "open") {
     void openPreviousVideoUrl(conversation.contextUrl || conversation.contextRef?.url || "");
@@ -1325,13 +1416,19 @@ async function removePresetPrompt(prompt) {
   }
 }
 
-// Edits save one after another, each on the list the one before saved: a second × clicked during a save removes the
-// prompt it was drawn for, and the first removal stays.
+// Edits save one after another, each on the list as stored when its turn comes (the settings page may have changed it
+// since this panel read it), under the kind (video or web page) shown at the click: a second × clicked during a save
+// removes the prompt it was drawn for, and the first removal stays.
 let presetWrites = Promise.resolve();
 function editPresetPrompts(change) {
-  const run = presetWrites.then(() => {
-    const key = presetKey();
-    return persistAiPresetPrompts(key, change(aiPrefs[key] || []));
+  const key = presetKey();
+  const run = presetWrites.then(async () => {
+    const resp = await chrome.runtime.sendMessage({ type: "get-settings" }).catch((error) => ({ ok: false, error: error.message }));
+    if (!resp?.ok || !resp.settings) {
+      showConversationContextNotice(PRESETS_UNREAD, NOTICE_LONG_MS, { error: true });
+      return false;
+    }
+    return persistAiPresetPrompts(key, change(MdgSettings.normalizeAiPresetPrompts(resp.settings[key])));
   });
   presetWrites = run.catch(() => false);
   return run;
@@ -1353,9 +1450,7 @@ function updateSidepanelLayoutState() {
   const { context, messages, pinned } = state.view();
   const useCompactInput = Boolean(context && context.isVideoContext === false && pageReason(context) && !messages.length && !pinned);
   document.body.classList.toggle("sp-non-video-context", useCompactInput);
-  if (!activeStream) {
-    setStreamingUiState(false);
-  }
+  syncSendUi();
   if (els.input) {
     autosizeInput();
   }
@@ -1370,7 +1465,7 @@ async function refreshContextManually() {
   try {
     const ok = await loadContextState({ refresh: true });
     // A question sent while it read: redrawing the empty state would wipe it and its reply.
-    if (ok && !activeStream) {
+    if (ok && !state.view().streaming) {
       const { context, messages } = state.view();
       if (!context || !providers.length || !messages.length) {
         renderInitialState();
@@ -1386,9 +1481,11 @@ async function refreshContextManually() {
 // A reply in flight goes on into the conversation it was asked in, as when switching video or conversation.
 // The new one takes the tab's context; when the tab cannot be read it starts without one (the empty state then shows
 // the read error and 重试), never with the video of the conversation that was open.
+// A history item or another 新对话 chosen while the tab is read wins: this one then does nothing.
 async function startNewConversation() {
+  const choice = choices.next();
   await loadContextState({ silent: true });
-  await act({ type: "NEW" });
+  if (choice.alive) await act({ type: "NEW" });
 }
 
 // The note card leads the conversation and survives every redraw.
@@ -1396,16 +1493,16 @@ function clearMessages() {
   els.messages.replaceChildren(els.note);
 }
 
-// The conversation drawn in the messages (its epoch), -1 for the empty state: drawn again, it keeps the reader's place.
-let drawnEpoch = -1;
+// The conversation drawn in the messages (its run), null for the empty state: drawn again, it keeps the reader's place.
+let drawnRun = null;
 
 function renderConversationMessages() {
   updateSidepanelLayoutState();
   // How far the reader scrolled from the anchored question, kept across the redraw. Before they scroll it is 0, also
   // while the scroll to it is still under way (the first save of a new conversation redraws right after sending).
   const pastAnchor = turnAnchor?.top === null && turnAnchor.node.isConnected ? els.messages.scrollTop - turnAnchorTop() : 0;
-  const { epoch } = state.view();
-  const keptTop = drawnEpoch === epoch ? els.messages.scrollTop : null;
+  const { run } = state.view();
+  const keptTop = drawnRun?.alive ? els.messages.scrollTop : null;
   clearMessages();
   suggestionsNode = null;
   const { messages, nonVideo, unanswered } = state.view();
@@ -1435,11 +1532,11 @@ function renderConversationMessages() {
     showConversationContextError(failed, nonVideo ? null : contextFailure().remedy);
   }
   renderFollowups();
-  drawnEpoch = epoch;
+  drawnRun = run;
   // Drawn again in place (another window saved it, a reply ended into it): the question sent here stays where it was,
   // and without one the reader stays where they read. Another conversation opens at its end.
   const question = [...els.messages.querySelectorAll(".sp-msg-user")].pop();
-  if (turnAnchor?.epoch === epoch && question) {
+  if (turnAnchor?.run.alive && question) {
     turnAnchor.node = question;
     syncTurnSpacer();
     els.messages.scrollTo({ top: turnAnchorTop() + pastAnchor, behavior: "instant" });
@@ -1476,17 +1573,17 @@ function formatConversationTimestamp(value) {
 
 // A load that ends on another conversation (the tab followed another video) says nothing: the question was not asked there.
 async function ensureCurrentContextForSend() {
-  const { epoch } = state.view();
+  const { run } = state.view();
   if (state.view().pinned) {
     const notice = state.view().resolved ? null : showConversationContextNotice(`正在加载原${sourceKind()}信息…`);
     await loadContextState({ refresh: false, silent: true }).catch(() => null);
-    if (state.view().epoch !== epoch) return (notice?.remove(), false);
+    if (!run.alive) return (notice?.remove(), false);
     return hydratePinnedConversationContext({ notice });
   }
   const loadingNotice = state.view().context?.pending ? showConversationContextNotice(MdgErrors.TEXT.videoReading) : null;
   const ok = await loadContextState({ refresh: false, silent: true });
   loadingNotice?.remove();
-  if (state.view().epoch !== epoch) return false;
+  if (!run.alive) return false;
   // A placeholder still standing means the subtitles never arrived; never answer from it.
   const context = state.view().context;
   if (!ok || !context || context.pending) {
@@ -1496,19 +1593,19 @@ async function ensureCurrentContextForSend() {
   return true;
 }
 
-// The shown conversation's own video failed to load: { epoch, text (said under it, again at each redraw; "" when the
-// load was silent), gone (deleted or hidden on B站: the conversation is only read) }.
+// The shown conversation's own video failed to load: { run (its conversation's), text (said under it, again at each
+// redraw; "" when the load was silent), gone (deleted or hidden on B站: the conversation is only read) }.
 let lastContextFailure = null;
-const contextFailure = () => (lastContextFailure?.epoch === state.view().epoch ? lastContextFailure : null);
+const contextFailure = () => (lastContextFailure?.run.alive ? lastContextFailure : null);
 
 // Loads the shown conversation's own context (state decides when: resolve effects). A load the conversation was
 // switched away from meanwhile does nothing. notice: the 正在加载… line it takes down when done.
 async function hydratePinnedConversationContext({ silent = false, notice = null } = {}) {
-  const { epoch, pinned, resolved } = state.view();
+  const { run, pinned, resolved } = state.view();
   if (resolved) {
     // Like a video page's context at each send: the viewer playing this video answers again (a track picked since).
     const again = await askViewerFrame(pinned.contextRef);
-    if (again) state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: again.payload });
+    if (again) state.dispatch({ type: "CONTEXT_RESOLVED", run, payload: again.payload });
     updateContextChip();
     notice?.remove();
     return true;
@@ -1527,7 +1624,7 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
     error: error?.message || String(error || "")
   }));
   const ok = Boolean(response?.ok && response.payload);
-  const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", epoch, payload: ok ? response.payload : null });
+  const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", run, payload: ok ? response.payload : null });
   notice?.remove();
   if (!result) {
     return false;
@@ -1536,9 +1633,9 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
   const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
   const text = gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}`;
   const remedy = !ok && MdgErrors.remedies(response?.code).includes("retry") ? contextRemedy(contextRef) : null;
-  lastContextFailure = ok ? null : { epoch, text: silent ? "" : text, gone, remedy };
+  lastContextFailure = ok ? null : { run, text: silent ? "" : text, gone, remedy };
   updateContextChip();
-  if (!activeStream) setStreamingUiState(false);
+  syncSendUi();
   if (ok) {
     return true;
   }
@@ -1567,17 +1664,24 @@ function contextRemedy(contextRef) {
 
 // 分拣台's viewer frame that last asked for AI 总结: { tabId, frameId, videoId }. Its content script answers for its
 // video like a video page does (the track picked in its 专注模式 included); once it is closed or plays another video or part,
-// the conversation's video is read like a closed video page's.
+// the conversation's video is read like a closed video page's. A newer frame set while one is asked (viewerFrames)
+// is not forgotten for the older one's failure.
 let viewerFrame = null;
+const viewerFrames = MdgCommon.latest();
+function setViewerFrame(frame) {
+  viewerFrames.next();
+  viewerFrame = frame;
+}
 
 async function askViewerFrame(contextRef) {
   const frame = viewerFrame;
+  const run = viewerFrames.current;
   if (!frame || frame.videoId !== String(contextRef?.videoId || "")) return null;
   if ((await MdgSites.activeTab().catch(() => null))?.id !== frame.tabId) return null;
   const resp = await chrome.runtime.sendMessage({ type: "ai-sidepanel-get-state", tabId: frame.tabId, frameId: frame.frameId, videoId: frame.videoId }).catch(() => null);
   // The frame answers for the part it plays; after it moved on to the next part it no longer plays this one.
   if (resp?.ok && resp.payload && buildConversationContextRef(resp.payload).pageIndex === buildConversationContextRef(contextRef).pageIndex) return resp;
-  if (viewerFrame === frame) viewerFrame = null;
+  if (run.alive) setViewerFrame(null);
   return null;
 }
 
@@ -1587,20 +1691,16 @@ async function resolveConversationContext(contextRef) {
   return chrome.runtime.sendMessage({ type: "ai-sidepanel-resolve-context", contextRef });
 }
 
-// The question sent while its video's content still loads ({ epoch }): drawn at once, so a passive redraw of its
-// conversation meanwhile (a tab event, a settings change) is skipped, and another window's save is drawn after it.
-let waitingTurn = null;
-const waiting = () => waitingTurn?.epoch === state.view().epoch;
-
 // prompt: a 快捷追问 or 重试 sends it without touching the input box; without it the box's text is sent and cleared.
-// The question shows at once at the top and its reply's cursor under it; replaces (重试's failed turn) and the empty state
-// are hidden meanwhile. onStart runs once the question is surely sent (重试 takes the failed turn away only then). Not
-// sent (the video did not load, the conversation changed), the question goes and what it hid comes back.
+// The question shows at once at the top and its reply's cursor under it (the turn is loading: a passive redraw of the
+// conversation meanwhile is skipped, another window's save drawn after it); replaces (重试's failed turn) and the empty
+// state are hidden meanwhile. onStart runs once the question is surely sent (重试 takes the failed turn away only then).
+// Not sent (the video did not load, the conversation changed), the question goes and what it hid comes back.
 async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   const typed = prompt === undefined;
   const text = String(typed ? els.input.value : prompt).trim();
-  // sendPending closes the window while the context loads, when a second Enter or chip click would send twice.
-  if (!text || activeStream || sendPending || readOnlyReason()) {
+  // One turn at a time: a second Enter or chip click while the question's context loads, or while a reply runs, does nothing.
+  if (!text || state.view().turn !== "idle" || readOnlyReason()) {
     return;
   }
   hidePresetPopover();
@@ -1615,10 +1715,12 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   }
 
   // The typed question leaves the box now: what is typed while the context loads is the next one. Not sent, it comes
-  // back into an empty box, or into its own conversation's draft when another one shows now.
-  const { epoch, draftKey } = state.view();
+  // back into an empty box, or into its own conversation's draft when another one shows now; a saved conversation
+  // deleted meanwhile keeps no draft.
+  const { run, draftKey, id } = state.view();
   const unsent = () => {
-    if (typed && state.view().epoch !== epoch && state.view().draftKey !== draftKey) {
+    if (typed && !run.alive && state.view().draftKey !== draftKey) {
+      if (id && !state.view().saved.some((c) => c.id === id)) return;
       if (!drafts.get(draftKey)) drafts.set(draftKey, text);
     } else if (typed && !els.input.value.trim()) {
       els.input.value = text;
@@ -1632,30 +1734,30 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
   const hidden = [suggestionsNode, ...els.messages.querySelectorAll(".sp-center-error"), ...replaces].filter((node) => node && !node.hidden);
   for (const node of hidden) node.hidden = true;
   const question = appendUserMessage(text);
-  turnAnchor = { epoch, node: question, top: -Infinity };
+  turnAnchor = { run, node: question, top: -Infinity };
   const reply = appendAssistantPlaceholder();
-  waitingTurn = { epoch };
-  sendPending = true;
+  state.dispatch({ type: "QUESTION", prompt: text });
   let hasContext = false;
   try {
     hasContext = await ensureCurrentContextForSend();
-  } finally {
-    sendPending = false;
-    waitingTurn = null;
+  } catch (error) {
+    // A load or a save that failed: the question goes back, the turn ends (below), the next send is not blocked.
+    console.error(error);
   }
-  // Another conversation now (the tab moved to another video, another was opened): the question was not asked there.
-  // Nor when the tab left the video while the context loaded, or a saved video no longer resolves to one.
-  const here = hasContext && !activeStream && state.view().epoch === epoch;
+  // Another conversation now (the tab moved to another video, another was opened) ended the turn: the question was
+  // not asked there. Nor when the tab left the video while the context loaded, or a saved video no longer resolves to one.
+  const here = hasContext && state.view().turn === "loading";
   const context = state.view().context;
   const blocked = here && context.isVideoContext === false ? pageReason(context) : "";
   if (!here || blocked) {
+    state.dispatch({ type: "UNSENT" });
     question.remove();
     reply.remove();
     if (turnAnchor?.node === question) turnAnchor = null;
     for (const node of hidden) node.hidden = false;
     unsent();
     if (blocked) showConversationContextError(blocked);
-    if (redrawAfterStream && state.view().epoch === epoch) {
+    if (redrawAfterStream && run.alive) {
       redrawAfterStream = false;
       renderConversationMessages();
     }
@@ -1674,22 +1776,39 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
     prompt: text,
     raw: "",
     notice: "",
-    frame: 0,
-    ended: false
+    frame: 0
   };
   activeStream = stream;
   // The reply belongs to the conversation and the context it is asked in (state keeps both until it ends).
-  state.dispatch({ type: "SEND", prompt: text });
-  setStreamingUiState(true);
+  state.dispatch({ type: "ASKED" });
+  syncSendUi();
   startStreamSlowNoticeTimer();
+  bindStreamPort(stream);
 
+  // reply: where the answer belongs, so the background finishes it by itself should this panel close (gap 2).
+  stream.port.postMessage({
+    action: "chat",
+    providerId,
+    context: {
+      ...context,
+      aiSystemPrompt: systemPromptFor(context)
+    },
+    prompt: text,
+    history: state.view().messages,
+    reply: state.view().turnReply
+  });
+}
+
+// What the port says about a reply, into its stream. No message follows closeStream's disconnect (Chrome dispatches
+// none to a disconnected port), so nothing here checks for one. A reply that left for its saved conversation says
+// nothing about the one asked here now.
+function bindStreamPort(stream) {
   stream.port.onMessage.addListener((msg) => {
-    if (!msg || stream.ended) {
+    if (!msg) {
       return;
     }
     if (msg.type === "token") {
-      // A reply that left for its saved conversation says nothing about the one asked here now.
-      if (stream === activeStream) handleFirstStreamToken();
+      if (stream === activeStream) void act({ type: "TOKEN" });
       stream.raw += String(msg.data || "");
       scheduleStreamRender(stream);
     } else if (msg.type === "notice") {
@@ -1703,22 +1822,7 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
     }
   });
   // Only the background end can trigger this: the extension reloaded or the service worker died mid-reply.
-  stream.port.onDisconnect.addListener(() => {
-    if (!stream.ended) {
-      endStream(stream, { error: "连接中断：扩展可能已重新加载，可重试" });
-    }
-  });
-
-  stream.port.postMessage({
-    action: "chat",
-    providerId,
-    context: {
-      ...context,
-      aiSystemPrompt: systemPromptFor(context)
-    },
-    prompt: text,
-    history: state.view().messages
-  });
+  stream.port.onDisconnect.addListener(() => endStream(stream, { error: "连接中断：扩展可能已重新加载，可重试" }));
 }
 
 function appendUserMessage(text) {
@@ -1747,15 +1851,11 @@ function scheduleStreamRender(stream) {
   }
   stream.frame = window.requestAnimationFrame(() => {
     stream.frame = 0;
-    if (stream.ended) {
-      return;
-    }
     stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
   });
 }
 
 function closeStream(stream) {
-  stream.ended = true;
   window.cancelAnimationFrame(stream.frame);
   stream.frame = 0;
   try {
@@ -1765,15 +1865,16 @@ function closeStream(stream) {
 
 // A reply that left its conversation ended: state puts it after its question, also in the shown conversation when
 // the user reopened it meanwhile.
-async function finishDetachedStream({ conversationId, promptIndex, prompt, raw }) {
-  const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw });
+async function finishDetachedStream({ conversationId, promptIndex, prompt, raw, attached }) {
+  const effects = await act({ type: "REPLY_FINISHED", conversationId, promptIndex, prompt, raw, external: Boolean(attached) });
   if (effects.length && conversationId === state.view().id) {
     redrawConversation();
   }
 }
 
 function redrawConversation() {
-  if (activeStream || waiting()) redrawAfterStream = true;
+  const { streaming, loading } = state.view();
+  if (streaming || loading) redrawAfterStream = true;
   else renderConversationMessages();
 }
 
@@ -1781,7 +1882,8 @@ function redrawConversation() {
 function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   closeStream(stream);
   if (stream !== activeStream) {
-    if (stream.conversationId) {
+    if (detachedStreams.get(stream.conversationId) === stream) {
+      detachedStreams.delete(stream.conversationId);
       void finishDetachedStream(stream);
     }
     return;
@@ -1791,15 +1893,18 @@ function endStream(stream, { stopped = "", error = "", code = "" } = {}) {
   const { node, raw, prompt, notice } = stream;
   const saved = Boolean(raw.trim());
   const failed = !saved && Boolean(stopped || error);
-  // An unanswered failure is not saved, so state keeps it for every redraw (去设置 and a focus change redraw).
-  void act({ type: "STREAM_ENDED", raw, failure: failed ? { stopped, notice, error, code } : null });
+  // An unanswered failure is not saved, so state keeps it for every redraw (去设置 and a focus change redraw). A reply
+  // attached from the background is written by it: the stored list then brings the whole answer (SAVED_CHANGED).
+  void act({ type: "STREAM_ENDED", raw, failure: failed ? { stopped, notice, error, code } : null, external: Boolean(stream.attached) });
   if (failed) {
     node.innerHTML = "";
+  } else if (stream.attached && !saved) {
+    node.remove();
   } else {
     renderAssistantMessage(node, raw);
   }
-  appendReplyEnd(node, { prompt, raw, stopped, notice, error, code, saved });
-  setStreamingUiState(false);
+  if (node.isConnected) appendReplyEnd(node, { prompt, raw, stopped, notice, error, code, saved });
+  syncSendUi();
   if (redrawAfterStream) {
     redrawAfterStream = false;
     renderConversationMessages();
@@ -1860,7 +1965,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   // Only once the resend starts: one that stops before (the video no longer loads) keeps the failed turn. Only the
   // latest turn has one: a newer turn takes the older ones away (sendMessage), as a redraw does.
   retry.addEventListener("click", () => {
-    if (activeStream || sendPending) return;
+    if (state.view().turn !== "idle") return;
     const question = node.previousElementSibling?.classList.contains("sp-msg-user") ? node.previousElementSibling : null;
     const turn = [question, node].filter(Boolean);
     void sendMessage(prompt, {
@@ -1874,36 +1979,15 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   node.appendChild(retry);
 }
 
-function stopActiveStream() {
-  if (!activeStream) {
-    return;
-  }
-  setStreamingUiState(true, { stopping: true });
-  try {
-    activeStream.port.postMessage({ action: "stop" });
-  } catch {
-    endStream(activeStream, { stopped: MdgErrors.TEXT.aiStopped });
-  }
-}
-
+// Up while the reply still waits for its first word (the answering effect takes it down).
 function startStreamSlowNoticeTimer() {
   clearStreamRuntimeState();
-  streamFirstTokenReceived = false;
   streamSlowNoticeTimer = window.setTimeout(() => {
-    if (!activeStream || streamFirstTokenReceived) {
+    if (state.view().turn !== "waiting") {
       return;
     }
     streamSlowNotice = showConversationContextNotice("AI 平台响应较慢，仍在等待…");
   }, STREAM_SLOW_NOTICE_MS);
-}
-
-// The slow notice goes at the first token, and only it: a notice shown while the reply waits (a copy, a jump) stays.
-function handleFirstStreamToken() {
-  if (streamFirstTokenReceived) {
-    return;
-  }
-  clearStreamRuntimeState();
-  streamFirstTokenReceived = true;
 }
 
 function clearStreamRuntimeState() {
@@ -1911,7 +1995,6 @@ function clearStreamRuntimeState() {
     window.clearTimeout(streamSlowNoticeTimer);
     streamSlowNoticeTimer = 0;
   }
-  streamFirstTokenReceived = false;
   streamSlowNotice?.remove();
   streamSlowNotice = null;
 }
@@ -1953,9 +2036,9 @@ function renderAssistantMessage(node, raw) {
 // Resolves MdgNoteActions.run's result; nothing is shown here.
 const NOTE_SWITCHED = { copy: MdgErrors.TEXT.convSwitchedCopy, download: MdgErrors.TEXT.convSwitchedDownload, write: MdgErrors.TEXT.obsidianConvSwitched };
 function runNoteAction(kind) {
-  const { epoch } = state.view();
+  const { run } = state.view();
   const request = currentNoteRequest();
-  return MdgNoteActions.run(kind, { request: () => request, isStale: () => (epoch !== state.view().epoch ? NOTE_SWITCHED[kind] : "") });
+  return MdgNoteActions.run(kind, { request: () => request, isStale: () => (run.alive ? "" : NOTE_SWITCHED[kind]) });
 }
 
 // What the three export buttons send: the conversation on screen, and its page's note when this panel has it (a web
@@ -1987,6 +2070,8 @@ function scheduleAutoSync(conversationId) {
   );
 }
 
+// The status line belongs to the conversation on screen: a sync of another one (left mid-reply, or shown before the
+// answer came) says nothing here.
 async function autoSyncConversation(conversationId) {
   const conversation = state.view().saved.find((item) => item.id === conversationId);
   if (!conversation?.contextRef) {
@@ -1994,6 +2079,7 @@ async function autoSyncConversation(conversationId) {
   }
   try {
     const resp = await chrome.runtime.sendMessage({ type: "sync-video-note-ai", ref: conversation.contextRef, conversation: { messages: conversation.messages } });
+    if (state.view().id !== conversationId) return;
     if (!resp?.ok) {
       throw MdgErrors.fromResp(resp, MdgErrors.TEXT.obsidianWriteFailed);
     }
@@ -2148,9 +2234,9 @@ function linkifyAssistantTimestamps(root) {
 }
 
 // A newer click takes over: an older jump still loading the page neither seeks nor says anything.
-let jumpSeq = 0;
+const jumps = MdgCommon.latest();
 async function jumpToAssistantTimestamp(seconds, label) {
-  const seq = ++jumpSeq;
+  const run = jumps.next();
   const safeSeconds = Math.max(0, Number(seconds || 0) || 0);
   const { context, pinned } = state.view();
   const targetUrl = String(context?.url || pinned?.contextUrl || "").trim();
@@ -2172,21 +2258,20 @@ async function jumpToAssistantTimestamp(seconds, label) {
   const inTriage = String(tab.url || "").startsWith(chrome.runtime.getURL("triage/"));
   try {
     if (!inTriage && !MdgSites.sameContext(tab.url || "", targetUrl, { live: state.view().live.context })) {
-      await chrome.tabs.update(tab.id, { url: targetUrl });
-      await MdgSites.waitTabLoaded(tab.id);
+      await run.step(chrome.tabs.update(tab.id, { url: targetUrl }));
+      await run.step(MdgSites.waitTabLoaded(tab.id));
     }
-    if (seq !== jumpSeq) return;
-    const response = await sendMessageToActiveTab(tab.id, {
+    const response = await run.step(sendMessageToActiveTab(tab.id, {
       type: "sidepanel-seek-video-time",
       seconds: safeSeconds,
       videoId: inTriage ? MdgSites.parseRef(targetUrl)?.id || "" : ""
-    }, inTriage ? { retries: 1 } : { inject: true });
+    }, inTriage ? { retries: 1 } : { inject: true }));
     if (!response?.ok) {
       throw MdgErrors.fromResp(response, MdgErrors.TEXT.reloadRetry);
     }
     busy.remove();
   } catch (error) {
-    if (seq !== jumpSeq) return;
+    if (MdgCommon.isStale(error)) return;
     showConversationContextNotice(inTriage ? "先在分拣台里播放这个视频，再点时间" : `时间跳转失败：${MdgErrors.messageOf(error)}`, NOTICE_MS, { error: true });
   }
 }
