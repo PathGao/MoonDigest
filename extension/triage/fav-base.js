@@ -93,7 +93,7 @@ const S = {
   included: [],
   removedCheck: null, // 已出分拣范围 only: { error } while its folders, then its videos, are checked (the pill shows the progress)
   mediaId: "",
-  folderToken: 0,
+  view: MdgCommon.latest(), // the open folder's run (openFolder starts the next): async work for a folder holds view.current and checks it after each await
   items: [],
   itemMap: new Map(),
   titleRes: {},
@@ -103,7 +103,7 @@ const S = {
   removedCount: 0,
   folderIntro: {}, // { [mediaId]: Bilibili folder intro }, read with the folder list
   folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
-  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, paused, running, error, partial }
+  loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, phase (LOAD_ALL_STEPS), error, partial }
   tags: [],
   folderCriteria: {},
   videoTags: {},
@@ -176,8 +176,8 @@ const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTL
 // these are mirrored from elsewhere.
 const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
-// S.syncing is the token of the folder being read: one left meanwhile no longer shows it.
-const ownSync = () => Boolean(S.syncing) && S.syncing === S.folderToken;
+// S.syncing is the view run of the folder being read: one left meanwhile no longer shows it.
+const ownSync = () => Boolean(S.syncing?.alive);
 runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
@@ -318,24 +318,18 @@ function storeSet(key, value) {
 // Writes obj to storage.local; a failure is logged and toasted once until a write succeeds again (关注 writes through
 // this too). Resolves false on failure.
 function store(obj) {
-  return chrome.storage.local.set(obj).then(
-    () => ((storeFailShown = false), true),
-    (e) => {
-      console.error("[triage] storage write failed", Object.keys(obj), e);
-      if (!storeFailShown) toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
-      storeFailShown = true;
-      return false;
-    }
-  );
+  return chrome.storage.local.set(obj).then(() => ((storeFailShown = false), true), (e) => storeFailed(Object.keys(obj), e));
 }
-// Read-modify-writes of a shared record (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time: two overlapping ones each
-// write back what they read, and the first one's change is lost. A queued fn must not queue another (it would wait on itself).
-let storeChain = Promise.resolve();
-function serialStore(fn) {
-  const run = storeChain.then(fn);
-  storeChain = run.catch(() => {});
-  return run;
+function storeFailed(keys, e) {
+  console.error("[triage] storage write failed", keys, e);
+  if (!storeFailShown) toast(`保存失败，本地存储可能已满：${e?.message || e}`, true);
+  storeFailShown = true;
+  return false;
 }
+// Read-modify-writes of the shared records (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time
+// across every 分拣台 tab (MdgLimits.locked): two overlapping ones would each write back what they read, and the first
+// one's change be lost. A locked fn must not lock again (it would wait on itself): the *Now variants are for that.
+const lockRecords = (fn) => MdgLimits.locked("mdg-triage-records", fn);
 
 const stamp = (d = new Date(), withTime = true) => MdgCommon.localDate(d, withTime);
 function fmtTime(ts) {

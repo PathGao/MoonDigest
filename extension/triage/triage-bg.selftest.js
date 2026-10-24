@@ -1068,6 +1068,28 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       await again;
       assert.deepStrictEqual([plain(st.seen_BVnew), st.triage_seen_meta.newest], [[10, T + 1], T + 1]);
     }
+    // G7: 关 then 开 while a read is in flight: that read stops before its next page (even though the switch is on
+    // again), the drop takes what it wrote, and the 开 reads afresh after the drop instead of joining the read being dropped.
+    {
+      st.triage_seen_meta = { ...st.triage_seen_meta, syncedAt: 0 };
+      pages = [page([h("BVold", T + 2, 10)], 30), page([h("BVold2", T + 1, 10)], 20)];
+      let clearing = null;
+      let again = null;
+      t.fetch = async (url) => {
+        const r = await realFetch(url);
+        if (!clearing) {
+          clearing = t.seenClear();
+          pages = [page([h("BVfresh", T + 3, 10)], 0)];
+          again = read({ force: true });
+        }
+        return r;
+      };
+      const first = await read({ force: true });
+      t.fetch = realFetch;
+      await clearing;
+      const second = await again;
+      assert.deepStrictEqual([plain(first), "seen_BVold" in st, plain(st.seen_BVfresh ?? null), plain(second).pages], [{ stopped: "off", pages: 1 }, false, [10, T + 3], 1]);
+    }
   }
 
   // triageListen: its prefix only; unknown types and handler errors answer { ok: false }, the code passed through.

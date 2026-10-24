@@ -3,7 +3,8 @@
 // a limit counting down and sending the same chunk again, stop). Two adapters each have their own lane and undo stack:
 // 收藏夹 (keys are bvids) and 关注 (keys are mids).
 // - run: a batch, chunk by chunk with each chunk's gap before it; any failure other than a limit stops it. onChunk(chunk)
-//   runs after each chunk that went through, with B站's reply. plan may be a function, called once the lane is taken
+//   runs after each chunk that went through, with B站's reply. The result's keys are the ones that went through, its
+//   chunk the last one sent (on a failure, the refused one); callers map by them, never by position. plan may be a function, called once the lane is taken
 //   (work that must not race another batch, such as creating the target). stop() ends it after the chunk in flight (stopped: some were
 //   left).
 // - single: a write that does not wait for the batch (one key press). A limit fails at once.
@@ -73,9 +74,10 @@
           }
         });
         if (r.busy) return { done: 0, total: 0, error: "", busy: r.busy };
-        if (failure) return { done: r.done, total: r.total, error: failure };
+        const keys = [...released].flatMap((c) => c.keys);
+        if (failure) return { done: r.done, total: r.total, error: failure, keys, chunk: batch?.chunk ?? null };
         // Stopped while its last chunk was in flight, the batch is whole: not stopped.
-        return { done: r.done, total: r.total, error: r.error, stopped: r.stopped && r.done < r.total };
+        return { done: r.done, total: r.total, error: r.error, stopped: r.stopped && r.done < r.total, keys, chunk: batch?.chunk ?? null };
       } finally {
         if (took) {
           if (p) for (const c of p.chunks) if (!released.has(c)) release(c.keys, p.verb);

@@ -68,9 +68,7 @@ const ALLOW = [
   ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],
   ["sites.js", 'new Error("no wbi_img")', "例外：biliWbiQuery 吞掉它，follow-bg.js 的 followWbiData 换成「拿不到 WBI 签名密钥」"],
   // 5a
-  ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],
-  // 5b
-  ["triage/follow-bg.js", "chrome.storage.local.set(MdgLimits.followFull({ hold }))", "例外：只写不读，follow_hold 只由 followHold 整个换掉，不依赖读到的旧值"]
+  ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"]
 ];
 // Each line covers exactly one hit: a second line like it is a new case and needs its own reason.
 const used = ALLOW.map(() => 0);

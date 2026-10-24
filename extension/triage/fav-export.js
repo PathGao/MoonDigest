@@ -137,6 +137,7 @@ async function runWrite(md = false) {
   let indexError = ""; // the vault's index failed: said apart, not counted as a failed note
   let i = 0;
   let index = false;
+  let cur = null; // the step in flight (a video, or the index)
   const verb = md ? "生成" : "写入";
   const running = runs.run("write", {
     total: items.length,
@@ -157,6 +158,7 @@ async function runWrite(md = false) {
       return (index = { index: true, n: 0, gap: 0 });
     },
     act(s) {
+      cur = s;
       if (s.index) return send({ type: "triage-export", filename: `${MdgCommon.fileName(title, "收藏夹")}.md`, markdown: indexMarkdown(written, wikiLink, title) });
       el.writeProgress.textContent = `${verb} ${s.i + 1}/${items.length}：${s.it.title}`;
       return send(md ? { type: "triage-build-note", bvid: s.it.bvid } : { type: "triage-write-note", bvid: s.it.bvid, title: s.it.title, overwrite });
@@ -164,7 +166,7 @@ async function runWrite(md = false) {
     // B站 risk control: wait as 粗看 / 细看 do, then the same video again.
     judge(r) {
       if (runs.hold(r)) {
-        el.writeProgress.textContent = `${runs.hold(r).label}，等待后重试：${items[i - 1].title}`;
+        el.writeProgress.textContent = `${runs.hold(r).label}，等待后重试：${cur.index ? `「${title}」的索引` : cur.it.title}`;
         return "wait";
       }
       return r.ok ? "ok" : OBSIDIAN_CODES.has(r.code) ? "stop" : "item";

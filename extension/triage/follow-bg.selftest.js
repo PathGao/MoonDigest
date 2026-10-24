@@ -824,6 +824,17 @@ const runSync = async () => {
     assert.deepStrictEqual([local.follow_jobs.running, calls], [false, []]);
   }
 
+  // ---------- 停止 right after 开始, while the start still reads the job: nothing starts, running stays false ----------
+  {
+    local = { follow_jobs: { running: false } };
+    calls = [];
+    const starting = t.followStart();
+    await t.followStop();
+    assert.strictEqual(vm.runInContext("followRun", ctx), null, "停止 has returned: the sync is over");
+    await starting;
+    assert.deepStrictEqual([local.follow_jobs.running, calls], [false, []], "running was never written, nothing was asked");
+  }
+
   // ---------- J3: follow_* writes take the Web Lock the 分拣台 takes; B站 pages' 「+ UP 标签」 is written here ----------
   {
     const names = [];

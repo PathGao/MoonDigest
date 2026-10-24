@@ -207,6 +207,31 @@ const line = (d, t, stopping) => `跑 ${d}/${t}${stopping ? " 停" : ""}`;
     assert.ok(at() < 2000 && runs.get("load") === null);
   }
 
+  // The owner gone (alive() false) while a request is in flight: its answer lands nowhere, done is not run and nothing is
+  // counted; a 停止 meanwhile lets the answer in flight land and count (the write went through).
+  {
+    for (const how of ["gone", "stop"]) {
+      const { runs } = setup();
+      let open;
+      let alive = true;
+      const landed = [];
+      const p = runs.run("j", {
+        total: 2,
+        line,
+        alive: () => alive,
+        next: steps([{ id: 1 }, { id: 2 }]),
+        act: () => new Promise((r) => (open = r)),
+        done: (s) => landed.push(s.id)
+      });
+      await until(() => open);
+      if (how === "gone") alive = false;
+      else runs.stop("j");
+      open({ ok: true });
+      const r = await p;
+      assert.deepStrictEqual([landed, r.done, r.stopped], how === "gone" ? [[], 0, true] : [[1], 1, true], how);
+    }
+  }
+
   console.log("runs selftest: all passed");
 })().catch((e) => {
   console.error(e);

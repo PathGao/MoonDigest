@@ -71,7 +71,7 @@ async function start() {
     if (area === "sync" && Object.keys(SEEN_DEFAULTS).some((k) => changes[k])) {
       chrome.storage.sync.get(SEEN_DEFAULTS).then((v) => {
         setSeenCfg(v);
-        loadSeen(S.folderToken).then(render);
+        loadSeen(S.view.current).then(render);
       });
     }
     if (area === "local") followSeen(changes);
@@ -405,12 +405,9 @@ function bindEvents() {
     }
     else if (act === "sel-tags") openPicker(visibleSelected().map((it) => it.bvid));
     else if (act === "all-pause") {
-      S.loadAll.paused = true;
+      loadAllTo(S.loadAll, "pause");
       render();
-    } else if (act === "all-resume") {
-      S.loadAll.paused = false;
-      runLoadAll(S.folderToken);
-    }
+    } else if (act === "all-resume") runLoadAll(S.view.current);
     else if (act === "clean-removed") cleanRemoved(visibleItems());
     else if (act === "clean-selected") cleanRemoved(selectedIn(visibleItems()));
     else if (act === "transfer") fav.transfer(transferList());
@@ -540,7 +537,8 @@ function bindEvents() {
     // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
     const included = S.toviewUnread && S.included.includes(TOVIEW) ? [...ticked, TOVIEW] : ticked;
     if (!sameSet(included, S.included)) {
-      await storeSet(K.included, included);
+      noteOwnWrites({ [K.included]: included });
+      await MdgLimits.update(K.included, () => included).catch((e) => storeFailed([K.included], e));
       await applyIncluded(included);
     }
   });

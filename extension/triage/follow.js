@@ -158,6 +158,8 @@ const tagOf = (id) => D.tags.find((t) => t.id === id);
 const nameOf = (mid) => rows.get(mid)?.name || mid;
 const upName = (mid) => D.people?.[mid]?.name || F.feed?.items.find((it) => it.mid === mid)?.name || nameOf(mid);
 const write = T.store;
+// A patch of follow_* keys by short name (undefined removes), under the lock the background's sync writes take.
+const followWrite = (patch) => MdgLimits.updateFollow([], () => patch, write);
 // A batch confirm's list, as 收藏夹's.
 const names = (mids) => UI.confirmList(mids.map(nameOf));
 
@@ -196,13 +198,13 @@ const tagStore = MdgTagStore.create({
   async markRecent(mids, at) {
     D.recent = { at, mids };
     F.recentFilter = true;
-    await write(MdgLimits.followFull({ ai_recent: D.recent }));
+    await followWrite({ ai_recent: D.recent });
   },
   async endRecent(at) {
     if (D.recent?.at !== at) return;
     D.recent = null;
     F.recentFilter = false;
-    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
+    await followWrite({ ai_recent: undefined });
   }
 });
 // An 已取消关注 UP 主's tags are kept in its follow_unfollowed record (follow-bg.js moves them there when it leaves):
@@ -600,14 +602,19 @@ function renderSel() {
 }
 
 // ----- 视频投稿 -----
-const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", wait: false, dry: 0, at: Date.now() });
+// A feed's run (MdgCommon.latest) is its own: a page or wait of a feed replaced lands nowhere.
+const feedLife = MdgCommon.latest();
+const freshFeed = () => ({ items: [], offset: "", hasMore: true, loading: false, error: "", wait: false, dry: 0, at: Date.now(), run: feedLife.next() });
 
 // What the 视频投稿 list and its counts go by.
 const feedF = () => ({ side: F.side, q: F.fq, tagState: F.tagState, tags: F.tags });
 // Coming back to 视频投稿 (the tab or the mode) after FEED_KEEP_MS, or after a refresh finished (stale), starts it over;
 // a redraw meanwhile keeps the pages loaded.
 function feedOnEnter() {
-  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) F.feed = null;
+  if (F.feed && !F.feed.loading && (F.feed.stale || Date.now() - F.feed.at > FEED_KEEP_MS)) {
+    F.feed = null;
+    feedLife.next();
+  }
 }
 function renderFeed() {
   F.feed ||= freshFeed();
@@ -728,7 +735,7 @@ function observeFoot() {
 
 // The background already paused its queue twice before answering THROTTLED; wait its pause again, then go on.
 async function waitFeed(f) {
-  const here = () => F.feed === f;
+  const here = () => f.run.alive;
   f.wait = true;
   await runs.wait(FEED_RUN, runs.hold({ code: MdgErrors.CODE.THROTTLED }), here);
   f.wait = false;
@@ -743,10 +750,10 @@ async function more({ byHand = false } = {}) {
   f.error = "";
   f.errorCode = null;
   renderFoot();
-  const tick = setInterval(() => F.feed === f && F.tab === "feed" && renderFoot(), 1000);
+  const tick = setInterval(() => f.run.alive && F.tab === "feed" && renderFoot(), 1000);
   const r = await send({ type: "follow-feed", offset: f.offset }).finally(() => clearInterval(tick));
   f.loading = false;
-  if (F.feed !== f) return;
+  if (!f.run.alive) return;
   if (r.code === MdgErrors.CODE.THROTTLED) waitFeed(f);
   else if (!r.ok) {
     f.errorCode = r.code;
@@ -817,9 +824,10 @@ const W = MdgWrites.create({ runs, lane: "follow-write", send, line: (p) => `${p
 // back in their groups ({ mid, error }).
 // The UP 主 it went through stay selected while they stay listed here (DESIGN 筛选和计数): those it took out of the
 // sidebar item or 已出分拣范围's tab (取消关注, 重新关注, 移到) leave the selection once the data is read again.
-async function relationRun(calls, label, { quiet = false, skipped = [], lost = [] } = {}) {
+// ran gets the mids B站 took (the skipped ones left out), for an undo step of exactly those.
+async function relationRun(calls, label, { quiet = false, skipped = [], lost = [], ran = [] } = {}) {
   const chunks = calls.map((c) => ({ msg: c, keys: c.mids || [c.mid], folders: [], gap: UI.FOLLOW_WRITE_GAP_MS }));
-  const ran = new Set();
+  const took = new Set();
   let out = 0;
   const running = W.run("follow-write", label, {
     verb: label,
@@ -829,7 +837,7 @@ async function relationRun(calls, label, { quiet = false, skipped = [], lost = [
       skipped.push(...left);
       out += left.length;
       if (r?.data?.groupsError) lost.push({ mid: c.msg.mid, error: r.data.groupsError });
-      for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) ran.add(mid);
+      for (const mid of c.keys) if (!left.some((x) => x.mid === mid)) took.add(mid);
       renderSel();
     }
   });
@@ -843,7 +851,8 @@ async function relationRun(calls, label, { quiet = false, skipped = [], lost = [
   else if (!quiet) toast(`已${label} ${done} 个`);
   await load();
   const listed = new Set(sideMids(D, rows, F.side).filter((m) => !F.kind || F.side !== "out" || outKind(rows.get(m)) === F.kind));
-  for (const m of ran) if (!listed.has(m)) F.sel.delete(m);
+  for (const m of took) if (!listed.has(m)) F.sel.delete(m);
+  ran.push(...took);
   render();
   return done;
 }
@@ -905,7 +914,9 @@ async function refollow(mids) {
   if (!ok) return;
   const gone = Object.fromEntries(mids.map((m) => [m, D.gone[m]]));
   const lost = [];
-  const done = mids.slice(0, await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost }));
+  const ran = [];
+  await relationRun(mids.map((mid) => ({ type: "follow-relation", mid, act: 1 })), "重新关注", { quiet: true, lost, ran });
+  const done = mids.filter((mid) => ran.includes(mid));
   if (!done.length) return;
   pushWriteUndo(done, {
     label: "重新关注",
@@ -1259,8 +1270,7 @@ const AI = { proposal: null, excluded: new Set(), settings: {}, history: [] };
 const aiRunning = () => Boolean(runs.get("follow-ai"));
 function setAiProposal(p) {
   AI.proposal = p;
-  if (p) write(MdgLimits.followFull({ ai_proposal: p }));
-  else chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_proposal"));
+  followWrite({ ai_proposal: p ?? undefined });
 }
 
 // The AI tags only UP 主 still followed.
@@ -1331,7 +1341,7 @@ async function runAi({ instruction, scope, allowRemove }) {
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
   const tags = D.tags.filter((t) => !excluded.has(t.name)).map((t) => ({ name: t.name, rule: t.rule || "" }));
-  const opts = { tags: D.tags, map: D.map, maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
+  const opts = { maxNewTags: tagStore.room(), excluded, scope: new Set(mids) };
   const { batches, intervalMs } = aiRequests(mids, AI.settings, instruction, tags, allowRemove, scope);
   // The same run as 收藏夹's (tag-store.js), on 关注's runs; each batch gets what is left of the run's new-tag cap.
   const running = tagStore.runAi({
@@ -1339,7 +1349,8 @@ async function runAi({ instruction, scope, allowRemove }) {
     job: "follow-ai",
     total: batches.length,
     request: (i, p) => ({ ...batches[i], maxNewTags: Math.max(0, opts.maxNewTags - p.newTags.length) }),
-    merge: (p, data) => UI.mergeAiBatch(p, data, opts),
+    // The tags and map as they are now, as 收藏夹's merge: a tag made or deleted since the run started counts.
+    merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: D.tags, map: D.map }),
     send,
     intervalMs,
     progress: (text) => (progress(text), renderSync()),
@@ -1508,7 +1519,7 @@ main.addEventListener("click", async (e) => {
   } else if (act === "recent-done") {
     F.recentFilter = false;
     D.recent = null;
-    await chrome.storage.local.remove(MdgLimits.KEYS.follow("ai_recent"));
+    await followWrite({ ai_recent: undefined });
     fromTop();
   } else if (act === "more") more({ byHand: true });
   else if (act === "select-all") {
@@ -1663,9 +1674,10 @@ async function followHash() {
   return true;
 }
 window.addEventListener("hashchange", followHash);
-// As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, so the browser asks first.
+// As 收藏夹: closing or reloading the page would stop a B站 batch write halfway, or lose an AI 打标签 run's finished
+// batches (its proposal is only in memory until it ends), so the browser asks first.
 window.addEventListener("beforeunload", (e) => {
-  if (!W.busy()) return;
+  if (!W.busy() && !aiRunning()) return;
 
   e.preventDefault();
   e.returnValue = true;

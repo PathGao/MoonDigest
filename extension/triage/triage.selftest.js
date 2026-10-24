@@ -43,6 +43,7 @@ const ctx = vm.createContext({
   console,
   structuredClone,
   TextEncoder,
+  AbortController,
   TagDialogs,
   CSS: { escape: (x) => x },
   __TRIAGE_THROTTLE_MS: 30, // B站限流 waits this long here, not 10 minutes
@@ -90,7 +91,7 @@ assert.deepStrictEqual(pageScripts.filter((m) => /type="module"/.test(m[1])).map
 for (const [, attrs, src] of pageScripts) {
   if (!/type="module"/.test(attrs) && !src.endsWith("/tag-dialogs.js")) vm.runInContext(fs.readFileSync(path.join(__dirname, src), "utf8"), ctx);
 }
-vm.runInContext(`${entry}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav;`, ctx);
+vm.runInContext(`${entry}\n;globalThis.S = S; globalThis.K = K; globalThis.el = el; globalThis.verdictBadge = verdictBadge; globalThis.seenText = seenText; globalThis.staleCoarse = staleCoarse; globalThis.staleFine = staleFine; globalThis.mergeHead = mergeHead; globalThis.isFinished = isFinished; globalThis.pointerMoved = pointerMoved; globalThis.inferFrom = inferFrom; globalThis.hasAllTags = hasAllTags; globalThis.sortItems = sortItems; globalThis.sortOf = sortOf; globalThis.visibleItems = visibleItems; globalThis.fav = fav; globalThis.loadAllTo = loadAllTo; globalThis.LOAD_ALL_STEPS = LOAD_ALL_STEPS;`, ctx);
 const t = ctx;
 Object.assign(t, t.TriageCore);
 vm.runInContext("globalThis.plainClick = plainClick;", ctx);
@@ -127,7 +128,7 @@ const item = (n) => ({ bvid: `BV${n}`, aid: 1000 + n, title: `视频${n}`, upper
 const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 function openFake(mediaId, items, decisions = {}) {
-  t.S.folderToken++;
+  t.S.view.next();
   t.S.mediaId = mediaId;
   t.S.items = items;
   t.S.itemMap = new Map(items.map((it) => [it.bvid, it]));
@@ -532,7 +533,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const savedFolders = [t.S.folders, t.S.allFolders];
     t.S.folders = t.S.allFolders = [{ id: "W1", title: "夹1" }, { id: "W2", title: "夹2" }, { id: "W3", title: "夹3" }];
     t.S.folderDecisions = { W1: {}, W2: {}, W3: {} };
-    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
     let asked = null;
     const savedAsk = t.askConfirm;
     const savedBody = t.el.confirmBody;
@@ -1649,7 +1650,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const isDup = vm.runInContext("isDup", ctx);
     assert.deepStrictEqual(plain(t.S.items.map(isDup)), [false, false, true]);
     assert.ok(!isDup(item(9)), "a folder's items have no .folders");
-    Object.assign(t.S, { tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    Object.assign(t.S, { tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() } });
     const r3 = row3();
     assert.ok(r3.includes('全部 3</button></span><span class="seg" role="group" aria-label="重复收藏">') && r3.includes(">重复收藏 1<"), r3);
     t.pickState("dup");
@@ -2108,7 +2109,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const { aid: _, ...noAid } = item(5);
     store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3), BV4: rec(4, { invalid: true }), BV5: { item: noAid, at: 5 } };
     t.S.included = ["A", "B"];
-    t.S.folderToken++; // earlier checks still running stop
+    t.S.view.current++; // earlier checks still running stop
     handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
     const asked = [];
     const mids = [];
@@ -2341,9 +2342,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     openFake("removed", [item(620)]);
     t.S.removedCheck = { error: "" };
-    const token = t.S.folderToken;
+    const token = t.S.view.current;
     handlers["triage-fav-where"] = () => {
-      t.S.folderToken++;
+      t.S.view.next();
       t.S.removedCheck = { error: "" };
       return { ok: false, error: "网络断了" };
     };
@@ -2402,6 +2403,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     h.release();
     await running;
     assert.strictEqual(leave(), false, "done: no prompt");
+    // An AI 打标签 run holds its finished batches in memory until it ends: leaving asks too.
+    const aiRun = hang("ai");
+    assert.strictEqual(leave(), true, "AI 打标签 running");
+    await aiRun();
+    assert.strictEqual(leave(), false, "AI 打标签 done: no prompt");
     await settled();
   }
 
@@ -2608,7 +2614,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
     openFake("all", vids);
     t.S.folders = t.S.allFolders = [{ id: "K", title: "夹K" }, { id: "L", title: "夹L" }];
-    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, coarseFailed: new Map(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 } });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, folderCriteria: { K: "K 标准", L: "L 标准" }, folderIntro: { L: "L 简介" }, coarseFailed: new Map(), tab: "none", loadAll: { lists: {}, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() } });
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
     // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
@@ -2678,8 +2684,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV5", ...store.triage_snapshot_6.ids] } });
   handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), { ok: true, data: { items: [item(5)], info: { intro: "" }, head: true } });
   t.S.mediaId = "all";
-  t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
-  await t.runLoadAll(t.S.folderToken);
+  t.S.loadAll = { lists: { 6: { items: store.triage_snapshot_6.items, ids: store.triage_snapshot_6.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
+  await t.runLoadAll(t.S.view.current);
   assert.deepStrictEqual([itemCalls.length, t.S.loadAll.queue.length], [1, 0], "one head request, no full load queued");
   assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV5");
   assert.strictEqual(store.triage_snapshot_6.ids[0], "BV5");
@@ -2690,8 +2696,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let n = 0;
     handlers["triage-folder-items"] = (m) => (itemCalls.push(m.known), ++n === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true, data: { items: [item(581)], info: { intro: "" }, head: true } });
     itemCalls.length = 0;
-    t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], paused: false, running: false, error: "", partial: 0 };
-    await t.runLoadAll(t.S.folderToken);
+    t.S.loadAll = { lists: { 6: { items: snap.items, ids: snap.ids, at: 0 } }, check: ["6"], checkTotal: 1, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
+    await t.runLoadAll(t.S.view.current);
     assert.ok(itemCalls.length === 2 && itemCalls.every(Boolean), "two difference reads, no full one");
     assert.strictEqual(t.S.loadAll.lists["6"].items[0].bvid, "BV581");
     store.triage_snapshot_6 = snap;
@@ -2710,12 +2716,111 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const a = t.activityState();
       if (a?.stuck && !seen.some((x) => x[0] === a.text)) seen.push([a.text, a.stuck, a.actLabel, a.total]);
     };
-    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], paused: false, running: false, error: "", partial: 0 };
-    await t.runLoadAll(t.S.folderToken);
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["6"], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
+    await t.runLoadAll(t.S.view.current);
     t.renderStatus = realStatus;
     assert.deepStrictEqual(plain(seen), ["加载收藏夹 0/1 · 「夹6」", ["加载收藏夹 0/1 · B站限流卡住，0:01 后重试", true, "暂停", 1], "加载收藏夹 0/1 · 「夹6」"]);
 
     assert.ok(!t.S.loadAll.error && !t.S.loadAll.queue.length && t.activityState() === null, "loaded, no red line, pill gone");
+    assert.strictEqual(t.S.loadAll.phase, "done");
+  }
+
+  // The load's phase moves only along LOAD_ALL_STEPS: every pair not in the table is refused and changes nothing.
+  {
+    const phases = ["ready", "running", "paused", "done"];
+    for (const event of Object.keys(t.LOAD_ALL_STEPS)) {
+      for (const phase of phases) {
+        const L = { phase };
+        const want = t.LOAD_ALL_STEPS[event][phase];
+        assert.deepStrictEqual([t.loadAllTo(L, event), L.phase], [Boolean(want), want || phase], `${event} in ${phase}`);
+      }
+    }
+    assert.deepStrictEqual(plain(t.LOAD_ALL_STEPS), { start: { ready: "running", paused: "running", done: "running" }, pause: { ready: "paused", running: "paused" }, fail: { running: "paused" }, finish: { running: "done" } });
+  }
+
+  // 暂停 mid-load ends the loop after the folder in flight and keeps the rest queued; 继续 loads them; a failed folder
+  // pauses with its line, and 继续 after it starts again.
+  {
+    const loaded = [];
+    let pauseAt = "7";
+    handlers["triage-folder-items"] = (m) => {
+      loaded.push(m.mediaId);
+      if (m.mediaId === pauseAt) t.loadAllTo(t.S.loadAll, "pause");
+      return m.mediaId === "9" ? { ok: false, error: "网络断了" } : { ok: true, data: { items: [item(Number(m.mediaId))], ids: [`BV${m.mediaId}`], info: { intro: "" } } };
+    };
+    t.S.allFolders = t.S.folders = [7, 8, 9].map((id) => ({ id, title: `夹${id}`, count: 1 }));
+    t.S.loadAll = { lists: {}, check: [], checkTotal: 0, queue: ["7", "8", "9"], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
+    await t.runLoadAll(t.S.view.current);
+    assert.deepStrictEqual([loaded, t.S.loadAll.phase, t.S.loadAll.queue, t.activityState().actLabel], [["7"], "paused", ["8", "9"], "继续"]);
+    assert.strictEqual(await t.runLoadAll(t.S.view.current), undefined);
+    assert.deepStrictEqual([loaded, t.S.loadAll.phase, t.S.loadAll.queue], [["7", "8", "9"], "paused", ["9"]], "9 failed: paused with its line");
+    assert.ok(t.S.loadAll.error.includes("「夹9」加载失败：网络断了"), t.S.loadAll.error);
+    pauseAt = "";
+    handlers["triage-folder-items"] = (m) => ({ ok: true, data: { items: [item(Number(m.mediaId))], ids: [`BV${m.mediaId}`], info: { intro: "" } } });
+    await t.runLoadAll(t.S.view.current);
+    assert.deepStrictEqual([t.S.loadAll.phase, t.S.loadAll.queue, t.S.loadAll.error], ["done", [], ""]);
+  }
+
+  // F1: 暂停 then 继续 while a folder's request is still in flight runs one loop, not two: the next folder is loaded once,
+  // none is dropped. 刷新 with a request in flight ends that loop (its reply lands nowhere) and the new one loads every folder.
+  {
+    const fresh = () => ({ lists: {}, check: [], checkTotal: 0, queue: ["7", "8", "9"], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() });
+    const reply = (id) => ({ ok: true, data: { items: [item(Number(id))], ids: [`BV${id}`], info: { intro: "" } } });
+    let loaded = [];
+    let hold = null;
+    // Only the first request for 7 is held (hold === true); a second one, which a second loop would send, answers at once.
+    handlers["triage-folder-items"] = (m) => {
+      loaded.push(m.mediaId);
+      return hold === true && m.mediaId === "7" ? new Promise((r) => (hold = () => r(reply("7")))) : reply(m.mediaId);
+    };
+    hold = true;
+    t.S.loadAll = fresh();
+    const first = t.runLoadAll(t.S.view.current);
+    await until(() => typeof hold === "function");
+    t.loadAllTo(t.S.loadAll, "pause");
+    const resumed = t.runLoadAll(t.S.view.current);
+    const release = hold;
+    hold = null;
+    release();
+    await Promise.all([first, resumed]);
+    assert.deepStrictEqual([loaded, Object.keys(t.S.loadAll.lists).sort(), t.S.loadAll.phase], [["7", "8", "9"], ["7", "8", "9"], "done"], "one loop: each folder once");
+
+    loaded = [];
+    hold = true;
+    t.S.loadAll = fresh();
+    const going = t.runLoadAll(t.S.view.current);
+    await until(() => typeof hold === "function");
+    const refreshed = t.refreshAll();
+    const release2 = hold;
+    hold = null;
+    release2();
+    await Promise.all([going, refreshed]);
+    await until(() => t.S.loadAll.phase === "done");
+    assert.deepStrictEqual([loaded, Object.keys(t.S.loadAll.lists).sort(), t.S.loadAll.queue], [["7", "7", "8", "9"], ["7", "8", "9"], []], "刷新 mid-request: the old reply is dropped, every folder loads once more");
+  }
+
+  // F2: the folder switched while the stamps are being written: the stamps after the switch are not written, and none
+  // carries folder B's criteria.
+  {
+    const was = { title: handlers["triage-title-get"], analysis: handlers["triage-analysis-get"], crit: t.S.folderCriteria, set: ctx.chrome.storage.local.set };
+    handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
+    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, { verdict: "keep" }])) });
+    const key = (n) => t.MdgLimits.KEYS.triageTitle(`BV${n}`);
+    store[key(710)] = store[key(711)] = { verdict: "keep" };
+    t.S.folderCriteria = { A710: "甲", B710: "乙" };
+    // The first stamp's write is where the user opens folder B.
+    ctx.chrome.storage.local.set = async (o) => {
+      if (key(710) in o) openFake("B710", [item(712)]);
+      return was.set(o);
+    };
+    openFake("A710", [item(710), item(711)]);
+    const done = await t.loadResults(t.S.view.current);
+    ctx.chrome.storage.local.set = was.set;
+    assert.deepStrictEqual([done, store[key(710)].criteria, store[key(711)].criteria], [false, "甲", undefined]);
+    delete t.S.titleRes.BV710;
+    delete t.S.titleRes.BV711;
+    Object.assign(handlers, { "triage-title-get": was.title, "triage-analysis-get": was.analysis });
+    t.S.folderCriteria = was.crit;
   }
 
   // R2: a list fetched before a 取消收藏, or lagging behind it, still holds the video with its old favTime. Only a
@@ -2858,7 +2963,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       if (calls === 0) {
         // Mid-run: the folders being written are not read from Bilibili, and a queued video cannot be unfavorited.
         assert.ok(t.fav.state().writing("1") && t.fav.state().writing("2") && !t.fav.state().writing("3"));
-        t.S.syncing = false;
+        t.S.syncing = null;
         const before = sent.length;
         return realSync({ force: true }).then(async (synced) => {
           assert.strictEqual(synced, false, "no sync of a folder being written");
@@ -3117,7 +3222,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // A full sync whose folder changes while it reads the old list leaves the new folder's list alone.
     t.syncFolder = realSync;
     openFake("PA", [item(71)]);
-    t.S.syncing = false;
+    t.S.syncing = null;
     handlers["triage-folder-items"] = () => ({ ok: true, data: { items: [item(71), item(73)], ids: ["BV71", "BV73"] } });
     const releaseSnap = holdRead(t.K.snapshot("PA"));
     const sync = t.syncFolder({ force: true });
@@ -3128,7 +3233,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(t.S.items.map((it) => it.bvid)), ["BV72"], "folder B keeps its own list");
     // A batch write that starts while a full sync reads the folder: the list read is from before it, so the sync drops it.
     openFake("PA", [item(71)]);
-    t.S.syncing = false;
+    t.S.syncing = null;
     const releaseSnap2 = holdRead(t.K.snapshot("PA"));
     const sync2 = t.syncFolder({ force: true });
     await settle();
@@ -3689,6 +3794,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       assert.ok(stuck?.stuck && stuck.act === "write" && stuck.text === "写入笔记 1/3 · B站限流卡住，0:01 后重试" && stuck.total === 3, JSON.stringify(stuck));
 
       assert.strictEqual(t.S.write.text, "逐个视频笔记完成：写入 3 篇");
+      // G3: the index held by B站限流 says so in the dialog, not the last video's title.
+      {
+        let held = "";
+        let n = 0;
+        handlers["triage-export"] = () => (++n === 1 ? (setTimeout(() => (held = t.el.writeProgress.textContent)), { ok: false, code: "THROTTLED", error: "B站返回 -412" }) : { ok: true, data: { path: "甲.md" } });
+        await t.runWrite();
+        assert.strictEqual(held, "B站限流卡住，等待后重试：「甲」的索引");
+        handlers["triage-export"] = () => ({ ok: true, data: { path: "甲.md" } });
+      }
       // C661: the vault's index failing is said apart, not counted as a failed note.
       handlers["triage-export"] = () => ({ ok: false, error: "网络断了" });
       await t.runWrite();
@@ -4153,7 +4267,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("C578", [item(578)]);
     const get = handlers["triage-title-get"];
     handlers["triage-title-get"] = () => ({ ok: false, error: "后台无响应" });
-    await t.loadResults(t.S.folderToken);
+    await t.loadResults(t.S.view.current);
     handlers["triage-title-get"] = get;
     assert.strictEqual(toasts.at(-1), "读取已有的 AI 判断失败：后台无响应");
   }
@@ -4197,12 +4311,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   {
     const was = { title: handlers["triage-title-get"], analysis: handlers["triage-analysis-get"], crit: t.S.folderCriteria };
     handlers["triage-analysis-get"] = () => ({ ok: true, data: {} });
-    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, { verdict: "keep" }])) });
+    // The background answers from storage: the stored result is what the stamp is written onto.
+    handlers["triage-title-get"] = ({ bvids }) => ({ ok: true, data: Object.fromEntries(bvids.map((b) => [b, store[t.MdgLimits.KEYS.triageTitle(b)]])) });
     t.S.folderCriteria = { F700: "只留干货" };
     for (const [id, n, want] of [["F700", 700, "只留干货"], ["all", 701, undefined]]) {
+      store[t.MdgLimits.KEYS.triageTitle(`BV${n}`)] = { verdict: "keep" };
       openFake(id, [item(n)]);
-      await t.loadResults(t.S.folderToken);
-      assert.strictEqual(t.S.titleRes[`BV${n}`].criteria, want, id);
+      await t.loadResults(t.S.view.current);
+      assert.deepStrictEqual([t.S.titleRes[`BV${n}`].criteria, store[t.MdgLimits.KEYS.triageTitle(`BV${n}`)].criteria], [want, want], id);
+    }
+    // G4: a newer result the background wrote between the read and the stamp is kept, in storage and on the card.
+    {
+      const key = t.MdgLimits.KEYS.triageTitle("BV702");
+      store[key] = { verdict: "keep" };
+      handlers["triage-title-get"] = ({ bvids }) => {
+        const data = Object.fromEntries(bvids.map((b) => [b, store[t.MdgLimits.KEYS.triageTitle(b)]]));
+        store[key] = { verdict: "drop", criteria: "新标准" };
+        return { ok: true, data };
+      };
+      openFake("F700", [item(702)]);
+      await t.loadResults(t.S.view.current);
+      assert.deepStrictEqual([plain(store[key]), plain(t.S.titleRes.BV702)], [{ verdict: "drop", criteria: "新标准" }, { verdict: "drop", criteria: "新标准" }], "the newer result stays");
     }
     Object.assign(handlers, { "triage-title-get": was.title, "triage-analysis-get": was.analysis });
     t.S.folderCriteria = was.crit;
@@ -4238,10 +4367,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // rebuilt list lacks it): it still gets its record, the U step and the toast.
   {
     const was = { sleepWhile: t.sleepWhile, pick: t.pickBatchUnfavFolders, unfav: handlers["triage-unfav"] };
-    t.S.folderToken++;
+    t.S.view.current++;
     t.S.allFolders = t.S.folders = [{ id: "f1", title: "一", count: 1 }, { id: "f2", title: "二", count: 1 }];
     Object.assign(t.S, { included: ["f1", "f2"], mediaId: "all", decisions: {}, undo: [], folderDecisions: { f1: {}, f2: {} } });
-    t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], paused: false, running: false, error: "", partial: 0 };
+    t.S.loadAll = { lists: { f1: { items: [item(10)] }, f2: { items: [item(20)] } }, check: [], checkTotal: 0, queue: [], phase: "ready", error: "", partial: 0, loop: null, life: t.MdgCommon.latest() };
     t.rebuildAll();
     t.pickBatchUnfavFolders = async () => ["f1", "f2"];
     handlers["triage-unfav"] = (m) => (m.mediaId === "f2" && t.rebuildAll(), { ok: true }); // as runLoadAll after checking a folder
@@ -4267,6 +4396,37 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.viewing = was.viewing;
   }
 
+  // P1: one cached folder, 所有收藏夹, 暂停 while its id check is in flight: the reply lands, the pill hides (nothing stale,
+  // no 继续 for a check that is over), and 暂停 pressed again is refused. The same when the check ends before the press.
+  {
+    t.render = () => t.renderTop(); // the page's pill path: render → renderTop → renderStatus
+    const vids = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => item(900 + n));
+    const bvids = vids.map((it) => it.bvid);
+    store.triage_snapshot_D = { bvids, ids: bvids, items: vids, intro: "", title: "演示", invalid: [], titles: {} };
+    t.S.allFolders = t.S.folders = [{ id: "D", title: "演示", count: 8 }];
+    t.S.included = ["D"];
+    const pill = () => [t.el.activity.hidden, t.activityState()];
+    for (const pressWhile of ["in flight", "over"]) {
+      let release = null;
+      handlers["triage-folder-ids"] = () => new Promise((r) => (release = () => r({ ok: true, data: { bvids } })));
+      openFake("all", []);
+      const opening = t.openAll();
+      await until(() => release);
+      assert.deepStrictEqual(plain(pill()), [false, { text: "核对收藏夹 0/1", done: 0, total: 1, act: "all-pause", actLabel: "暂停" }], pressWhile);
+      if (pressWhile === "in flight") assert.ok(t.loadAllTo(t.S.loadAll, "pause"));
+      release();
+      await opening;
+      await until(() => !t.S.loadAll.loop);
+      await settled();
+      assert.deepStrictEqual([t.S.loadAll.phase, t.S.loadAll.check, t.S.items.length], [pressWhile === "in flight" ? "paused" : "done", [], 8], pressWhile);
+      assert.deepStrictEqual(plain(pill()), [true, null], `${pressWhile}: the pill is hidden once the check is over`);
+      assert.strictEqual(t.loadAllTo(t.S.loadAll, "pause"), false, `${pressWhile}: 暂停 after the check is refused`);
+      t.renderStatus();
+      assert.deepStrictEqual(plain(pill()), [true, null], pressWhile);
+    }
+    t.render = () => {};
+    delete store.triage_snapshot_D;
+  }
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);
@@ -4337,12 +4497,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
 // C587: a 刷新 still reading the folder just left does not show as this folder's.
 {
-  const keep = { syncing: t.S.syncing, token: t.S.folderToken };
-  t.S.syncing = t.S.folderToken = 587;
+  const keep = t.S.syncing;
+  t.S.syncing = t.S.view.current;
   assert.ok(String(t.activityState()?.text).startsWith("刷新中…"), "this folder's");
-  t.S.folderToken++;
+  t.S.view.next();
   assert.ok(!String(t.activityState()?.text).startsWith("刷新中…"), "the folder left's");
-  Object.assign(t.S, { syncing: keep.syncing, folderToken: keep.token });
+  t.S.syncing = keep;
 }
 
 // C593: 保留选中的 N 个 leaves out the selected videos a running batch 取消收藏 is about to write.

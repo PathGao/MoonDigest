@@ -6,7 +6,7 @@ const vm = require("vm");
 const assert = require("assert");
 const PS = require("../page-sources.selftest.js");
 
-const ctx = vm.createContext({ setTimeout, clearTimeout });
+const ctx = vm.createContext({ setTimeout, clearTimeout, AbortController });
 // 关注's pure functions (follow-core.js) sort with shared.js (UI.byValue / UI.dirWords), as the page does.
 for (const f of ["../errors.js", "../tag-core.js", "../settings.js", "shared.js", "follow-core.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const t = ctx.FollowCore;
@@ -536,7 +536,7 @@ async function followPage({ store = {}, sync = {}, handlers = {}, setup = () => 
   const picks = [];
   class Observer { observe() {} disconnect() {} }
   const ctx = vm.createContext({
-    console, structuredClone, TextEncoder, URLSearchParams, clearTimeout,
+    console, structuredClone, TextEncoder, URLSearchParams, AbortController, clearTimeout,
     setTimeout: (f, ms) => setTimeout(f, Math.min(ms || 0, 5)),
     setInterval: () => 0,
     clearInterval() {},
@@ -903,6 +903,47 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     F.sel.add("u3");
     await hash("u1");
     assert.deepStrictEqual([F.side, F.sel.size], ["all", 0], "out of it");
+  }
+
+  // G5: a tag made (here or in another tab) after an AI 打标签 run started is a known tag for the batches after it, as in
+  // 收藏夹: the proposal refers to it by id, not as a new tag of the same name.
+  {
+    let batch = 0;
+    const p = await followPage({
+      store: page({ follow_tags: [{ id: "t1", name: "科普", color: "#111" }] }),
+      handlers: {
+        "follow-ai-tag": (m) => {
+          if (++batch === 1) {
+            p.FW.D().tags = [...p.FW.D().tags, { id: "t2", name: "新来", color: "#222" }];
+            return { ok: true, data: { assignments: { [m.mids[0]]: { add: ["科普"] } } } };
+          }
+          return { ok: true, data: { assignments: { [m.mids[0]]: { add: ["新来"] } } } };
+        }
+      }
+    });
+    p.FW.AI.settings = { batchSize: 1, intervalSec: 0, newTagMax: 5, allowRemove: false };
+    await p.FW.aiTags.run({ instruction: "分", scope: "filter", allowRemove: false });
+    const got = p.FW.AI.proposal;
+    assert.deepStrictEqual([batch, plain(got.newTags), plain(got.rows.map((r) => [r.id, r.add]))], [2, [], [["u1", ["id:t1"]], ["u2", ["id:t2"]]]], JSON.stringify(got));
+  }
+
+  // Closing the page while 关注's AI 打标签 runs asks first (its finished batches are only in memory); not after it ends.
+  {
+    let release;
+    const p = await followPage({ store: page(), handlers: { "follow-ai-tag": () => new Promise((r) => (release = r)) } });
+    const leave = () => {
+      let asked = false;
+      p.winL.beforeunload.forEach((f) => f({ preventDefault: () => (asked = true) }));
+      return asked;
+    };
+    assert.strictEqual(leave(), false, "nothing running: no prompt");
+    p.FW.AI.settings = { batchSize: 2, intervalSec: 0, newTagMax: 5, allowRemove: false };
+    const running = p.FW.aiTags.run({ instruction: "分", scope: "filter", allowRemove: false });
+    await p.until(() => release);
+    assert.strictEqual(leave(), true, "AI 打标签 running");
+    release({ ok: true, data: {} });
+    await running;
+    assert.strictEqual(leave(), false, "done: no prompt");
   }
 
   // U on a 关注 write while another runs: refused before its confirm, with 收藏夹's words; the step stays for later.

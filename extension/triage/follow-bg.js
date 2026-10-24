@@ -209,7 +209,7 @@ function followHold(ms, why) {
   // Slowed outside a sync too (视频投稿's pages): kept in follow_jobs, which a restarted worker reads back (followResume).
   if (why === "throttled" && !followOnHold) followPatchJob({ slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
   // The 视频投稿 page reads follow_hold while it waits for a page, as the sync's pill reads follow_jobs.hold.
-  chrome.storage.local.set(MdgLimits.followFull({ hold })).catch(() => {});
+  followUpdate([], () => ({ hold })).catch(() => {});
 }
 
 // Every GET goes through triage-bg.js's channel, paced by this queue.
@@ -296,7 +296,9 @@ const followPatchJob = (fields) => followUpdate(["jobs"], (s) => ({ jobs: { ...s
 
 // ===== 同步 =====
 
-let followRun = null; // { stop, abort, halt, promise }
+// The sync's run (MdgCommon.latest): followStart starts the next, followStop ends it; followRun is the sync going on.
+const followLife = MdgCommon.latest();
+let followRun = null; // { run, promise }
 
 async function followSyncJob(ctx) {
   const c = ctx.cursor || { phase: "list" };
@@ -523,65 +525,70 @@ function followKeepAlive(on) {
   }
 }
 
+// Resolves once the sync is going (running: true written) or refused; followRun.promise is the whole sync.
 async function followStart() {
   if (followRun) return;
-  const run = (followRun = { stop: false });
-  run.halt = new Promise((_, reject) => (run.abort = () => reject(FOLLOW_STOPPED())));
-  run.halt.catch(() => {});
-  followKeepAlive(true);
-  const prev = (await MdgLimits.followGet(["jobs"])).jobs || {};
-  // 慢速只存在内存里；worker 重启后从上次写下的 slowUntil 接回来，不然一重启就回到 1 秒间隔。
-  followSlowUntil = Math.max(followSlowUntil, (prev.slowUntil || 0) * 1000);
-  // 停下或出错后再开始从游标接着跑；超过一天的游标作废，从头来。
-  const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
-  const startedAt = cursor ? prev.startedAt : followNow();
-  await followPatchJob({
-    running: true, error: null, errorCode: null, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
-    ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null, posted: [] })
-  });
-  followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
-  // 停下立即生效，退避中也一样：正在等的请求直接丢掉。
+  // 停止 ends the run (followLife.next): a GET in flight loses the race, and one asked after it is refused.
+  const run = followLife.next();
+  const halt = new Promise((_, reject) => run.signal.addEventListener("abort", () => reject(FOLLOW_STOPPED()), { once: true }));
+  halt.catch(() => {});
   const get = async (call) => {
-    if (run.stop) throw FOLLOW_STOPPED();
+    if (!run.alive) throw FOLLOW_STOPPED();
     const p = call();
     p.catch(() => {});
-    return Promise.race([p, run.halt]);
+    return Promise.race([p, halt]);
   };
-  const ctx = { cursor, startedAt, posted: cursor ? prev.posted || [] : [], get, progress: (fields) => followPatchJob({ ...fields, hold: null, beat: followNow() }) };
-  run.promise = followSyncJob(ctx)
-    .then(
-      // The 动态 pages cached before it would hide what it just found.
-      () => (followFeedCache.clear(), followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null })),
-      (e) =>
-        followPatchJob(
-          e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, errorCode: e.code ?? null }
-        )
-    )
+  followKeepAlive(true);
+  let started;
+  const begun = new Promise((r) => (started = r));
+  const promise = (async () => {
+    const prev = (await MdgLimits.followGet(["jobs"])).jobs || {};
+    // 慢速只存在内存里；worker 重启后从上次写下的 slowUntil 接回来，不然一重启就回到 1 秒间隔。
+    followSlowUntil = Math.max(followSlowUntil, (prev.slowUntil || 0) * 1000);
+    // 停下或出错后再开始从游标接着跑；超过一天的游标作废，从头来。
+    const cursor = prev.cursor && !prev.finishedAt && followNow() - (prev.startedAt || 0) < 86400 ? prev.cursor : null;
+    const startedAt = cursor ? prev.startedAt : followNow();
+    // 停止 while the job was read: running stays false.
+    if (!run.alive) throw FOLLOW_STOPPED();
+    await followPatchJob({
+      running: true, error: null, errorCode: null, hold: null, finishedAt: null, slowUntil: Math.ceil(followSlowUntil / 1000),
+      ...(cursor ? {} : { startedAt, phase: "list", step: "", done: 0, total: 0, skipped: 0, cursor: null, changes: null, posted: [] })
+    });
+    started();
+    followOnHold = (hold) => followPatchJob({ hold, slowUntil: Math.ceil(followSlowUntil / 1000) }).catch(() => {});
+    const ctx = { cursor, startedAt, posted: cursor ? prev.posted || [] : [], get, progress: (fields) => followPatchJob({ ...fields, hold: null, beat: followNow() }) };
+    await followSyncJob(ctx);
+    // The 动态 pages cached before it would hide what it just found.
+    followFeedCache.clear();
+    await followPatchJob({ running: false, finishedAt: followNow(), lastFinishedAt: followNow(), step: "", cursor: null, hold: null });
+  })()
+    .catch((e) => followPatchJob(e.code === "STOPPED" ? { running: false, hold: null } : { running: false, hold: null, error: e.message, errorCode: e.code ?? null }))
     .catch((e) => console.warn("[follow] 同步状态写入失败", e))
     .finally(() => {
       followRun = null;
       followOnHold = null;
       followKeepAlive(false);
+      started();
     });
+  followRun = { run, promise };
+  await begun;
 }
 
-// Each 停止 counts: a resume (followResume) that read running before it does not start the sync again.
-let followStops = 0;
+// 停止 ends the sync's run and waits for it to write running: false; without one, the running a killed worker left is
+// cleared. A resume that read the job before this 停止 (followResume) sees its run ended and does not start the sync.
 async function followStop() {
-  followStops++;
-  if (followRun) {
-    followRun.stop = true;
-    followRun.abort();
-    await followRun.promise;
-  } else await followPatchJob({ running: false, hold: null }); // 被杀的 worker 留下的 running
+  const going = followRun;
+  followLife.next();
+  if (going) await going.promise;
+  else await followPatchJob({ running: false, hold: null });
 }
 
 // worker 启动时：上次还在跑就接着跑。
 async function followResume() {
-  const stops = followStops;
+  const seen = followLife.current;
   const j = (await MdgLimits.followGet(["jobs"])).jobs;
   followSlowUntil = Math.max(followSlowUntil, (j?.slowUntil || 0) * 1000);
-  if (j?.running && stops === followStops) await followStart();
+  if (j?.running && seen.alive) await followStart();
   else if (!followRun) chrome.alarms?.clear(FOLLOW_ALARM);
 }
 

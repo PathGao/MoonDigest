@@ -29,7 +29,7 @@ const keepStep = (bvids) =>
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
 function patchDecisions(mediaId, patch) {
-  return serialStore(async () => {
+  return lockRecords(async () => {
     const stored = await storeGet(K.decisions(mediaId), {});
     const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
     for (const d of maps) {
@@ -135,7 +135,8 @@ const busyError = (r) => r.error || UI.busyText(r.busy);
 async function refavInto(mediaId, items) {
   const r = await W.run("refav", REFAV, { verb: REFAV, chunks: items.map((it) => refavChunk(mediaId, it)), folders: [mediaId], meta: { mediaId, verb: REFAV }, onChunk: refavDone });
   render();
-  return { n: r.done, rest: items.slice(r.done), error: busyError(r), stopped: r.stopped };
+  const went = new Set(r.keys || []);
+  return { n: r.done, rest: items.filter((it) => !went.has(it.bvid)), error: busyError(r), stopped: r.stopped };
 }
 
 // 所有收藏夹's batch 取消收藏 undone: each video back in every folder it was taken out of, as one run.
@@ -203,7 +204,7 @@ function goneStep(items, gone) {
 // U on one 取消收藏 (D): back into each folder it left (prevs: folder → its record before), and its record back.
 function unfavStep(it, prev, prevs) {
   return favStep(1, null, async () => {
-    const token = S.folderToken;
+    const view = S.view.current;
     toast(`正在重新收藏《${shortTitle(it)}》…`);
     const back = [];
     let cut = "";
@@ -218,7 +219,7 @@ function unfavStep(it, prev, prevs) {
       await patchDecisions(mediaId, { [it.bvid]: before });
       back.push(mediaId);
     }
-    if (token !== S.folderToken) return "";
+    if (!view.alive) return "";
     // The folders it is back in show on the card; it is listed again (no 取消收藏 record) once it is in one.
     if (it.folders) {
       it.folders = [...new Set([...it.folders, ...back])];
@@ -247,7 +248,7 @@ const fav = {
     if (pending) return toast(pending === UNFAV ? `这个视频已在等待${UNFAV}` : `这个视频在等待${pending}，结束后再取消收藏`, true);
     const prev = S.decisions[bvid] || null;
     const before = visibleItems();
-    const token = S.folderToken;
+    const view = S.view.current;
     // 所有收藏夹 items carry .folders: 取消收藏 asks which when there are several.
     let folders = it.folders ? [...it.folders] : [S.mediaId];
     if (folders.length > 1) folders = await pickUnfavFolders(it);
@@ -264,7 +265,7 @@ const fav = {
     const prevs = Object.fromEntries(folders.map((f) => [f, (f === S.mediaId ? S.decisions : S.folderDecisions[f])?.[bvid] || null]));
     for (const f of folders) await patchDecisions(f, { [bvid]: rec });
     // After a folder switch the record is saved under its folder; the undo step would point at a video no longer listed.
-    if (token !== S.folderToken) return;
+    if (!view.alive) return;
     const left = it.folders ? (it.folders = it.folders.filter((f) => !folders.includes(f))) : [];
     if (it.folders) it.left = [...new Set([...(it.left || []), ...folders])];
     if (it.folders && !left.length) S.decisions[bvid] = rec;
@@ -284,21 +285,19 @@ const fav = {
       : (await askConfirm(unfavManyTitle(list.length), UI.confirmList(list.map((it) => it.title)), unfavManyOk(list.length), { danger: true })) ? [String(S.mediaId)] : [];
     if (!folders.length) return;
     const mediaId = String(S.mediaId);
-    const token = S.folderToken;
+    const view = S.view.current;
     const batch = Date.now();
     const gone = {}; // folder → the videos taken out of it
     const elsewhere = all ? null : await favedElsewhere(mediaId);
     const chunks = folders.flatMap((f) =>
       chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map(favRes) }, keys: items.map((it) => it.bvid), folders: [f], items }))
     );
-    let sent = 0;
     const r = await W.run("unfav", UNFAV_MANY, {
       verb: UNFAV,
       chunks,
       folders: [mediaId],
       meta: { mediaId, verb: UNFAV },
       async onChunk({ folders: [f], items }) {
-        sent++;
         bumpCount(f, -items.length);
         const at = Date.now();
         const left = (it) => (all ? stillIn(it, [f, ...Object.keys(gone).filter((g) => gone[g].some((x) => x.bvid === it.bvid))]) : elsewhere.has(it.bvid));
@@ -308,12 +307,12 @@ const fav = {
     });
     if (r.busy) return;
     const done = r.done;
-    const fail = r.error && `${all || S.mediaId !== mediaId ? `「${folderName(chunks[sent].folders[0])}」` : ""}${cutShort(UNFAV_MANY, done, r.error)}`;
+    const fail = r.error && `${all || S.mediaId !== mediaId ? `「${folderName(r.chunk.folders[0])}」` : ""}${cutShort(UNFAV_MANY, done, r.error)}`;
     const stop = r.stopped && `${S.mediaId !== mediaId ? `「${folderName(mediaId)}」` : ""}${stopWords(UNFAV_MANY, r)}`;
     // After a failure or 停止 the ones done are still recorded and undoable; the toast says how far it got.
     const tell = (msg, undoHint) => toast(fail || stop ? `${fail || stop}${undoHint}` : msg, Boolean(fail));
     if (!done && (fail || stop)) toast(fail || stop, Boolean(fail));
-    else if (done && all && token === S.folderToken) {
+    else if (done && all && view.alive) {
       // As a single 取消收藏 here: the video leaves those folders, and the view once it is in none.
       const at = Date.now();
       const listed = new Map(list.map((it) => [it.bvid, it]));
@@ -333,7 +332,9 @@ const fav = {
     } else if (done && all) {
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
-      pushUndo(unfavManyStep(mediaId, list.slice(0, done).map(favRef)));
+      // By folder, not by view: the records are the folder's, so back in it after a switch the batch is still undoable.
+      const went = new Set(r.keys);
+      pushUndo(unfavManyStep(mediaId, list.filter((it) => went.has(it.bvid)).map(favRef)));
       tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);
     } else if (done) {
       // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
@@ -366,8 +367,7 @@ const fav = {
         const f = { id: Number(meta.to), title: meta.toName, count: 0 };
         S.allFolders.push(f);
         S.folders.push(f);
-        S.included = [...S.included, meta.to];
-        await chrome.storage.local.set({ [K.included]: S.included });
+        S.included = await MdgLimits.update(K.included, (stored) => [...new Set([...(stored || []).map(String), meta.to])]);
       }
       const { to, toName } = meta;
       const chunks = chunksOf(list, add || from === TOVIEW, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map(favRes), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
@@ -394,7 +394,7 @@ const fav = {
           if (move && left.length) {
             const gone = new Set(left.map((it) => it.bvid));
             // One queued step, so a folder save in between never sees the videos gone from here but not yet recorded.
-            await serialStore(async () => {
+            await lockRecords(async () => {
               await patchSnapshotNow(from, { drop: [...gone] });
               if (!chosen) await addMovedNow(from, left, { id: to, title: toName });
             });
@@ -521,9 +521,9 @@ function askTransfer(list) {
 // gains the videos (a new folder starts with exactly these), the source loses them without counting them as having left
 // every folder (已出分拣范围). A folder with no cached list is left to its first load.
 function patchSnapshot(...args) {
-  return serialStore(() => patchSnapshotNow(...args));
+  return lockRecords(() => patchSnapshotNow(...args));
 }
-// patchSnapshot for a fn already running in serialStore.
+// patchSnapshot for a fn already running in lockRecords.
 async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = false) {
   const key = K.snapshot(mediaId);
   const got = await chrome.storage.local.get([key, K.left]);
@@ -556,9 +556,9 @@ async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = fals
 // Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已出分拣范围, marked with
 // where it went. Ticking that folder brings it back (recoverRemoved).
 function addMovedToRemoved(...args) {
-  return serialStore(() => addMovedNow(...args));
+  return lockRecords(() => addMovedNow(...args));
 }
-// addMovedToRemoved for a fn already running in serialStore.
+// addMovedToRemoved for a fn already running in lockRecords.
 async function addMovedNow(from, items, movedTo) {
   const others = chosenOtherIds(from);
   const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
