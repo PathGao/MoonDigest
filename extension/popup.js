@@ -291,9 +291,15 @@ async function refreshFromTab(force = false) {
 }
 
 // The note and subtitle as the page has them now, for 复制, 下载 .md and 下载字幕: the page may have moved on to another video
-// since the popup drew it. Null when the page did not answer (the status says why).
+// since the popup drew it. One it has not read yet (autoplay, a link in the page) is read first, as 刷新 does, so the
+// button gets its note. Null when the page did not answer or the read failed (the status says why).
 async function ensurePayload() {
-  const resp = await sendToContent({ type: "popup-get-state" });
+  let resp = await sendToContent({ type: "popup-get-state" });
+  if (resp?.ok && resp.payload && !resp.payload.markdown) {
+    await refreshFromTab(false);
+    resp = await sendToContent({ type: "popup-get-state" });
+    if (resp?.ok && !resp.payload?.markdown) return null;
+  }
   if (resp?.ok && resp.payload) {
     latestPayload = resp.payload;
     return resp.payload;

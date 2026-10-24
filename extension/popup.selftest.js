@@ -317,6 +317,26 @@ setTimeout(() =>
       await ctx.el.copyBtn.on.click();
       assert.deepStrictEqual(copied, ["# 新视频"]);
     }
+    // 复制 on a video the page has not read yet (it moved on by itself): read first, as 刷新 does, then copy its note. A read
+    // that fails copies nothing and leaves its reason in the status line.
+    {
+      ctx.refreshFromTab = refreshFromTab;
+      const sent = [];
+      let read = false;
+      ctx.sendToContent = async (m) => {
+        sent.push(m.type);
+        if (m.type === "popup-refresh") return (read = true), { ok: true, payload: { markdown: "# 下一个视频", filename: "next.md", status: "读取完成" } };
+        return { ok: true, payload: read ? { markdown: "# 下一个视频", filename: "next.md" } : { markdown: "", filename: "" } };
+      };
+      const copied = [];
+      ctx.navigator = { clipboard: { writeText: async (t) => copied.push(t) } };
+      await ctx.el.copyBtn.on.click();
+      assert.deepStrictEqual([sent, copied], [["popup-get-state", "popup-refresh", "popup-get-state"], ["# 下一个视频"]]);
+      ctx.sendToContent = async (m) => (m.type === "popup-refresh" ? { ok: false, error: "B站限流，请稍后再试" } : { ok: true, payload: { markdown: "", filename: "" } });
+      copied.length = 0;
+      await ctx.el.copyBtn.on.click();
+      assert.deepStrictEqual([copied, ctx.el.status.textContent.includes("B站限流")], [[], true]);
+    }
     console.log("popup selftest: all passed");
   })().catch((e) => (console.error(e), process.exit(1)))
 );

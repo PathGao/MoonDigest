@@ -18,6 +18,8 @@ const VIDEO_SWITCHED = `视频已切换，${MdgErrors.TEXT.reloadRetry}`;
 // A jump to a time point (the side panel, 专注模式) on a page without a player to drive.
 const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
+// The popup's status line before a read: on load, and after a video change cleared the last video's.
+const STATUS_READY = "准备就绪，点击「刷新」开始。";
 // The video page's reads: a video change ends the run in flight, so nothing waiting on it writes the new video's state.
 const clipRuns = MdgCommon.latest();
 // Focus mode's entries: an entry or a close (stepReader) ends the run, so a closed entry's late steps stop.
@@ -111,7 +113,7 @@ const state = {
   readingFollowPaused: false,
   readingLastInputAt: 0,
   readingProgrammaticScrollUntil: 0,
-  statusText: "准备就绪，点击「刷新」开始。",
+  statusText: STATUS_READY,
   // The popup shows statusText red while this is true: a read that failed, or a settled read with a failed part.
   statusError: false,
   settings: { ...DEFAULT_SETTINGS }
@@ -873,6 +875,7 @@ function videoChanged() {
   state.refreshPromise = null;
   const prev = { id: state.videoId, title: state.title };
   resetClipState();
+  setStatus(STATUS_READY);
   // Another part of the same video keeps its title until the info is read. The page's own title is not used: at this
   // point it may still be the last video's (B站 updates it later, YouTube's og:title not at all).
   if (MdgSites.parseRef(nextUrl)?.id === prev.id) state.title = prev.title;

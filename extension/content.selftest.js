@@ -115,7 +115,7 @@ for (const f of scripts) vm.runInContext(fs.readFileSync(path.join(__dirname, f)
 vm.runInContext(`${source}\n;globalThis.state = state;\nglobalThis.clipRuns = clipRuns;\nglobalThis.readerRuns = readerRuns;`, ctx);
 const t = ctx;
 // Real versions of what some tests stub, for the tests that need the real flow.
-const real = Object.fromEntries(["checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
+const real = Object.fromEntries(["setStatus", "checkUrlChange", "resetClipState", "computeCurrentClipSignature", "refreshClip", "settledClip", "getSettings", "refreshDerivedContent", "retryAsync", "runRefreshClip", "ensureReaderPlayerMounted", "maybeRefreshReaderSubtitleInBackground", "scheduleReaderPlayerRetry", "applyReadingViewPresentation"].map((k) => [k, t[k]]));
 const realRenderReadingView = t.renderReadingView;
 // Untrusted text (titles, UP names, comments, AI replies, tag names, paths) stays text: no tag of its own, no way out of
 // a quoted attribute.
@@ -1628,6 +1628,15 @@ const settle = async () => {
     assert.strictEqual(answer, "", "a click on the overlay cancels");
   }
 
+  // A video change clears the last video's status line with its data: the popup's 读取完成 was the old video's.
+  {
+    Object.assign(state, { videoId: "BVold", statusText: "读取完成，可以复制或下载。", statusError: true });
+    const stub = t.setStatus;
+    t.setStatus = real.setStatus;
+    t.videoChanged();
+    t.setStatus = stub;
+    assert.deepStrictEqual([state.videoId, state.statusText, state.statusError], ["", "准备就绪，点击「刷新」开始。", false]);
+  }
   console.log("content selftest: all passed");
 })().catch((e) => {
   console.error(e);
