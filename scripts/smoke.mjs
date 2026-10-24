@@ -186,6 +186,19 @@ try {
     step = `${BILI} (${seed.name})`;
     pageErrors = new Set();
     const t = await open(BILI, 0);
+    // From GitHub's runners B站 serves something without the video page (no player, no #commentapp). Only the baseline
+    // can tell that apart from a page we broke, so the seeds are skipped when the empty store gets no video page either.
+    if (!(await until(t, `!!document.querySelector("#commentapp")`, 15000))) {
+      const got = await evaluate(t, `location.href + " " + JSON.stringify(document.title)`);
+      await close(t);
+      pageErrors = null;
+      if (!baseline) {
+        console.log(`smoke: B站 served no video page here (${got}); seed checks skipped`);
+        break;
+      }
+      errors.push(`${step}: no video page (${got}), though the empty store got one`);
+      continue;
+    }
     if (!(await until(t, `!document.querySelector("[data-server-rendered]")`, 15000))) errors.push(`${step}: #app never hydrated`);
     if (seed.expect && !(await until(t, `!!document.querySelector(${JSON.stringify(seed.expect)})`, 10000))) errors.push(`${step}: the seed drew no ${seed.expect}`);
     // The comments load once scrolled to, and the page above them still grows while the player loads, so every poll
