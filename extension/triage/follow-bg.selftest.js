@@ -326,6 +326,21 @@ const runSync = async () => {
     assert.ok(!local.follow_last_wip, "the walk in progress is cleared");
   }
 
+  // ---------- feed/all's passing 4101133 is asked again at the same offset, not a failed sync ----------
+  {
+    local = { follow_list: { list: ["2"], followTime: { 2: 2 } } };
+    const ok = feed([[dyn(2, "BVa", now() - 60)], [dyn(2, "BVb", now() - 40 * 86400)]]);
+    let fails = 2;
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = (u) =>
+      u.searchParams.get("offset") && fails > 0 ? (fails--, json({ code: 4101133, message: "请求数据发生错误，请刷新或稍后重试" })) : ok(u);
+    await runSync();
+    assert.ok(local.follow_jobs.finishedAt && !local.follow_jobs.error, local.follow_jobs.error);
+    assert.strictEqual(fails, 0);
+    routes["/x/polymer/web-dynamic/v1/feed/all"] = () => json({ code: 4101133, message: "请求数据发生错误，请刷新或稍后重试" });
+    await runSync();
+    assert.strictEqual(local.follow_jobs.errorCode, 4101133, "still failing after the retries is reported");
+  }
+
   // ---------- the feed walk reports progress and stores the walk so far every page ----------
   {
     local = { follow_list: { list: ["1", "2", "3", "4"], followTime: { 1: 101, 2: 102, 3: 103, 4: 104 } } };
