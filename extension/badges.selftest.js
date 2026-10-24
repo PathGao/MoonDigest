@@ -1033,6 +1033,22 @@ async function surfacePages() {
   await new Promise((r) => setTimeout(r, 30));
   assert.ok(v3Cover.querySelector(".mdg-seen"), "Vue 3 hydrated: the card's progress");
   delete store.seen_BV1xx411c7mD;
+  // The attribute comes while a scan waits for its reads (hydration.js sets it once B站's state script runs): the marks
+  // that scan found before it are not written, and come once it goes. A 收藏夹 page: its marks go above the title.
+  const lateCard = h("div", { class: "bili-video-card" }, h("a", { href: "//www.bilibili.com/video/BV1xx411c7mD" }, h("div", {}, h("img"))), h("a", { href: "//www.bilibili.com/video/BV1xx411c7mD", class: "title" }, "视频标题"));
+  const lateBody = h("body", {}, h("div", { id: "app" }, lateCard));
+  let lateSet = false;
+  Object.defineProperty(store, "seen_BV1xx411c7mD", { configurable: true, enumerable: true, get: () => (lateSet ||= (lateBody.parentNode.setAttribute("data-mdg-ssr", ""), true), [60, 1]) });
+  store.triage_analysis_BV1xx411c7mD = { status: "done", verdict: "keep", reason: "干货", oneLiner: "讲 Rust 所有权" };
+  const late = await page({ hostname: "space.bilibili.com", pathname: "/9/favlist", search: "?fid=5" }, lateBody, false, { seenShow: "both", showBiliTriageBadges: true, showBiliVerdicts: true });
+  assert.ok(lateSet, "the attribute came during the scan's reads");
+  assert.deepStrictEqual([lateCard.querySelector(".mdg-seen"), lateCard.querySelector(".mdg-badge")], [null, null], "the attribute came during the reads: nothing written");
+  late.doc.removeAttribute("data-mdg-ssr");
+  late.win.mutate([{ type: "attributes", target: late.doc, attributeName: "data-mdg-ssr", addedNodes: [], removedNodes: [] }]);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(lateCard.querySelector(".mdg-seen") && lateCard.querySelector(".mdg-badge"), "hydrated: the progress and the mark");
+  delete store.seen_BV1xx411c7mD;
+  delete store.triage_analysis_BV1xx411c7mD;
 
   // A17: a tagged video's mark with the AI 判断 switched off: hovering it shows none of the AI's reasons.
   Object.assign(store, {
@@ -1293,8 +1309,8 @@ async function incremental() {
   assert.strictEqual(hrefs, 0, "no card read again");
 }
 
-// hydration.js: <html> carries data-mdg-ssr from the store state the HTML sets to the mount that hydrates, or to 5s
-// after load; a createApp mount and state set after the HTML leave it as it is. Only while it is there do elements
+// hydration.js: <html> carries data-mdg-ssr from the start to the mount that hydrates, or to 5s after load; without
+// store state in the HTML, to DOMContentLoaded. A createApp mount and state set after the HTML leave it as it is. Only while it is there do elements
 // have the __vue_app__ hook.
 async function hydration() {
   const load = () => {
@@ -1308,15 +1324,17 @@ async function hydration() {
     const document = { documentElement: html, readyState: "loading" };
     const timers = [];
     const onLoad = [];
-    const win = vm.createContext({ document, Element, queueMicrotask, setTimeout: (f, ms) => timers.push([f, ms]), addEventListener: (t, f) => t === "load" && onLoad.push(f) });
+    const onReady = [];
+    const win = vm.createContext({ document, Element, queueMicrotask, setTimeout: (f, ms) => timers.push([f, ms]), addEventListener: (t, f) => (t === "load" ? onLoad : t === "DOMContentLoaded" ? onReady : []).push(f) });
     vm.runInContext("var window = this;", win);
     vm.runInContext(fs.readFileSync(path.join(__dirname, "hydration.js"), "utf8"), win);
     const hooked = () => Object.getOwnPropertyNames(Element.prototype).includes("__vue_app__");
-    return { Element, html, document, win, timers, onLoad, hooked, ssr: () => html.hasAttribute("data-mdg-ssr") };
+    const ready = () => ((document.readyState = "interactive"), onReady.forEach((f) => f()));
+    return { Element, html, document, win, timers, onLoad, ready, hooked, ssr: () => html.hasAttribute("data-mdg-ssr") };
   };
   const tick = () => new Promise((r) => setTimeout(r, 0));
   const p = load();
-  assert.deepStrictEqual([p.ssr(), p.hooked()], [false, false], "no store state yet: nothing to wait for, elements untouched");
+  assert.deepStrictEqual([p.ssr(), p.hooked()], [true, false], "from the start: waiting, elements untouched");
   const csr = new p.Element();
   csr.__vue_app__ = "csr";
   assert.strictEqual(csr.__vue_app__, "csr", "a page without __pinia mounts as before");
@@ -1336,9 +1354,16 @@ async function hydration() {
   vm.runInContext("window.__pinia = {}", p.win);
   assert.deepStrictEqual([p.ssr(), p.hooked()], [false, false], "state set after the HTML: nothing to wait for");
 
+  const plain = load();
+  plain.ready();
+  vm.runInContext("window.__pinia = {}", plain.win);
+  assert.deepStrictEqual([plain.ssr(), plain.hooked()], [false, false], "no store state by DOMContentLoaded: nothing to wait for");
+
   // No hydration seen (B站 mounts some other way): 5s after load the marks are drawn anyway.
   const q = load();
   vm.runInContext("window.__pinia = {}", q.win);
+  q.ready();
+  assert.ok(q.ssr(), "store state in the HTML: DOMContentLoaded keeps waiting");
   q.onLoad.forEach((f) => f());
   assert.deepStrictEqual([q.ssr(), q.timers.map(([, ms]) => ms)], [true, [5000]], "loaded: 5s more");
   q.timers.forEach(([f]) => f());
