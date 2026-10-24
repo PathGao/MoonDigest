@@ -5,7 +5,9 @@
   // marks get their own line above the title; novideo: no video marks at all (new videos, never triaged); names: author
   // names only, no covers; corner: the corner tag, never the veil; tight: small covers, so 看到 N% drops its ✓.
   const SURFACES = {
-    card: { vtags: true, ups: true, plus: "hover" }, // home and search (B站 and BewlyCat)
+    // Home, search and every page without a row of its own (B站 and BewlyCat). No UP tags: Vue takes a box after a
+    // card's UP name for its own date as it hydrates the server-rendered cards, and drops the date (#394).
+    card: { vtags: true, ups: false, plus: "" },
     fav: { vtags: true, ups: false, plus: "", above: true },
     later: { vtags: true, ups: true, plus: "hover" }, // 稍后再看
     history: { vtags: true, ups: true, plus: "hover", corner: true }, // 历史

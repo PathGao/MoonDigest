@@ -473,10 +473,17 @@
     return resolveMid({ data, face, name: el.textContent }, idx);
   }
 
+  // Links to a space that are not an UP's name where the marks go (DESIGN 产品决策 · B站 页面上的标记): the /list/
+  // player's 「UP主的全部视频」 above the playlist (a box there, before Vue hydrates #app, makes Vue redraw the block and
+  // tear the player down, #394; the UP line under the name has the tags), the 字幕作者 under a video's description and
+  // the page footer's links.
+  const NOT_NAMES = ".action-list-body-top, .subtitle-maker-list, .bili-footer";
+
   async function markUps(scan, scope) {
     const owner = pageOwner();
     const spots = [];
     for (const a of scanned(scope, UP_SEL)) {
+      if (a.closest(NOT_NAMES)) continue;
       const mid = midFromHref(a.getAttribute("href"));
       // On a space page the owner's own links (its video cards) would all say the same thing; the nickname carries it.
       const spot = mid && mid !== owner ? spotIn(a) : null;
@@ -894,7 +901,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     }
     if (!shared || fid !== sharedFid) await loadShared(fid, scan);
     if (!scan.alive) return;
-    const anchors = scanned(scope, SEL);
+    // Video links that are not a card's title: the playing video's own title, which links to itself on /list/ (on /video/
+    // it is plain text; the line under it has the marks), and the page footer's links.
+    const anchors = scanned(scope, SEL).filter((a) => !a.closest(".video-info-title, .bili-footer"));
     const want = [...new Set(anchors.map((a) => bvidFromHref(a.getAttribute("href"))).concat(here))].filter((b) => b && !known(b));
     // ponytail: a card whose video has results of its own, off that video's favorites page, waits for this read and is
     // marked a frame or two after it appears; preloading every result would read megabytes on every page.
@@ -1162,6 +1171,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Below the views / danmaku / date row; the title alone when that row isn't there.
     const anchor = document.querySelector(".video-info-meta") || document.querySelector(".video-info-title") || document.querySelector("h1.video-title");
     if (!parts || !anchor) return void old?.remove();
+    // On /list/, Vue redrawing the title's block for a line there before hydration restarts the player (#394): the line
+    // waits for #app to drop data-server-rendered. /video/ draws it with the title (#345).
+    if (location.pathname.startsWith("/list/") && anchor.closest(SSR)) return;
     const line = document.createElement("div");
     line.className = "mdg-line";
     line.dataset.bvid = bvid;
