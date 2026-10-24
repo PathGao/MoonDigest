@@ -250,6 +250,7 @@ extension/
 ├── popup.*         插件弹窗
 ├── options.*       设置页
 ├── badges.*        B站页面上的标记：分拣结论、标签、观看进度
+├── hydration.js    在 B站页面自己的环境里跑：Vue 3 页面接管（水合）完之前给 <html> 打上 data-mdg-ssr，标记等它
 ├── bili-surfaces.js 每种 B站页面显示哪些标记，观看进度的读法和文案（标记和分拣台共用）
 ├── tag-core.js     标签规则和 AI 结论，分拣台、B站页面、笔记共用
 ├── typing.js       输入法组字和输入框里的按键判断，各页面共用

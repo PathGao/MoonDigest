@@ -24,9 +24,10 @@ const isDev = (f) => f.split("/").some((part) => /^dev/.test(part));
 // The scripts a page loads, as paths from extension/.
 const pageScripts = (page) => [...read(page).matchAll(/<script[^>]*\bsrc="([^"]+)"/g)].map((m) => path.posix.join(path.posix.dirname(page), m[1]));
 
-// [{ where, files, dev }]: where is a page's path, "background.js", or a content_scripts entry's last file.
+// [{ where, files, dev, page }]: where is a page's path, "background.js", or a content_scripts entry's last file; page:
+// a content script that runs in the page's own world.
 const runtimes = [];
-for (const c of JSON.parse(read("manifest.json")).content_scripts) runtimes.push({ where: c.js.at(-1), files: c.js, dev: false });
+for (const c of JSON.parse(read("manifest.json")).content_scripts) runtimes.push({ where: c.js.at(-1), files: c.js, dev: false, page: c.world === "MAIN" });
 // The worker runs the first importScripts list before background.js's own top level.
 const calls = [...read("background.js").matchAll(/importScripts\(([^)]*)\)/g)].map((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 runtimes.push({ where: "background.js", files: [...calls[0], "background.js", ...calls.slice(1).flat()], dev: false });

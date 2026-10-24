@@ -64,6 +64,17 @@
         "https://search.bilibili.com/*",
         "https://t.bilibili.com/*"
       ],
+      "js": ["hydration.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/*",
+        "https://space.bilibili.com/*",
+        "https://search.bilibili.com/*",
+        "https://t.bilibili.com/*"
+      ],
       "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "tag-core.js", "bili-surfaces.js", "badges.js"],
       "css": ["badges.css"],
       "all_frames": true,
