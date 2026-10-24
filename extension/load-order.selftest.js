@@ -21,15 +21,16 @@ for (const g of ["MdgCommon", "MdgLimits", "MdgErrors", "MdgSettings", "MdgSites
 const code = (f) => read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 const usesOf = (f) => Object.keys(definedBy).filter((g) => definedBy[g] !== f && new RegExp(`\\b${g}\\b`).test(code(f)));
 
-const runtimes = PS.runtimes.map((r) => [r.where, r.files]);
+const runtimes = PS.runtimes.map((r) => [r.where, r.files, r.page]);
 assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 
 // The worker loads triage/shared.js for its pure helpers; the DOM bindings that read MdgTyping never run there.
 // The video page passes its own dialog to note-actions.js and only writes: its download and default dialogs never run there.
 const exempt = new Set(["background.js|triage/shared.js|MdgTyping", "content.js|note-actions.js|MdgDownload", "content.js|note-actions.js|MdgOverwriteDialog"]);
 let checked = 0;
-for (const [where, list] of runtimes) {
-  assert.strictEqual(list[0], "common.js", `${where} loads common.js first`);
+for (const [where, list, page] of runtimes) {
+  // A script in the page's own world would hand the page our globals.
+  if (!page) assert.strictEqual(list[0], "common.js", `${where} loads common.js first`);
   list.forEach((f, i) => {
     assert.ok(fs.existsSync(path.join(__dirname, f)), `${where} loads ${f}, which does not exist`);
     for (const g of usesOf(f).filter((g) => !exempt.has(`${where}|${f}|${g}`))) {
