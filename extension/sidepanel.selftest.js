@@ -865,6 +865,61 @@ const tick = () => new Promise((r) => setImmediate(r));
     ctx.syncSendUi();
   }
 
+  // 字幕 under the video: the page's tracks as the popup draws them; a pick goes to that page, and the video is read again.
+  {
+    const els = vm.runInContext("els", ctx);
+    const select = els.subtitleSelect;
+    const tracks = (picked) => ["u1", "u2"].map((url, i) => ({ id: String(i), url, lang: url, optionLabel: i ? "英语" : "中文", selected: url === picked }));
+    state.dispatch({ type: "NEW" });
+    show({ ...video, subtitleOptions: tracks("u1"), subtitleMissing: "视频没有字幕" });
+    ctx.syncSendUi();
+    assert.deepStrictEqual([els.subtitleRow.hidden, select.disabled, select.title], [false, false, ""]);
+    assert.ok(/value="u1"[^>]*selected/.test(select.innerHTML) && select.innerHTML.includes("英语"), select.innerHTML);
+    // A reply answers from the track it was asked with.
+    ask("问");
+    ctx.syncSendUi();
+    assert.deepStrictEqual([select.disabled, select.title], [true, "回答完才能换字幕"]);
+    state.dispatch({ type: "STREAM_ENDED", raw: "答" });
+    // A pick: popup-select-subtitle to the tab's top frame, then the video read again with the new track.
+    const sent = [];
+    const realNotice = ctx.showConversationContextNotice;
+    const notices = [];
+    ctx.showConversationContextNotice = (text, ms, opts) => (notices.push([text, Boolean(opts?.error)]), { remove() {} });
+    activeTab = { id: 7, url: video.url, title: video.title };
+    let reply = { ok: true };
+    ctx.chrome.tabs.sendMessage = (tabId, msg, opts, cb) => (sent.push([tabId, msg, opts]), cb(reply));
+    answer = async () => ({ ok: true, payload: { ...video, subtitleOptions: tracks("u2"), subtitleMissing: "视频没有字幕" } });
+    select.value = "u2";
+    await ctx.pickSubtitle();
+    ctx.syncSendUi();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(sent)), [[7, { type: "popup-select-subtitle", url: "u2" }, { frameId: 0 }]]);
+    assert.ok(/value="u2"[^>]*selected/.test(select.innerHTML), select.innerHTML);
+    assert.deepStrictEqual(notices.map(([t]) => t), [ctx.MdgErrors.TEXT.subtitleSwitching, "已切换字幕："]);
+    // A failure says the popup's words; the dropdown shows the track still loaded.
+    notices.length = 0;
+    reply = { ok: false, error: "YouTube 限流，请稍后再试" };
+    select.value = "u1";
+    await ctx.pickSubtitle();
+    ctx.syncSendUi();
+    assert.deepStrictEqual(notices[1], ["字幕切换失败：YouTube 限流，请稍后再试", true]);
+    assert.ok(/value="u2"[^>]*selected/.test(select.innerHTML));
+    // Picks made on that page (the popup, 专注模式) are followed; another frame's are not.
+    assert.deepStrictEqual([ctx.subtitleFrom({ tab: { id: 7 }, frameId: 0 }), ctx.subtitleFrom({ tab: { id: 7 }, frameId: 3 })], [true, false]);
+    // A video read without its page (closed) only says its track.
+    show({ ...video, subtitleLang: "中文" });
+    ctx.syncSendUi();
+    assert.deepStrictEqual([select.innerHTML, select.disabled, select.title], ["<option>中文</option>", true, "在这个视频的页面上才能换字幕"]);
+    // A web page has no 字幕.
+    state.dispatch({ type: "NEW" });
+    show({ ...web("sub"), pageAccess: "ready", pageMarkdown: "正文" });
+    ctx.syncSendUi();
+    assert.strictEqual(els.subtitleRow.hidden, true);
+    ctx.showConversationContextNotice = realNotice;
+    delete ctx.chrome.tabs.sendMessage;
+    show(video);
+    ctx.syncSendUi();
+  }
+
   // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
   {
     const els = vm.runInContext("els", ctx);

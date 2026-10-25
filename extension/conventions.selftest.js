@@ -44,8 +44,7 @@ const L = load("limits.js", "MdgLimits");
 // 3a, 3b, 4, 5: a hit that stays, and why: file + a snippet of its line + the reason (例外, or 待修 with the scan's id).
 const ALLOW = [
   // The control itself says why: its only option is the reason.
-  ["content.js", "select.disabled = true;", "专注模式的字幕下拉框：唯一一项就是 noTrackText() 的原因（写在同一行）"],
-  ["popup.js", "el.subtitleSelect.disabled = true;", "弹窗字幕下拉框：唯一一项就是 subtitleMissing 的原因"],
+  ["sites.js", "select.disabled = true;", "字幕下拉框（专注模式、弹窗、侧边栏共用 fillSubtitleSelect）：唯一一项就是 noTrackText() 的原因"],
   ["sidepanel.js", "els.modelSelect.disabled = true;", "侧边栏平台下拉框：唯一一项就是 TEXT.aiNone"],
   ["sidepanel.js", "els.contextChip.disabled = true;", "上下文胶囊读取失败：胶囊上写着「读取失败」"],
   ["sidepanel.js", "els.contextChip.disabled = !String(context.url", "上下文胶囊只是跳到视频地址：没有地址时胶囊上写着「正在加载…」或「未知视频」"],

@@ -46,9 +46,10 @@
     "fetch-json": { from: ["content.js"], to: "background.js", request: ["url", "id"], response: ["data", "status"] },
     "fetch-json-cancel": { from: ["content.js"], to: "background.js", request: ["id"], response: [] },
     "mdg-video-changed": { from: ["content.js"], to: "sidepanel.js", request: [], response: [] },
+    "mdg-subtitle-changed": { from: ["content.js"], to: "sidepanel.js", request: [], response: [] },
     "popup-get-state": { from: ["popup.js"], to: "content.js", request: [], response: ["payload"], builder: "content.js:getPopupPayload", payload: POPUP_PAYLOAD },
     "popup-refresh": { from: ["popup.js", "sidepanel.js", "background.js"], to: "content.js", request: ["refresh"], response: ["payload"] },
-    "popup-select-subtitle": { from: ["popup.js"], to: "content.js", request: ["url"], response: ["payload"] },
+    "popup-select-subtitle": { from: ["popup.js", "sidepanel.js"], to: "content.js", request: ["url"], response: ["payload"] },
     "popup-send-obsidian": { from: ["popup.js"], to: "content.js", request: [], response: ["text", "written", "payload"] },
     "popup-trigger-reading-view": { from: ["background.js"], to: "content.js", request: ["readerUrl"], response: [] },
     "sidepanel-get-context": {
@@ -57,7 +58,7 @@
       request: ["refresh", "videoId"],
       response: ["payload"],
       builder: "content.js:buildSidepanelContext",
-      payload: ["url", "title", "author", "uploadDate", "site", "videoId", "cid", "aid", "description", "pageIndex", "pageCount", "pageTitle", "subtitleMarkdown", "subtitleFailure", "subtitleNeedLogin", "subtitleWarning", "subtitleLang", "selectedSubtitleId", "selectedSubtitleUrl", "hotComments"]
+      payload: ["url", "title", "author", "uploadDate", "site", "videoId", "cid", "aid", "description", "pageIndex", "pageCount", "pageTitle", "subtitleMarkdown", "subtitleFailure", "subtitleNeedLogin", "subtitleWarning", "subtitleLang", "selectedSubtitleId", "selectedSubtitleUrl", "subtitleOptions", "subtitleMissing", "hotComments"]
     },
     "sidepanel-seek-video-time": { from: ["sidepanel.js"], to: "content.js", request: ["seconds", "videoId"], response: ["currentTime"] },
 

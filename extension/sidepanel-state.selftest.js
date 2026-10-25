@@ -744,4 +744,13 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   assert.strictEqual(panel().view().turnReply, null, "idle: nothing in flight");
 }
 
+// A saved conversation on its own video's tab takes the tab's later reads: a track picked since (the popup, 专注模式,
+// the 字幕 dropdown) is what the next question is asked with.
+{
+  const p = panel({ tab: video("BV1hh", { subtitleLang: "中文" }), list: [saved("h", video("BV1hh"))] });
+  assert.deepStrictEqual([p.view().id, p.view().context.subtitleLang], ["h", "中文"]);
+  p.load(video("BV1hh", { subtitleLang: "英语" }));
+  assert.strictEqual(p.view().context.subtitleLang, "英语");
+}
+
 console.log("sidepanel-state selftest: all passed");

@@ -1562,6 +1562,21 @@
   // The focused window's active tab (the popup's, the side panel's), or null.
   const activeTab = async () => (await chrome.tabs.query({ active: true, currentWindow: true }))?.[0] || null;
 
+  // The subtitle dropdown (专注模式, the popup, the side panel): options are the page's subtitleOptionItems, missing its
+  // noTrackText. No track: greyed with the reason. No track loaded (all failed, or still loading): the reason first,
+  // instead of the first track shown as current.
+  function fillSubtitleSelect(select, options, missing) {
+    const esc = MdgErrors.escapeHtml;
+    if (!options.length) {
+      select.innerHTML = `<option value="">${esc(missing)}</option>`;
+      select.disabled = true;
+      return;
+    }
+    const none = options.some((item) => item.selected) ? "" : `<option value="" selected disabled>${esc(missing)}</option>`;
+    select.innerHTML = none + options.map((item) => `<option value="${esc(item.url)}" data-lang="${esc(item.lang)}" data-id="${esc(item.id)}"${item.selected ? " selected" : ""}>${esc(item.optionLabel)}</option>`).join("");
+    select.disabled = false;
+  }
+
   globalThis.MdgSites = {
     SITES,
     waitTabLoaded,
@@ -1590,6 +1605,7 @@
     fetchRawCached,
     loadFirstTrack,
     loadSubtitle,
+    fillSubtitleSelect,
     biliMixinKey,
     biliWbiSign,
     biliWbiSigned,
