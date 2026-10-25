@@ -198,7 +198,7 @@ function bindEvents() {
     if (!url) {
       return;
     }
-    setStatus("正在切换字幕…", false, true);
+    setStatus(MdgErrors.TEXT.subtitleSwitching, false, true);
     const reply = replies.next();
     const resp = await sendToContent({ type: "popup-select-subtitle", url });
     if (!reply.alive) return;
@@ -335,27 +335,7 @@ function render(payload, { preserveStatus = false } = {}) {
   el.videoDuration.hidden = !el.videoDuration.textContent;
   el.propUrl.title = payload.url || "";
 
-  const options = payload.subtitleOptions || [];
-  if (options.length === 0) {
-    el.subtitleSelect.innerHTML = `<option value="">${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
-    el.subtitleSelect.disabled = true;
-  } else {
-    // No track loaded: the reason (the page's noTrackText), not the first track shown as current.
-    const none = options.some((item) => item.selected)
-      ? ""
-      : `<option value="" selected disabled>${escapeHtml(payload.subtitleMissing || MdgErrors.subtitleMissing())}</option>`;
-    el.subtitleSelect.innerHTML = none + options
-      .map((item) => {
-        const selected = item.selected ? "selected" : "";
-        return `<option value="${escapeHtml(item.url)}" data-id="${escapeHtml(
-          item.id || ""
-        )}" data-lang="${escapeHtml(item.lang || "")}" ${selected}>${escapeHtml(
-          item.optionLabel || item.lang || "unknown"
-        )}</option>`;
-      })
-      .join("");
-    el.subtitleSelect.disabled = false;
-  }
+  MdgSites.fillSubtitleSelect(el.subtitleSelect, payload.subtitleOptions || [], payload.subtitleMissing || MdgErrors.subtitleMissing());
 
   el.preview.value = payload.subtitlePreview || "";
   el.preview.hidden = !el.preview.value;

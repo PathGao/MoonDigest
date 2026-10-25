@@ -35,6 +35,8 @@ const els = {
   contextMeta: document.querySelector("#spContextChip .sp-context-meta"),
   previousVideoBar: document.getElementById("spPreviousVideo"),
   modelSelect: document.getElementById("spModelSelect"),
+  subtitleRow: document.getElementById("spSubtitleRow"),
+  subtitleSelect: document.getElementById("spSubtitleSelect"),
   settingsBtn: document.getElementById("spSettingsBtn"),
   newChatBtn: document.getElementById("spNewChatBtn"),
   presetBtn: document.getElementById("spPresetBtn"),
@@ -177,7 +179,12 @@ function bindEvents() {
     void startNewConversation();
   });
   els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
+  els.subtitleSelect.addEventListener("change", () => void pickSubtitle());
   chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type === "mdg-subtitle-changed") {
+      if (subtitleFrom(sender)) void rereadShownContext();
+      return false;
+    }
     if (message?.type !== "mdg-video-changed") {
       return false;
     }
@@ -353,6 +360,73 @@ function syncSendUi() {
   els.sendBtn.classList.toggle("is-stop", streaming);
   els.sendBtn.innerHTML = streaming ? (stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop) : `${AI_SPARK}发送`;
   syncExportButtons();
+  renderSubtitleRow();
+}
+
+// 字幕 under a video, as the popup's: the tracks of the page that plays it (the tab, or 分拣台's viewer frame), where
+// a pick goes (popup-select-subtitle). A video read elsewhere (its page closed) only says its track.
+const SUBTITLE_ELSEWHERE = "在这个视频的页面上才能换字幕";
+let subtitleSwitching = false;
+
+// Where the shown video plays: { frameId, tabId? (分拣台's viewer) }, null when no page this panel can ask does.
+function subtitleTarget() {
+  const { context, key, live, pinned, resolved } = state.view();
+  if (!Array.isArray(context?.subtitleOptions)) return null;
+  if (pinned && viewerFrame?.videoId === String(pinned.contextRef?.videoId || "") && context === resolved) return { tabId: viewerFrame.tabId, frameId: viewerFrame.frameId };
+  return live.context && key === live.key ? { frameId: 0 } : null;
+}
+
+// A track picked on a page (here, the popup, 专注模式): the page this panel's video plays on.
+function subtitleFrom(sender) {
+  const target = subtitleTarget();
+  return Boolean(target && sender?.tab?.id && (sender.frameId || 0) === target.frameId && (!target.tabId || target.tabId === sender.tab.id));
+}
+
+function renderSubtitleRow() {
+  const { context, turn } = state.view();
+  const video = Boolean(context) && context.isVideoContext !== false;
+  els.subtitleRow.hidden = !video;
+  if (!video) return;
+  const select = els.subtitleSelect;
+  // The picked track stays shown while it loads.
+  if (subtitleSwitching) return setDisabledReason(select, MdgErrors.TEXT.subtitleSwitching);
+  const missing = context.pending ? MdgErrors.TEXT.subtitleReading : context.subtitleMissing || MdgErrors.subtitleMissing(context);
+  const target = subtitleTarget();
+  if (target || context.pending) MdgSites.fillSubtitleSelect(select, context.pending ? [] : context.subtitleOptions, missing);
+  else select.innerHTML = `<option>${escapeHtml(context.subtitleLang || missing)}</option>`;
+  // A reply answers from the track it was asked with.
+  const reason = turn !== "idle" ? "回答完才能换字幕" : !target && !context.pending ? SUBTITLE_ELSEWHERE : "";
+  setDisabledReason(select, reason || (select.disabled ? missing : ""));
+}
+
+// The page loads the track (as the popup's pick does) and tells every panel (mdg-subtitle-changed); this one reads
+// its video again. A failure is said like the popup's, and the dropdown goes back to the track still loaded.
+async function pickSubtitle() {
+  const select = els.subtitleSelect;
+  const url = select.value;
+  const label = select.selectedOptions[0]?.textContent || "";
+  const target = subtitleTarget();
+  if (!url || !target) return renderSubtitleRow();
+  const { run } = state.view();
+  subtitleSwitching = true;
+  renderSubtitleRow();
+  const notice = showConversationContextNotice(MdgErrors.TEXT.subtitleSwitching);
+  const tab = await MdgSites.activeTab().catch(() => null);
+  const resp = tab?.id && (!target.tabId || target.tabId === tab.id)
+    ? await MdgErrors.tabMessage(tab.id, { type: "popup-select-subtitle", url }, { frameId: target.frameId }).catch((error) => ({ ok: false, error: MdgErrors.pageSilent(error).message }))
+    : { ok: false, error: SUBTITLE_ELSEWHERE };
+  subtitleSwitching = false;
+  notice.remove();
+  if (run.alive && !resp?.ok) showConversationContextNotice(`${MdgErrors.TEXT.subtitleSwitchFailed}：${MdgErrors.text(resp)}`, 0, { error: true });
+  await rereadShownContext();
+  if (run.alive && resp?.ok && state.view().messages.length) showConversationContextNotice(`已切换字幕：${label}`, 4000);
+}
+
+// The shown video read again from its page (a track picked since), as a send reads it.
+async function rereadShownContext() {
+  await loadContextState({ silent: true }).catch(() => false);
+  if (state.view().pinned) await hydratePinnedConversationContext({ silent: true });
+  updateContextChip();
 }
 
 // 导出对话 and each item in its menu: disabled with the reason while there is nothing to export.

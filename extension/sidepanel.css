@@ -26,6 +26,54 @@ body {
   flex-shrink: 0;
 }
 
+/* 字幕 under the video, the popup's bar (popup.css .subrow), 32px. */
+.sp-header:has(.sp-subrow:not([hidden])) {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.sp-subrow {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 32px;
+  padding-left: 10px;
+  background: var(--field-bg);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+}
+
+.sp-subrow[hidden] {
+  display: none;
+}
+
+.sp-subrow .k {
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+#spSubtitleSelect {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 0 28px 0 0;
+  appearance: none;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239499a0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") right 10px center / 14px no-repeat;
+  color: var(--text);
+  font: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+#spSubtitleSelect:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
 /* The video row takes what is left; the model select stays narrow (full name in its tooltip and options). */
 .sp-context-chip {
   flex: 1 1 0;

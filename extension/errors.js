@@ -54,6 +54,8 @@
     readerStartFailed: "专注模式启动失败",
     // The chosen subtitle track could not be loaded; followed by 「：原因」.
     subtitleSwitchFailed: "字幕切换失败",
+    // A track picked in the popup's or the side panel's 字幕 dropdown, while it loads.
+    subtitleSwitching: "正在切换字幕…",
     // 复制 Markdown, 下载 .md or 写入 Obsidian before the page has a note.
     noNoteYet: "还没有笔记内容，请先点「刷新」",
     // A side panel reply that ended without one word of answer (only thinking, or nothing); the panel offers 重试.

@@ -595,7 +595,8 @@
           return follow(s, payload);
         }
         if (decision.action === "keep") {
-          if (s.conv.pinned && !s.conv.resolved && fitsLive(s)) s.conv.resolved = { ...payload };
+          // Read again like at each send: a track picked since (the popup, 专注模式, the 字幕 dropdown) is in it.
+          if (s.conv.pinned && fitsLive(s)) s.conv.resolved = { ...payload };
           return [];
         }
         return keyChanged ? [...setConv(s), ...restoreLatest(s, payload)] : pageRead(s, payload, key);

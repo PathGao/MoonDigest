@@ -971,6 +971,9 @@ function buildSidepanelContext() {
       subtitleLang: state.selectedSubtitleLang || "",
       selectedSubtitleId: state.selectedSubtitleId || "",
       selectedSubtitleUrl: state.selectedSubtitleUrl || "",
+      // The side panel's 字幕 dropdown, as the popup's.
+      subtitleOptions: subtitleOptionItems(),
+      subtitleMissing: noTrackText(),
       hotComments: state.hotComments || []
     }
   };
@@ -1223,7 +1226,10 @@ async function switchSubtitle(url) {
     if (!pick.alive) return;
     throw MdgCommon.isStale(error) ? new Error(VIDEO_SWITCHED) : error;
   }
-  if (pick.alive) setStatus(`${state.subtitleWarning}字幕切换完成。`);
+  if (!pick.alive) return;
+  setStatus(`${state.subtitleWarning}字幕切换完成。`);
+  // The side panel shows the track too: one picked here (popup, 专注模式, the panel itself) is drawn there.
+  chrome.runtime.sendMessage({ type: "mdg-subtitle-changed" })?.catch?.(() => {});
 }
 
 function onReadingSubtitleChange(event) {
@@ -1240,6 +1246,10 @@ function onReadingSubtitleChange(event) {
 
 function renderReadingSubtitleSelect() {
   renderSubtitleOptions(byId(ids.readingSubtitleSelect));
+}
+
+function renderSubtitleOptions(select) {
+  MdgSites.fillSubtitleSelect(select, subtitleOptionItems(), noTrackText());
 }
 
 // Translated tracks already say 机器翻译 in their label.
@@ -1261,30 +1271,7 @@ function noTrackText() {
   return MdgErrors.subtitleMissing(state);
 }
 
-function renderSubtitleOptions(select) {
-  const subtitles = state.subtitles || [];
-
-  if (subtitles.length === 0) {
-    select.innerHTML = `<option value="">${escapeHtml(noTrackText())}</option>`;
-    select.disabled = true;
-    return;
-  }
-
-  const options = subtitleOptionItems();
-  // No track loaded (all failed, or still loading): the dropdown says why instead of showing the first one as current.
-  const none = options.some((item) => item.selected) ? "" : `<option value="" selected disabled>${escapeHtml(noTrackText())}</option>`;
-  select.innerHTML = none + options
-    .map(
-      (item) =>
-        `<option value="${escapeHtml(item.url)}" data-lang="${escapeHtml(item.lang)}" data-id="${escapeHtml(item.id)}" ${
-          item.selected ? "selected" : ""
-        }>${escapeHtml(item.optionLabel)}</option>`
-    )
-    .join("");
-  select.disabled = false;
-}
-
-// The subtitle dropdown's entries, for 专注模式's and the popup's.
+// The subtitle dropdown's entries, for 专注模式's, the popup's and the side panel's.
 function subtitleOptionItems() {
   return (state.subtitles || []).map((item) => {
     const label = item.label || item.lang || "";
