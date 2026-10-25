@@ -815,6 +815,22 @@ const tick = () => new Promise((r) => setImmediate(r));
       Object.assign(prefs, was);
       show(video);
     }
+    // AI 总结 filled in follows the setting until edited, so the box shows what the button sends.
+    {
+      const realSend = ctx.chrome.runtime.sendMessage;
+      const prefs = vm.runInContext("aiPrefs", ctx);
+      const was = prefs.playerAiQuickPrompt;
+      const follow = async (typed, setting) => {
+        els.input.value = typed;
+        ctx.chrome.runtime.sendMessage = async (msg) => (msg.type === "get-settings" ? { ok: true, settings: { ...ctx.MdgSettings.DEFAULTS, playerAiQuickPrompt: setting } } : { ok: true, providers: [] });
+        await ctx.refreshProvidersAndPrefsAfterExternalChange();
+        return els.input.value;
+      };
+      assert.strictEqual(await follow(was, "新的总结要求"), "新的总结要求");
+      assert.strictEqual(await follow("新的总结要求，只要三点", "再新的要求"), "新的总结要求，只要三点", "an edited prompt stays");
+      await follow("", was);
+      ctx.chrome.runtime.sendMessage = realSend;
+    }
     // autoSend sends the prompt only while the input still holds it as filled.
     {
       const realSendMessage = ctx.sendMessage;
@@ -825,6 +841,14 @@ const tick = () => new Promise((r) => setImmediate(r));
       els.input.value = "整理这篇网页，只要三点";
       await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
       assert.deepStrictEqual(sends, ["整理这篇网页"], "an edited prompt is not sent");
+      // The setting changed while the page waited: the box holds the new prompt (it followed), and that goes.
+      const prefs = vm.runInContext("aiPrefs", ctx);
+      const was = prefs.playerAiQuickPrompt;
+      prefs.playerAiQuickPrompt = "新的总结要求";
+      els.input.value = "新的总结要求";
+      await ctx.runEffect({ type: "autoSend", prompt: "整理这篇网页" });
+      assert.deepStrictEqual(sends, ["整理这篇网页", "新的总结要求"]);
+      prefs.playerAiQuickPrompt = was;
       els.input.value = "";
       ctx.sendMessage = realSendMessage;
     }
