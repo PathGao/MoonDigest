@@ -586,10 +586,12 @@ async function runEffect(effect) {
     }
     case "fill":
       return fillPrompt(effect.prompt);
-    case "autoSend":
-      // Only the prompt as it was filled: an edit since makes it the user's to send.
-      if (els.input.value.trim() === effect.prompt.trim()) void sendMessage();
+    case "autoSend": {
+      // Only the prompt as it was filled, or as the setting changed it since: an edit makes it the user's to send.
+      const typed = els.input.value.trim();
+      if (typed === effect.prompt.trim() || typed === summaryPrompt(state.view().context)?.trim()) void sendMessage();
       return;
+    }
     case "focus":
       autosizeInput();
       return els.input?.focus?.();
