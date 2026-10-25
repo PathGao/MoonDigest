@@ -425,7 +425,14 @@ function syncModelSelectTitle() {
 
 async function refreshProvidersAndPrefsAfterExternalChange() {
   const previousProviderId = String(els.modelSelect?.value || localStorage.getItem(SELECTED_PROVIDER_KEY) || "").trim();
+  const previousSummary = summaryPrompt(state.view().context);
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
+  // AI 总结 filled in and not edited since follows the setting, so the box shows what the button sends.
+  const summary = summaryPrompt(state.view().context);
+  if (previousSummary && summary && els.input.value.trim() === previousSummary.trim()) {
+    els.input.value = summary;
+    autosizeInput();
+  }
   if (state.view().streaming) {
     return;
   }
