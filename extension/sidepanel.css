@@ -272,11 +272,19 @@ body {
 
 .sp-prev {
   flex-shrink: 0;
-  margin: 8px 14px 0;
-  border: 1px solid var(--border);
+  margin: 8px 14px 6px;
+  padding-left: 2px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
+}
+
+/* The pink bar marks the open conversation only; the padding it replaces keeps the title from shifting. */
+.sp-prev:has(.sp-prev-body) {
+  padding-left: 0;
+  border-left: 3px solid var(--accent);
 }
 
 .sp-prev-head {
