@@ -272,10 +272,12 @@ body {
 
 .sp-prev {
   flex-shrink: 0;
-  margin: 8px 14px 0;
-  border: 1px solid var(--border);
+  margin: 8px 14px 6px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
 }
 
