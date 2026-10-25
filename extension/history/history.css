@@ -32,6 +32,9 @@ body { padding: 14px 16px 0; }
 .records { display: flex; flex-direction: column; gap: 12px; padding: 8px 0 80px; }
 .entry { display: grid; grid-template-columns: auto 20px minmax(0, 1fr) auto; column-gap: 8px; align-items: start; padding: 12px; }
 .entry > .card-body { grid-column: 3; }
+/* The pointer's card is current, as the 分拣台's (no J/K here); a selected card keeps its blue ring. */
+.entry:hover { box-shadow: var(--lift); }
+.entry:hover:not(.selected) { outline: 2px solid var(--text-2); outline-offset: -1px; }
 /* On the title's first line (15px × 1.5). */
 .entry > [data-act="pick"] { margin: 5px 0 0; padding: 0; accent-color: var(--action); }
 .entry .title { overflow-wrap: anywhere; }

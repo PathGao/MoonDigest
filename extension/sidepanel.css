@@ -1091,7 +1091,20 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   background: var(--surface-muted);
 }
 
+/* The pointer's conversation lifts, white over the gray rows. */
+.sp-history-item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.sp-history-open:hover {
+  background: none;
+}
+
+/* Auto height: the base button's 32px cut off the time under the title. */
 .sp-history-open {
+  height: auto;
   min-width: 0;
   padding: 6px 8px;
   border: 0;
