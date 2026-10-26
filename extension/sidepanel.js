@@ -37,6 +37,7 @@ const els = {
   modelSelect: document.getElementById("spModelSelect"),
   subtitleRow: document.getElementById("spSubtitleRow"),
   subtitleSelect: document.getElementById("spSubtitleSelect"),
+  refreshBtn: document.getElementById("spRefreshBtn"),
   settingsBtn: document.getElementById("spSettingsBtn"),
   newChatBtn: document.getElementById("spNewChatBtn"),
   presetBtn: document.getElementById("spPresetBtn"),
@@ -180,6 +181,7 @@ function bindEvents() {
   });
   els.previousVideoBar?.addEventListener("click", handlePreviousVideoBarClick);
   els.subtitleSelect.addEventListener("change", () => void pickSubtitle());
+  els.refreshBtn.addEventListener("click", () => void refreshContextManually());
   chrome.runtime.onMessage.addListener((message, sender) => {
     if (message?.type === "mdg-subtitle-changed") {
       if (subtitleFrom(sender)) void rereadShownContext();
@@ -781,6 +783,7 @@ async function readContextState({ refresh = false, silent = false, follow = fals
     }
     return false;
   }
+  els.refreshBtn.classList.remove("is-error");
   if (effects.some((effect) => effect.type === "followed")) {
     return FOLLOWED_LIVE_VIDEO;
   }
@@ -1545,8 +1548,12 @@ async function refreshContextManually() {
     return;
   }
   refreshingContext = true;
+  // 刷新 after 字幕 spins for every forced read (重试 too) and turns red when it failed (until a read succeeds), as the popup's does.
+  els.refreshBtn.disabled = true;
+  els.refreshBtn.setAttribute("aria-busy", "true");
   try {
     const ok = await loadContextState({ refresh: true });
+    if (!ok) els.refreshBtn.classList.add("is-error");
     // A question sent while it read: redrawing the empty state would wipe it and its reply.
     if (ok && !state.view().streaming) {
       const { context, messages } = state.view();
@@ -1558,6 +1565,8 @@ async function refreshContextManually() {
     }
   } finally {
     refreshingContext = false;
+    els.refreshBtn.disabled = false;
+    els.refreshBtn.setAttribute("aria-busy", "false");
   }
 }
 

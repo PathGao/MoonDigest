@@ -26,14 +26,44 @@ body {
   flex-shrink: 0;
 }
 
-/* 字幕 under the video, the popup's bar (popup.css .subrow), 32px. */
-.sp-header:has(.sp-subrow:not([hidden])) {
+/* 字幕 under the video, the popup's bar (popup.css .subrow), 32px, with 刷新 after it. */
+.sp-header:has(.sp-subline:not([hidden])) {
   flex-wrap: wrap;
   row-gap: 8px;
 }
 
-.sp-subrow {
+.sp-subline {
   flex-basis: 100%;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sp-subline[hidden] {
+  display: none;
+}
+
+.sp-subline .sp-icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+}
+
+/* While reading, the refresh icon itself spins instead of the shared spinner; red only when the last read failed (popup.css .icon-btn). */
+.sp-subline .sp-icon-btn[aria-busy="true"]::before { content: none; }
+.sp-subline .sp-icon-btn[aria-busy="true"] svg { animation: busy-spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .sp-subline .sp-icon-btn[aria-busy="true"] svg { animation: none; }
+}
+
+.sp-subline .sp-icon-btn.is-error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.sp-subrow {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -43,10 +73,6 @@ body {
   background: var(--field-bg);
   border-radius: var(--radius-md);
   font-size: var(--fs-sm);
-}
-
-.sp-subrow[hidden] {
-  display: none;
 }
 
 .sp-subrow .k {

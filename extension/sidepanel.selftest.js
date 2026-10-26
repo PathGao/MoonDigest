@@ -905,6 +905,18 @@ const tick = () => new Promise((r) => setImmediate(r));
     assert.ok(/value="u2"[^>]*selected/.test(select.innerHTML));
     // Picks made on that page (the popup, 专注模式) are followed; another frame's are not.
     assert.deepStrictEqual([ctx.subtitleFrom({ tab: { id: 7 }, frameId: 0 }), ctx.subtitleFrom({ tab: { id: 7 }, frameId: 3 })], [true, false]);
+    // 刷新 after 字幕 reads again: busy while it reads, red after a failed read until one succeeds.
+    const realBtn = els.refreshBtn;
+    const classes = new Set();
+    const attrs = {};
+    els.refreshBtn = { disabled: false, setAttribute: (k, v) => (attrs[k] = v), classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } };
+    answer = async () => (assert.deepStrictEqual([els.refreshBtn.disabled, attrs["aria-busy"]], [true, "true"]), { ok: false, error: "B站限流，请稍后再试" });
+    await ctx.refreshContextManually();
+    assert.deepStrictEqual([els.refreshBtn.disabled, attrs["aria-busy"], classes.has("is-error")], [false, "false", true]);
+    answer = async () => ({ ok: true, payload: { ...video, subtitleOptions: tracks("u2"), subtitleMissing: "视频没有字幕" } });
+    await ctx.refreshContextManually();
+    assert.strictEqual(classes.has("is-error"), false);
+    els.refreshBtn = realBtn;
     // A video read without its page (closed) only says its track.
     show({ ...video, subtitleLang: "中文" });
     ctx.syncSendUi();
