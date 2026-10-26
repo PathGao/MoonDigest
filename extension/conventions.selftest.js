@@ -53,6 +53,7 @@ const ALLOW = [
   ["options.js", "button.disabled = Boolean(active);", "保存和测试连接互等：在跑的那个写「保存中…」「测试中…」并 aria-busy"],
   ["options.js", "testBtn.disabled = true;", "AI 平台测试中：同一行写「正在测试…」并 aria-busy，完了 setReason 接手"],
   ["popup.js", "button.disabled = busy;", "弹窗按钮在跑：按钮文字换成在做什么，aria-busy"],
+  ["sidepanel.js", "els.refreshBtn.disabled = true;", "侧边栏刷新在读：图标转圈并 aria-busy，finally 打开"],
   ["triage/fav-base.js", "btn.disabled = Boolean(text);", "分拣台按钮在跑：按钮文字换成在做什么，aria-busy"],
   ["triage/follow.js", "btn.disabled = syncing(j);", "关注刷新在跑：aria-busy，进度胶囊写进度"],
   ["triage/follow.js", "btn.disabled = true;", "点了刷新（第 2 行、空状态或提示里的）、后台还没回：回来后 renderSync 接手（aria-busy）或失败时打开"],
