@@ -32,10 +32,11 @@ body {
   row-gap: 8px;
 }
 
+/* Same gap and width as the row above, so 刷新 sits under 设置 and the bar ends where the model select does. */
 .sp-subline {
   flex-basis: 100%;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -44,7 +45,6 @@ body {
 }
 
 .sp-subline .sp-icon-btn {
-  width: 32px;
   height: 32px;
   border: 1px solid transparent;
 }
