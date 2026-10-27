@@ -299,6 +299,47 @@ const settle = async () => {
     t.location.href = saved.href;
   }
 
+  // What the player's clip, a clip change and a failed read decide.
+  {
+    const ref = (id, cid) => ({ id, part: { cid } });
+    for (const [player, read, other, why] of [
+      [ref("BV1", "7"), { videoId: "BV1", cid: "7" }, false, "same part"],
+      [ref("BV1", "8"), { videoId: "BV1", cid: "7" }, true, "another part"],
+      [ref("BV2", "7"), { videoId: "BV1", cid: "7" }, true, "another video"],
+      [ref("BV1", "8"), { videoId: "BV1", cid: "" }, false, "cid not read yet: only the id tells"],
+      [ref("BV2", "8"), { videoId: "BV1", cid: "" }, true, "cid not read yet, another video"]
+    ]) {
+      assert.strictEqual(t.isOtherClip(player, read), other, why);
+    }
+    for (const [open, param, action] of [[true, true, "refresh"], [true, false, "refresh"], [false, true, "enter"], [false, false, "none"]]) {
+      assert.strictEqual(t.clipChangeAction(open, param), action, `open ${open}, param ${param}`);
+    }
+    const stale = { code: "STALE_RUN" };
+    const limit = { code: t.MdgErrors.CODE.THROTTLED };
+    const other = new Error("x");
+    for (const [error, alive, metaLoaded, action] of [
+      [stale, true, true, "ignore"],
+      [other, false, true, "ignore"],
+      [limit, false, false, "ignore"],
+      [other, true, true, "degrade"],
+      [limit, true, true, "fail"],
+      [{ status: 429 }, true, true, "fail"],
+      [other, true, false, "fail"]
+    ]) {
+      assert.strictEqual(t.readFailureAction(error, alive, metaLoaded), action, JSON.stringify([error, alive, metaLoaded]));
+    }
+    const dom = { title: "页标题", author: "页作者", uploadDate: "2026-01-01", description: "页简介" };
+    assert.deepStrictEqual(
+      JSON.parse(JSON.stringify(t.clipFields({ title: "T", author: "A", aid: 3, cid: 9, tags: ["x"], pageIndex: "2", pageCount: 3, duration: "61" }, dom))),
+      { aid: 3, title: "T", author: "A", authorUrl: "", cover: "", videoTags: ["x"], uploadDate: "2026-01-01", description: "页简介", pageIndex: 2, pageCount: 3, pageTitle: "", cid: 9, videoDuration: 61 }
+    );
+    assert.deepStrictEqual(
+      JSON.parse(JSON.stringify(t.clipFields({ tags: "x", pageIndex: 0, pageCount: -1, duration: 0 }, dom))),
+      { aid: "", title: "页标题", author: "页作者", authorUrl: "", cover: "", videoTags: [], uploadDate: "2026-01-01", description: "页简介", pageIndex: 1, pageCount: 0, pageTitle: "", cid: "", videoDuration: 0 },
+      "the page's info where the site has none, positions clamped, no duration left to the player"
+    );
+  }
+
   // F8: the YouTube PO token capture toggles the page's captions button only for the video of its run: ended before it
   // starts, the button is left alone; ended between its two rounds, the second round is not made.
   {
