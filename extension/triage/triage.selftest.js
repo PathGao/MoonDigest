@@ -1983,6 +1983,41 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(store[t.K.snapshot("A")].ids), ["BVhidden"], "an id the paged list leaves out stays in the check baseline");
   assert.strictEqual(t.S.removedCount, 1);
 
+  // C39: a 取消收藏's elsewhere follows the other chosen folders' full lists; a folder with none yet cannot prove it left.
+  {
+    const un = (elsewhere) => ({ action: "unfav", at: 1, aid: 1, title: "t", ...(elsewhere && { elsewhere }) });
+    const keep = { action: "keep", at: 1 };
+    const rows = [
+      ["favorited into another folder", { A: { BV1: un() } }, { A: ["BV9"], B: ["BV1"] }, { A: { BV1: un(true) } }],
+      ["taken out of the last other folder", { A: { BV1: un(true) } }, { A: [], B: [] }, { A: { BV1: un() } }],
+      ["its own folder does not count", { A: { BV1: un() } }, { A: ["BV1"], B: [] }, {}],
+      ["unchanged is not rewritten", { A: { BV1: un(true), BV2: un() } }, { B: ["BV1"] }, {}],
+      ["a folder with no full list keeps elsewhere", { A: { BV1: un(true) } }, { B: [], C: null }, {}],
+      ["…but one hit is enough", { A: { BV1: un() } }, { B: ["BV1"], C: null }, { A: { BV1: un(true) } }],
+      ["保留 untouched", { A: { BV1: keep } }, { B: ["BV1"] }, {}]
+    ];
+    for (const [why, byFolder, lists, want] of rows) assert.deepStrictEqual(plain(t.refreshElsewhere(byFolder, lists)), want, why);
+  }
+  // C39: saveSnapshot refreshes the other folders' records (稍后再看's too), in storage and on the page; 稍后再看's list is no favorite.
+  {
+    const was = { store: structuredClone(store), S: { ...t.S } };
+    for (const k of Object.keys(store)) delete store[k];
+    t.S.folders = t.S.allFolders = [{ id: "A" }, { id: "B" }, { id: "toview" }];
+    const un = (elsewhere) => ({ action: "unfav", at: 1, aid: 1, title: "t", ...(elsewhere && { elsewhere }) });
+    store[t.K.snapshot("B")] = { bvids: ["BV2"] };
+    store[t.K.snapshot("toview")] = { bvids: ["BV3"] };
+    store[t.K.decisions("A")] = { BV1: un(), BV2: un(true), BV3: un() };
+    store[t.K.decisions("toview")] = { BV1: un() };
+    openFake("A", [], structuredClone(store[t.K.decisions("A")]));
+    await t.saveSnapshot("B", [item(1)]);
+    assert.deepStrictEqual(plain(store[t.K.decisions("A")]), { BV1: un(true), BV2: un(), BV3: un() }, "in B now, out of B now, only in 稍后再看");
+    assert.deepStrictEqual(plain(store[t.K.decisions("toview")]), { BV1: un(true) });
+    assert.deepStrictEqual(plain(t.S.decisions), plain(store[t.K.decisions("A")]), "the open folder's records follow");
+    for (const k of Object.keys(store)) delete store[k];
+    Object.assign(store, was.store);
+    Object.assign(t.S, was.S);
+  }
+
   // 已出分拣范围 renders the normal card: a line under the title with the origin chip and when / why it left, the select box and 清理, no 保留 / 取消收藏.
   {
     openFake("removed", []);

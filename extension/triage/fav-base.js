@@ -72,7 +72,7 @@ const { VERDICTS } = MdgTagCore;
 const newTagId = () => MdgTagCore.newTagId("t");
 
 // The stored records' shapes and the export helpers (pure) live in triage-core.js.
-const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink } = TriageCore;
+const { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink } = TriageCore;
 
 // 收藏夹设置's number settings: [stored key, TriageUi.NUM_SETTINGS kind, its input in the dialog].
 const NUM_FIELDS = [
