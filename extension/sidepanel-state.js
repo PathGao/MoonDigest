@@ -181,7 +181,8 @@
 
   // live: the active tab (context is its payload, or the placeholder of a video followed from its URL alone).
   // conv: the shown conversation. pinned is its own context's description once it has one (saved, opened from a
-  // reference, or asked in); resolved is that context loaded; failed: loading it failed, so it is no longer pending.
+  // reference, or asked in); resolved is that context loaded; failed: loading it failed, so it is no longer pending:
+  // { code (the read's error code), text (said under it; "" when the load was silent) }.
   // fill: its AI 总结 prompt is still to fill. unanswered: the last question when its reply failed or stopped before a
   // word came, kept only to draw it again. convs (MdgCommon.latest): the shown conversation's run; showing another one
   // ends it, so a load or a drawing begun on the one before can tell.
@@ -192,7 +193,7 @@
   function create() {
     const s = {
       live: { tabUrl: "", context: null, key: "", error: "", lastVideoUrl: "" },
-      conv: { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null },
+      conv: { id: "", pinned: null, messages: [], resolved: null, failed: null, fill: false, unanswered: null, autoSend: null },
       convs: MdgCommon.latest(),
       turn: idleTurn(),
       detached: new Map(),
@@ -229,7 +230,7 @@
   function view(s) {
     const context = shown(s);
     const key = shownKey(s);
-    const { id, pinned, messages, resolved, unanswered } = s.conv;
+    const { id, pinned, messages, resolved, failed, unanswered } = s.conv;
     const target = shownPartUrl(s);
     return {
       context,
@@ -239,6 +240,7 @@
       pinned,
       messages,
       resolved,
+      failed,
       run: s.convs.current,
       unanswered,
       turn: s.turn.phase,
@@ -292,7 +294,7 @@
       effects.push({ type: "draft" });
     }
     s.convs.next();
-    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: false, fill: false, unanswered: null, autoSend: null };
+    s.conv = { id: "", pinned: null, messages: [], resolved: null, failed: null, fill: false, unanswered: null, autoSend: null };
     effects.push(...reattach(s, conversation));
     if (conversation) {
       s.conv.id = conversation.id;
@@ -604,15 +606,15 @@
       case "GRANT_DENIED":
         s.conv.autoSend = null;
         return [];
-      // A conversation's own context loaded (payload) or failed; a load started for an earlier conversation (its run
-      // ended) is ignored.
+      // A conversation's own context loaded (payload) or failed (code, text: conv.failed); a load started for an
+      // earlier conversation (its run ended) is ignored.
       case "CONTEXT_RESOLVED": {
         if (!event.run?.alive || !s.conv.pinned) {
           return [];
         }
         if (!event.payload) {
           const wasPending = Boolean(shown(s)?.pending);
-          s.conv.failed = true;
+          s.conv.failed = { code: event.code, text: event.text || "" };
           return [{ type: "resolveFailed", wasPending }];
         }
         const payload = event.payload;
@@ -625,6 +627,7 @@
           contextRef: buildConversationContextRef(payload)
         };
         s.conv.resolved = payload;
+        s.conv.failed = null;
         return [{ type: "resolved" }];
       }
       case "OPEN":

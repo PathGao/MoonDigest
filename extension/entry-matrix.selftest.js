@@ -170,7 +170,8 @@ const ALLOW = [
   // 3c: the gone video's sentence; whether 重试 shows is remedies'.
   ["content.js", "MdgSites.isBiliVideoGone(state.readCode) ? MdgErrors.LABEL.videoGone", "说法：视频已失效"],
   ["sidepanel.js", "MdgSites.isBiliVideoGone(resp?.code) ? MdgErrors.LABEL.videoGone", "说法：视频已失效"],
-  ["sidepanel.js", "const gone = !ok && MdgSites.isBiliVideoGone(response?.code);", "说法：VIDEO_GONE（只能查看，不能继续提问）"],
+  ["sidepanel.js", "const gone = MdgSites.isBiliVideoGone(response?.code);", "说法：VIDEO_GONE（只能查看，不能继续提问）"],
+  ["sidepanel.js", "MdgSites.isBiliVideoGone(failed?.code) ? VIDEO_GONE", "说法：VIDEO_GONE（读取失败存在 view().failed，静默读取也只能查看）"],
   ["sidepanel.js", "MdgSites.isBiliVideoGone(response?.code) ? null : undefined", "已失效的视频补全标题时不再重查，不显示错误"]
 ];
 const used = ALLOW.map(() => 0);

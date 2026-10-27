@@ -324,9 +324,9 @@ const REPLY_RUNNING = "上一个回答还在生成，结束后才能继续问";
 // Why the shown conversation cannot be asked in now: a web page not read, a video that is gone, or its last reply
 // still running out of reach.
 function readOnlyReason() {
-  const { nonVideo, context, replyDetached } = state.view();
+  const { nonVideo, context, replyDetached, failed } = state.view();
   if (replyDetached) return REPLY_RUNNING;
-  return nonVideo ? pageReason(context) : contextFailure()?.gone ? VIDEO_GONE : "";
+  return nonVideo ? pageReason(context) : MdgSites.isBiliVideoGone(failed?.code) ? VIDEO_GONE : "";
 }
 
 // Why a web page cannot be asked about, by background.js readWebPage's pageAccess; "" once its main text is read. A page
@@ -1619,9 +1619,9 @@ function renderConversationMessages() {
     els.messages.appendChild(node);
     appendReplyEnd(node, { ...unanswered, raw: "", saved: false });
   }
-  const failed = nonVideo ? pageReason(state.view().context) : contextFailure()?.text;
+  const failed = nonVideo ? pageReason(state.view().context) : state.view().failed?.text;
   if (failed) {
-    showConversationContextError(failed, nonVideo ? null : contextFailure().remedy);
+    showConversationContextError(failed, nonVideo ? null : contextRemedy());
   }
   renderFollowups();
   drawnRun = run;
@@ -1685,11 +1685,6 @@ async function ensureCurrentContextForSend() {
   return true;
 }
 
-// The shown conversation's own video failed to load: { run (its conversation's), text (said under it, again at each
-// redraw; "" when the load was silent), gone (deleted or hidden on B站: the conversation is only read) }.
-let lastContextFailure = null;
-const contextFailure = () => (lastContextFailure?.run.alive ? lastContextFailure : null);
-
 // Loads the shown conversation's own context (state decides when: resolve effects). A load the conversation was
 // switched away from meanwhile does nothing. notice: the 正在加载… line it takes down when done.
 async function hydratePinnedConversationContext({ silent = false, notice = null } = {}) {
@@ -1716,16 +1711,15 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
     error: error?.message || String(error || "")
   }));
   const ok = Boolean(response?.ok && response.payload);
-  const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", run, payload: ok ? response.payload : null });
+  // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back, and the conversation is
+  // only read. Else a send tries again.
+  const gone = MdgSites.isBiliVideoGone(response?.code);
+  const failure = ok ? {} : { code: response?.code, text: silent ? "" : gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}` };
+  const [result] = state.dispatch({ type: "CONTEXT_RESOLVED", run, payload: ok ? response.payload : null, ...failure });
   notice?.remove();
   if (!result) {
     return false;
   }
-  // Deleted or hidden on B站 (as the 分拣台 and 摘读记录 tell it): no retry will bring it back. Else a send tries again.
-  const gone = !ok && MdgSites.isBiliVideoGone(response?.code);
-  const text = gone ? VIDEO_GONE : `读取原${sourceKind()}失败：${MdgErrors.text(response)}`;
-  const remedy = !ok && MdgErrors.remedies(response?.code).includes("retry") ? contextRemedy(contextRef) : null;
-  lastContextFailure = ok ? null : { run, text: silent ? "" : text, gone, remedy };
   updateContextChip();
   syncSendUi();
   if (ok) {
@@ -1736,15 +1730,18 @@ async function hydratePinnedConversationContext({ silent = false, notice = null 
     suggestionsNode?.replaceChildren();
   }
   if (!silent) {
-    showConversationContextError(text, lastContextFailure.remedy);
+    showConversationContextError(failure.text, contextRemedy());
   }
   return false;
 }
 
-// What helps a saved conversation whose video failed to load (not gone): a site read only from its page (YouTube)
-// needs that page open, so 打开视频 opens it in this tab as the chip does; any other gets 重试 (B站限流, the network).
-// Either reads it again, and takes the error down once it loads.
-function contextRemedy(contextRef) {
+// What helps the shown conversation whose video failed to load (by its code; nothing when gone): a site read only
+// from its page (YouTube) needs that page open, so 打开视频 opens it in this tab as the chip does; any other gets 重试
+// (B站限流, the network). Either reads it again, and takes the error down once it loads.
+function contextRemedy() {
+  const { failed, pinned } = state.view();
+  if (!MdgErrors.remedies(failed.code).includes("retry")) return null;
+  const { contextRef } = pinned;
   const again = async () => {
     if (await hydratePinnedConversationContext()) removeCenteredState();
   };

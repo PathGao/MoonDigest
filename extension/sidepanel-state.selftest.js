@@ -252,6 +252,20 @@ function panel({ tab = video("BV1aa"), list = [] } = {}) {
   p.dispatch({ type: "OPEN", id: "h" });
   assert.deepStrictEqual(plain(p.dispatch({ type: "CONTEXT_RESOLVED", run: p.view().run, payload: null })), [{ type: "resolveFailed", wasPending: true }]);
   assert.strictEqual(p.view().context.pending, false);
+  // The failure is the conversation's: kept for redraws, a silent one without words (still gone); one for the
+  // conversation shown before is ignored, and showing another conversation or a load that works clears it.
+  assert.strictEqual(p.view().failed.text, "");
+  const hRun = p.view().run;
+  p.dispatch({ type: "CONTEXT_RESOLVED", run: hRun, payload: null, code: -404, text: "" });
+  assert.deepStrictEqual(plain(p.view().failed), { code: -404, text: "" });
+  p.dispatch({ type: "OPEN", id: "g" });
+  assert.strictEqual(p.view().failed, null);
+  p.dispatch({ type: "CONTEXT_RESOLVED", run: hRun, payload: null, code: -404, text: "gone" });
+  assert.strictEqual(p.view().failed, null, "stale");
+  p.dispatch({ type: "CONTEXT_RESOLVED", run: p.view().run, payload: null, code: "THROTTLED", text: "限流" });
+  assert.deepStrictEqual(plain(p.view().failed), { code: "THROTTLED", text: "限流" });
+  p.dispatch({ type: "CONTEXT_RESOLVED", run: p.view().run, payload: video("BV1gg") });
+  assert.strictEqual(p.view().failed, null);
   // The tab's own video: the live context, nothing to resolve.
   const q = panel({ list: [saved("a", video("BV1aa"))] });
   q.dispatch({ type: "NEW" });
