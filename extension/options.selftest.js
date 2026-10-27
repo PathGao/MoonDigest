@@ -83,7 +83,7 @@ vm.runInContext(["const { escapeHtml } = MdgErrors;", fn("buildFixedPropertyValu
 for (const bad of XSS) assertInert(ctx.buildFixedPropertyValueControl("text", bad), "property value");
 
 // Obsidian's 测试连接 is disabled with the reason while the 地址 or the Key is empty, like an AI platform row's (H2).
-vm.runInContext([fn("syncObsidianTest"), fn("obsidianTarget"), fn("normalizeBaseUrl"), fn("setTestResult")].join("\n"), ctx);
+vm.runInContext([fn("syncObsidianTest"), fn("obsidianTarget"), fn("setTestResult")].join("\n"), ctx);
 const testBtn = { setAttribute() {}, removeAttribute() {} };
 Object.assign(ctx.elements, { testConnectionBtn: testBtn, obsidianApiBaseUrl: { value: "" }, obsidianApiKey: { value: " " }, obsidianTestResult: { textContent: "", dataset: {} } });
 ctx.syncObsidianTest();
@@ -110,7 +110,7 @@ ctx.obsidianTest = null;
 (async () => {
   // fn() slices from "function": testConnection is async.
   vm.runInContext([`async ${fn("testConnection")}`, "let hasUnsavedChanges = false;"].join("\n"), ctx);
-  const typed = () => ({ obsidianApiBaseUrl: ctx.normalizeBaseUrl(ctx.elements.obsidianApiBaseUrl.value), obsidianApiKey: ctx.MdgSettings.normalizeApiKey(ctx.elements.obsidianApiKey.value) });
+  const typed = () => ({ obsidianApiBaseUrl: ctx.MdgSettings.trimBaseUrl(ctx.elements.obsidianApiBaseUrl.value), obsidianApiKey: ctx.MdgSettings.normalizeApiKey(ctx.elements.obsidianApiKey.value) });
   Object.assign(ctx, { clearInputErrors() {}, collectFormPayload: typed, validateSettings: () => ({ ok: true }), applyValidationError() {}, setBusy() {}, renderSavedState() {} });
   let answer;
   ctx.chrome = { runtime: { sendMessage: () => new Promise((r) => (answer = () => r({ ok: true, service: "Obsidian" }))) } };
@@ -172,8 +172,8 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   };
   const parts = {};
   const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [] };
-  const page = vm.createContext({ URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin")].join("\n"), page);
+  const page = vm.createContext({ URL, MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "" }], document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } }, updateAiProvidersEmptyState() {} });
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies")].join("\n"), page);
   page.addAiProviderRow({});
   const test = parts[".ai-provider-test"];
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -194,7 +194,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
 {
   const btn = (textContent) => ({ textContent, dataset: {}, setAttribute() {}, removeAttribute() {} });
   const page = vm.createContext({ MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, busyButton: null, obsidianTest: null, elements: { saveBtn: btn("保存"), testConnectionBtn: btn("测试连接"), obsidianApiBaseUrl: { value: "http://127.0.0.1:27123" }, obsidianApiKey: { value: "" } } });
-  vm.runInContext([fn("setBusy"), fn("syncObsidianTest"), fn("normalizeBaseUrl")].join("\n"), page);
+  vm.runInContext([fn("setBusy"), fn("syncObsidianTest")].join("\n"), page);
   page.setBusy(page.elements.testConnectionBtn);
   page.elements.obsidianApiKey.value = "new key";
   page.syncObsidianTest();
@@ -247,7 +247,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     updateAiProvidersEmptyState() {},
     chrome: { permissions: { request: async () => true }, runtime: { sendMessage: (m) => (sent.push(m), new Promise((r) => (answer = r))) } }
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("collectAiProviders"), fn("hostPermissionPattern"), fn("showAiProviderStatus"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   page.addAiProviderRow({ id: "p1", presetId: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", hasSavedKey: true });
   parts[".ai-provider-preset"].value = "deepseek";
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
@@ -403,11 +403,11 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   let reply;
   const row = { ...stub(), querySelector: (sel) => (parts[sel] ||= stub()), querySelectorAll: () => [], remove: () => removed++ };
   const page = vm.createContext({
-    URL, MdgErrors: ctx.MdgErrors, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
+    URL, MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, escapeHtml: ctx.MdgErrors.escapeHtml, AI_PRESETS: [{ id: "custom", name: "自定义", baseUrl: "", model: "", requiresKey: true }],
     document: { createElement: () => row }, elements: { aiProvidersList: { appendChild() {} } },
     updateAiProvidersEmptyState() {}, updateSavedProviders() {}, chrome: { runtime: { sendMessage: async () => reply() } }
   });
-  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("urlOrigin"), fn("showAiProviderStatus")].join("\n"), page);
+  vm.runInContext([constant("TRASH_ICON"), constant("AI_FIELD"), fn("addAiProviderRow"), fn("presetOf"), constant("PLAIN_HTTP_WARNING"), fn("plainHttpWarning"), fn("apiKeyPlaceholder"), fn("generateAiProviderId"), fn("savedKeyApplies"), fn("showAiProviderStatus")].join("\n"), page);
   page.addAiProviderRow({ id: "p1" });
   const del = parts[".ai-provider-remove"];
   const status = parts[".ai-provider-status"];
@@ -443,7 +443,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     chrome: { permissions: { request: async ({ origins }) => (log.push(`ask ${origins}`), allow) }, runtime: { sendMessage: async (m) => (log.push(`test ${m.baseUrl}`), { ok: true }) } }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "errors.js"), "utf8"), page);
-  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("urlOrigin"), fn("presetOf"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
+  vm.runInContext([fn("hostPermissionPattern"), fn("showAiProviderStatus"), fn("savedKeyApplies"), fn("presetOf"), `async ${fn("testAiProviderRow")}`].join("\n"), page);
   // L4: the declined permission carries its code, as the background's does.
   const replies = [];
   const realText = page.MdgErrors.text;
@@ -484,7 +484,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     renderBiliMarks() {}, renderStorageLimits() {}, syncObsidianBody() {}, syncSeenRows() {}, syncBiliMarks() {}, renderAiProviders() {},
     renderHostPermissionBanner() {}, hostPermissionUrls() {}, markSaved() {}
   });
-  vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload"), fn("normalizeBaseUrl")].join("\n"), page);
+  vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload")].join("\n"), page);
   await page.loadSettings();
   const payload = page.readFormPayload();
   const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];

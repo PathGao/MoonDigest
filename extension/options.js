@@ -513,7 +513,7 @@ function syncObsidianKeyTag() {
 // While a save or a test runs it stays disabled; setBusy(null) calls this again.
 // The result next to it is for the 地址 and Key it tested: an edit away from them clears it.
 function syncObsidianTest() {
-  const typed = { obsidianApiBaseUrl: normalizeBaseUrl(elements.obsidianApiBaseUrl.value), obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) };
+  const typed = { obsidianApiBaseUrl: MdgSettings.trimBaseUrl(elements.obsidianApiBaseUrl.value), obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) };
   if (obsidianTest && obsidianTest.target !== obsidianTarget(typed)) {
     obsidianTests.next();
     setTestResult("");
@@ -552,7 +552,7 @@ function readFormPayload() {
   const normalized = MdgSettings.normalizeSyncSettings(form);
   return {
     ...Object.fromEntries(Object.keys(form).map((k) => [k, normalized[k]])),
-    obsidianApiBaseUrl: normalizeBaseUrl(elements.obsidianApiBaseUrl.value),
+    obsidianApiBaseUrl: MdgSettings.trimBaseUrl(elements.obsidianApiBaseUrl.value),
     obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value)
   };
 }
@@ -988,11 +988,6 @@ function closeAllFixedPropertyMenus() {
   });
 }
 
-function normalizeBaseUrl(value) {
-  return String(value || "").trim().replace(/\/+$/g, "");
-}
-
-
 async function testConnection() {
   clearInputErrors();
   const payload = collectFormPayload();
@@ -1118,7 +1113,7 @@ function addAiProviderRow(item = {}) {
   row.className = "ai-provider-row";
   row.dataset.providerId = id;
   row.dataset.hasSavedKey = hasSavedKey ? "1" : "0";
-  row.dataset.keyOrigin = urlOrigin(baseUrl);
+  row.dataset.keyOrigin = MdgSettings.urlOrigin(baseUrl);
   row.dataset.currentPresetId = presetId;
   row.innerHTML = `
     <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
@@ -1288,15 +1283,7 @@ async function testAiProviderRow(row, sync) {
 // A saved Key belongs to the host it was saved for: once 接口地址 points at another host it is neither sent nor counted as
 // filled, so switching platform asks for that platform's Key.
 function savedKeyApplies(row) {
-  return row.dataset.hasSavedKey === "1" && urlOrigin(row.querySelector(".ai-provider-baseurl").value) === row.dataset.keyOrigin;
-}
-
-function urlOrigin(url) {
-  try {
-    return new URL(String(url).trim()).origin;
-  } catch {
-    return "";
-  }
+  return row.dataset.hasSavedKey === "1" && MdgSettings.urlOrigin(row.querySelector(".ai-provider-baseurl").value) === row.dataset.keyOrigin;
 }
 
 function apiKeyPlaceholder(hasSavedKey, requiresKey) {
