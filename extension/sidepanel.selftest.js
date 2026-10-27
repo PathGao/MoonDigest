@@ -580,13 +580,13 @@ const tick = () => new Promise((r) => setImmediate(r));
     // J7: a failure that may pass (a limit, the network) gets 重试, as the tab's own read does; a gone video none. The
     // 重试 reads it again and takes the error down once it loads.
     assert.deepStrictEqual(remedies, ["", "重试", "重试"]);
-    const failure = vm.runInContext("contextFailure()", ctx);
-    assert.strictEqual(failure.remedy.label, "重试", "a redraw shows it again");
+    const remedy = vm.runInContext("contextRemedy()", ctx);
+    assert.strictEqual(remedy.label, "重试", "a redraw shows it again");
     let centered = 0;
     const realRemove = ctx.removeCenteredState;
     ctx.removeCenteredState = () => centered++;
     ctx.resolveConversationContext = async () => ({ ok: true, payload: video });
-    await failure.remedy.run();
+    await remedy.run();
     assert.deepStrictEqual([centered, view().resolved?.videoId], [1, video.videoId]);
     ctx.removeCenteredState = realRemove;
     // J12: a YouTube video reads only from its page: the remedy opens it (in this tab, as the chip does), then reads.
@@ -601,7 +601,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     const steps = [];
     ctx.openCurrentContextUrl = async () => steps.push("open");
     ctx.resolveConversationContext = async () => (steps.push("read"), { ok: false, error: "x" });
-    await vm.runInContext("contextFailure()", ctx).remedy.run();
+    await vm.runInContext("contextRemedy()", ctx).run();
     assert.deepStrictEqual(steps, ["open", "read"]);
     ctx.openCurrentContextUrl = realOpen;
     errors.length = remedies.length = 0;
