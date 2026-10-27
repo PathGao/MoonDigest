@@ -3521,19 +3521,7 @@ function findActiveSubtitleIndex(currentTime) {
 }
 
 function findActiveChapterIndex(currentTime) {
-  const chapters = MdgSites.normalizeChapters(state.chapters || []);
-  for (let index = 0; index < chapters.length; index += 1) {
-    const item = chapters[index];
-    const from = Number(item?.from || 0) || 0;
-    const next = chapters[index + 1];
-    const explicitTo = Number(item?.to || 0) || 0;
-    const fallbackTo = next && Number(next.from) > from ? Number(next.from) : explicitTo;
-    const to = fallbackTo > from ? fallbackTo : Number.POSITIVE_INFINITY;
-    if (currentTime >= from && currentTime < to) {
-      return index;
-    }
-  }
-  return -1;
+  return MdgSites.chapterRanges(state.chapters || []).findIndex((item) => currentTime >= item.from && currentTime < item.to);
 }
 
 function setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll = false) {

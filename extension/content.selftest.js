@@ -492,6 +492,14 @@ const settle = async () => {
     t.byId = prev;
   }
 
+  // 专注模式 highlights the chapter the note files the line under: two chapters that start together end at the next later start.
+  {
+    const saved = state.chapters;
+    state.chapters = [{ title: "A", from: 0, to: 0 }, { title: "B", from: 0, to: 0 }, { title: "C", from: 60, to: 0 }];
+    assert.deepStrictEqual([10, 90].map(t.findActiveChapterIndex), [0, 2]);
+    state.chapters = saved;
+  }
+
   // A4: a jump from a 专注模式 subtitle row or chapter keeps a paused video paused, like the side panel's timestamps.
   {
     const prev = t.bindReadingViewVideo;
