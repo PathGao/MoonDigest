@@ -28,7 +28,8 @@
     try {
       const resp = note || (await resolve(kind, request, send, isStale, dialogs));
       if (resp.stop) return { ok: true, done: false, text: resp.stop, remedies: [] };
-      if (kind === "copy") await navigator.clipboard.writeText(resp.markdown);
+      // Any refusal says noClipboard, not Chrome's English ("Document is not focused"); no cause, its code is a DOMException's.
+      if (kind === "copy") await navigator.clipboard.writeText(resp.markdown).catch(() => Promise.reject(new Error(MdgErrors.TEXT.noClipboard)));
       if (kind === "download") MdgDownload.text(resp.filename, resp.markdown);
       return { ok: true, done: true, text: DONE[kind] || resp.text, remedies: [] };
     } catch (error) {

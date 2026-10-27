@@ -1505,7 +1505,7 @@ function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {
 // Every entry into 专注模式 (the URL, a SPA video change, the popup): a failure is red on the page, the same sentence.
 function startReaderMode() {
   enterReaderMode().catch((error) => {
-    setReadingNotice(`${MdgErrors.TEXT.readerStartFailed}：${MdgErrors.messageOf(error)}`, { error: true });
+    setReadingNotice(MdgErrors.reloaded(error) ? MdgErrors.TEXT.reloaded : `${MdgErrors.TEXT.readerStartFailed}：${MdgErrors.messageOf(error)}`, { error: true });
   });
 }
 

@@ -106,11 +106,12 @@ const plain = (r) => JSON.parse(JSON.stringify(r));
     const r = await run(kind, { request, send: fail({ ok: false, error: T.nothingToWrite, code: "NOTE_EMPTY" }) });
     assert.deepStrictEqual([r.ok, r.text, [...r.remedies]], [false, want, []], kind);
   }
-  // The clipboard refused: 复制失败, 无法访问剪贴板 when it gave no words.
-  ctx.navigator.clipboard.writeText = async () => { throw new Error(""); };
-  assert.strictEqual((await run("copy", { note: { markdown: "x" } })).text, `${T.copyFailed}：${T.noClipboard}`);
-  ctx.navigator.clipboard.writeText = async () => { throw new Error("没有权限"); };
-  assert.strictEqual((await run("copy", { note: { markdown: "x" } })).text, `${T.copyFailed}：没有权限`);
+  // The clipboard refused: 复制失败：无法访问剪贴板, never Chrome's English, with or without words.
+  for (const message of ["", "Failed to execute 'writeText' on 'Clipboard': Document is not focused."]) {
+    ctx.navigator.clipboard.writeText = async () => { throw Object.assign(new Error(message), { name: "NotAllowedError", code: 0 }); };
+    const r = await run("copy", { note: { markdown: "x" } });
+    assert.deepStrictEqual([r.text, r.code], [`${T.copyFailed}：${T.noClipboard}`, undefined], message);
+  }
   // The extension reloaded under the video page: its own sentence.
   assert.strictEqual((await run("write", { request, send: async () => { throw new Error("Extension context invalidated."); } })).text, T.reloaded);
 

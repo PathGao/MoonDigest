@@ -343,7 +343,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   // B4: failures are red: a copy, and opening the side panel from 继续问.
   ctx.navigator.clipboard.writeText = async () => { throw new Error("无法访问剪贴板"); };
   await act("copy");
-  assert.deepStrictEqual([els.status.textContent, red], ["复制失败：无法访问剪贴板", true]);
+  assert.deepStrictEqual([els.status.textContent, red], ["复制失败：无法访问剪贴板，点一下页面再试", true]);
   ctx.chrome.sidePanel = { open: async () => { throw new Error("没有窗口"); } };
   await act("ask");
   assert.deepStrictEqual([els.status.textContent, red], ["打开侧边栏失败：没有窗口", true]);
