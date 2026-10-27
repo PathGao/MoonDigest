@@ -635,7 +635,7 @@
       return [];
     }
 
-    const chapterItems = MdgSites.normalizeChapters(chapters);
+    const chapterItems = MdgSites.chapterRanges(chapters);
     if (chapterItems.length === 0) {
       return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
     }
@@ -653,26 +653,16 @@
       lines.push("");
     }
 
-    chapterItems.forEach((chapter, idx) => {
-      const start = Number(chapter.from || 0) || 0;
-      // Chapters that start together: the first one ends where a later start is; each subtitle goes in one chapter.
-      const next = chapterItems.slice(idx + 1).find((item) => Number(item.from) > start);
-      const chapterTo = Number(chapter.to || 0) || 0;
-      let end = Infinity;
-      if (next) {
-        end = Number(next.from);
-      } else if (chapterTo > start) {
-        end = chapterTo;
-      }
+    chapterItems.forEach((chapter) => {
+      // Chapters that start together share a range; usedIndexes puts each subtitle in the first of them.
+      const { from: start, to: end } = chapter;
 
       const sectionItems = subtitleItems.filter((item) => {
         if (usedIndexes.has(item._index)) {
           return false;
         }
         const from = Number(item.from || 0) || 0;
-        const inStart = from + 0.001 >= start;
-        const inEnd = end === Infinity ? true : from < end;
-        return inStart && inEnd;
+        return from + 0.001 >= start && from < end;
       });
 
       if (sectionItems.length === 0) {

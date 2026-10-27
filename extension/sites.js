@@ -86,6 +86,15 @@
     });
   }
 
+  // Normalized chapters with `to` as where each one ends: the first later start, else its own `to`, else Infinity.
+  // Chapters that start together all end at the next later start, never at each other.
+  function chapterRanges(chapters) {
+    return normalizeChapters(chapters).map((item, index, all) => {
+      const next = all.slice(index + 1).find((later) => later.from > item.from);
+      return { ...item, to: next ? next.from : item.to > item.from ? item.to : Infinity };
+    });
+  }
+
   function trackLanguagePriority(track) {
     const lang = String(track?.lang || "").toLowerCase();
     const label = String(track?.label || "").toLowerCase();
@@ -1613,6 +1622,7 @@
     biliWbiSigned,
     biliWbiReset,
     normalizeChapters,
+    chapterRanges,
     parseChaptersFromDescription,
     decodeXmlEntities,
     parseSrv3,
