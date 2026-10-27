@@ -172,6 +172,7 @@ const settle = async () => {
     state.subtitleBody = [];
     state.subtitles = [{ id: "1", url: "u" }];
     const body = gate("raw");
+    const site = t.currentSite;
     t.currentSite = () => ({ fetchRaw: () => body.promise, parseSegments: () => [{ from: 0, to: 1, content: "旧视频" }] });
     const switching = t.switchSubtitle("u");
     await settle();
@@ -179,6 +180,7 @@ const settle = async () => {
     body.open();
     await assert.rejects(switching, (e) => e.message === "视频已切换，请刷新网页后重试");
     assert.deepStrictEqual(state.subtitleBody, [], "the new video keeps an empty body");
+    t.currentSite = site;
   }
 
   // G4: the note's AI turns and triage extras read for the old video are dropped once it changed.
@@ -757,6 +759,31 @@ const settle = async () => {
     }
     state.readingPlayerHost = null;
     Object.assign(t, keep);
+  }
+
+  // V8: on a B站 page not hydrated yet (data-server-rendered still there) the mount puts nothing into the page: that
+  // left B站's own part switching dead. Past HYDRATE_WAIT_MS after navigation it mounts anyway.
+  {
+    const names = ["getRuntimeVideoElement", "findReaderPlayerHost", "dismissReaderMiniPlayer", "bindReadingViewVideo", "moveReadingMainInline", "normalizeReaderPlayerContainer", "clearNativeReaderFloatingStyles", "hasNativeReaderPlayerLayoutIssue", "bindReaderPlayerControlsHover", "bindReaderLayout", "layoutReaderPlayerHost", "cleanupReaderPlayerHostNode", "setReaderPlayerControlsVisible", "ensureReaderPlayerControlsRecovered", "queueEnsureReaderPlayerControlsRecovered"];
+    const keep = Object.fromEntries(names.map((k) => [k, t[k]]));
+    const [query, perf] = [t.document.querySelector, t.performance];
+    t.document.querySelector = (s) => (s === "[data-server-rendered]" ? {} : null);
+    for (const [name, now, mounted, moved] of [["hydrating", 3000, false, 0], ["marker kept past the wait", 10001, true, 1]]) {
+      for (const f of names) t[f] = () => {};
+      let moves = 0;
+      t.performance = { ...perf, now: () => now };
+      t.getRuntimeVideoElement = () => ({ removeAttribute() {}, setAttribute() {}, closest: () => null });
+      t.findReaderPlayerHost = () => ({ classList: { add() {} } });
+      t.hasNativeReaderPlayerLayoutIssue = () => false;
+      t.moveReadingMainInline = () => moves++;
+      t.stepReader("mark");
+      t.stepReader("enter");
+      assert.deepStrictEqual([await real.ensureReaderPlayerMounted({ retries: 2, delayMs: 1 }), moves], [mounted, moved], name);
+      t.stepReader("close");
+    }
+    Object.assign(t, keep, { performance: perf });
+    t.document.querySelector = query;
+    state.readingPlayerHost = null;
   }
 
   // 跟随已停 shows after a manual scroll only while playing. Following stays off while the reader is away from the
@@ -1523,7 +1550,6 @@ const settle = async () => {
     const was = { href: t.location.href, hostname: t.location.hostname, ...Object.fromEntries(["site", "videoId", "videoDuration", "subtitles"].map((k) => [k, state[k]])) };
     t.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     t.location.hostname = "www.youtube.com";
-    t.currentSite = () => t.MdgSites.matchSite(t.location.href); // the real one (a test above stubs it)
     Object.assign(state, { site: "youtube", videoId: "dQw4w9WgXcQ", videoDuration: 0 });
     const url = "https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en";
     state.subtitles = [{ id: "en", lang: "en", url }];

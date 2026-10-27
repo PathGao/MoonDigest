@@ -553,6 +553,8 @@
       playerLayout: [".bpx-player-container", ".bpx-docker", ".bpx-player-video-area", ".bpx-player-primary-area", ".bpx-player-inner", ".scroll-sticky", "#bilibili-player", "#playerWrap", ".player-wrap"],
       // /video/ and /list/, 番剧 (#bilibili-player-wrap), 活动页 (.festival-video-player).
       playerWrap: ["#playerWrap", ".player-wrap", "#bilibili-player-wrap", ".festival-video-player"],
+      // The server-rendered page until the client takes it over (content.js pageHydrating).
+      hydrating: ["[data-server-rendered]"],
       miniPlayer: [".bpx-player-mini-warp", ".bpx-player-mini-close"],
       miniClose: [".bpx-player-mini-close"],
       endingPanel: [".bpx-player-ending-panel", ".bpx-player-ending-related"],

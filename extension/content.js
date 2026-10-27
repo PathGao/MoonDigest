@@ -337,6 +337,8 @@ const UNNAMED_SUBTITLE = "未命名字幕";
 const READER_FOLLOW_IDLE_MS = 1000;
 // Between two tries to mount the player after focus mode opened without one.
 const PLAYER_RETRY_MS = 500;
+// How long after navigation focus mode waits for the page to be hydrated (pageHydrating).
+const HYDRATE_WAIT_MS = 10000;
 // Smaller than this is a thumbnail or a preview, not the player.
 const MIN_PLAYER = { width: 240, height: 120 };
 // The appearance settings focus mode changes itself; a change to them does not touch the note.
@@ -1621,6 +1623,10 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
     if (!isReaderMode()) {
       return false;
     }
+    if (pageHydrating()) {
+      await sleep(delayMs);
+      continue;
+    }
     const video = getRuntimeVideoElement();
     const playerHost = findReaderPlayerHost(video);
     if (video && playerHost) {
@@ -1704,6 +1710,14 @@ async function ensureReaderPlayerMounted({ retries = 1, delayMs = 100, forceLayo
     await sleep(delayMs);
   }
   return false;
+}
+
+// B站 hands its server-rendered page to the client only after load (Vue then drops data-server-rendered). Focus mode
+// put into the page before that leaves the page's own part switching dead for the visit (列表、下一个、自动连播), so the
+// mount waits; past HYDRATE_WAIT_MS it goes ahead, in case a page keeps the marker.
+function pageHydrating() {
+  const marks = reader().hydrating || [];
+  return Boolean(marks.length && document.querySelector(sel(marks))) && performance.now() < HYDRATE_WAIT_MS;
 }
 
 function queueEnsureReaderPlayerMounted() {
