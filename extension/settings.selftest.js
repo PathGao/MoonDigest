@@ -6,7 +6,7 @@ const vm = require("vm");
 const assert = require("assert");
 
 const read = (file) => fs.readFileSync(path.join(__dirname, file), "utf8");
-const ctx = vm.createContext({});
+const ctx = vm.createContext({ URL });
 ctx.globalThis = ctx;
 vm.runInContext(read("common.js"), ctx);
 vm.runInContext(read("settings.js"), ctx);
@@ -34,6 +34,9 @@ assert.deepStrictEqual(["zh-Hans", "fr", undefined].map(S.normalizeSubtitleLang)
 
 assert.strictEqual(S.normalizeApiKey("  Bearer abc "), "abc");
 assert.strictEqual(S.normalizeApiKey(undefined), "");
+// An AI platform's or Obsidian's address, and the origin its saved Key belongs to.
+assert.deepStrictEqual([" https://api.x.com/v1// ", "", undefined].map(S.trimBaseUrl), ["https://api.x.com/v1", "", ""]);
+assert.deepStrictEqual([" https://api.x.com/v1/ ", "http://127.0.0.1:27123", "api.x.com", "", undefined].map(S.urlOrigin), ["https://api.x.com", "http://127.0.0.1:27123", "", "", ""]);
 assert.strictEqual(S.normalizeDownloadFormat("txt"), "txt");
 assert.strictEqual(S.normalizeDownloadFormat("TXT"), "srt");
 // Non-strings keep their text (an imported file may carry numbers); only null and undefined are empty.

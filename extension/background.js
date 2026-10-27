@@ -892,13 +892,7 @@ async function importSettings(file) {
 // A saved key belongs to the host it was saved for (options.js savedKeyApplies): a key whose platform row, or the
 // Obsidian address, points at another origin after an import is dropped, never sent there; the user enters it again.
 async function dropMovedKeys(before, after) {
-  const origin = (url) => {
-    try {
-      return new URL(String(url).trim()).origin;
-    } catch {
-      return "";
-    }
-  };
+  const origin = MdgSettings.urlOrigin;
   const origins = (settings) => new Map((Array.isArray(settings[AI_PROVIDERS]) ? settings[AI_PROVIDERS] : []).map((p) => [String(p?.id || "").trim(), origin(p?.baseUrl)]));
   const [was, now] = [origins(before), origins(after)];
   const keys = await loadAiProviderKeys();
@@ -912,9 +906,6 @@ async function dropMovedKeys(before, after) {
 
 const { aiApiKeys: AI_PROVIDER_KEYS_STORAGE, aiProviderList: AI_PROVIDERS } = MdgLimits.KEYS;
 
-// An AI platform's address as requests use it: no spaces, no trailing slashes.
-const trimBaseUrl = (url) => String(url || "").trim().replace(/\/+$/, "");
-
 function normalizeAiProvider(item) {
   if (!item || typeof item !== "object") return null;
   const id = String(item.id || "").trim();
@@ -923,7 +914,7 @@ function normalizeAiProvider(item) {
     id,
     presetId: String(item.presetId || "custom"),
     name: String(item.name || "").trim() || MdgErrors.LABEL.customAi,
-    baseUrl: trimBaseUrl(item.baseUrl),
+    baseUrl: MdgSettings.trimBaseUrl(item.baseUrl),
     model: String(item.model || "").trim(),
     temperature: typeof item.temperature === "number" ? item.temperature : 0.7,
     requiresKey: item.requiresKey !== false,
@@ -1264,7 +1255,7 @@ async function testAiConnection({ baseUrl, apiKey, model, requiresKey }) {
     return { ok: false, error: problem.text, code: problem.code };
   }
   return probeAiChatCompletion({
-    baseUrl: trimBaseUrl(baseUrl),
+    baseUrl: MdgSettings.trimBaseUrl(baseUrl),
     apiKey,
     model: String(model).trim()
   });

@@ -115,6 +115,16 @@
   // A note field as stored: "bvid" was video_id's name before the site registry (the settings page and note.js both read it).
   const normalizeFrontmatterField = (value) => text(value).replace(/^bvid$/, "video_id");
   const normalizeApiKey = (value) => text(value).replace(/^Bearer\s+/i, "").trim();
+  // An address (AI platform, Obsidian) as requests use it: no spaces, no trailing slashes.
+  const trimBaseUrl = (url) => String(url || "").trim().replace(/\/+$/, "");
+  // A saved Key belongs to its address's origin (options.js savedKeyApplies, background.js dropMovedKeys); "" if not a URL.
+  const urlOrigin = (url) => {
+    try {
+      return new URL(String(url).trim()).origin;
+    } catch {
+      return "";
+    }
+  };
   const normalizeDownloadFormat = (value) => (value === "txt" ? "txt" : "srt");
   const normalizePlayerAiQuickPrompt = (value) => text(value);
   // 快捷追问: trimmed, no blanks or repeats, at most MAX_PRESET_PROMPTS.
@@ -246,6 +256,8 @@
     normalizeAiSystemPrompt,
     normalizeSeenThreshold,
     normalizeApiKey,
+    trimBaseUrl,
+    urlOrigin,
     normalizeFrontmatterField,
     normalizeDownloadFormat,
     normalizePlayerAiQuickPrompt,
