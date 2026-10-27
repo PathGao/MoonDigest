@@ -860,9 +860,14 @@ async function readPlayerChange() {
   // Unread (no answer from the background) is no change: the next read asks the player again.
   const ref = await readPlayerRef().catch(() => null);
   // Compared again: the URL watcher may have reset the state while the player answered.
-  if (watching() && ref && (ref.id !== state.videoId || (state.cid && ref.part.cid !== state.cid))) {
+  if (watching() && ref && isOtherClip(ref, state)) {
     videoChanged();
   }
+}
+
+// Another video, or another part once the read knows its cid: before that, only the id can tell.
+function isOtherClip(ref, clip) {
+  return ref.id !== clip.videoId || Boolean(clip.cid && ref.part.cid !== clip.cid);
 }
 
 function videoChanged() {
@@ -882,18 +887,22 @@ function videoChanged() {
   // Another part of the same video keeps its title until the info is read. The page's own title is not used: at this
   // point it may still be the last video's (B站 updates it later, YouTube's og:title not at all).
   if (MdgSites.parseRef(nextUrl)?.id === prev.id) state.title = prev.title;
-  const shouldEnterReaderMode = hasReaderParam(nextUrl);
-  if (!state.readingViewOpen && shouldEnterReaderMode) {
+  const action = clipChangeAction(state.readingViewOpen, hasReaderParam(nextUrl));
+  if (action === "enter") {
     markReaderMode();
     startReaderMode();
-    return;
-  }
-  if (state.readingViewOpen || shouldEnterReaderMode) {
+  } else if (action === "refresh") {
     setReadingNotice("");
     // Not waiting for the player: the video's info and duration come from the site (sites.js fetchMeta).
     refreshClip().catch(readerReadFailed);
   }
-  // Out of 专注模式 nothing is read here: the next entry that asks (popup, side panel, player ✦) reads it via settledClip.
+}
+
+// 专注模式 open reads the new clip, the reader URL param opens it. Otherwise nothing is read here: the next entry that
+// asks (popup, side panel, player ✦) reads it via settledClip.
+function clipChangeAction(readingViewOpen, readerParam) {
+  if (readingViewOpen) return "refresh";
+  return readerParam ? "enter" : "none";
 }
 
 function resetClipState() {
@@ -951,6 +960,7 @@ function buildSidepanelContext() {
     subtitleMarkdown = "";
     logWarn("[MDG] sidepanel-get-context: buildMarkdown failed", e);
   }
+  const { pageIndex, pageCount } = clipPage(state);
   return {
     ok: true,
     payload: {
@@ -963,8 +973,8 @@ function buildSidepanelContext() {
       cid: state.cid || "",
       aid: state.aid || "",
       description: state.description || "",
-      pageIndex: Number(state.pageIndex) > 0 ? Number(state.pageIndex) : 1,
-      pageCount: Number(state.pageCount) > 0 ? Number(state.pageCount) : 0,
+      pageIndex,
+      pageCount,
       pageTitle: state.pageTitle || "",
       subtitleMarkdown,
       subtitleFailure: state.subtitleFailure,
@@ -1063,24 +1073,12 @@ async function runRefreshClip() {
     run.check();
     logInfo("[MDG] raw meta data", { meta });
 
-    const dom = site.readDom(document);
     state.meta = meta;
     metaLoaded = true;
-    state.aid = meta.aid || "";
-    state.title = meta.title || dom.title;
-    state.author = meta.author || dom.author;
-    state.authorUrl = meta.authorUrl || "";
-    state.cover = meta.cover || "";
-    state.videoTags = Array.isArray(meta.tags) ? meta.tags : [];
-    state.uploadDate = meta.uploadDate || dom.uploadDate;
-    state.description = meta.description || dom.description;
-    state.pageCount = Number(meta.pageCount) || 0;
+    Object.assign(state, clipFields(meta, site.readDom(document)));
     state.currentClipSignature = clipSignature;
-    state.pageIndex = Number(meta.pageIndex) > 0 ? Number(meta.pageIndex) : 1;
-    state.pageTitle = meta.pageTitle || "";
-    state.cid = meta.cid || "";
     // Without a duration the subtitle is not checked against one, as on every other entry (sites.js).
-    state.videoDuration = Number(meta.duration) > 0 ? Number(meta.duration) : readRuntimeVideoDuration();
+    state.videoDuration ||= readRuntimeVideoDuration();
     if (state.readingViewOpen) {
       renderReadingView();
     }
@@ -1120,14 +1118,12 @@ async function runRefreshClip() {
     await showSubtitle(found, run);
     setStatus(state.subtitleWarning + readDoneText(), Boolean(state.commentsFailure));
   } catch (error) {
-    // A newer run (the video changed) owns the state now: an old video's late failure must not reset or mark it.
-    if (MdgCommon.isStale(error) || !run.alive) {
+    const action = readFailureAction(error, run.alive, metaLoaded);
+    if (action === "ignore") {
       return;
     }
     const reason = failureReason(error);
-    // Only the subtitle step failed: keep the video info and degrade to the no-subtitle state. A limit is no subtitle
-    // failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and 重试 reads it all again.
-    if (metaLoaded && !MdgSites.isLimit(error)) {
+    if (action === "degrade") {
       try {
         await showNoSubtitleState(run, { failure: reason });
       } catch (degradeError) {
@@ -1147,6 +1143,38 @@ async function runRefreshClip() {
     setStatus(`${MdgErrors.TEXT.videoReadFailed}：${reason}。`, true);
     throw error;
   }
+}
+
+// The video's info a read keeps: the site's first, the page's where the site has none.
+function clipFields(meta, dom) {
+  return {
+    aid: meta.aid || "",
+    title: meta.title || dom.title,
+    author: meta.author || dom.author,
+    authorUrl: meta.authorUrl || "",
+    cover: meta.cover || "",
+    videoTags: Array.isArray(meta.tags) ? meta.tags : [],
+    uploadDate: meta.uploadDate || dom.uploadDate,
+    description: meta.description || dom.description,
+    ...clipPage(meta),
+    pageTitle: meta.pageTitle || "",
+    cid: meta.cid || "",
+    videoDuration: Number(meta.duration) > 0 ? Number(meta.duration) : 0
+  };
+}
+
+// Parts count from 1; a count of 0 is unknown.
+function clipPage({ pageIndex, pageCount }) {
+  return { pageIndex: Number(pageIndex) > 0 ? Number(pageIndex) : 1, pageCount: Number(pageCount) > 0 ? Number(pageCount) : 0 };
+}
+
+// What a failed read does. A newer run (the video changed) owns the state now: an old video's late failure must not
+// reset or mark it ("ignore"). Only the subtitle step failed: keep the video info and degrade to the no-subtitle state.
+// A limit is no subtitle failure: it fails the read like the side panel and 逐个视频笔记 do, so no note says it and
+// 重试 reads it all again ("fail").
+function readFailureAction(error, alive, metaLoaded) {
+  if (MdgCommon.isStale(error) || !alive) return "ignore";
+  return metaLoaded && !MdgSites.isLimit(error) ? "degrade" : "fail";
 }
 
 // Reasons arrive with or without a trailing full stop; strip it so the sentences after them join cleanly.
