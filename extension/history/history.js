@@ -476,7 +476,7 @@ const readsFromPage = (g) => isWebPage(g) || Boolean(g.context.videoId && MdgSit
 // click (sidePanel.open needs the gesture), then its tab in this window is focused, or opened, and the panel asked for
 // the conversation as a video's is (askSidepanel).
 function askAboutPage(group) {
-  const opening = chrome.sidePanel.open({ windowId: OWN_TAB?.windowId });
+  const opening = MdgErrors.openSidepanel({ windowId: OWN_TAB?.windowId });
   setStatus(MdgErrors.TEXT.sidepanelOpening);
   void (async () => {
     try {
@@ -782,7 +782,7 @@ els.list.addEventListener("click", (event) => {
     MdgLimits.askSidepanel({ tabId: OWN_TAB?.id, contextRef: group.context });
     const opening = MdgErrors.TEXT.sidepanelOpening;
     setStatus(opening);
-    chrome.sidePanel.open({ tabId: OWN_TAB?.id }).then(
+    MdgErrors.openSidepanel({ tabId: OWN_TAB?.id }).then(
       () => els.status.textContent === opening && setStatus(""),
       (error) => setStatus(`${MdgErrors.TEXT.sidepanelOpenFailed}：${error.message}`, true)
     );

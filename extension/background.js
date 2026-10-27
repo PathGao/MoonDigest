@@ -273,15 +273,6 @@ async function videoTabPayload(tabId, opened) {
   }
 }
 
-async function openAiSidepanelForTab(tabId) {
-  if (chrome.sidePanel?.open) {
-    await chrome.sidePanel.open({ tabId });
-    return;
-  }
-
-  throw new Error("当前浏览器不支持扩展侧边栏");
-}
-
 const FETCH_TIMEOUT_MS = 15000;
 
 // Obsidian's Local REST API and the cover images written into the vault; a hung request would block the write forever.
@@ -496,7 +487,7 @@ const BACKGROUND_HANDLERS = {
     const tabId = Number(message.tabId || sender?.tab?.id || 0) || 0;
     if (!tabId) throw new Error(MdgErrors.TEXT.noTab);
     // Before any await: sidePanel.open needs the click that sent the message.
-    const openPromise = openAiSidepanelForTab(tabId);
+    const openPromise = MdgErrors.openSidepanel({ tabId });
     // Awaited once settings load; without a handler now, a fast rejection is reported as uncaught.
     openPromise.catch(() => {});
     const settings = await getMergedSettings();

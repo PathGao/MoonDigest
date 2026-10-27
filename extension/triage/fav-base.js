@@ -375,7 +375,7 @@ let ownTabId;
 function askAi(it) {
   const contextRef = { site: "bilibili", videoId: it.bvid, title: it.title, author: it.upper, url: videoUrl(it.bvid) };
   MdgLimits.askSidepanel({ tabId: ownTabId, contextRef });
-  chrome.sidePanel.open({ tabId: ownTabId }).catch((err) => toast(`${MdgErrors.TEXT.sidepanelOpenFailed}：${err.message}`, true));
+  MdgErrors.openSidepanel({ tabId: ownTabId }).catch((err) => toast(`${MdgErrors.TEXT.sidepanelOpenFailed}：${err.message}`, true));
 }
 
 // Busy button: disabled + aria-busy (tokens.css draws the spinner) + 「…中」 text; false restores it.
