@@ -76,6 +76,8 @@
     netDown: "网络断了",
     // Asking Chrome or the background to open the side panel failed (popup, video page, 摘读记录, 分拣台); 「：原因」 follows.
     sidepanelOpenFailed: "打开侧边栏失败",
+    // The browser has no extension side panel, or turned it off (Chromium's "API Unavailable"): openSidepanel's reason.
+    sidepanelUnsupported: "当前浏览器不支持扩展侧边栏",
     // 继续问 on a 摘读记录 record that is neither a video nor a web page (a chrome:// or extension page).
     notVideo: "这个页面不能读取，不能继续问",
     // The side panel's 停止 ended the reply (the background's port message, the panel's own stop).
@@ -369,6 +371,15 @@
     return send();
   }
 
+  // chrome.sidePanel.open for every entry (background, 摘读记录, 分拣台), called inside the click before any await. A
+  // browser without the API, or with it turned off (Chromium rejects with "API Unavailable"), says sidepanelUnsupported.
+  const openSidepanel = (options) =>
+    chrome.sidePanel?.open
+      ? chrome.sidePanel.open(options).catch((error) => {
+          throw /API Unavailable/i.test(String(error?.message || "")) ? new Error(TEXT.sidepanelUnsupported, { cause: error }) : error;
+        })
+      : Promise.reject(new Error(TEXT.sidepanelUnsupported));
+
   // What chrome.runtime calls throw in a content script whose extension was reloaded (badges.js checks
   // chrome.runtime.id instead).
   const reloaded = (error) => /Extension context invalidated/.test(String(error?.message || ""));
@@ -394,5 +405,5 @@
     else node.removeAttribute("aria-description");
   }
 
-  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, pageText, grantPages, subtitleCode, text, messageOf, fromResp, grantOrigin, noReceiver, pageSilent, tabMessage, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
+  globalThis.MdgErrors = Object.freeze({ TEXT, LABEL, action, remedies, pageCode, pageText, grantPages, subtitleCode, text, messageOf, fromResp, grantOrigin, noReceiver, pageSilent, tabMessage, openSidepanel, reloaded, escapeHtml, setReason, subtitleMissing, aiTimeout, aiStalled, upTagTitle, noAccess, NET_TIMEOUT_MS, netTimeout, CODE, TIMEOUT_STATUS });
 })();

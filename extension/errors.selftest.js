@@ -83,6 +83,17 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
   for (const file of [...sources, "note.js"]) {
     assert.ok(!/拿不到字幕|字幕抓取失败[：（]\$\{|无字幕[，。]/.test(read(file)), `${file} words a missing subtitle itself; use MdgErrors.subtitleMissing`);
   }
+  // openSidepanel: Chromium's "API Unavailable" (side panel turned off) and a missing API say the same sentence; any other
+  // rejection passes on as it is.
+  const opens = async (open) => {
+    ctx.chrome.sidePanel = open && { open };
+    return E.openSidepanel({ tabId: 1 }).then(() => "opened", (error) => error.message);
+  };
+  assert.strictEqual(await opens(async () => {}), "opened");
+  assert.strictEqual(await opens(async () => { throw new Error("API Unavailable"); }), E.TEXT.sidepanelUnsupported);
+  assert.strictEqual(await opens(null), E.TEXT.sidepanelUnsupported);
+  assert.strictEqual(await opens(async () => { throw new Error("No active side panel for tabId: 1"); }), "No active side panel for tabId: 1");
+
   console.log("errors selftest ok");
 })().catch((e) => {
   console.error(e);
