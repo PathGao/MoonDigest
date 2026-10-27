@@ -469,6 +469,7 @@ function saveSnapshot(mediaId, items, ids = null) {
       [K.left]: left
     });
     if (!saved) return;
+    await refreshElsewhereNow(mediaId);
     S.removedCount = Object.keys(removed).length;
     renderTop();
   });

@@ -120,6 +120,26 @@
     const old = new Set(oldIds);
     return ids.every((b) => old.has(b) || got.has(b)) ? items : null;
   }
+  // A 取消收藏's elsewhere (pure): still in a chosen folder other than its own. lists = { folderId: bvids, or null while
+  // the folder has no full list cached }, the chosen folders but 稍后再看; byFolder = { folderId: decisions }. Returns
+  // { folderId: { bvid: record } } of the records whose elsewhere changes. A video in no known list stays as recorded
+  // while some other folder's list is unknown: only full lists prove it left.
+  function refreshElsewhere(byFolder, lists) {
+    const sets = Object.entries(lists).map(([id, bvids]) => [id, bvids && new Set(bvids)]);
+    const out = {};
+    for (const [f, d] of Object.entries(byFolder)) {
+      for (const [b, rec] of Object.entries(d || {})) {
+        if (rec?.action !== "unfav") continue;
+        const others = sets.filter(([id]) => id !== f);
+        const now = others.some(([, s]) => s?.has(b)) ? true : others.every(([, s]) => s) ? false : Boolean(rec.elsewhere);
+        if (now === Boolean(rec.elsewhere)) continue;
+        const next = { ...rec, elsewhere: true };
+        if (!now) delete next.elsewhere;
+        (out[f] ||= {})[b] = next;
+      }
+    }
+    return out;
+  }
   const unfavOnly = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) => v?.action === "unfav"));
 
   function mdLinkText(s) {
@@ -135,5 +155,5 @@
     return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
   }
 
-  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink };
+  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink };
 })();

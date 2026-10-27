@@ -29,18 +29,20 @@ const keepStep = (bvids) =>
 // Merged into the stored record, not written from memory: a batch running for this folder may have written it after
 // the open folder read it.
 function patchDecisions(mediaId, patch) {
-  return lockRecords(async () => {
-    const stored = await storeGet(K.decisions(mediaId), {});
-    const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
-    for (const d of maps) {
-      for (const [b, v] of Object.entries(patch)) {
-        if (v) d[b] = v;
-        else if (d === S.decisions) unfavGone(b);
-        else delete d[b];
-      }
+  return lockRecords(() => patchDecisionsNow(mediaId, patch));
+}
+// patchDecisions for a fn already running in lockRecords.
+async function patchDecisionsNow(mediaId, patch) {
+  const stored = await storeGet(K.decisions(mediaId), {});
+  const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
+  for (const d of maps) {
+    for (const [b, v] of Object.entries(patch)) {
+      if (v) d[b] = v;
+      else if (d === S.decisions) unfavGone(b);
+      else delete d[b];
     }
-    await storeSet(K.decisions(mediaId), unfavOnly(stored));
-  });
+  }
+  await storeSet(K.decisions(mediaId), unfavOnly(stored));
 }
 // 保留 is one list for every folder; a null value deletes. The patch goes onto the page's copy at once and onto the stored
 // list by read-modify-write, so a 保留 another tab set meanwhile stays; the page then takes what was written.
@@ -73,6 +75,17 @@ async function favedElsewhere(mediaId) {
   const others = chosenOtherIds(mediaId).filter((id) => id !== TOVIEW);
   const got = await chrome.storage.local.get(others.map(K.snapshot));
   return new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
+}
+// A chosen folder's fresh full list (saveSnapshot, already in lockRecords) may change where the other folders' 取消收藏
+// videos still are: favorited into it on B站, or taken out of it there. Their elsewhere follows the cached lists.
+async function refreshElsewhereNow(mediaId) {
+  const ids = chosenOtherIds();
+  const targets = ids.filter((id) => id !== String(mediaId));
+  const sources = ids.filter((id) => id !== TOVIEW);
+  const got = await chrome.storage.local.get([...targets.map(K.decisions), ...sources.map(K.snapshot)]);
+  const lists = Object.fromEntries(sources.map((id) => [id, got[K.snapshot(id)]?.bvids || null]));
+  const changed = refreshElsewhere(Object.fromEntries(targets.map((id) => [id, got[K.decisions(id)]])), lists);
+  for (const [id, patch] of Object.entries(changed)) await patchDecisionsNow(id, patch);
 }
 // 所有收藏夹: still in a chosen folder once it leaves the folders in `gone`.
 const stillIn = (it, gone) => it.folders.some((f) => f !== TOVIEW && !gone.includes(f));
