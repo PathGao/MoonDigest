@@ -101,11 +101,12 @@
     nothingToCopy: "没有可复制的内容",
     nothingToDownload: "没有可下载的内容",
     nothingToWrite: "没有可写入 Obsidian 的内容",
-    // A copy to the clipboard failed (popup, side panel, 摘读记录, 分拣台); 「：原因」 follows, noClipboard without one.
+    // A copy to the clipboard failed (popup, side panel, 摘读记录, 分拣台); 「：原因」 follows (noClipboard when the clipboard refused).
     copyFailed: "复制失败",
     // 下载 .md failed (side panel, 摘读记录); 「：原因」 follows.
     downloadFailed: "下载失败",
-    noClipboard: "无法访问剪贴板",
+    // The page lost focus while the note was prepared, or the browser refused (Chrome's English NotAllowedError).
+    noClipboard: "无法访问剪贴板，点一下页面再试",
     // The side panel while the video page reads the subtitle for it.
     subtitleReading: "正在读取视频字幕…",
     // 分拣台's 收藏夹设置 / 关注设置 and their AI 参数; a failure is followed by 「：原因」.

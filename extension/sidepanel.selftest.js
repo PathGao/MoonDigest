@@ -1110,7 +1110,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     // C350: a reply's 复制 Markdown says 已复制 Markdown, like the export menu's.
     ctx.navigator.clipboard = { writeText: async () => {} };
     await ctx.copyMarkdown("x");
-    assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板", true], ["已复制 Markdown", false]]);
+    assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板，点一下页面再试", true], ["已复制 Markdown", false]]);
     delete ctx.navigator.clipboard;
     [ctx.showConversationContextNotice, ctx.chrome.runtime.sendMessage] = prev;
   }

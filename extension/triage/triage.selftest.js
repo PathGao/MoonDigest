@@ -3996,7 +3996,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.el.writeFormat.value = "digest";
       t.navigator = { clipboard: { writeText: async () => { throw new Error("没有权限"); } } };
       await t.exportDigest("copy");
-      assert.ok(t.el.writeProgress.textContent === "复制失败：没有权限" && cls.has("fail-text"), "copy failure in red");
+      assert.ok(t.el.writeProgress.textContent === "复制失败：无法访问剪贴板，点一下页面再试" && cls.has("fail-text"), "copy failure in red");
       handlers["triage-export"] = (m) => ({ ok: true, data: { path: `库/${m.filename}`, text: `已写入 Obsidian：库/${m.filename}` } });
       await t.exportDigest("obsidian");
       assert.ok(/^已写入 Obsidian：库\/B站摘录-/.test(t.el.writeProgress.textContent) && !cls.has("fail-text"), t.el.writeProgress.textContent);
