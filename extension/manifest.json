@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MoonDigest · 月团视频摘读",
-  "version": "3.7.2",
+  "version": "3.7.3",
   "description": "用 AI 读 B站、YouTube 视频和网页：AI 总结、问答；整理收藏夹，判断哪些值得留；整理关注的 UP 主。笔记可导出 Markdown，也可写入 Obsidian。",
 
   "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab", "sidePanel", "cookies", "declarativeNetRequest", "alarms"],
