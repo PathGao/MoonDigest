@@ -66,9 +66,9 @@ dialog:where(:not(.mdg-overwrite)) :is(p, div):empty { display: none; }
 .picker-opt:hover { background: var(--field-bg); }
 .picker-opt.on { border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); }
 .picker-opt.active { outline: 2px solid var(--text-2); outline-offset: -1px; }
-/* One slot: the tag's dot, or ✓ or – in its place, so ticking moves nothing. */
+/* The tag's dot keeps its color when ticked, with ✓ or – inside, so ticking moves nothing. */
 .picker-opt .slot { flex: none; display: flex; align-items: center; justify-content: center; width: 12px; font-weight: 700; }
-.picker-opt .dot { --c: inherit; display: block; }
+.picker-opt .dot { --c: inherit; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; color: #fff; font-size: 9px; line-height: 1; }
 .picker-opt .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .picker-opt .muted, .picker-opt .n { flex: none; }
 .picker-opt .n { color: var(--faint); font-variant-numeric: tabular-nums; }

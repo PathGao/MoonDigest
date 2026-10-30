@@ -249,6 +249,26 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   const noteTarget = { dataset: { act: "note" }, closest: (s) => (s === ".entry" ? { dataset: { key: noteKey } } : noteTarget) };
   L.list.click.forEach((f) => f({ target: noteTarget }));
   assert.ok(html.includes("data-note"), "the 备注 box is open");
+  // A 备注 saves while it is open, 400 ms after typing stops, as on the 分拣台; never mid-IME.
+  ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
+  const noteBox = { value: "打到一半", matches: (sel) => sel === "[data-note]" };
+  L.list.input.forEach((f) => f({ target: noteBox, isComposing: true }));
+  await wait(500);
+  assert.strictEqual(store[NOTES].BV1note.text, "备注", "mid-IME: not saved");
+  // A timer from before the composition started does not write its half-typed text either.
+  L.list.input.forEach((f) => f({ target: { value: "选完", matches: noteBox.matches } }));
+  L.list.input.forEach((f) => f({ target: noteBox, isComposing: true }));
+  await wait(500);
+  assert.strictEqual(store[NOTES].BV1note.text, "备注", "the earlier timer is cleared");
+  L.list.compositionend.forEach((f) => f({ target: noteBox }));
+  await wait(500);
+  assert.strictEqual(store[NOTES].BV1note.text, "打到一半", "saved with the box still open");
+  assert.ok(html.includes("data-note"), "the box stays open");
+  noteBox.value = "备注";
+  L.list.input.forEach((f) => f({ target: noteBox }));
+  await wait(500);
+  assert.strictEqual(store[NOTES].BV1note.text, "备注");
+  ctx.chrome.storage.local.set = async () => {};
   const before = renders;
   docFire("pointerdown");
   L.list.focusout.forEach((f) => f({ target: { matches: (sel) => sel === "[data-note]" } }));
