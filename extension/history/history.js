@@ -43,6 +43,7 @@ const expanded = new Set(); // entry keys whose 问答 are open, kept while a se
 let reloadTimer = 0;
 let editing = null; // { key, id, draft } while an entry's 备注 is open; storage reloads wait until it closes
 let reloadPending = false;
+let noteTimer = 0;
 let rendering = false;
 let pressing = false; // a pointer is down: redrawing now would replace the control it is pressing
 document.addEventListener("pointerdown", () => (pressing = true), true);
@@ -507,16 +508,38 @@ function renderNote(g) {
 }
 
 // MdgLimits.saveVideoNote, like the side panel and 分拣台: an unchanged note is not rewritten, an emptied one is deleted.
+async function writeNote({ id, draft }) {
+  const changed = await MdgLimits.saveVideoNote(id, draft);
+  if (changed) {
+    if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
+    else delete notes[id];
+  }
+  return changed;
+}
+// As the 分拣台: a 备注 saves 400 ms after typing stops, never mid-IME. Closing saves what is left and says the result.
+function saveNoteSoon() {
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(async () => {
+    const open = editing;
+    if (!open) return;
+    try {
+      if (await writeNote(open)) open.saved = true;
+      if (open.failed) setStatus("");
+      open.failed = false;
+    } catch (error) {
+      open.failed = true;
+      setStatus(`保存备注失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
+    }
+  }, 400);
+}
 async function closeNote() {
   if (!editing) return;
-  const { id, draft } = editing;
+  const open = editing;
+  const { draft } = open;
   editing = null;
+  clearTimeout(noteTimer);
   try {
-    if (await MdgLimits.saveVideoNote(id, draft)) {
-      if (draft.trim()) notes[id] = { text: draft, updatedAt: Date.now() };
-      else delete notes[id];
-      setStatus(draft.trim() ? "备注已保存" : "备注已删除");
-    }
+    if ((await writeNote(open)) || open.saved || open.failed) setStatus(draft.trim() ? "备注已保存" : "备注已删除");
   } catch (error) {
     setStatus(`保存备注失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
@@ -842,7 +865,13 @@ els.list.addEventListener("toggle", (event) => {
   if (key) event.target.open ? expanded.add(key) : expanded.delete(key);
 }, true);
 els.list.addEventListener("input", (event) => {
-  if (editing && event.target.matches("[data-note]")) editing.draft = event.target.value;
+  if (!editing || !event.target.matches("[data-note]")) return;
+  editing.draft = event.target.value;
+  clearTimeout(noteTimer);
+  if (!event.isComposing) saveNoteSoon();
+});
+els.list.addEventListener("compositionend", (event) => {
+  if (editing && event.target.matches("[data-note]")) saveNoteSoon();
 });
 // Enter (or Esc) saves and closes; Shift+Enter is a newline. Never mid-IME.
 els.list.addEventListener("keydown", (event) => {

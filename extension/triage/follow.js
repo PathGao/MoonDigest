@@ -551,7 +551,7 @@ function upCard(mid) {
     ? `<button type="button" class="danger" data-unfollow="${esc(mid)}" aria-label="取消关注 ${esc(u.name)}"${busy}>取消关注</button>`
     : `<button type="button" class="star${u.special ? " on" : ""}" data-star="${esc(mid)}" aria-pressed="${u.special}" aria-label="${starLabel(!u.special)} ${esc(u.name)}"${UI.reasonAttrs(busyWhy(), `${starLabel(!u.special)}（改 B站）`)}>${u.special ? "★" : "☆"}</button>`;
   const playing = F.viewing && (F.viewing === upView(mid) || u.titles.some((v) => v.bvid === F.viewing));
-  return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
+  return `<article class="card fw-up${sel ? " selected" : ""}${playing ? " playing" : ""}${F.cur === mid ? " focused" : ""}${pick.anchor && pick.mids[0] === mid ? " fw-target" : ""}" data-mid="${esc(mid)}" aria-label="${esc(u.name)}">
     <a class="fw-avatar" href="${space(mid)}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">${u.face ? `<img src="${esc(img(u.face, "96w_96h_1c"))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</a>
     <div class="card-body">
       <div class="fw-name-row"><a class="fw-name" href="${space(mid)}" data-space="${esc(mid)}" target="_blank" rel="noopener" title="${SPACE_TIP}">${esc(u.name)}</a>${kind ? "" : checking() === mid ? '<span class="badge running" aria-busy="true">查投稿中…</span>' : `<span class="badge ${STATUS_BADGE[u.status]}">${STATUS_TEXT[u.status]}</span>`}${u.ov ? `<span class="meta fw-ov" title="${esc(u.ov)}">${esc(u.ov)}</span>` : ""}</div>
@@ -1178,16 +1178,17 @@ const manageTags = tagStore.manage({
 const openManage = () => TagDialogs.manage.open(manageTags);
 
 // ----- 打标签 (one UP from its card, or the selection): the shared picker, tag-picker.js -----
-// A modal for the UP 主 cards and the selection; anchored (the 视频投稿 card's or the viewer line's 「+ 标签」, a CSS selector
-// so it survives redraws) a popover. While the popover is open, pick.keep holds the cards it was opened over (see
-// feedList), so the cards that no longer match the filter leave when it closes, with a toast.
+// A modal for the selection; anchored (a card's or the viewer line's 「+ 标签」, a CSS selector so it survives redraws) a
+// popover, as 收藏夹's. In 视频投稿, pick.keep holds the cards it was opened over (see feedList), so the cards that no longer
+// match the filter leave when it closes, with a toast.
 const pick = { mids: [], anchor: "", keep: null };
+const upPlus = (mid) => `.fw-up[data-mid="${CSS.escape(mid)}"] .tag-plus`;
 function openPick(mids, anchor = "") {
   if (anchor && rows.get(mids[0])?.gone) return;
   TagPicker.close(); // saves the open one before pick is reset for this one
   pick.mids = mids;
   pick.anchor = anchor;
-  pick.keep = anchor && F.feed ? new Set(feedList(F.feed.items, D, feedF(), null).filter((it) => it.mid === mids[0]).map((it) => it.bvid)) : null;
+  pick.keep = anchor && F.tab === "feed" && F.feed ? new Set(feedList(F.feed.items, D, feedF(), null).filter((it) => it.mid === mids[0]).map((it) => it.bvid)) : null;
   const n = pick.keep?.size || 0;
   tagStore.openPicker({
     title: UI.pickTitle(mids.length, upName(mids[0]), WHO),
@@ -1217,7 +1218,7 @@ function tagByKey() {
   if (F.viewing) return void (F.viewingMid && !rows.get(F.viewingMid)?.gone && openPick([F.viewingMid], "#fwViewerUp .tag-plus"));
   const it = F.tab === "feed" && F.hover && F.feed?.items.find((x) => x.bvid === F.hover);
   if (it) openPick([it.mid], `.fw-video[data-bvid="${CSS.escape(it.bvid)}"] .tag-plus`);
-  else if (F.tab === "ups" && shown.includes(F.cur) && !rows.get(F.cur)?.gone) openPick([F.cur]);
+  else if (F.tab === "ups" && shown.includes(F.cur) && !rows.get(F.cur)?.gone) openPick([F.cur], upPlus(F.cur));
 }
 // A modal dialog (confirm, settings, the modal picker) owns the keys; the popover does not.
 const modalOpen = () => Boolean(document.querySelector("dialog[open]:not(.tp-pop)"));
@@ -1486,7 +1487,7 @@ main.addEventListener("click", async (e) => {
   const pk = t.closest("[data-pick]");
   if (pk) {
     const card = pk.closest(".fw-video");
-    return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .tag-plus` : "");
+    return openPick([pk.dataset.pick], card ? `.fw-video[data-bvid="${CSS.escape(card.dataset.bvid)}"] .tag-plus` : upPlus(pk.dataset.pick));
   }
   const star = t.closest("[data-star]");
   if (star) return W.busy() ? toast(busyWhy()) : starOne(star.dataset.star);

@@ -107,7 +107,7 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   P.open(opts());
   assert.deepStrictEqual(calls.splice(0), ["showModal"]);
   assert.ok(input.focused && P.isOpen());
-  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="slot">✓</span>') && list.innerHTML.includes('<span class="n" aria-hidden="true">3</span>'));
+  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="slot"><span class="dot">✓</span></span>') && list.innerHTML.includes('<span class="n" aria-hidden="true">3</span>'));
 
   // → then Enter ticks the second tag; 1 ticks the first (游戏 off); Enter that picks an IME candidate ticks nothing.
   assert.strictEqual(key("ArrowRight").prevented, 1);
@@ -148,9 +148,9 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
 
   // Several targets: – for some, a click puts it on all, a second click takes it off all.
   P.open(opts({ targets: ["a", "b"] }));
-  assert.ok(list.innerHTML.includes('aria-checked="mixed"><span class="slot">–</span>') && list.innerHTML.includes("1 个有"));
+  assert.ok(list.innerHTML.includes('aria-checked="mixed"><span class="slot"><span class="dot">–</span></span>') && list.innerHTML.includes("1 个有"));
   fire(list, "click", { target: { closest: () => ({ dataset: { i: "0" } }) } });
-  assert.ok(list.innerHTML.includes('style="--c:#1" title="游戏" aria-checked="true"><span class="slot">✓</span><span class="name">游戏</span>'));
+  assert.ok(list.innerHTML.includes('style="--c:#1" title="游戏" aria-checked="true"><span class="slot"><span class="dot">✓</span></span><span class="name">游戏</span>'));
   P.close();
   assert.deepStrictEqual(saved.splice(0), [[{ key: "b", add: ["g"], remove: [] }]]);
 

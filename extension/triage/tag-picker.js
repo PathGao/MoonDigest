@@ -119,7 +119,7 @@
           const all = n === sets.size;
           const some = sets.size > 1 && n ? `<span class="muted">${n} 个有</span>` : "";
           const key = !input.value && keyOf(i) ? `<span class="n" aria-hidden="true">${keyOf(i)}</span>` : "";
-          return `<li ${attrs.replace('class="picker-opt', `class="picker-opt${all ? " on" : ""}`)} style="--c:${esc(r.tag.color)}" title="${esc(r.tag.name)}" aria-checked="${all ? "true" : n ? "mixed" : "false"}"><span class="slot">${all ? "✓" : n ? "–" : '<span class="dot"></span>'}</span><span class="name">${esc(r.tag.name)}</span>${some}${key}</li>`;
+          return `<li ${attrs.replace('class="picker-opt', `class="picker-opt${all ? " on" : ""}`)} style="--c:${esc(r.tag.color)}" title="${esc(r.tag.name)}" aria-checked="${all ? "true" : n ? "mixed" : "false"}"><span class="slot"><span class="dot">${all ? "✓" : n ? "–" : ""}</span></span><span class="name">${esc(r.tag.name)}</span>${some}${key}</li>`;
         })
         .join("") || (opts.empty ? `<li class="muted">${esc(opts.empty)}</li>` : "");
     list.querySelector(".active")?.scrollIntoView?.({ block: "nearest" });
