@@ -214,6 +214,10 @@
     aiTag: "AI 打标签",
     gotIt: "知道了",
     tagsMenu: "标签…",
+    // The tag panels' filter box: tags to filter, none yet, or none can be made here.
+    tagFilterOrNew: "筛选或新建标签",
+    tagFirstNew: "输入名称，回车新建标签",
+    tagFilter: "筛选标签",
     // The settings page's custom AI platform, and the name a platform stored without one gets (background.js).
     customAi: "自定义",
     // A B站 video deleted or hidden: the error of every read (sites.js, not B站's own words) and the verdict's reason

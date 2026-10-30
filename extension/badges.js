@@ -150,7 +150,7 @@
   }
 
   // ---- The 「+」 picker's data: same tag shape, colors and name rules as the triage page's 关注 mode (tag-core.js). ----
-  const { applyUpTag, upTagsFull } = globalThis.MdgTagCore;
+  const { applyUpTag, upTagsFull, cleanTagName, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove } = globalThis.MdgTagCore;
   const pickRows = (mid, tags, map) => {
     const on = new Set(map?.[mid] || []);
     return (Array.isArray(tags) ? tags : []).map((t) => ({ id: t.id, name: String(t.name || ""), color: String(t.color || ""), on: on.has(t.id) }));
@@ -665,35 +665,39 @@
     return pick?.add === add ? closePick(true) : openPick(add);
   }
 
-  // ---- The 「+ UP 标签」 picker: the user's UP tags with checks, 新建标签; a click writes follow_tags / follow_tag_map at once.
-  // It lives in its own closed shadow root, so neither Bilibili's nor BewlyCat's CSS reaches it, and key events stop at
-  // its host. Nothing in it writes to Bilibili.
-  let pick = null; // { mid, spot, add, host, root, panel, rect, editing, focus }
+  // ---- The 「+ UP 标签」 picker: the 分拣台's panel (tag-picker.js) drawn here: the filter on top, three equal columns of
+  // tags, the same keys and order (MdgTagCore). A tick writes follow_tags / follow_tag_map at once, since a B站 page may
+  // leave at any moment. It lives in its own closed shadow root, so neither Bilibili's nor BewlyCat's CSS reaches it, and
+  // key events stop at its host. Nothing in it writes to Bilibili.
+  let pick = null; // { mid, spot, add, host, root, panel, input, wall, say, rect, order (ids at opening), rows, index }
   const PICK_CSS = `
 :host { all: initial; }
-.pick { --bg: #fff; --text: #18191c; --muted: #9499a0; --line: #e3e5e7; --hover: #f1f2f3; --accent: #7c3ed1; --link: #0079ad;
-  position: fixed; z-index: 2147483000; box-sizing: border-box; width: 270px; max-height: calc(100vh - 16px); overflow: auto;
-  padding: 10px 8px 8px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px;
+.pick { --bg: #fff; --text: #18191c; --muted: #9499a0; --line: #e3e5e7; --hover: #f1f2f3; --active: #61666d; --link: #0079ad;
+  position: fixed; z-index: 2147483000; box-sizing: border-box; width: 420px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto;
+  border: 1px solid var(--line); border-radius: 8px;
   background: var(--bg); color: var(--text); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14); text-align: left;
   font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
-.pick.dark { --bg: #232527; --text: #e3e5e7; --muted: #8d9198; --line: #3a3d42; --hover: #303236; --accent: #cba6f7; --link: #33bef0;
+.pick.dark { --bg: #232527; --text: #e3e5e7; --muted: #8d9198; --line: #3a3d42; --hover: #303236; --active: #c9ccd0; --link: #33bef0;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); }
-.h { margin: 0 6px 6px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.opt { display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; margin: 0; padding: 5px 6px; border: 0;
-  border-radius: 6px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.opt:hover, .opt:focus-visible { background: var(--hover); outline: none; }
-.opt:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
-.ck { flex: none; width: 12px; font-weight: 700; }
-.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--muted)); }
-.nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.new { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
-.new .opt { color: var(--link); }
-input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border: 1px solid var(--accent); border-radius: 6px;
-  background: transparent; color: inherit; font: inherit; outline: none; }
-.empty, .foot { margin: 2px 6px; color: var(--muted); font-size: 12px; }
-.foot { margin-top: 6px; font-size: 11px; }
-.go { display: block; margin: 6px 6px 0; padding: 0; border: 0; background: none; color: var(--link); font: inherit; font-size: 12px;
-  cursor: pointer; text-align: left; }
+input { box-sizing: border-box; display: block; width: 100%; height: 36px; margin: 0; padding: 0 12px; border: 0; border-bottom: 1px solid var(--line);
+  background: none; color: inherit; font: inherit; outline: none; }
+input::placeholder { color: var(--muted); }
+.wall { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-height: 256px; padding: 8px; overflow-y: auto; box-sizing: border-box; }
+.wall:empty { display: none; }
+.opt { display: flex; align-items: center; gap: 6px; box-sizing: border-box; min-width: 0; height: 26px; margin: 0; padding: 0 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.opt:hover { background: var(--hover); }
+.opt.on { border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); }
+.opt.active { outline: 2px solid var(--active); outline-offset: -1px; }
+.opt.new { grid-column: 1 / -1; border-style: dashed; font-weight: 500; }
+.dot { flex: none; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; border-radius: 50%; background: var(--c, var(--muted)); color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
+.opt.new .dot { background: none; color: inherit; font-size: 12px; font-weight: 400; }
+.nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.empty { margin: 8px 12px; color: var(--muted); font-size: 12px; }
+.empty:empty { display: none; }
+.foot { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.go { padding: 0; border: 0; background: none; color: var(--link); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
 .go:hover, .go:focus-visible { text-decoration: underline; outline: none; }`;
 
   // Bilibili's dark theme is a class on <html>; BewlyCat's follows its own setting, so the name's own text color decides.
@@ -720,11 +724,29 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     for (const t of ["keydown", "keyup", "keypress"]) host.addEventListener(t, (e) => e.stopPropagation());
     panel.addEventListener("keydown", onPickKey);
     panel.addEventListener("click", onPickClick);
-    pick = { mid: box.dataset.mid, spot: box.previousSibling, add, host, root, panel, rect: add.getBoundingClientRect(), editing: false, focus: null };
+    // Focus stays in the filter, or the keys stop working.
+    panel.addEventListener("mousedown", (e) => e.target.tagName !== "INPUT" && e.preventDefault());
+    const input = elOf("input");
+    input.type = "text";
+    input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
+    const wall = elOf("div", "wall");
+    wall.setAttribute("role", "listbox");
+    wall.setAttribute("aria-label", "标签");
+    const say = elOf("div", "empty");
+    const go = elOf("button", "go", "在分拣台「关注」里打开这个 UP 主 ↗");
+    go.type = "button";
+    const foot = elOf("div", "foot");
+    foot.append(go, elOf("span", "", LOCAL_ONLY));
+    panel.append(input, wall, say, foot);
+    const uses = (id) => Object.values(up.map || {}).filter((ids) => ids?.includes(id)).length;
+    pick = { mid: box.dataset.mid, spot: box.previousSibling, add, host, root, panel, input, wall, say, rect: add.getBoundingClientRect(), order: orderOf(up.tags, uses), rows: [], index: 0 };
+    globalThis.MdgTyping.bindLive(input, () => pick && ((pick.index = 0), renderPick()), 0);
     document.documentElement.append(host);
     add.setAttribute("aria-expanded", "true");
     renderPick();
-    pickFocusables()[0]?.focus();
+    // Once: a filter that shrinks the list must not move the box being typed in.
+    placePick();
+    input.focus();
     document.addEventListener("pointerdown", onPickOutside, true);
     window.addEventListener("scroll", onPickAway);
     window.addEventListener("resize", onPickAway);
@@ -757,58 +779,42 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
 
   function renderPick() {
     if (!pick) return;
-    const head = elOf("div", "h", upTagTitle(pick.add.dataset.name));
     // The extension reloaded under this page: storage and messages no longer reach it.
     if (!chrome.runtime?.id) {
-      pick.panel.replaceChildren(head, elOf("div", "empty", TEXT.reloaded));
+      pick.panel.replaceChildren(elOf("div", "empty", TEXT.reloaded));
       return placePick();
     }
-    const was = pick.root.activeElement;
-    const focus = pick.focus ?? (was?.dataset?.id || (was?.classList?.contains("go") ? "go" : was?.classList?.contains("opt") ? "new" : was ? "input" : null));
-    pick.focus = null;
-    const rows = pickRows(pick.mid, up.tags, up.map);
-    const list = elOf("div", "list");
-    list.setAttribute("role", "menu");
-    for (const r of rows) {
-      const b = elOf("button", "opt");
-      b.type = "button";
-      b.dataset.id = r.id;
-      b.setAttribute("role", "menuitemcheckbox");
-      b.setAttribute("aria-checked", String(r.on));
-      const dot = elOf("span", "dot");
-      if (r.color) dot.style.setProperty("--c", r.color);
-      b.append(elOf("span", "ck", r.on ? "✓" : ""), dot, elOf("span", "nm", r.name));
-      list.append(b);
-    }
-    if (!rows.length) list.append(elOf("div", "empty", "还没有 UP 标签"));
-    const more = elOf("div", "new");
+    const { input, wall, say } = pick;
+    const q = cleanTagName(input.value);
     const full = upTagsFull(up.tags);
-    if (full) more.append(elOf("div", "empty", full));
-    else if (pick.editing) {
-      const input = elOf("input");
-      input.type = "text";
-      input.maxLength = globalThis.MdgTagCore.TAG_NAME_MAX;
-      input.placeholder = "标签名，回车新建";
-      input.setAttribute("aria-label", LABEL.newTagName);
-      more.append(input);
-    } else {
-      const b = elOf("button", "opt");
+    pick.rows = rowsOf(inOrder(pickRows(pick.mid, up.tags, up.map), pick.order), q, !full);
+    pick.index = Math.min(pick.index, Math.max(0, pick.rows.length - 1));
+    const hint = full ? LABEL.tagFilter : up.tags.length ? LABEL.tagFilterOrNew : LABEL.tagFirstNew;
+    input.placeholder = hint;
+    input.setAttribute("aria-label", hint);
+    wall.replaceChildren(...pick.rows.map((r, i) => {
+      const b = elOf("button", `opt${r.create ? " new" : r.tag.on ? " on" : ""}${i === pick.index ? " active" : ""}`);
       b.type = "button";
-      b.dataset.new = "";
-      b.append(elOf("span", "ck", "+"), elOf("span", "nm", LABEL.newTag));
-      more.append(b);
-    }
-    // The chips no longer open the 分拣台; this is the one way there from a B站 page.
-    const go = elOf("button", "go", "在分拣台「关注」里打开这个 UP 主 ↗");
-    go.type = "button";
-    pick.panel.replaceChildren(head, list, more, go, elOf("div", "foot", `${LOCAL_ONLY} · Esc 关闭`));
-    placePick();
-    const again = focus === "go" ? go : focus === "input" || focus === "new" ? more.firstChild : [...pickFocusables()].find((b) => b.dataset.id === focus);
-    if (focus) (again || pickFocusables()[0])?.focus();
+      b.tabIndex = -1;
+      b.dataset.i = String(i);
+      b.setAttribute("role", "option");
+      if (r.create) {
+        b.append(elOf("span", "dot", "+"), elOf("span", "nm", `新建「${r.create}」`));
+        return b;
+      }
+      b.setAttribute("aria-checked", String(r.tag.on));
+      b.title = r.tag.name;
+      if (r.tag.color) b.style.setProperty("--c", r.tag.color);
+      b.append(elOf("span", "dot", r.tag.on ? "✓" : ""), elOf("span", "nm", r.tag.name));
+      if (!input.value && keyOf(i)) b.append(elOf("span", "n", keyOf(i)));
+      return b;
+    }));
+    say.textContent = full || "";
+    wall.querySelector?.(".active")?.scrollIntoView?.({ block: "nearest" });
   }
 
   // Under the 「+」 where it was when opened (it moves as chips are added), above it when there is no room below.
-  const placePick = () => placeUnder(pick.panel, pick.rect, pick.panel.offsetWidth || 270);
+  const placePick = () => placeUnder(pick.panel, pick.rect, pick.panel.offsetWidth || 420);
   // A fixed popover 6px under `r`, or above it when there is no room below, 8px inside the window.
   function placeUnder(node, r, w = node.offsetWidth) {
     const h = node.offsetHeight || 0;
@@ -816,25 +822,38 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     node.style.top = `${r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6}px`;
   }
 
-  const pickFocusables = () => (pick ? pick.panel.querySelectorAll(".opt, input, .go") : []);
-
   function onPickKey(e) {
-    if (globalThis.MdgTyping.composing(e)) return; // Enter picks the IME candidate, Esc cancels the composition
-    if (e.key === "Escape") {
+    if (globalThis.MdgTyping.composing(e) || e.metaKey || e.ctrlKey || e.altKey) return; // Enter picks the IME candidate, Esc cancels the composition
+    const k = e.key;
+    if (k === "Escape") {
       e.preventDefault();
       return closePick(true);
     }
-    const all = [...pickFocusables()];
-    const i = all.indexOf(pick.root.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Tab") {
-      // Tab stays inside the picker like a dialog; Esc is the way out.
+    const { input } = pick;
+    // Tab stays inside the picker like a dialog: the filter and the link to the 分拣台.
+    if (k === "Tab") {
       e.preventDefault();
-      const step = e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey) ? -1 : 1;
-      all[(i + step + all.length) % all.length]?.focus();
-    } else if (e.key === "Enter" && e.target.tagName === "INPUT") {
-      e.preventDefault();
-      pickWrite({ create: e.target.value });
+      return (e.target === input ? pick.panel.querySelector(".go") : input)?.focus();
     }
+    if (e.target !== input) return;
+    if (/^Arrow(Up|Down|Left|Right)$/.test(k)) {
+      const n = pick.rows.length;
+      if (!input.value) pick.index = gridMove(pick.index, n, k);
+      else if (k === "ArrowLeft" || k === "ArrowRight") return; // the caret's
+      else if (n) pick.index = (pick.index + (k === "ArrowDown" ? 1 : n - 1)) % n;
+      renderPick();
+    } else if (k === "Enter") pickRow(pick.index);
+    // As the numbers show: only with the box empty. A digit no tag has goes into the box.
+    else if (/^[0-9]$/.test(k) && !input.value && pick.rows[indexOfKey(k)]?.tag) pickRow(indexOfKey(k));
+    else return;
+    e.preventDefault();
+  }
+
+  function pickRow(i) {
+    const r = pick?.rows[i];
+    if (!r) return;
+    pick.index = i;
+    pickWrite(r.create ? { create: r.create } : { toggle: r.tag.id });
   }
 
   function onPickClick(e) {
@@ -846,11 +865,7 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
       return;
     }
     const b = e.target.closest?.(".opt");
-    if (!b) return;
-    if (b.dataset.id) return pickWrite({ toggle: b.dataset.id });
-    pick.editing = true;
-    pick.focus = "input";
-    renderPick();
+    if (b) pickRow(Number(b.dataset.i));
   }
 
   // Writes at once; every box of this UP on the page and the 动态 bar counts redraw right away, not after the debounce.
@@ -863,9 +878,9 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     up = { ...up, tags: r.tags, map: r.map };
     upOn = true;
     // Another UP's picker may be open by now: the answer settles the one that asked, not it.
-    if (pick === asked) {
-      pick.editing = false;
-      pick.focus = r.id;
+    if (pick === asked && op.create) {
+      pick.input.value = "";
+      pick.index = 0;
     }
     renderPick();
     run().catch(() => {});
@@ -879,9 +894,8 @@ input { box-sizing: border-box; width: 100%; margin: 0; padding: 4px 8px; border
     // Tags to show, or followed UPs to offer 「+ UP 标签」 for, and the setting 「在 B站页面显示 UP 标签」 on.
     upHas = (up.tags.length > 0 && Object.values(up.map).some((ids) => ids?.length)) || up.followed.size > 0;
     upOn = upSetting && upHas;
-    // A follow sync must not rebuild the picker under a tag name being typed; its own write redraws it.
     if (!upOn) clearUps();
-    else if (!pick?.editing) renderPick();
+    else renderPick();
     setEnabled(triageOn || seenCfg.on || upOn);
     rescan();
   }
