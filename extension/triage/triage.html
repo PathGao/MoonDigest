@@ -257,10 +257,8 @@
       <form method="dialog">
         <h2 id="tagPickerTitle" class="tp-title"></h2>
         <p class="tp-note dialog-meta"></p>
-        <input id="tagPickerInput" name="tagQuery" class="tp-input" type="text" placeholder="输入筛选，或输入新名称后回车新建" aria-label="筛选或新建标签" autocomplete="off" />
+        <input id="tagPickerInput" name="tagQuery" class="tp-input" type="text" autocomplete="off" />
         <ul class="picker-list" role="listbox" aria-label="标签"></ul>
-        <p class="dialog-meta tp-keys">↑↓ 选择 · 回车 勾选、取消或新建 · 1–9 勾选或取消第几个 · Esc 关闭并保存</p>
-        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">完成</button></div>
       </form>
     </dialog>
 
@@ -319,7 +317,7 @@
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放当前 UP 主最新的视频</dd>
           <dt><kbd>T</kbd></dt><dd>给鼠标所在的视频投稿卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签（UP 主页签）</dd>
-          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd data-text="keyTagNumber">打标签时勾选或去掉第几个标签</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd><kbd>0</kbd></dt><dd data-text="keyTagNumber">打标签时勾选或去掉第几个标签</dd>
           <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或内置播放框</dd>
           <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注、移到或复制到分组、分组改名（改了多个 UP 主的先问你）</dd>
           <dt><kbd>/</kbd></dt><dd data-text="keySearch">搜索（Esc 清空）</dd>
@@ -347,7 +345,7 @@
           <dt><kbd>K</kbd><kbd>↑</kbd></dt><dd>上一个</dd>
           <dt><kbd>D</kbd></dt><dd>取消收藏</dd>
           <dt><kbd>S</kbd></dt><dd>保留</dd>
-          <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9 勾选或取消第几个，Esc 关闭并保存</dd>
+          <dt><kbd>T</kbd></dt><dd>打标签（在内置播放框里按 T 给正在播放的视频打）；打标签时 1–9、0 勾选或取消第几个，Esc 关闭并保存</dd>
           <dt><kbd>E</kbd></dt><dd>加入待播 / 从待播移除</dd>
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理，处理后选中不变，只有因此离开这一页的才不再选中；「状态」行的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>

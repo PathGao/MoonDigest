@@ -50,26 +50,29 @@ dialog:where(:not(.mdg-overwrite)) textarea { resize: vertical; }
 /* Status lines fill in later; empty ones must not add the form's gap. */
 dialog:where(:not(.mdg-overwrite)) :is(p, div):empty { display: none; }
 
-/* The tag picker */
-.picker-list { list-style: none; margin: 4px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
-.picker-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
-.picker-opt.active { background: var(--secondary-bg); }
-.picker-opt .check { width: 14px; color: var(--text); font-weight: 700; }
-.picker-opt .muted, .picker-opt .n { margin-left: auto; }
-.picker-opt .n { color: var(--faint); font: 11px ui-monospace, Menlo, monospace; }
-.picker-opt .muted + .n { margin-left: 6px; }
-.picker-opt.tp-new { color: var(--link); }
-/* The picker as a popover under 「+ 标签」 (tag-picker.js): small, list first, filter and 完成 under it. */
-#tagPicker.tp-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 312px; padding: 10px 8px 8px; border-color: var(--border-strong); box-shadow: var(--lift); font-size: var(--fs-sm); }
-.tp-pop form { gap: 4px; }
-.tp-pop h2 { margin: 0 6px; overflow: hidden; font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.tp-pop .tp-note { margin: 0 6px 2px; color: var(--faint); font-size: 11px; }
-.tp-pop .picker-list { order: 1; margin: 0; max-height: 240px; }
-.tp-pop .picker-opt:hover { background: var(--secondary-bg); }
-.tp-pop .tp-input { order: 2; height: 28px; }
-.tp-pop .tp-keys { order: 3; margin: 2px 6px 0; color: var(--faint); font-size: 11px; }
-.tp-pop .dialog-actions { order: 4; }
-.tp-pop .dialog-actions button { height: 26px; font-size: var(--fs-sm); }
+/* The tag picker (tag-picker.js): the filter on top, three equal columns of tags under it. A popover under 「+ 标签」 is
+   known by its place, so it has no title (kept for screen readers). */
+#tagPicker { width: 480px; max-width: calc(100vw - 16px); padding: 0; }
+#tagPicker.tp-pop { position: fixed; z-index: 50; inset: auto; margin: 0; width: 420px; border-color: var(--border-strong); box-shadow: var(--lift); }
+#tagPicker form { gap: 0; }
+.tp-title { margin: 10px 12px 0; }
+.tp-pop .tp-title { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tp-note { margin: 8px 12px 0; }
+#tagPicker .tp-input { width: 100%; height: 36px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; box-shadow: none; outline: 0; }
+.picker-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-height: 256px; margin: 0; padding: 8px; overflow-y: auto; list-style: none; }
+.picker-list:empty { display: none; }
+.picker-list > .muted { grid-column: 1 / -1; font-size: var(--fs-xs); }
+.picker-opt { display: flex; align-items: center; gap: 6px; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; font-size: var(--fs-xs); cursor: pointer; }
+.picker-opt:hover { background: var(--field-bg); }
+.picker-opt.on { border-color: color-mix(in srgb, var(--c) 70%, transparent); background: color-mix(in srgb, var(--c) 20%, transparent); }
+.picker-opt.active { outline: 2px solid var(--text-2); outline-offset: -1px; }
+/* One slot: the tag's dot, or ✓ or – in its place, so ticking moves nothing. */
+.picker-opt .slot { flex: none; display: flex; align-items: center; justify-content: center; width: 12px; font-weight: 700; }
+.picker-opt .dot { --c: inherit; display: block; }
+.picker-opt .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-opt .muted, .picker-opt .n { flex: none; }
+.picker-opt .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+.picker-opt.tp-new { grid-column: 1 / -1; border-style: dashed; border-color: var(--border-strong); font-weight: 500; }
 /* 「+ 标签 T」 (shared.js tagPlusBtn) on cards and the viewer line: quiet, a dashed outline on hover; T is a faint letter
    after the word, as the card keys. button. to win over tokens.css button.quiet. */
 button.tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); font-size: var(--fs-xs); text-decoration: none; }

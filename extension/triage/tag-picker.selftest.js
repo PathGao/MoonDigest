@@ -16,7 +16,7 @@ const fire = (n, type, e = {}) => {
 };
 const input = node({ value: "", focused: 0, focus() { this.focused++; }, setAttribute(k, v) { this[k] = v; } });
 const list = node({ innerHTML: "", querySelector: () => null });
-const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }), ".tp-keys": node({ textContent: "" }) };
+const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }) };
 const calls = [];
 const dlg = node({
   open: false,
@@ -58,6 +58,30 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   assert.deepStrictEqual(ids("x", false), [], "nothing to create where tags cannot be made");
 }
 
+// A press inside keeps the focus in the filter, on a tag or between tags; the box and the backdrop keep theirs.
+{
+  const press = (target) => fire(dlg, "mousedown", { target }).prevented;
+  assert.deepStrictEqual([press(list), press(input), press(dlg)], [1, 0, 0]);
+}
+
+// Pure: the keys, the order, the grid.
+{
+  assert.deepStrictEqual([0, 8, 9, 10].map(P.keyOf), ["1", "9", "0", ""], "1–9, then 0 for the tenth, then none");
+  assert.deepStrictEqual(["1", "9", "0"].map(P.indexOfKey), [0, 8, 9]);
+  const many = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i}` }));
+  const uses = (id) => Number(id.slice(1));
+  assert.deepStrictEqual(plain(P.orderOf(many(10), uses)), many(10).map((t) => t.id), "ten keep their order");
+  assert.strictEqual(P.orderOf(many(11), uses)[0], "t10", "eleven: most used first");
+  assert.deepStrictEqual(plain(P.inOrder([{ id: "new" }, { id: "b" }, { id: "a" }], ["a", "b"]).map((t) => t.id)), ["a", "b", "new"], "made since opening: last");
+  // 7 tags:  0 1 2 / 3 4 5 / 6
+  assert.strictEqual(P.gridMove(0, 7, "ArrowDown"), 3);
+  assert.strictEqual(P.gridMove(6, 7, "ArrowDown"), 0, "the column wraps");
+  assert.strictEqual(P.gridMove(1, 7, "ArrowUp"), 4, "a short column wraps to its own last row");
+  assert.strictEqual(P.gridMove(6, 7, "ArrowRight"), 0);
+  assert.strictEqual(P.gridMove(0, 7, "ArrowLeft"), 6);
+  assert.strictEqual(P.gridMove(0, 0, "ArrowDown"), 0);
+}
+
 (async () => {
   const tags = [{ id: "g", name: "游戏", color: "#1" }, { id: "s", name: "生活", color: "#2" }, { id: "k", name: "科普", color: "#3" }];
   const stored = { a: ["g"], b: [] };
@@ -79,14 +103,14 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
     ...o
   });
 
-  // Modal: opens with the filter focused, rows numbered 1–9, the target's tags ticked.
+  // Modal: opens with the filter focused, tags numbered, the target's tags ticked.
   P.open(opts());
   assert.deepStrictEqual(calls.splice(0), ["showModal"]);
   assert.ok(input.focused && P.isOpen());
-  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="check">✓</span>') && list.innerHTML.includes('<span class="n" aria-hidden="true">3</span>'));
+  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="slot">✓</span>') && list.innerHTML.includes('<span class="n" aria-hidden="true">3</span>'));
 
-  // ↓ then Enter ticks the second row; 1 ticks the first (游戏 off); Enter that picks an IME candidate ticks nothing.
-  assert.strictEqual(key("ArrowDown").prevented, 1);
+  // → then Enter ticks the second tag; 1 ticks the first (游戏 off); Enter that picks an IME candidate ticks nothing.
+  assert.strictEqual(key("ArrowRight").prevented, 1);
   assert.strictEqual(key("Enter").prevented, 1, "Enter never submits the form");
   key("1");
   const ime = key("Enter", { isComposing: true, keyCode: 229 });
@@ -105,9 +129,16 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   P.open(opts());
   input.value = "游";
   assert.strictEqual(key("1").prevented, 0, "1 goes into the filter");
-  // Spaces alone filter nothing and the rows keep their numbers: the digit ticks, as they say.
-  input.value = "  ";
-  assert.strictEqual(key("1").prevented, 1, "1 ticks while the filter is only spaces");
+  // A space takes the numbers away, so a name can start with a digit: the digit is text, and the name has no space.
+  input.value = " ";
+  fire(input, "input");
+  await wait();
+  assert.ok(!list.innerHTML.includes('class="n"'), list.innerHTML);
+  assert.strictEqual(key("1").prevented, 0, "1 goes into the box");
+  input.value = "";
+  fire(input, "input");
+  await wait();
+  key("1");
   input.value = "";
   assert.strictEqual(key("9").prevented, 0);
   assert.strictEqual(key("2", { metaKey: true }).prevented, 0, "⌘2 is the browser's");
@@ -117,9 +148,9 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
 
   // Several targets: – for some, a click puts it on all, a second click takes it off all.
   P.open(opts({ targets: ["a", "b"] }));
-  assert.ok(list.innerHTML.includes('aria-checked="mixed"><span class="check">–</span>') && list.innerHTML.includes("1 个有"));
+  assert.ok(list.innerHTML.includes('aria-checked="mixed"><span class="slot">–</span>') && list.innerHTML.includes("1 个有"));
   fire(list, "click", { target: { closest: () => ({ dataset: { i: "0" } }) } });
-  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="check">✓</span><span class="dot" style="--c:#1"></span>游戏'));
+  assert.ok(list.innerHTML.includes('style="--c:#1" title="游戏" aria-checked="true"><span class="slot">✓</span><span class="name">游戏</span>'));
   P.close();
   assert.deepStrictEqual(saved.splice(0), [[{ key: "b", add: ["g"], remove: [] }]]);
 
@@ -141,7 +172,7 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   key("Escape");
   assert.deepStrictEqual(saved.splice(0), [[{ key: "a", add: ["n1"], remove: [] }, { key: "b", add: ["n1"], remove: [] }]]);
 
-  // 完成 submits the form, which closes the dialog: that saves too.
+  // Any close of the dialog saves.
   P.open(opts());
   key("2");
   dlg.close();
@@ -176,13 +207,12 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   assert.ok(P.isOpen() && dlg.open, "the old close event does not close the new picker");
   P.close();
 
-  // C539: where no tag can be made, the box and the keys line do not offer 回车新建.
-  const keysLine = parts[".tp-keys"];
+  // C539: where no tag can be made, the box does not offer 新建.
   P.open(opts({ canCreate: false }));
-  assert.ok(!input.placeholder.includes("新建") && !input["aria-label"].includes("新建") && !keysLine.textContent.includes("新建"), `${input.placeholder} / ${keysLine.textContent}`);
+  assert.ok(!input.placeholder.includes("新建") && !input["aria-label"].includes("新建") , input.placeholder);
   P.close();
   P.open(opts());
-  assert.ok(input.placeholder.includes("回车新建") && keysLine.textContent.includes("或新建"));
+  assert.ok(input.placeholder.includes("新建"), input.placeholder);
   P.close();
 
   console.log("tag-picker selftest: all passed");

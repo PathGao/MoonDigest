@@ -760,7 +760,7 @@ function cardAction(act, bvid) {
   else if (act === "ask") askAi(it);
   else if (act === "unfav") fav.unfav(bvid);
   else if (act === "keep") keepOne(bvid);
-  else if (act === "tag") openPicker(bvid);
+  else if (act === "tag") openPicker(bvid, `.card[data-bvid="${CSS.escape(bvid)}"] [data-act="tag"]`);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
   else if (act === "note") {

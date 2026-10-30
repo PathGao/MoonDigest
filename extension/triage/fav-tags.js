@@ -79,8 +79,8 @@ function endAiRecent(folder = String(S.mediaId), at) {
   return editAiRecent(folder, null, at);
 }
 
-// T on a card opens the shared picker (tag-picker.js) as a modal; T in the player or 「+ 标签」 on the viewer line opens
-// it under that line. The selection bar's 标签… opens it for the selected videos (one folder). Closing saves once, as
+// T or 「+ 标签」 on a card opens the shared picker (tag-picker.js) under that button; T in the player or 「+ 标签」 on the
+// viewer line opens it under that line. The selection bar's 标签… opens it as a modal for the selected videos (one folder). Closing saves once, as
 // one undo step. home ({ item, folders }, the viewer's) tags that video in its own folders, whatever is open.
 function openPicker(bvids, anchor = "", home = null) {
   bvids = [].concat(bvids).filter((b) => home || S.itemMap.has(b));
