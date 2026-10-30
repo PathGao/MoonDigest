@@ -315,7 +315,7 @@ function renderListHeader(list) {
   // 取消收藏 goes last, set apart. A selection the filters hide keeps them, disabled (none).
   const selActs = (none) =>
     (S.mediaId !== REMOVED ? batchBtn("keep", "", none) : "") +
-    (inFolderView() ? headBtn("sel-tags", "标签…", "", none) : "") +
+    (inFolderView() ? headBtn("sel-tags", MdgErrors.LABEL.tagsMenu, "", none) : "") +
     (S.mediaId !== ALL ? transferBtn(none) : "") +
     (S.mediaId !== REMOVED ? batchBtn("unfav", "", none) : "");
   // 全选 heads the right-hand buttons, so row 3's chips coming and going never move it. It acts on what is listed, in

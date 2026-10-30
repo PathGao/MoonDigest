@@ -302,7 +302,7 @@
   // ✦ AI 打标签's words, [name, state] (both modes and 摘读记录): 「选中的 N 个」 with a selection, else what the run is at.
   const aiTagsLabel = ({ running = false, pending = false, reason = "", picked = 0 }) => {
     const state = running ? " · 运行中" : pending ? " · 待确认" : "";
-    return [`AI 打标签${picked && !state && !reason ? `选中的 ${picked} 个` : ""}`, state];
+    return [`${MdgErrors.LABEL.aiTag}${picked && !state && !reason ? `选中的 ${picked} 个` : ""}`, state];
   };
   const tagButtons = ({ manageAttrs, aiAttrs, who, running = false, pending = false, manageReason = "", aiReason = "", noTags = false, picked = 0 }) => {
     const [ai, state] = aiTagsLabel({ running, pending, reason: aiReason, picked });

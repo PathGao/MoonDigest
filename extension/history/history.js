@@ -34,6 +34,9 @@ let starFilter = false;
 let tagState = ""; // 第 2 行 "" | "untagged" | "tagged", on the record's own tags (the tag row's), as the 分拣台's
 const tagFilter = new Set();
 const selected = new Set();
+let pickAnchor = null; // the last picked key: Shift picks the run from it
+let current = null; // the current card's key (pointer or J/K), as on the 分拣台
+let pointerAt = null;
 const writing = new Set(); // entry keys with a 写入 Obsidian in flight
 const unfolded = new Set(); // entry keys whose one-line AI summary is shown in full
 const expanded = new Set(); // entry keys whose 问答 are open, kept while a search hides the entry
@@ -294,7 +297,7 @@ function aiProviderId() {
     return "";
   }
 }
-const RECENT_CHECK = "在记录上逐个看，不对的点「+ 标签」改";
+const RECENT_CHECK = "在记录上逐个看，不对的按 T 或点「+ 标签」改";
 const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text));
 const aiTags = {
   who: "记录",
@@ -397,7 +400,7 @@ function aiRemedy({ error, code }) {
 function renderTags(g) {
   const own = tagsOf(g).map(UI.cardTagChip);
   const triage = triageTagsOf(g).map((t) => `<span class="chip triage-tag" style="--c:${esc(t.color)}" title="分拣台的标签，在分拣台里改">${esc(t.name)}</span>`);
-  const plus = readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, ""), false) : "";
+  const plus = readingKey(g) ? UI.tagPlusBtn('data-act="tags"', UI.pickTitle(1, g.title, "")) : "";
   return own.length || triage.length || plus ? `<div class="chips">${[...own, ...triage].join("")}${plus}</div>` : "";
 }
 
@@ -432,7 +435,7 @@ function renderHead(all, groups) {
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
   const acts = (none) =>
     UI.actBtn('data-sel="md"', n > 1 ? `打包下载选中的 ${n} 个 .md` : "下载选中的 1 个 .md", { reason: none }) +
-    UI.actBtn('data-sel="tags"', "打标签", { reason: none }) +
+    UI.actBtn('data-sel="tags"', MdgErrors.LABEL.tagsMenu, { reason: none }) +
     UI.actBtn('data-sel="delete"', del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话", { cls: "danger", reason: none || (del ? "" : "选中的记录没有 AI 对话"), title: del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "" });
   els.selbar.innerHTML = selected.size ? UI.selbar({ label: "选中的记录", n: shown.length, hidden: selected.size - shown.length, clearAttrs: 'data-sel="clear"', acts }) : "";
   setReason(els.clearAll, !conversations.length ? "还没有 AI 对话" : conversations.every(isStarredConv) ? "只剩加了星标的记录的 AI 对话" : "");
@@ -536,6 +539,8 @@ const entryOf = (key) => [...els.list.querySelectorAll(".entry")].find((e) => e.
 
 function render() {
   const groups = visibleGroups();
+  // A card the search or filters took away is no longer current: X and T must not act on what is not listed.
+  if (!groups.some((g) => g.key === current)) current = null;
   const allGroups = groupByVideo(conversations);
   // Records of web pages are not videos: counted on their own. A video's parts are one video, as for 星标, tags and 备注.
   const videos = new Set(allGroups.filter((g) => g.context.videoId).map((g) => readingKey(g) || g.key)).size;
@@ -581,8 +586,7 @@ function render() {
         const obsidian = obsidianEnabled ? `<button type="button" data-act="obsidian"${writing.has(g.key) ? " disabled" : ""}><img class="obsidian-mark" src="/icons/obsidian.svg" alt=""> <span class="write-label" data-idle="${MdgErrors.LABEL.writeObsidian}">${writing.has(g.key) ? `<span aria-busy="true">${MdgErrors.TEXT.writing}</span>` : `<span>${MdgErrors.LABEL.writeObsidian}</span>`}</span></button>` : "";
         // Top right, two rows of equal columns: 继续问 and the exports in their order. The 问答 line runs under the body and
         // the buttons, with 删除 AI 对话 at its right end: it reads as deleting those, not the record.
-        return `<article class="card entry${selected.has(g.key) ? " selected" : ""}" data-key="${esc(g.key)}">
-          <input type="checkbox" name="selectedConversation" data-act="pick" aria-label="选择" ${selected.has(g.key) ? "checked" : ""} />
+        return `<article class="card entry${selected.has(g.key) ? " selected" : ""}${g.key === current ? " focused" : ""}" data-key="${esc(g.key)}">
           ${star}
           <div class="card-body">
             ${title}
@@ -591,7 +595,7 @@ function render() {
             ${renderTags(g)}
             ${renderNote(g)}
           </div>
-          <div class="entry-acts"><button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}>${UI.AI_SPARK}继续问</button><button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button><button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>${obsidian}</div>
+          <div class="entry-acts"><button type="button" class="ask" data-act="ask"${g.context.videoId || isWebPage(g) ? "" : " data-no-video"}>${UI.AI_SPARK}继续问<kbd class="key">Q</kbd></button><button type="button" data-act="copy">${MdgErrors.LABEL.copyMd}</button><button type="button" data-act="md">${MdgErrors.LABEL.downloadMd}</button>${obsidian}</div>
           ${g.convs.length ? `<div class="qa"><details${expanded.has(g.key) ? " open" : ""}><summary>查看 ${turnCount} 轮问答</summary>${g.convs.map((c, i) => renderConversation(c, i, g.convs.length)).join("")}</details><button type="button" data-act="delete" class="quiet danger">删除 AI 对话</button></div>` : ""}
         </article>`;
       }).join("")
@@ -681,7 +685,7 @@ async function removeConversations(keep, done, unselect = []) {
 
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
-  if (!keys.length || !confirm(`删除 ${keys.length} 条记录的全部 AI 对话？删除后不能恢复。`)) return;
+  if (!keys.length || !(await UI.askConfirm(`删除 ${keys.length} 条记录的全部 AI 对话？`, "删除后不能恢复。", "删除", { danger: true }))) return;
   await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 条记录的 AI 对话`, keys);
 }
 
@@ -751,7 +755,54 @@ async function saveToObsidian(group) {
   }
 }
 
+function setCurrent(key, scroll = true) {
+  current = key;
+  for (const entry of els.list.querySelectorAll(".entry")) {
+    const on = entry.dataset.key === key;
+    entry.classList.toggle("focused", on);
+    if (on && scroll) entry.scrollIntoView({ block: "nearest" });
+  }
+}
+function moveCurrent(delta) {
+  const keys = [...els.list.querySelectorAll(".entry")].map((e) => e.dataset.key);
+  if (!keys.length) return;
+  const i = keys.indexOf(current);
+  setCurrent(keys[Math.max(0, Math.min(keys.length - 1, i < 0 ? 0 : i + delta))]);
+}
+function pickCurrent() {
+  if (!current) return;
+  pickAnchor = UI.pickCard(selected, [], current);
+  render();
+}
+// What a click on the current card's own control does: 继续问 stays off with its reason, a record without a link has no 打开.
+const clickCurrent = (selector) => entryOf(current)?.querySelector(selector)?.click();
+function clearPicks() {
+  if (!selected.size) return;
+  selected.clear();
+  render();
+}
+function tagCurrent() {
+  const group = visibleGroups().find((g) => g.key === current);
+  if (group) openPicker([group], `.entry[data-key="${CSS.escape(current)}"] .tag-plus`);
+}
+// A mousemove at the same position comes from the list scrolling or redrawing under a still pointer, and must not take
+// the current card from J/K.
+els.list.addEventListener("mousemove", (event) => {
+  if (pointerAt?.x === event.clientX && pointerAt?.y === event.clientY) return;
+  pointerAt = { x: event.clientX, y: event.clientY };
+  const key = event.target.closest(".entry")?.dataset.key;
+  if (key && key !== current) setCurrent(key, false);
+});
 els.list.addEventListener("click", (event) => {
+  // Here the title opens the page and 查看问答 unfolds; a click anywhere else that is not a control picks the record.
+  const picked = event.target.closest(".entry");
+  if (picked && UI.cardPickClick(event) && !event.target.closest("a[href], summary")) {
+    event.preventDefault();
+    if (event.shiftKey) getSelection().removeAllRanges();
+    current = picked.dataset.key;
+    pickAnchor = UI.pickCard(selected, visibleGroups().map((g) => g.key), picked.dataset.key, pickAnchor, event.shiftKey);
+    return render();
+  }
   const target = event.target.closest("[data-act], [data-untag]");
   const entry = target?.closest(".entry");
   if (!entry) return;
@@ -759,10 +810,7 @@ els.list.addEventListener("click", (event) => {
   const group = groupByVideo(conversations).find((g) => g.key === key);
   const act = target.dataset.act;
   if (target.dataset.untag && group) void tagStore.untag(readingKey(group), target.dataset.untag);
-  else if (act === "pick") {
-    target.checked ? selected.add(key) : selected.delete(key);
-    render();
-  } else if (act === "copy" && group) void copyGroup(group);
+  else if (act === "copy" && group) void copyGroup(group);
   else if (act === "md" && group) void downloadGroups([group]);
   else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
@@ -837,14 +885,16 @@ els.filters.addEventListener("click", (event) => {
   } else return;
   render();
 });
-// I, U and / as on the 分拣台: not while typing or with a dialog open.
+// As on the 分拣台: not while typing or with a dialog open.
 document.addEventListener("keydown", (e) => {
   if (MdgTyping.composing(e) || MdgTyping.typingIn(e) || e.metaKey || e.ctrlKey || e.altKey || document.querySelector("dialog[open]")) return;
-  const run = { i: openAi, u: tagStore.undo, "/": () => els.search.focus() }[e.key.toLowerCase()];
+  if (e.key === "Enter" && e.target.closest?.("button, a, summary")) return;
+  const run = { i: openAi, u: tagStore.undo, "/": () => els.search.focus(), j: () => moveCurrent(1), arrowdown: () => moveCurrent(1), k: () => moveCurrent(-1), arrowup: () => moveCurrent(-1), x: pickCurrent, t: tagCurrent, q: () => clickCurrent('[data-act="ask"]'), o: () => clickCurrent("a.title"), enter: () => clickCurrent("a.title"), escape: clearPicks, "?": () => $("helpDialog").showModal() }[e.key.toLowerCase()];
   if (!run) return;
   e.preventDefault();
   void run();
 });
+$("helpBtn").addEventListener("click", () => $("helpDialog").showModal());
 const settingsDialog = $("readingSettingsDialog");
 UI.fillSetRows(settingsDialog);
 UI.clampNumbers(settingsDialog);
@@ -873,7 +923,7 @@ settingsDialog.addEventListener("close", async () => {
 const isStarredConv = (c) => Boolean(marks.items[MdgLimits.readingKeyOf(c.contextKey)]?.star);
 els.clearAll.addEventListener("click", async () => {
   const kept = conversations.filter(isStarredConv).length;
-  if (!confirm(`清空全部 AI 对话？${kept ? `加了星标的记录的 ${kept} 段不删。` : ""}删除后不能恢复。`)) return;
+  if (!(await UI.askConfirm("清空全部 AI 对话？", `${kept ? `加了星标的记录的 ${kept} 段不删。` : ""}删除后不能恢复。`, "清空", { danger: true }))) return;
   // Entries left with an AI 总结 or a 备注 stay selected; render drops the ones that left the list.
   await removeConversations(isStarredConv, kept ? "已清空没有星标的 AI 对话" : "已清空全部 AI 对话");
 });

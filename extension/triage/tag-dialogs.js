@@ -10,7 +10,7 @@
   if (!manageDlg || !aiDlg) return;
   // The page has the empty dialog; its markup is here, so the 分拣台 and 摘读记录 share one copy.
   aiDlg.innerHTML = `<form method="dialog">
-        <h2 id="aiTagTitle">AI 打标签</h2>
+        <h2 id="aiTagTitle">${MdgErrors.LABEL.aiTag}</h2>
         <section id="aiForm" class="ai-section">
           <p id="aiHint" class="dialog-hint"></p>
           <div class="ai-grid">

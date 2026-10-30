@@ -368,7 +368,7 @@
         total,
         tick: () => R.get(job)?.wait && progress(`${R.get(job).wait}${which(cur)}…`),
         gap: intervalMs,
-        line: (d, t) => `AI 打标签 ${d}/${t} 批${where()}`,
+        line: (d, t) => `${MdgErrors.LABEL.aiTag} ${d}/${t} 批${where()}`,
         next: () => (i < total ? { i: i++ } : null),
         act: ({ i }) => ((cur = i), progress(`AI 正在处理${which(i, true)}…`), send(request(i, p))),
         judge: MdgRuns.aiJudge(),
