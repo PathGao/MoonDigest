@@ -1,6 +1,7 @@
-// The 分拣台's one tag picker (#tagPicker in triage.html), for 收藏夹's videos and 关注's UP 主: a modal, or a small
-// popover under an anchor (the viewer line's 「+ 标签」, a 视频投稿 card's). Keys: ↑↓ move, Enter ticks or creates,
-// 1–9 tick the n-th tag while the filter is empty, Esc closes. Ticks stay here until it closes (完成, Esc, a click
+// The one tag picker (#tagPicker), for 收藏夹's videos, 关注's UP 主 and 摘读记录: a modal, or a popover under an anchor
+// (a 「+ 标签」). Three equal columns of tags under the filter. With the filter empty, 1–9 and 0 tick the first ten and
+// the arrows move on the grid; while filtering (one space is enough, so a name can start with a digit) digits are
+// text, ↑↓ walk the results and ←→ move the caret. Enter ticks or creates. Ticks stay here until it closes (Esc, a click
 // outside); then opts.onClose gets what changed per target, so one close is one save (and one undo step).
 (() => {
   const { esc, cleanTagName } = globalThis.TriageUi;
@@ -34,24 +35,46 @@
     return out;
   }
 
+  const COLS = 3;
+  const KEY_COUNT = 10;
+  // The key of the i-th tag: 1 to 9, then 0, as the number row and a phone's keypad read.
+  const keyOf = (i) => (i < KEY_COUNT ? String((i + 1) % KEY_COUNT) : "");
+  const indexOfKey = (k) => (k === "0" ? KEY_COUNT - 1 : Number(k) - 1);
+  // With more tags than keys the most used come first; opened once, so ticking moves nothing.
+  const orderOf = (tags, usesOf) =>
+    tags.length <= KEY_COUNT || !usesOf ? tags.map((t) => t.id) : tags.map((t) => [t.id, usesOf(t.id)]).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  // Tags in the order fixed at opening; one made since goes last.
+  function inOrder(tags, order) {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...tags].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+  }
+  // An arrow on the grid: ←→ along the reading order, ↑↓ within the column; both wrap.
+  function gridMove(i, n, key) {
+    if (!n) return 0;
+    if (key === "ArrowRight") return (i + 1) % n;
+    if (key === "ArrowLeft") return (i + n - 1) % n;
+    const col = i % COLS;
+    const rows = Math.floor((n - 1 - col) / COLS) + 1;
+    return col + (((i - col) / COLS + (key === "ArrowDown" ? 1 : rows - 1)) % rows) * COLS;
+  }
+
   // ----- the dialog -----
   const dlg = document.getElementById("tagPicker");
-  if (!dlg) return void (globalThis.TagPicker = { toggle, changesOf, applyChange, rowsOf });
+  if (!dlg) return void (globalThis.TagPicker = { toggle, changesOf, applyChange, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove });
   const input = dlg.querySelector(".tp-input");
   input.maxLength = MdgTagCore.TAG_NAME_MAX;
   const list = dlg.querySelector(".picker-list");
   const title = dlg.querySelector(".tp-title");
   const note = dlg.querySelector(".tp-note");
-  const keys = dlg.querySelector(".tp-keys");
   // The open picker: opts, sets (the ticks), before (ids at opening), rows, index (the active row).
   let cur = null;
 
-  // opts: { title, note?, targets, idsOf(target), tags(), canCreate, create(name) → tag | null (may be async),
-  // empty?, anchor? (a CSS selector, so it survives redraws), onClose(changes) }.
+  // opts: { title, note?, targets, idsOf(target), tags(), usesOf?(id), canCreate, create(name) → tag | null (may be async),
+  // empty? (why the list is empty and nothing can be made), anchor? (a CSS selector, so it survives redraws), onClose(changes) }.
   function open(opts) {
     close();
     const sets = new Map(opts.targets.map((k) => [k, new Set(opts.idsOf(k))]));
-    cur = { opts, sets, before: new Map([...sets].map(([k, s]) => [k, [...s]])), rows: [], index: 0 };
+    cur = { opts, sets, before: new Map([...sets].map(([k, s]) => [k, [...s]])), rows: [], index: 0, order: orderOf(opts.tags(), opts.usesOf) };
     title.textContent = opts.title;
     note.textContent = opts.note || "";
     input.value = "";
@@ -67,7 +90,7 @@
     input.focus(); // also takes the keys back from the player's frame
   }
 
-  // Every way out ends here, once: Esc, 完成 (the form closes the dialog), a click outside, the window losing focus.
+  // Every way out ends here, once: Esc, a click outside, the window losing focus.
   function close() {
     if (!cur) return;
     const c = cur;
@@ -79,26 +102,26 @@
   function render() {
     const { opts, sets } = cur;
     const q = cleanTagName(input.value);
-    cur.rows = rowsOf(opts.tags(), q, opts.canCreate);
-    // Where no tag can be made here (or now: a full folder), the box and the keys do not offer it.
+    cur.rows = rowsOf(inOrder(opts.tags(), cur.order), q, opts.canCreate);
+    // Where no tag can be made here (or now: a full folder), the box does not offer it.
     const make = Boolean(opts.canCreate);
-    input.placeholder = make ? "输入筛选，或输入新名称后回车新建" : "输入筛选";
-    input.setAttribute("aria-label", make ? "筛选或新建标签" : "筛选标签");
-    keys.textContent = `↑↓ 选择 · 回车 勾选${make ? "、取消或新建" : "或取消"} · 1–9 勾选或取消第几个 · Esc 关闭并保存`;
+    const hint = !make ? "筛选标签" : opts.tags().length ? "筛选或新建标签" : "输入名称，回车新建标签";
+    input.placeholder = hint;
+    input.setAttribute("aria-label", hint);
     cur.index = Math.min(cur.index, Math.max(0, cur.rows.length - 1));
     list.innerHTML =
       cur.rows
         .map((r, i) => {
           const active = i === cur.index;
           const attrs = `role="option" class="picker-opt${active ? " active" : ""}${r.create ? " tp-new" : ""}" data-i="${i}" aria-selected="${active}"`;
-          if (r.create) return `<li ${attrs}><span class="check">+</span>新建「${esc(r.create)}」</li>`;
+          if (r.create) return `<li ${attrs}><span class="slot">+</span><span class="name">新建「${esc(r.create)}」</span></li>`;
           const n = countOf(sets, r.tag.id);
           const all = n === sets.size;
           const some = sets.size > 1 && n ? `<span class="muted">${n} 个有</span>` : "";
-          const key = !q && i < 9 ? `<span class="n" aria-hidden="true">${i + 1}</span>` : "";
-          return `<li ${attrs} aria-checked="${all ? "true" : n ? "mixed" : "false"}"><span class="check">${all ? "✓" : n ? "–" : ""}</span><span class="dot" style="--c:${esc(r.tag.color)}"></span>${esc(r.tag.name)}${some}${key}</li>`;
+          const key = !input.value && keyOf(i) ? `<span class="n" aria-hidden="true">${keyOf(i)}</span>` : "";
+          return `<li ${attrs.replace('class="picker-opt', `class="picker-opt${all ? " on" : ""}`)} style="--c:${esc(r.tag.color)}" title="${esc(r.tag.name)}" aria-checked="${all ? "true" : n ? "mixed" : "false"}"><span class="slot">${all ? "✓" : n ? "–" : '<span class="dot"></span>'}</span><span class="name">${esc(r.tag.name)}</span>${some}${key}</li>`;
         })
-        .join("") || `<li class="muted">${esc(opts.empty || "输入名称后回车新建标签")}</li>`;
+        .join("") || (opts.empty ? `<li class="muted">${esc(opts.empty)}</li>` : "");
     list.querySelector(".active")?.scrollIntoView?.({ block: "nearest" });
   }
 
@@ -118,7 +141,7 @@
     render();
   }
 
-  // Under the anchor, or above it when there is no room below; never past the window's top (an anchor scrolled above it).
+  // Under the anchor, or above it when there is no room below; always inside the window (an anchor scrolled out of it).
   function place() {
     const r = (document.querySelector(cur.opts.anchor) || document.body).getBoundingClientRect();
     const w = dlg.offsetWidth;
@@ -126,7 +149,7 @@
     let y = r.bottom + 6;
     if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
     dlg.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
-    dlg.style.top = `${Math.max(8, y)}px`;
+    dlg.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
   }
 
   // Runs before the page's own key handlers see the key (they skip open dialogs and text fields anyway).
@@ -134,24 +157,27 @@
     if (!cur || MdgTyping.composing(e) || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === "Escape") close();
-    else if (k === "ArrowDown" || k === "ArrowUp") {
+    else if (/^Arrow(Up|Down|Left|Right)$/.test(k)) {
       const n = cur.rows.length;
-      if (n) cur.index = (cur.index + (k === "ArrowDown" ? 1 : n - 1)) % n;
+      if (!input.value) cur.index = gridMove(cur.index, n, k);
+      else if (k === "ArrowLeft" || k === "ArrowRight") return; // the caret's
+      else if (n) cur.index = (cur.index + (k === "ArrowDown" ? 1 : n - 1)) % n;
       render();
     } else if (k === "Enter" && e.target === input) pick(cur.index);
-    // As the row numbers show: while the filter is empty once cleaned (spaces alone are no filter).
-    else if (/^[1-9]$/.test(k) && !cleanTagName(input.value) && cur.rows[k - 1]?.tag) pick(k - 1);
+    // As the numbers show: only with the box empty. A digit no tag has goes into the box.
+    else if (/^[0-9]$/.test(k) && !input.value && cur.rows[indexOfKey(k)]?.tag) pick(indexOfKey(k));
     else return;
     e.preventDefault();
     e.stopPropagation();
   });
   MdgTyping.bindLive(input, () => cur && ((cur.index = 0), render()), 0);
-  list.addEventListener("mousedown", (e) => e.target.closest("[data-i]") && e.preventDefault()); // focus stays in the filter
+  // Focus stays in the filter, or the keys stop working and only a click outside closes. A press on the backdrop is the dialog's.
+  dlg.addEventListener("mousedown", (e) => e.target !== input && e.target !== dlg && e.preventDefault());
   list.addEventListener("click", (e) => {
     const li = e.target.closest("[data-i]");
     if (li) pick(Number(li.dataset.i));
   });
-  // 完成 submits the form, which closes the dialog. After a reopen the dialog is open again: that close was handled.
+  // After a reopen the dialog is open again: that close was handled.
   dlg.addEventListener("close", () => !dlg.open && close());
   // The modal's backdrop is the dialog element too; only a point outside its box counts.
   dlg.addEventListener("click", (e) => {
@@ -166,5 +192,5 @@
   // A scroll (the list, the page) moves the anchor: the popover follows it.
   addEventListener("scroll", () => cur?.opts.anchor && place(), true);
 
-  globalThis.TagPicker = { open, close, isOpen: () => Boolean(cur), toggle, changesOf, applyChange, rowsOf };
+  globalThis.TagPicker = { open, close, isOpen: () => Boolean(cur), toggle, changesOf, applyChange, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove };
 })();

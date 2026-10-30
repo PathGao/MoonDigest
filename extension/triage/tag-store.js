@@ -266,12 +266,13 @@
         targets,
         idsOf: (k) => (a.map()[k] || []).filter((id) => tagOf(id)),
         tags: () => a.tags().filter((t) => !a.scoped || scopes.includes(t.folder)),
+        usesOf: count,
         // Read at each redraw: a tag made here may fill the scope; full, no 新建「…」 and the empty list says why.
         get canCreate() {
           return one && !full(scopes[0]);
         },
         get empty() {
-          // "" leaves tag-picker.js's own 「输入名称后回车新建标签」.
+          // "": nothing to explain, the box says what to do.
           return one ? full(scopes[0]) : a.scopeWhy(undefined);
         },
         create: (name) => createTag(name, scopes[0]),
