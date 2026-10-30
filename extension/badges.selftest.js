@@ -201,7 +201,6 @@ assert.strictEqual(applyUpTag(pt, {}, "9", { create: " ，" }), null, "an empty 
   assert.strictEqual(ctx.MdgLimits.UP_TAGS, 50);
   assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "新" })), { why: "已经有 50 个 UP 标签了，先在分拣台「关注」的「标签管理」里删掉不用的" });
   assert.deepStrictEqual(plain(applyUpTag(full, {}, "9", { create: "n3" }).map), { 9: ["t3"] });
-  assert.ok(/const full = upTagsFull\(up\.tags\);\s*if \(full\) more\.append\(elOf\("div", "empty", full\)\)/.test(fs.readFileSync(path.join(__dirname, "badges.js"), "utf8")), "the picker shows why instead of 新建标签");
 }
 
 // J3: this page is another origin than the 分拣台: the write goes to the background, which takes the shared lock.
@@ -663,12 +662,11 @@ async function plusPage() {
   const panel = host.shadow.querySelector(".pick");
   assert.ok(!panel.classList.contains("dark"));
   assert.strictEqual(plus.attrs["aria-expanded"], "true");
-  const rows = () => panel.querySelectorAll(".opt").filter((b) => b.dataset.id).map((b) => `${b.textContent}:${b.attrs["aria-checked"]}`);
-  assert.deepStrictEqual(rows(), ["常看:false", "游戏:false"]);
-  assert.strictEqual(panel.querySelector(".h").textContent, "给「丙」打 UP 标签");
-  assert.strictEqual(panel.querySelector(".new").textContent, "+新建标签");
-  assert.strictEqual(panel.querySelector(".foot").textContent, "只存在 MoonDigest 里，不改 B站 · Esc 关闭");
-  assert.strictEqual(focused.el, panel.querySelector(".opt"), "focus moves into the picker");
+  const rows = () => panel.querySelectorAll(".opt").filter((b) => b.attrs["aria-checked"]).map((b) => `${b.textContent}:${b.attrs["aria-checked"]}`);
+  assert.deepStrictEqual(rows(), ["常看1:false", "游戏2:false"]);
+  assert.strictEqual(panel.attrs["aria-label"], "给「丙」打 UP 标签");
+  assert.ok(panel.querySelector(".foot").textContent.endsWith("只存在 MoonDigest 里，不改 B站"));
+  assert.strictEqual(focused.el, panel.querySelector("input"), "focus moves into the filter");
   let hostStops = 0;
   host.listeners.keydown.forEach((f) => f({ stopPropagation: () => hostStops++ }));
   assert.strictEqual(hostStops, 1, "keys typed in the picker stop at its host (page hotkeys never see them)");
@@ -681,8 +679,28 @@ async function plusPage() {
   assert.strictEqual(tagsOf(title("c")), "游戏");
   assert.ok(!boxOf(title("c")).classList.contains("mdg-ups-empty"));
   assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏1"]);
-  assert.deepStrictEqual(rows(), ["常看:false", "✓游戏:true"]);
-  assert.strictEqual(focused.el?.dataset.id, "b", "focus stays on the row just toggled");
+  assert.deepStrictEqual(rows(), ["常看1:false", "✓游戏2:true"]);
+  assert.strictEqual(focused.el, panel.querySelector("input"), "focus stays in the filter");
+  // The keys as on the 分拣台: 1–9 and 0 tick at once with the box empty.
+  const pressKey = (key, target = panel.querySelector("input")) => panel.listeners.keydown[0]({ key, target, preventDefault() {} });
+  pressKey("1");
+  await settle();
+  assert.deepStrictEqual(rows(), ["✓常看1:true", "✓游戏2:true"]);
+  pressKey("1");
+  await settle();
+  assert.deepStrictEqual(rows(), ["常看1:false", "✓游戏2:true"]);
+  pressKey("ArrowRight");
+  assert.ok(panel.querySelectorAll(".opt")[1].classList.contains("active"), "→ moves along the grid");
+  pressKey("ArrowLeft");
+  // ⌘1 is the browser's.
+  panel.listeners.keydown[0]({ key: "1", target: panel.querySelector("input"), metaKey: true, preventDefault() {} });
+  await settle();
+  assert.deepStrictEqual(rows(), ["常看1:false", "✓游戏2:true"], "⌘1 ticks nothing");
+  // Tab goes between the filter and the link.
+  pressKey("Tab");
+  assert.strictEqual(focused.el, panel.querySelector(".go"));
+  pressKey("Tab", panel.querySelector(".go"));
+  assert.strictEqual(focused.el, panel.querySelector("input"));
   assert.strictEqual(plusOf(title("c")).attrs["aria-expanded"], "true", "the rebuilt box's 「+」 still shows the picker open");
   // A redraw (a follow sync) keeps focus on 「在分拣台「关注」里打开这个 UP 主」, not on 新建标签.
   assert.strictEqual(panel.querySelector(".go").textContent, "在分拣台「关注」里打开这个 UP 主 ↗", "K26: UP 主, as everywhere else");
@@ -691,10 +709,17 @@ async function plusPage() {
   await settle();
   assert.strictEqual(focused.el, panel.querySelector(".go"), "focus stays on the 分拣台 link through a redraw");
 
-  // 新建标签: the row turns into a name field; Enter creates the tag and switches it on.
-  panel.listeners.click[0]({ target: panel.querySelector(".new").firstChild });
+  // 新建: a name no tag has offers 新建「名字」; Enter creates the tag and switches it on.
   const input = panel.querySelector("input");
-  assert.ok(input && focused.el === input);
+  const typed = async (v) => {
+    input.value = v;
+    input.dispatchEvent({ type: "input", isComposing: false });
+    await settle();
+  };
+  // A space takes the numbers away, and a digit is then text.
+  await typed(" ");
+  assert.strictEqual(panel.querySelectorAll(".n").length, 0);
+  await typed("");
   // Enter picking an IME candidate creates nothing, Esc cancelling the composition keeps the panel and the text.
   input.value = "zhong";
   panel.listeners.keydown[0]({ key: "Enter", target: input, isComposing: true, keyCode: 229, preventDefault() {} });
@@ -707,7 +732,8 @@ async function plusPage() {
   await settle();
   assert.strictEqual(panel.querySelector("input"), input, "the name field survives the sync");
   assert.strictEqual(input.value, "zhong");
-  input.value = "学习";
+  await typed("学习");
+  assert.strictEqual(panel.querySelector(".opt.new").textContent, "+新建「学习」");
   panel.listeners.keydown[0]({ key: "Enter", target: input, preventDefault() {} });
   await settle();
   const made = store.follow_tags.at(-1);
@@ -715,7 +741,7 @@ async function plusPage() {
   assert.deepStrictEqual(store.follow_tag_map[4], ["b", made.id]);
   assert.strictEqual(tagsOf(title("c")), "游戏学习");
   assert.deepStrictEqual(counts(), ["全部6", "常看2", "游戏1", "学习1"]);
-  assert.strictEqual(focused.el?.dataset.id, made.id);
+  assert.strictEqual(input.value, "", "the box empties after 新建");
 
   // Esc closes and hands focus back to the (rebuilt) 「+」.
   panel.listeners.keydown[0]({ key: "Escape", preventDefault() {} });
@@ -737,13 +763,13 @@ async function plusPage() {
     assert.ok(release, "丙's uncheck of 游戏 is waiting for the background");
     doc.listeners.click.forEach((f) => f(ev(plusOf(title("a")))));
     const panelA = doc.childNodes.at(-1).shadow.querySelector(".pick");
-    assert.strictEqual(focused.el, panelA.querySelector(".opt"), "甲's picker opened with focus on its first row, 常看");
+    assert.strictEqual(focused.el, panelA.querySelector("input"), "甲's picker opened with focus in its filter");
     win.chrome.runtime.sendMessage = realSend;
     release();
     await settle();
     assert.deepStrictEqual(store.follow_tag_map[4], [made.id], "丙's uncheck is written");
     assert.strictEqual(tagsOf(title("c")), "学习");
-    assert.strictEqual(focused.el?.dataset.id, "a", "甲's picker keeps its focus on 常看, not on the row 丙 unchecked");
+    assert.strictEqual(focused.el, panelA.querySelector("input"), "甲's picker keeps its focus");
     doc.listeners.pointerdown.forEach((f) => f({ composedPath: () => [list, doc] }));
     store.follow_tag_map[4] = ["b", made.id];
     changed.forEach((f) => f({ follow_tag_map: {} }, "local"));

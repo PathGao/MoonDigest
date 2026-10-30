@@ -64,5 +64,37 @@
     return { verdict: "drop", reason: v.reason ? `${INVALID}。AI 原理由：${v.reason}` : INVALID, stage: Math.max(v.stage, 0) };
   }
 
-  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upFullText, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf };
+  // ----- the tag panels: tag-picker.js in the extension's pages, badges.js on B站 pages -----
+  // The rows: the tags whose name has q, then 新建「q」 when no tag has that name and one can be made here.
+  function rowsOf(tags, q, canCreate) {
+    const low = q.toLowerCase();
+    const out = tags.filter((t) => t.name.toLowerCase().includes(low)).map((tag) => ({ tag }));
+    if (q && canCreate && !tags.some((t) => t.name === q)) out.push({ create: q });
+    return out;
+  }
+
+  const COLS = 3;
+  const KEY_COUNT = 10;
+  // The key of the i-th tag: 1 to 9, then 0, as the number row and a phone's keypad read.
+  const keyOf = (i) => (i < KEY_COUNT ? String((i + 1) % KEY_COUNT) : "");
+  const indexOfKey = (k) => (k === "0" ? KEY_COUNT - 1 : Number(k) - 1);
+  // With more tags than keys the most used come first; opened once, so ticking moves nothing.
+  const orderOf = (tags, usesOf) =>
+    tags.length <= KEY_COUNT || !usesOf ? tags.map((t) => t.id) : tags.map((t) => [t.id, usesOf(t.id)]).sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  // Tags in the order fixed at opening; one made since goes last.
+  function inOrder(tags, order) {
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return [...tags].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+  }
+  // An arrow on the grid: ←→ along the reading order, ↑↓ within the column; both wrap.
+  function gridMove(i, n, key) {
+    if (!n) return 0;
+    if (key === "ArrowRight") return (i + 1) % n;
+    if (key === "ArrowLeft") return (i + n - 1) % n;
+    const col = i % COLS;
+    const rows = Math.floor((n - 1 - col) / COLS) + 1;
+    return col + (((i - col) / COLS + (key === "ArrowDown" ? 1 : rows - 1)) % rows) * COLS;
+  }
+
+  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upFullText, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove };
 })();
