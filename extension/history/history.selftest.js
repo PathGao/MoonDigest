@@ -170,7 +170,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   // J/K and the arrows move the current card, stopping at the ends; X picks it.
   selClick("clear");
   const realEntries = els.list.querySelectorAll;
-  const entries = ["a", "b"].map((key) => ({ dataset: { key }, classList: { toggle() {} }, scrollIntoView() {}, getBoundingClientRect: () => ({ top: 0, bottom: 0 }) }));
+  const clicked = [];
+  const entries = ["a", "b"].map((key) => ({ dataset: { key }, classList: { toggle() {} }, scrollIntoView() {}, getBoundingClientRect: () => ({ top: 0, bottom: 0 }), querySelector: (sel) => ({ click: () => clicked.push(`${key}${sel}`) }) }));
   els.list.querySelectorAll = (sel) => (sel === ".entry" ? entries : realEntries(sel));
   const key = (k) => L.document.keydown.forEach((f) => f({ key: k, target: {}, preventDefault() {} }));
   const picked = () => ["a", "b"].filter((k) => new RegExp(`class="card entry selected[^"]*" data-key="${k}"`).test(html));
@@ -188,6 +189,16 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   key("k");
   key("x");
   assert.deepStrictEqual(picked(), ["a", "b"], "stops at the first");
+  // Esc clears the selection. Q and O / Enter click the current card's own 继续问 and link.
+  key("Escape");
+  assert.deepStrictEqual(picked(), [], "Esc");
+  key("q");
+  key("o");
+  key("Enter");
+  assert.deepStrictEqual(clicked, ['a[data-act="ask"]', "aa.title", "aa.title"]);
+  // Enter on a control inside the card is that control's own.
+  L.document.keydown.forEach((f) => f({ key: "Enter", target: { closest: () => ({}) }, preventDefault() {} }));
+  assert.strictEqual(clicked.length, 3, "Enter on a button");
   els.list.querySelectorAll = realEntries;
   selClick("clear");
   pick("a");
@@ -266,7 +277,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   // K12: 清空全部 AI 对话 keeps the selection of the entries still listed (a 备注 only); the deleted ones leave it.
   pick("a");
   const convs = store.mdg_ai_conversations_v1;
-  ctx.confirm = () => true;
   ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
   for (const f of L.clearAll.click) await f({});
   onChanged({ mdg_ai_conversations_v1: {} }, "local");
@@ -446,7 +456,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     (L.list.keydown || []).forEach((f) => f({ key: "Enter", target: { matches: (sel) => sel === "[data-note]" }, preventDefault() {} }));
     await wait(20);
     assert.deepStrictEqual([els.status.textContent, red], ["保存备注失败：存储已满", true]);
-    ctx.confirm = () => true;
     await on(p2Key, "delete");
     assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
     els.status.textContent = "";
@@ -604,7 +613,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     store[ctx.MdgLimits.KEYS.triageVideoTags] = { [BV]: ["ft1", "ft2"] };
     ctx.chrome.storage.local.set = async (o) => Object.assign(store, o);
     ctx.CSS = { escape: (s) => s };
-    ctx.confirm = () => true;
     const plain = (v) => JSON.parse(JSON.stringify(v ?? null));
     const reload = async () => (onChanged({ [MARKS]: {} }, "local"), await wait(350));
     const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
@@ -635,13 +643,10 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     // 清空全部 keeps a starred record's conversations and says so; they are not counted against the cap.
     assert.ok(els.count.textContent.includes("星标 2 段不计"), els.count.textContent);
     const allConvs = store.mdg_ai_conversations_v1;
-    let asked = "";
-    ctx.confirm = (text) => ((asked = text), true);
     for (const f of L.clearAll.click) await f({});
-    assert.ok(asked.includes("加了星标的记录的 2 段不删"), asked);
+    assert.ok(asks.at(-1)[1].includes("加了星标的记录的 2 段不删"), asks.at(-1)[1]);
     assert.deepStrictEqual(plain(store.mdg_ai_conversations_v1.map((c) => c.id).sort()), ["s1", "s2"]);
     assert.strictEqual(els.clearAll.title, "只剩加了星标的记录的 AI 对话");
-    ctx.confirm = () => true;
     store.mdg_ai_conversations_v1 = allConvs;
     await reload();
     // The 分拣台's tags show read-only, one per name, and are said to be edited there.
@@ -681,7 +686,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     ctx.TagPicker = { ...ctx.TagPicker, open: (o) => (picker = o) };
     pick(videoKey);
     pick(pageKey);
-    assert.ok(/<button type="button" data-sel="tags" aria-label="打标签">打标签<\/button>/.test(els.selbar.innerHTML), els.selbar.innerHTML);
+    assert.ok(/<button type="button" data-sel="tags" aria-label="标签…">标签…<\/button>/.test(els.selbar.innerHTML), els.selbar.innerHTML);
     L.selbar.click.forEach((f) => f({ target: { closest: () => ({ dataset: { sel: "tags" } }) } }));
     assert.deepStrictEqual(plain([picker.title, [...picker.targets].sort(), picker.anchor]), ["给选中的 2 个打标签", [pageKey, videoKey], ""]);
     const tag = await picker.create(" 读过 ");
@@ -992,7 +997,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     assert.ok(undoAsked().startsWith("撤销这次 AI 打标签？"), undoAsked());
     const tagsNow = Object.values(store[MARKS].items).flatMap((item) => item.tags);
     assert.deepStrictEqual(plain([store[MARKS].tags.map((t) => t.name), tagsNow, store[RECENT]]), [["旧"], [], null], "tags as before, 新 deleted, 「AI 刚打的」 gone");
-    ctx.confirm = () => true;
     // A stored proposal comes back on a reload; one naming a deleted tag is dropped there.
     ad.discard();
     await wait(20); // the clear is written under the key lock
@@ -1132,7 +1136,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     L.list.click.forEach((f) => f({ target: { closest: (s) => (s === ".entry" ? { dataset: { key: p1 } } : null) }, button: 0, preventDefault() {} }));
     act(p1, "summary");
     L.list.toggle.forEach((f) => f({ target: { open: true, closest: () => ({ dataset: { key: p1 } }) } }));
-    ctx.confirm = () => true;
     for (const f of L.clearAll.click) await f({});
     await wait(50);
     const after = [...els.list.innerHTML.matchAll(/data-key="([^"]*)"/g)].map(([, k]) => k).filter((k) => k.includes(BV));

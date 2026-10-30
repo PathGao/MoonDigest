@@ -206,6 +206,14 @@
     exportDate: "导出日期",
     // Opens the 备注 box (side panel, 摘读记录, 分拣台).
     noteAdd: "✎ 备注",
+    // The help dialogs (分拣台's two, 摘读记录) and the buttons they name.
+    shortcuts: "快捷键",
+    keyTagNumber: "打标签时勾选或去掉第几个标签",
+    keySearch: "搜索（Esc 清空）",
+    keyHelp: "显示本帮助",
+    aiTag: "AI 打标签",
+    gotIt: "知道了",
+    tagsMenu: "标签…",
     // The settings page's custom AI platform, and the name a platform stored without one gets (background.js).
     customAi: "自定义",
     // A B站 video deleted or hidden: the error of every read (sites.js, not B站's own words) and the verdict's reason

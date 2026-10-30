@@ -19,6 +19,7 @@
         <span class="rec-find">
           <span id="searchSlot"></span>
           <button id="clearAll" type="button" class="act-btn danger" disabled>清空全部 AI 对话</button>
+          <button id="helpBtn" type="button" class="help-btn" title="快捷键 (?)" aria-label="快捷键 (?)">?</button>
         </span>
       </div>
       <div class="rec-bar state-bar"><div id="stateRow" class="state-row"></div><div id="selectAllSlot"></div></div>
@@ -52,7 +53,7 @@
       </form>
     </dialog>
     <dialog id="aiTagDialog" class="wide" aria-labelledby="aiTagTitle"></dialog>
-    <!-- The 分拣台's confirm dialog (UI.askConfirm), as in triage/triage.html: 删除标签 and U 撤销 ask here. -->
+    <!-- The 分拣台's confirm dialog (UI.askConfirm), as in triage/triage.html: 删除标签, U 撤销 and deleting AI 对话 ask here. -->
     <dialog id="confirmDialog" aria-label="确认">
       <form method="dialog">
         <h2 id="confirmTitle"></h2>
@@ -62,6 +63,25 @@
           <button value="cancel" type="submit" aria-label="取消">取消</button>
           <button id="confirmOk" value="ok" type="submit" class="primary"></button>
         </div>
+      </form>
+    </dialog>
+    <dialog id="helpDialog" aria-labelledby="helpTitle">
+      <form method="dialog">
+        <h2 id="helpTitle" data-text="shortcuts">快捷键</h2>
+        <dl class="keys">
+          <dt><kbd>J</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>↑</kbd></dt><dd>移到下一张 / 上一张卡片</dd>
+          <dt><kbd>X</kbd></dt><dd>选中或取消选中当前卡片，和点卡片一样。Shift 点选中一段</dd>
+          <dt><kbd>Esc</kbd></dt><dd>清空选中</dd>
+          <dt><kbd>T</kbd></dt><dd>给当前卡片打标签</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd data-text="keyTagNumber">打标签时勾选或去掉第几个标签</dd>
+          <dt><kbd>Q</kbd></dt><dd>继续问</dd>
+          <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>打开当前卡片的视频或网页</dd>
+          <dt><kbd>I</kbd></dt><dd data-text="aiTag">AI 打标签</dd>
+          <dt><kbd>U</kbd></dt><dd>撤销上一步改标签</dd>
+          <dt><kbd>/</kbd></dt><dd data-text="keySearch">搜索（Esc 清空）</dd>
+          <dt><kbd>?</kbd></dt><dd data-text="keyHelp">显示本帮助</dd>
+        </dl>
+        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary" data-text="gotIt">知道了</button></div>
       </form>
     </dialog>
     <!-- As 关注设置's AI 打标签 groups (triage.html); UI.fillSetRows writes the rows' names, hints and ranges. -->

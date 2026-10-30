@@ -593,7 +593,7 @@ function renderSel() {
   const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
     ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", unfollowSel(k - gone || k), busy || none || (k === gone && "选中的都已取消关注"), "danger")
-    : btn("pick-sel", "标签…", none) +
+    : btn("pick-sel", MdgErrors.LABEL.tagsMenu, none) +
       btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && `先在分组列表里选一个分组：「${ALL}」里不知道从哪个分组移走`)) +
       btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +
       btn("unfollow", unfollowSel(k), busy || none, "danger");
@@ -925,7 +925,7 @@ async function refollow(mids) {
   });
   if (lost.length) {
     const list = lost.map(({ mid, error }) => `<li>${esc(upName(mid))}：${esc(error)}</li>`).join("");
-    askConfirm(`${lost.length} 个 UP 主没能放回原来的分组`, `<ul>${list}</ul><p class="dialog-hint">已经重新关注，现在在默认分组里。按 U 撤销会取消关注，记录照原样放回。</p>`, "知道了", { alone: true });
+    askConfirm(`${lost.length} 个 UP 主没能放回原来的分组`, `<ul>${list}</ul><p class="dialog-hint">已经重新关注，现在在默认分组里。按 U 撤销会取消关注，记录照原样放回。</p>`, MdgErrors.LABEL.gotIt, { alone: true });
   } else if (done.length === mids.length) toast(`已在 B站重新关注 ${done.length} 个 UP 主${UI.UNDO}`);
 }
 // ---------- 关注分组 on B站 (DESIGN 产品决策 · 改 B站 的操作和撤销) ----------
@@ -955,7 +955,7 @@ async function regroup(mids, want, label) {
   }
   if (skipped.length) {
     const list = skipped.map(({ mid, error }) => `<li>${esc(nameOf(mid))}：${esc(error)}</li>`).join("");
-    askConfirm(`${skipped.length} 个 UP 主没能${label}`, `<ul>${list}</ul><p class="dialog-hint">它们还选着。其余的已经做完。</p>`, "知道了", { alone: true });
+    askConfirm(`${skipped.length} 个 UP 主没能${label}`, `<ul>${list}</ul><p class="dialog-hint">它们还选着。其余的已经做完。</p>`, MdgErrors.LABEL.gotIt, { alone: true });
   }
   return { done, skipped, ok: done.length + skipped.length - known === calls.reduce((k, c) => k + c.mids.length, 0) };
 }

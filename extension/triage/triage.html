@@ -312,18 +312,18 @@
         <p class="dialog-hint">UP 主表格和完整备份都在「导出」菜单里。</p>
         </div>
         <div class="stack follow-help">
-        <h2>快捷键</h2>
+        <h2 data-text="shortcuts">快捷键</h2>
         <dl class="keys">
           <dt><kbd>J</kbd><kbd>↓</kbd> / <kbd>K</kbd><kbd>↑</kbd></dt><dd>UP 主页签里移到下一张 / 上一张卡片</dd>
           <dt><kbd>X</kbd></dt><dd>选中或取消选中当前卡片，和点 UP 主卡片一样。Shift 点选中一段，Esc 清空</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放当前 UP 主最新的视频</dd>
           <dt><kbd>T</kbd></dt><dd>给鼠标所在的视频投稿卡片、当前 UP 主卡片或正在播放的视频的 UP 主打标签</dd>
           <dt><kbd>I</kbd></dt><dd>AI 打标签（UP 主页签）</dd>
-          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd>打标签时勾选或去掉第几个标签</dd>
+          <dt><kbd>1</kbd>–<kbd>9</kbd></dt><dd data-text="keyTagNumber">打标签时勾选或去掉第几个标签</dd>
           <dt><kbd>Esc</kbd></dt><dd>关闭打标签（并保存）或内置播放框</dd>
           <dt><kbd>U</kbd></dt><dd>撤销关注里的上一步：标签修改、AI 打标签、特别关注、重新关注、移到或复制到分组、分组改名（改了多个 UP 主的先问你）</dd>
-          <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
-          <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
+          <dt><kbd>/</kbd></dt><dd data-text="keySearch">搜索（Esc 清空）</dd>
+          <dt><kbd>?</kbd></dt><dd data-text="keyHelp">显示本帮助</dd>
         </dl>
         </div>
         <div class="stack fav-help">
@@ -340,7 +340,7 @@
         <p class="dialog-hint">「保留」标记<span data-text="localOnly">只存在 MoonDigest 里，不改 B站</span>。<br>摘录、笔记、表格和完整备份都在「导出」菜单里。</p>
         </div>
         <div class="stack fav-help">
-        <h2>快捷键</h2>
+        <h2 data-text="shortcuts">快捷键</h2>
         <p class="dialog-hint">D、S、T、E、Q、X、O 作用于当前卡片：鼠标所在或 J / K 停在的那张，显示为浮起的卡片。</p>
         <dl class="keys">
           <dt><kbd>J</kbd><kbd>↓</kbd></dt><dd>下一个</dd>
@@ -352,15 +352,15 @@
           <dt><kbd>Q</kbd></dt><dd>问 AI（在侧边栏打开这个视频）</dd>
           <dt><kbd>X</kbd></dt><dd>选中 / 取消选中，和点卡片一样（点标题是播放）。Shift 点选中一段，Esc 清空。选中的视频可以批量处理，处理后选中不变，只有因此离开这一页的才不再选中；「状态」行的「全选 N 个」一次勾上当前列出的，再点一次取消</dd>
           <dt><kbd>O</kbd><kbd>Enter</kbd></dt><dd>在内置播放框里播放（Esc 关闭）</dd>
-          <dt><kbd>I</kbd></dt><dd>AI 打标签</dd>
-          <dt><kbd>/</kbd></dt><dd>搜索（Esc 清空）</dd>
+          <dt><kbd>I</kbd></dt><dd data-text="aiTag">AI 打标签</dd>
+          <dt><kbd>/</kbd></dt><dd data-text="keySearch">搜索（Esc 清空）</dd>
           <dt><kbd>U</kbd></dt><dd>撤销上一步（改了多个视频的先问你）</dd>
-          <dt><kbd>?</kbd></dt><dd>显示本帮助</dd>
+          <dt><kbd>?</kbd></dt><dd data-text="keyHelp">显示本帮助</dd>
         </dl>
         <p class="dialog-hint">「已出分拣范围」里卡片键只有 E、Q、X、O / Enter 可用，U 照常撤销上一步；点卡片选中，选中后可收藏到任一收藏夹或只清理选中的。</p>
         </div>
         </div>
-        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary">知道了</button></div>
+        <div class="dialog-actions"><span class="spacer"></span><button type="submit" class="primary" data-text="gotIt">知道了</button></div>
       </form>
     </dialog>
 

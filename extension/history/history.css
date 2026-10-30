@@ -26,6 +26,7 @@ body { padding: 14px 16px 0; }
 #selectAllSlot { margin-left: auto; }
 /* 摘读记录设置's gear (TriageUi.gearBtn): always shown here. */
 .rec-head .act-btn.gear-only { display: inline-flex; }
+.rec-find .help-btn { flex: none; margin-left: 0; }
 
 /* ---------- cards: the star in its own column so title, meta and body share one left edge, the body,
    and the buttons top-right in two rows ---------- */
