@@ -1102,8 +1102,8 @@
     // still has the embedded player and content.js the transcript to try.
     // Only the page's own response says the video is gated: YouTube stops this
     // extension's own requests (a datacenter IP gets "not a bot") while the
-    // page plays. A page that plays never yields a gate, so a video without
-    // captions reads as one.
+    // page plays. A playable page never yields a gate, so its video without
+    // captions reads as 视频没有字幕.
     async fetchMeta(ref, io) {
       if (!io.postJson) {
         throw new Error("YouTube 视频信息只能在视频页内获取");
@@ -1119,8 +1119,8 @@
       const gate = !ytGateReason(data)
         ? ""
         : fromPage
-          ? `网页本身也被 YouTube 拦住了（${reason}），等网页能正常播放后刷新再试`
-          : `没读到网页的播放数据，插件自己的请求又被 YouTube 拦住了（${reason}），${MdgErrors.TEXT.reloadRetry}`;
+          ? `该视频需要登录或年龄验证，暂不支持（${reason}）`
+          : `未能读取网页播放数据，插件补发的请求被 YouTube 拒绝（${reason}），${MdgErrors.TEXT.reloadRetry}`;
       if (gate && !data.videoDetails?.title) {
         throw new Error(gate);
       }
