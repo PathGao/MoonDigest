@@ -677,12 +677,13 @@
 
   // Player responses by client and the subtitle PO token of the current
   // load. The token is bound to the video id only, so one serves every
-  // client. fetchMeta starts a load and clears it.
-  let ytPlayer = { id: "", responses: {}, pot: null, resolved: false };
+  // client. fetchMeta starts a load and clears it. fromPage: WEB is the page
+  // player's own response, not one this extension asked for.
+  let ytPlayer = { id: "", responses: {}, pot: null, resolved: false, fromPage: false };
 
   // A read still running for an earlier video gets a cache of its own, so it never wipes the current video's.
   function ytPlayerCache(ref, fresh = false) {
-    const blank = () => ({ id: ref.id, responses: {}, pot: null, resolved: false });
+    const blank = () => ({ id: ref.id, responses: {}, pot: null, resolved: false, fromPage: false });
     if (fresh || !ytPlayer.id) ytPlayer = blank();
     return ytPlayer.id === ref.id ? ytPlayer : blank();
   }
@@ -699,6 +700,7 @@
     if (clientName === "WEB" && io.readPlayer) {
       const live = await io.readPlayer().catch(() => null);
       response = live?.videoDetails?.videoId === ref.id ? live : null;
+      cache.fromPage = Boolean(response);
     }
     if (!response) {
       const body = { videoId: ref.id };
@@ -1098,18 +1100,27 @@
     // ANDROID player when that one has no videoDetails. A sign-in or age gate
     // is reported, not thrown, while videoDetails are present: fetchTracks
     // still has the embedded player and content.js the transcript to try.
+    // Only the page's own response says the video is gated: YouTube stops this
+    // extension's own requests (a datacenter IP gets "not a bot") while the
+    // page plays. A playable page never yields a gate, so its video without
+    // captions reads as 视频没有字幕.
     async fetchMeta(ref, io) {
       if (!io.postJson) {
         throw new Error("YouTube 视频信息只能在视频页内获取");
       }
       ytPlayerCache(ref, true);
       let data = await ytPlayerResponse(ref, io, "WEB");
+      const fromPage = ytPlayerCache(ref).fromPage;
       if (!data.videoDetails?.title) {
         data = await ytPlayerResponse(ref, io, "ANDROID");
       }
       const status = data?.playabilityStatus?.status;
       const reason = data?.playabilityStatus?.reason || status || "unknown";
-      const gate = ytGateReason(data) ? `该视频需要登录或年龄验证，暂不支持（${reason}）` : "";
+      const gate = !ytGateReason(data)
+        ? ""
+        : fromPage
+          ? `该视频需要登录或年龄验证，暂不支持（${reason}）`
+          : `未能读取网页播放数据（${reason}），${MdgErrors.TEXT.reloadRetry}`;
       if (gate && !data.videoDetails?.title) {
         throw new Error(gate);
       }
