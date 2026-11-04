@@ -440,12 +440,13 @@ async function ytComments(next, byContinuation) {
   });
   const metaError = (status) =>
     yt.fetchMeta(ref, metaIo(status)).then(() => "", (error) => error.message);
-  eq(await metaError({ status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" }), "该视频需要登录或年龄验证，暂不支持（Sign in to confirm your age）");
-  eq(await metaError({ status: "AGE_CHECK_REQUIRED" }), "该视频需要登录或年龄验证，暂不支持（AGE_CHECK_REQUIRED）");
+  eq(await metaError({ status: "LOGIN_REQUIRED", reason: "Sign in to confirm your age" }), "没读到网页的播放数据，插件自己的请求又被 YouTube 拦住了（Sign in to confirm your age），请刷新网页后重试");
+  eq(await metaError({ status: "AGE_CHECK_REQUIRED" }), "没读到网页的播放数据，插件自己的请求又被 YouTube 拦住了（AGE_CHECK_REQUIRED），请刷新网页后重试");
   eq(await metaError({ status: "ERROR", reason: "Video unavailable" }), "视频不可播放：Video unavailable");
   // A gate that still ships videoDetails yields usable meta without tracks; the gate text travels with it.
+  // Without the page player every gate comes from this extension's own request.
   const gated = await yt.fetchMeta(ref, metaIo({ status: "LOGIN_REQUIRED", reason: "Sign in" }, { title: "T", lengthSeconds: "10" }));
-  eq([gated.title, gated.duration, gated.gate], ["T", 10, "该视频需要登录或年龄验证，暂不支持（Sign in）"]);
+  eq([gated.title, gated.duration, gated.gate], ["T", 10, "没读到网页的播放数据，插件自己的请求又被 YouTube 拦住了（Sign in），请刷新网页后重试"]);
   eq((await yt.fetchMeta(ref, metaIo({ status: "OK" }, { title: "T" }))).gate, "");
 
   // Chapters and transcript params from one /next; both chapter shapes.
@@ -587,10 +588,20 @@ async function ytComments(next, byContinuation) {
   eq(await sourcesOf({ "player:ANDROID:dQw4w9WgXcQ": ytPlayer([]) }, { readPlayer: async () => ytPlayer([]) }), { calls: ["player:ANDROID:dQw4w9WgXcQ"], tracks: [] });
   // fetchMeta: gate reported with details present, thrown without; upload date from microformat.
   let m = ytIo({}, { readPlayer: async () => ({ ...signIn, microformat: { playerMicroformatRenderer: { publishDate: "2009-10-25T00:00:00-07:00" } } }) });
-  eq((await yt.fetchMeta(ref, m.io)).gate, "该视频需要登录或年龄验证，暂不支持（Sign in）");
+  eq((await yt.fetchMeta(ref, m.io)).gate, "网页本身也被 YouTube 拦住了（Sign in），等网页能正常播放后刷新再试");
   eq((await yt.fetchMeta(ref, m.io)).uploadDate, "2009-10-25");
   m = ytIo({ "player:WEB:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } }, "player:ANDROID:dQw4w9WgXcQ": { playabilityStatus: { status: "AGE_VERIFICATION_REQUIRED" } } });
-  eq(await yt.fetchMeta(ref, m.io).then(() => "", (error) => error.message), "该视频需要登录或年龄验证，暂不支持（AGE_VERIFICATION_REQUIRED）");
+  eq(await yt.fetchMeta(ref, m.io).then(() => "", (error) => error.message), "没读到网页的播放数据，插件自己的请求又被 YouTube 拦住了（AGE_VERIFICATION_REQUIRED），请刷新网页后重试");
+  // The page plays without captions and only this extension's own ANDROID call is gated: no gate, so the read
+  // ends as 视频没有字幕 (failure "") instead of a sign-in reason.
+  m = ytIo({ "player:ANDROID:dQw4w9WgXcQ": signIn, "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ": ytPlayer([]), "next:dQw4w9WgXcQ": watchNext("") }, { readPlayer: async () => ytPlayer([]) });
+  const playable = await yt.fetchMeta(ref, m.io);
+  eq(playable.gate, "");
+  const none = await S.loadSubtitle(yt, ref, playable, m.io);
+  eq([none.track, none.failure], [null, ""]);
+  // The page itself gated: its reason is the read's failure.
+  m = ytIo({ "player:ANDROID:dQw4w9WgXcQ": signIn, "player:WEB_EMBEDDED_PLAYER:dQw4w9WgXcQ": ytPlayer([]), "next:dQw4w9WgXcQ": watchNext("") }, { readPlayer: async () => signIn });
+  eq((await S.loadSubtitle(yt, ref, await yt.fetchMeta(ref, m.io), m.io)).failure, "网页本身也被 YouTube 拦住了（Sign in），等网页能正常播放后刷新再试");
   // WBI: w_rid is md5(sorted query + mixin key), with !'()* stripped from values.
   const md5 = (text) => crypto.createHash("md5").update(text).digest("hex");
   const mixinKey = S.biliMixinKey("https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png", "https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png");
