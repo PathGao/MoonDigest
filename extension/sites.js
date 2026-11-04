@@ -1120,7 +1120,7 @@
         ? ""
         : fromPage
           ? `该视频需要登录或年龄验证，暂不支持（${reason}）`
-          : `未能读取网页播放数据，插件补发的请求被 YouTube 拒绝（${reason}），${MdgErrors.TEXT.reloadRetry}`;
+          : `未能读取网页播放数据（${reason}），${MdgErrors.TEXT.reloadRetry}`;
       if (gate && !data.videoDetails?.title) {
         throw new Error(gate);
       }
