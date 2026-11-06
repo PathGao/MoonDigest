@@ -73,10 +73,16 @@ function init() {
     syncUnsaved();
     flushSave({ quiet: false });
   });
-  // A save still waiting goes out now; only an edit that cannot be saved (or one still being written) asks.
+  // A save still waiting goes out now. The browser asks first when it may not get out (one is already running and it
+  // would wait behind it) or would not be written (invalid), and for an edit that could not be saved.
   window.addEventListener("beforeunload", (event) => {
-    if (saveTimer) flushSave({ quiet: false });
-    else if (hasUnsavedChanges) event.preventDefault();
+    if (!saveTimer) {
+      if (hasUnsavedChanges) event.preventDefault();
+      return;
+    }
+    const behind = savesRunning > 0;
+    flushSave({ quiet: false });
+    if (behind || !formValid()) event.preventDefault();
   });
   initPromptTabs();
   document.getElementById("exportSettingsBtn").addEventListener("click", exportSettingsFile);
@@ -115,15 +121,15 @@ function init() {
   elements.testConnectionBtn.addEventListener("click", testConnection);
   elements.addFixedPropertyBtn.addEventListener("click", () => {
     addFixedPropertyRow();
-    syncUnsaved();
+    scheduleSave();
   });
   elements.addNoteSectionBtn.addEventListener("click", () => {
     addNoteSectionRow();
-    syncUnsaved();
+    scheduleSave();
   });
   elements.addAiProviderBtn.addEventListener("click", () => {
     addAiProviderRow();
-    syncUnsaved();
+    scheduleSave();
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
   document.addEventListener("click", (event) => {
@@ -472,6 +478,7 @@ function setUnsaved(value) {
 }
 
 const saveSettled = () => !saveTimer && !savesRunning;
+const formValid = () => validateSettings(readFormPayload(), { testing: false }).ok && validateAiProviders(collectAiProviders()).ok;
 
 // Compares content, so an edit that is undone (add a row, then remove it) is not "unsaved".
 // Rows are compared as typed: a half-filled one is dropped from the payload, but it is still an edit that saving must validate.
@@ -770,7 +777,7 @@ function addFixedPropertyRow(item = {}) {
   row.querySelector(".fixed-property-remove").addEventListener("click", () => {
     row.remove();
     updateFixedPropertyEmptyState();
-    syncUnsaved();
+    flushSave({ quiet: false });
   });
 
   const typeButton = row.querySelector(".fixed-property-type-button");
@@ -799,7 +806,7 @@ function addFixedPropertyRow(item = {}) {
       const currentValue = readFixedPropertyValue(row);
       row.querySelector(".fixed-property-value-slot").innerHTML = buildFixedPropertyValueControl(nextType, currentValue);
       clearRowErrors(row);
-      syncUnsaved();
+      flushSave({ quiet: false });
     });
   });
 
@@ -849,7 +856,7 @@ function addNoteSectionRow(item = {}) {
   row.querySelector(".note-section-remove").addEventListener("click", () => {
     row.remove();
     updateNoteSectionEmptyState();
-    syncUnsaved();
+    flushSave({ quiet: false });
   });
 
   elements.noteSectionsList.appendChild(row);
