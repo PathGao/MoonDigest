@@ -171,7 +171,7 @@ const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/pla
 const TOOLS = [
   {
     name: "get_video",
-    description: "Read a Bilibili or YouTube video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
+    description: "Read a Bilibili or YouTube video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
     inputSchema: {
       type: "object",
       properties: {
@@ -196,6 +196,13 @@ const TOOLS = [
   },
 ];
 
+// What MCP clients put in the model's prompt about this server: when to reach for it, not how each tool works.
+export const INSTRUCTIONS = [
+  "MoonDigest reads Bilibili and YouTube videos through the user's own browser and login: the full timestamped transcript, chapters, description and hot comments (get_video), and a frame at any second (get_frame).",
+  "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
+  "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. MoonDigest cannot search; find the videos with your own search tools first.",
+].join("\n\n");
+
 function errorResult(err) {
   const code = err.code ? `${err.code}: ` : "";
   const tail = err.code === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon." : "";
@@ -203,7 +210,7 @@ function errorResult(err) {
 }
 
 export function createMcpServer(bridge) {
-  const server = new Server({ name: "moondigest", version: "0.1.0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "moondigest", version: "0.1.0" }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     const args = params.arguments || {};

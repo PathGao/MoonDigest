@@ -179,6 +179,9 @@ test("stdio binary lists the two tools", async () => {
   await client.connect(transport);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name), ["get_video", "get_frame"]);
+  // The server tells the model to check videos that turn up in its own searches, not only linked ones.
+  assert.match(client.getInstructions() || "", /search turns up Bilibili or YouTube videos/);
+  assert.match(tools[0].description, /search results/);
   await client.close();
 });
 
