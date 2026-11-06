@@ -7,7 +7,7 @@
 收藏了却没看的视频、想读的网页，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.7.5-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.7.6-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -24,7 +24,7 @@
 ## 快速开始
 
 1. 从 [Chrome 应用商店](https://chromewebstore.google.com/detail/bnjihpbocpimaipifanfkjjpfdbigggd) 安装。
-2. 设置 → 「AI 平台」 → 「+ 添加平台」，选预设，填 API Key，点「测试连接」后保存。浏览器问能否访问这个地址时点允许。支持 DeepSeek、智谱 GLM、Kimi、MiniMax、OpenRouter 和任意 OpenAI 兼容接口。可以加多个，在侧边栏的「选择 AI 平台」里切换；分拣台的 AI 也用这里选的平台。
+2. 设置 → 「AI 平台」 → 「+ 添加平台」，选预设，填 API Key，点「测试连接」。浏览器问能否访问这个地址时点允许。设置改了就存，不用点保存。支持 DeepSeek、智谱 GLM、Kimi、MiniMax、OpenRouter 和任意 OpenAI 兼容接口。可以加多个，在侧边栏的「选择 AI 平台」里切换；分拣台的 AI 也用这里选的平台。
 3. 登录 B站。B站只给登录用户看字幕（AI 字幕也一样），分拣台也要登录才能读收藏夹。
 4. 打开一个 B站或 YouTube 视频，点插件图标里的 **✦ AI 总结**。
 
