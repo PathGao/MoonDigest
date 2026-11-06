@@ -131,6 +131,7 @@ const NOT_ENTRIES = {
   "background.js": "classifies (streamChat AI_STALLED, aiProviderProblem) and answers open-options; shows no error",
   "obsidian.js": "classifies Obsidian errors (OBSIDIAN / OBSIDIAN_DOWN); shows none",
   "sites.js": "classifies B站 / YouTube reads (THROTTLED, the gone codes); shows none",
+  "agent-search.js": "the MCP search (docs/AGENT.md §2): passes THROTTLED on to the agent; shows none",
   "triage/triage-bg.js": "classifies AI and B站 errors for 分拣台 and 关注; shows none",
   "triage/runs.js": "the run judge: waits on AI_THROTTLED, stops on aiEnds (MdgErrors.action); shows none",
   "note.js": "writes subtitleMissing into a note (text, no remedy)",

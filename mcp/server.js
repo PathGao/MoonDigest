@@ -162,11 +162,37 @@ export function formatVideo(d) {
   return lines.join("\n");
 }
 
+// One line per result: what an agent needs to pick which ones to read with get_video.
+export function formatSearch(d) {
+  const site = d.site === "youtube" ? "YouTube" : "Bilibili";
+  if (!d.items?.length) return `No ${site} videos for "${d.query}" on page ${d.page}.`;
+  const lines = [`${site} search "${d.query}", page ${d.page}:`];
+  d.items.forEach((v, i) => {
+    const parts = [v.title, v.author, v.duration ? clock(v.duration) : "", v.views != null ? `${v.views} views` : "", v.uploadDate, v.url];
+    lines.push(`${i + 1}. ${parts.filter(Boolean).join(" | ")}`);
+  });
+  return lines.join("\n");
+}
+
 // --- MCP ----------------------------------------------------------------------
 
 const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…) or a YouTube watch page (www.youtube.com/watch?v=…).";
 
 const TOOLS = [
+  {
+    name: "search_videos",
+    description: "Search Bilibili or YouTube for videos through the user's own browser and login. Returns one line per video (title, author, duration, views, date, URL); the URLs go straight to get_video. Titles and view counts are not evidence: read the most promising few with get_video before you cite or recommend one. One search at a time, a few per task. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for, as you would type it into the site's search box." },
+        site: { type: "string", enum: ["bilibili", "youtube"], description: "Default bilibili." },
+        page: { type: "integer", minimum: 1, description: "Result page, default 1, about 20 videos per page. YouTube has page 1 only." },
+        raw: { type: "boolean", description: "Return the extension's JSON (adds a short description per video) instead of the compact text." },
+      },
+      required: ["query"],
+    },
+  },
   {
     name: "get_video",
     description: "Read a Bilibili or YouTube video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
@@ -196,9 +222,9 @@ const TOOLS = [
 
 // What MCP clients put in the model's prompt about this server: when to reach for it, not how each tool works.
 export const INSTRUCTIONS = [
-  "MoonDigest reads Bilibili and YouTube videos through the user's own browser and login: the full timestamped transcript, chapters, description and hot comments (get_video), and a frame at any second (get_frame).",
+  "MoonDigest searches and reads Bilibili and YouTube videos through the user's own browser and login: a video search on either site (search_videos), the full timestamped transcript, chapters, description and hot comments (get_video), and a frame at any second (get_frame).",
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
-  "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. MoonDigest cannot search; find the videos with your own search tools first.",
+  "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
 ].join("\n\n");
 
 function errorResult(err) {
@@ -213,6 +239,15 @@ export function createMcpServer(bridge) {
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     const args = params.arguments || {};
     try {
+      if (params.name === "search_videos") {
+        if (typeof args.query !== "string" || !args.query.trim()) throw new CodedError("", "query is required.");
+        const site = args.site ?? "bilibili";
+        if (site !== "bilibili" && site !== "youtube") throw new CodedError("", 'site must be "bilibili" or "youtube".');
+        const page = args.page ?? 1;
+        if (!Number.isInteger(page) || page < 1) throw new CodedError("", "page must be an integer ≥ 1.");
+        const data = await bridge.call("search", { site, query: args.query.trim(), page });
+        return { content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatSearch(data) }] };
+      }
       if (typeof args.url !== "string" || !args.url) throw new CodedError("BAD_URL", "url is required.");
       if (params.name === "get_video") {
         const data = await bridge.call("get", { url: args.url });

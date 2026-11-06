@@ -7,7 +7,7 @@ import WebSocket from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createBridge, createMcpServer, formatVideo } from "../server.js";
+import { createBridge, createMcpServer, formatSearch, formatVideo } from "../server.js";
 
 const SERVER = fileURLToPath(new URL("../server.js", import.meta.url));
 
@@ -173,15 +173,17 @@ test("port taken -> PORT_IN_USE, then takes the port over when it frees", async 
   await s.close();
 });
 
-test("stdio binary lists the two tools", async () => {
+test("stdio binary lists the tools", async () => {
   const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], env: { ...process.env, MOONDIGEST_MCP_PORT: "0" } });
   const client = new Client({ name: "test", version: "0" });
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name), ["get_video", "get_frame"]);
+  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame"]);
   // The server tells the model to check videos that turn up in its own searches, not only linked ones.
   assert.match(client.getInstructions() || "", /search turns up Bilibili or YouTube videos/);
-  assert.match(tools[0].description, /search results/);
+  assert.match(tools.find((t) => t.name === "get_video").description, /search results/);
+  assert.match(client.getInstructions() || "", /search with search_videos, then read the best few with get_video/);
+  assert.doesNotMatch(client.getInstructions() || "", /cannot search/);
   await client.close();
 });
 
@@ -193,4 +195,60 @@ test("binary exits when its MCP client closes stdin", async () => {
     child.once("exit", (c) => { clearTimeout(t); resolve(c); });
   });
   assert.equal(code, 0);
+});
+
+const RESULTS = {
+  site: "bilibili", query: "rust", page: 1,
+  items: [
+    { site: "bilibili", videoId: "BV1", url: "https://www.bilibili.com/video/BV1", title: "Rust 入门", author: "UP", duration: 754, views: 12345, uploadDate: "2026-01-02", description: "d" },
+    { site: "bilibili", videoId: "BV2", url: "https://www.bilibili.com/video/BV2", title: "Live", author: "UP2", duration: 0, views: null, uploadDate: "", description: "" },
+  ],
+};
+
+test("search_videos: defaults, one line per video, raw", async () => {
+  const s = await setup();
+  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (m.method === "search" ? { ok: true, data: { ...RESULTS, page: m.params.page } } : null) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  const r = await s.client.callTool({ name: "search_videos", arguments: { query: " rust " } });
+  assert.equal(r.isError, undefined);
+  assert.equal(r.content[0].text, [
+    'Bilibili search "rust", page 1:',
+    "1. Rust 入门 | UP | 12:34 | 12345 views | 2026-01-02 | https://www.bilibili.com/video/BV1",
+    "2. Live | UP2 | https://www.bilibili.com/video/BV2",
+  ].join("\n"));
+  assert.deepEqual(ext.messages.find((m) => m.method).params, { site: "bilibili", query: "rust", page: 1 });
+  const raw = await s.client.callTool({ name: "search_videos", arguments: { query: "rust", site: "youtube", page: 2, raw: true } });
+  assert.deepEqual(JSON.parse(raw.content[0].text), { ...RESULTS, page: 2 });
+  assert.deepEqual(ext.messages.filter((m) => m.method)[1].params, { site: "youtube", query: "rust", page: 2 });
+  ext.ws.close();
+  await s.close();
+});
+
+test("search_videos: bad arguments never reach the extension", async () => {
+  const s = await setup();
+  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: true, data: RESULTS }) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  for (const [args, re] of [[{}, /query is required/], [{ query: "x", site: "vimeo" }, /site must be/], [{ query: "x", page: 0 }, /page must be/], [{ query: "x", page: 1.5 }, /page must be/]]) {
+    const r = await s.client.callTool({ name: "search_videos", arguments: args });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0].text, re);
+  }
+  assert.equal(ext.messages.filter((m) => m.method).length, 0);
+  ext.ws.close();
+  await s.close();
+});
+
+test("search_videos: empty is not an error, THROTTLED says stop", async () => {
+  assert.equal(formatSearch({ site: "youtube", query: "zzz", page: 1, items: [] }), 'No YouTube videos for "zzz" on page 1.');
+  const s = await setup();
+  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: false, error: "YouTube 限流，请稍后再试", code: "THROTTLED" }) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  const r = await s.client.callTool({ name: "search_videos", arguments: { query: "x", site: "youtube" } });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /^THROTTLED: YouTube 限流，请稍后再试 Stop calling MoonDigest/);
+  ext.ws.close();
+  await s.close();
 });

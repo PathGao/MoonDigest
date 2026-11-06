@@ -139,6 +139,7 @@
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so
   // nothing loads a video or asks the site for a call nobody waits for any more.
   async function handle(method, params, deadline = Date.now() + CALL_BUDGET_MS) {
+    if (method === "search") return MdgAgentSearch.search(params, deadline); // agent-search.js, no tab
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
     const url = params && params.url;
     const key = typeof url === "string" ? videoKey(url) : null;
