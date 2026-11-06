@@ -347,8 +347,12 @@
             <div class="ctl"><input id="enableDebugLogs" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
-            <div class="lab"><label class="name" for="mcpEnabled">允许 MCP 连接</label><p class="hint">让 Cursor、Codex、Claude Code 等 AI 工具通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a> 读 B站和 YouTube 视频的字幕、评论和画面。用 MCP 时再打开：开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行。不用时关掉，能省一点电和内存。</p></div>
+            <div class="lab"><label class="name" for="mcpEnabled">允许 MCP 连接</label><p class="hint">让 Cursor、Codex、Claude Code 等 AI 工具通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a> 搜索 B站和 YouTube 视频，读视频的字幕、评论和画面。用 MCP 时再打开：开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行。不用时关掉，能省一点电和内存。</p></div>
             <div class="ctl"><input id="mcpEnabled" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row sub">
+            <div class="lab"><label class="name" for="mcpPersonalData">允许 AI 工具读我的收藏、关注和历史</label><p class="hint">AI 工具还能通过 MCP 读你 B站的收藏夹和里面的视频（带分拣台的标签、备注和 AI 判断）、关注和分组（带 UP 标签）、观看历史、稍后再看。只读，不改 B站 和 MoonDigest 里的任何东西；不含 API Key 和 AI 对话。要先打开「允许 MCP 连接」。</p></div>
+            <div class="ctl"><input id="mcpPersonalData" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
             <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹、关注和摘读记录的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>

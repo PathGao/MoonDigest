@@ -391,6 +391,23 @@ main {
   justify-self: end;
 }
 
+/* A switch that works only while the one above it is on (允许 AI 工具读… under 允许 MCP 连接): indented under it, no rule
+   between them, greyed out while that one is off. */
+.row.sub {
+  padding-top: 0;
+  padding-left: 24px;
+  border-top: 0;
+}
+
+.row.sub:has(.switch:disabled) .name {
+  color: var(--muted);
+}
+
+input.switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* 笔记目录 carries its variable buttons; give them room so they wrap less. */
 .row:has(.vars) {
   grid-template-columns: minmax(0, 1fr) 420px;

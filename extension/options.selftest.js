@@ -497,7 +497,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
 // the page has (a switch flipped from its default, every box changed).
 (async () => {
   const html = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
-  const els = Object.fromEntries([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, { id, value: "", checked: false, querySelectorAll: () => [] }]));
+  const els = Object.fromEntries([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, { id, value: "", checked: false, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {} }]));
   const S = ctx.MdgSettings;
   const stored = S.normalizeSyncSettings({
     ...Object.fromEntries(Object.entries(S.DEFAULTS).map(([k, v]) => [k, typeof v === "boolean" ? !v : v])),
@@ -517,12 +517,25 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
     renderBiliMarks() {}, renderStorageLimits() {}, syncObsidianBody() {}, syncSeenRows() {}, syncBiliMarks() {}, renderAiProviders() {},
     renderHostPermissionBanner() {}, hostPermissionUrls() {}, markSaved() {}
   });
-  vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload")].join("\n"), page);
+  vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload"), fn("syncMcpRows")].join("\n"), page);
   await page.loadSettings();
   const payload = page.readFormPayload();
-  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
+  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
   assert.deepStrictEqual(Object.keys(payload).sort(), [...keys].sort(), "the page sends exactly its own settings");
   assert.deepStrictEqual(plainOf(payload), plainOf(Object.fromEntries(keys.map((k) => [k, settings[k]]))));
+  // 允许 AI 工具读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
+  assert.deepStrictEqual([els.mcpEnabled.checked, els.mcpPersonalData.checked, els.mcpPersonalData.disabled], [true, true, false]);
+  els.mcpEnabled.checked = false;
+  page.syncMcpRows();
+  assert.deepStrictEqual([els.mcpPersonalData.disabled, els.mcpPersonalData.title], [true, "先打开「允许 MCP 连接」"]);
+  assert.deepStrictEqual([page.readFormPayload().mcpEnabled, page.readFormPayload().mcpPersonalData], [false, true], "turning MCP off keeps the stored value");
+  els.mcpEnabled.checked = true;
+  page.syncMcpRows();
+  assert.deepStrictEqual([els.mcpPersonalData.disabled, page.readFormPayload().mcpPersonalData], [false, true], "and turning it on again brings it back as it was");
+  els.mcpPersonalData.checked = false;
+  els.mcpEnabled.checked = false;
+  page.syncMcpRows();
+  assert.deepStrictEqual([els.mcpPersonalData.disabled, page.readFormPayload().mcpPersonalData], [true, false], "an off one stays off");
 })().catch((e) => (console.error(e), process.exit(1)));
 function plainOf(v) {
   return JSON.parse(JSON.stringify(v));

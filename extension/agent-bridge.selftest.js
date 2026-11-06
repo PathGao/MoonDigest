@@ -80,6 +80,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     onEnabledChange: (cb) => { env.enabledCb = cb; },
   });
   env.tabs = tabs;
+  env.addMethods = (m) => ctx.MdgAgentBridge.addMethods(m);
   return env;
 }
 
@@ -135,6 +136,17 @@ check("BAD_URL for unsupported pages", async () => {
     assert.equal(r.ok, false, url);
     assert.equal(r.code, "BAD_URL", url);
   }
+  assert.equal(env.created.length, 0);
+  assert.equal(env.sent.length, 0);
+});
+
+check("an added method answers without a tab, before the url check", async () => {
+  const env = makeEnv({ enabled: true });
+  env.addMethods({ favorites: async (p) => ({ ok: true, data: { got: p } }), history: async () => ({ ok: false, code: "PERSONAL_DATA_OFF", error: "off" }) });
+  const s = await openSocket(env);
+  assert.deepEqual(await rpc(s, "m1", "favorites", { folderId: "11" }), { id: "m1", ok: true, data: { got: { folderId: "11" } } });
+  assert.deepEqual(await rpc(s, "m2", "history", {}), { id: "m2", ok: false, error: "off", code: "PERSONAL_DATA_OFF" });
+  assert.equal((await rpc(s, "m3", "toString", {})).error, "Unknown method toString.");
   assert.equal(env.created.length, 0);
   assert.equal(env.sent.length, 0);
 });
