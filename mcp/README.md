@@ -81,13 +81,13 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 后启动的不会崩溃。它的工具调用返回 `PORT_IN_USE`，说明端口被另一个 moondigest-mcp 占着。
 - 每次工具调用它都会再试一次占端口。先启动的那个退出后（它的客户端关掉时会跟着退出），下一次调用就会接管端口，扩展最多一分钟内连过来。
 
-刚开始监听的 65 秒内，调用会先等扩展连上再回答，因为扩展断线重连的间隔最长是 60 秒。过了这段时间还没有扩展，就立刻返回 `NOT_CONNECTED`。
+没有扩展连着时，调用立刻返回 `NOT_CONNECTED`，提示打开「允许 MCP 连接」。扩展每分钟重连一次，所以开关刚打开、或服务刚启动时，等一分钟再调用。
 
 `MOONDIGEST_MCP_PORT` 环境变量可以改端口，但扩展固定连 47823，所以它只在测试里有用。
 
 ### 排查
 
-- `NOT_CONNECTED`：浏览器没开、没装 MoonDigest、或「允许 MCP 连接」没开。
+- `NOT_CONNECTED`：浏览器没开、没装 MoonDigest、或「允许 MCP 连接」没开。刚打开开关的话，等一分钟扩展连上再试。
 - `PORT_IN_USE`：另一个 MCP 客户端的 moondigest-mcp 占着端口，见上一节。也可以用 `lsof -nP -iTCP:47823 -sTCP:LISTEN` 看是谁。
 - `THROTTLED`：B站或 YouTube 在限流。停下来，过一阵再试，不要连续重试。
 - `TIMEOUT`：60 秒内没有回答。常见原因是页面加载太慢，或后台标签页被浏览器冻结。切到那个标签页看一眼再试。
@@ -179,13 +179,13 @@ Each MCP client starts its own moondigest-mcp, and there is only one port:
 - The later one does not crash. Its tool calls return `PORT_IN_USE`, saying another moondigest-mcp holds the port.
 - It retries the port on every tool call. Once the first one exits (it exits when its client closes), the next call takes the port over, and the extension reconnects within a minute.
 
-For the first 65 seconds after it starts listening, a call waits for the extension before answering, because the extension's reconnect delay is at most 60 seconds. After that, with no extension, it returns `NOT_CONNECTED` at once.
+With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 允许 MCP 连接 to be turned on. The extension reconnects once a minute, so right after turning the switch on or starting the server, wait a minute and call again.
 
 `MOONDIGEST_MCP_PORT` changes the port, but the extension always connects to 47823, so it is only useful in tests.
 
 ### Troubleshooting
 
-- `NOT_CONNECTED`: the browser is not open, MoonDigest is not installed, or 允许 MCP 连接 is off.
+- `NOT_CONNECTED`: the browser is not open, MoonDigest is not installed, or 允许 MCP 连接 is off. Right after turning it on, wait a minute for the extension to connect.
 - `PORT_IN_USE`: another MCP client's moondigest-mcp holds the port, see above. `lsof -nP -iTCP:47823 -sTCP:LISTEN` shows which process.
 - `THROTTLED`: Bilibili or YouTube is rate limiting. Stop and try later. Do not retry in a loop.
 - `TIMEOUT`: no answer in 60 s. Usually the page loaded too slowly or the browser froze the background tab. Look at that tab and try again.
