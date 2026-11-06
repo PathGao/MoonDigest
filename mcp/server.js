@@ -12,7 +12,6 @@ const CALL_TIMEOUT_MS = 60_000;
 const PING_MS = 20_000;
 // The extension reconnects within 60 s at most, so right after this server starts
 // listening a call waits this long for it before reporting NOT_CONNECTED.
-const CONNECT_GRACE_MS = 65_000;
 
 class CodedError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -20,13 +19,11 @@ class CodedError extends Error {
 
 // --- extension socket ---------------------------------------------------------
 
-export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(process.env.MOONDIGEST_MCP_PORT) : 47823, host = "127.0.0.1", callTimeoutMs = CALL_TIMEOUT_MS, pingMs = PING_MS, connectGraceMs = CONNECT_GRACE_MS } = {}) {
+export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(process.env.MOONDIGEST_MCP_PORT) : 47823, host = "127.0.0.1", callTimeoutMs = CALL_TIMEOUT_MS, pingMs = PING_MS } = {}) {
   let wss = null;          // set while listening
   let listening = null;    // promise of the current listen attempt
-  let listenedAt = 0;
   let portError = "";
   let ext = null;          // { ws, hello }
-  let waiters = [];        // resolve callbacks waiting for an extension
   let nextId = 1;
   const pending = new Map();
 
@@ -39,7 +36,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
         verifyClient: ({ origin }) => typeof origin === "string" && origin.startsWith("chrome-extension://"),
       });
       server.once("listening", () => {
-        wss = server; listening = null; portError = ""; listenedAt = Date.now();
+        wss = server; listening = null; portError = "";
         server.on("connection", onConnection);
         resolve();
       });
@@ -70,8 +67,6 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
       try { msg = JSON.parse(String(raw)); } catch { return; }
       if (msg.type === "hello") {
         me.hello = msg;
-        for (const w of waiters) w();
-        waiters = [];
         return;
       }
       if (msg.type === "pong") return;
@@ -95,23 +90,11 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     ws.on("error", () => {});
   }
 
-  async function waitForExtension() {
-    if (ext?.hello) return;
-    const left = connectGraceMs - (Date.now() - listenedAt);
-    if (left <= 0) return;
-    await new Promise((resolve) => {
-      const t = setTimeout(done, left);
-      function done() { clearTimeout(t); waiters = waiters.filter((w) => w !== done); resolve(); }
-      waiters.push(done);
-    });
-  }
-
   async function call(method, params) {
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
-    await waitForExtension();
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection), then try again.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;
@@ -126,7 +109,6 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
   }
 
   async function close() {
-    for (const w of waiters) w();
     if (ext) ext.ws.terminate();
     if (wss) await new Promise((r) => wss.close(r));
     wss = null;

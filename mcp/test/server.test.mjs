@@ -12,7 +12,7 @@ import { createBridge, createMcpServer, formatVideo } from "../server.js";
 const SERVER = fileURLToPath(new URL("../server.js", import.meta.url));
 
 async function setup(opts = {}) {
-  const bridge = createBridge({ port: 0, connectGraceMs: 0, ...opts });
+  const bridge = createBridge({ port: 0, ...opts });
   await bridge.listen();
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createMcpServer(bridge).connect(a);
@@ -150,12 +150,12 @@ test("no extension -> NOT_CONNECTED", async () => {
   await s.close();
 });
 
-test("a call waits for an extension that connects during the grace period", async () => {
-  const s = await setup({ connectGraceMs: 5000 });
-  const pending = s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  setTimeout(() => fakeExtension(s.bridge.port, { onCall: () => ({ ok: true, data: VIDEO }) }), 50);
-  const r = await pending;
-  assert.equal(r.isError, undefined);
+test("no extension answers NOT_CONNECTED at once, without waiting for one to connect", async () => {
+  const s = await setup();
+  const started = Date.now();
+  const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 MCP 连接.*within a minute/);
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
   await s.close();
 });
 
