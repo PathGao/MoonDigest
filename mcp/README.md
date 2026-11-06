@@ -135,7 +135,7 @@ Three tools read your own Bilibili data. All are read-only and off by default: t
 - `get_follows({ page?, query?, raw? })`: the UP 主 you follow, 50 a page, with follow groups and your UP tags. Read from the 分拣台's synced follow list when there is one (then `query` works); otherwise one page from Bilibili, where `query` is not applied and the result says so.
 - `get_history({ cursor?, raw? })`: watch history, newest first, 30 a call. Pass the returned `cursor` back for older items.
 
-These read one page per call and run one at a time, never everything at once.
+These return one page per call and run one at a time, a second apart.
 
 `get_video` returns compact text by default, one transcript line per segment as `[mm:ss] text` (`hh:mm:ss` past an hour). The extension's raw JSON repeats the `from`, `to` and `content` keys and fractional times on every segment, which measures about twice the size, and models rarely need end times. Pass `raw: true` when you do need exact times.
 

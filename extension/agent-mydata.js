@@ -1,6 +1,6 @@
 // MoonDigest's agent interface, docs/AGENT.md §2: the user's own Bilibili data (favorites, 稍后再看, follows, watch
 // history) for the MCP server, read only. Only GETs, through triage-bg.js's B站 channel (triageBiliGet), one call at a
-// time, one page per call. Off until 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (mcpPersonalData).
+// time, one page per call (稍后再看 and the 分拣台's local copies are read whole, then paged). Off until 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (mcpPersonalData).
 // The worker loads it after triage-bg.js and follow-core.js, whose helpers it uses.
 (() => {
   const K = MdgLimits.KEYS;
@@ -64,17 +64,24 @@
       all = (await triageToviewList()).map(triageToviewItem);
       source = "bilibili";
     } else {
-      all = (await chrome.storage.local.get(K.triageSnapshot(id)))[K.triageSnapshot(id)]?.items || null;
+      const got = await chrome.storage.local.get([K.triageIncludedFolders, K.triageSnapshot(id)]);
+      const ticked = (got[K.triageIncludedFolders] || []).some((f) => String(f) === id);
+      all = (ticked && got[K.triageSnapshot(id)]?.items) || null;
     }
     if (all) {
+      if (!q) {
+        const one = slice(all, pn, FAV_PAGE);
+        return { folderId: id, source, ...one, items: await withTriage(one.items) };
+      }
       const rows = await withTriage(all);
-      const hit = q ? rows.filter((r) => matches(q, [r.title, r.author, r.note, r.summary, ...(r.tags || [])])) : rows;
+      const hit = rows.filter((r) => matches(q, [r.title, r.author, r.note, r.summary, ...(r.tags || [])]));
       return { folderId: id, source, ...slice(hit, pn, FAV_PAGE) };
     }
     const kw = q ? `&keyword=${encodeURIComponent(q)}&order=mtime&type=0` : "";
     const data = await triageBiliGet(`${API}/x/v3/fav/resource/list?media_id=${id}&ps=${FAV_PAGE}&pn=${pn}&platform=web${kw}`);
     const items = await withTriage((data?.medias || []).map(triageFavItem).filter(Boolean));
-    return { folderId: id, source: "bilibili", total: Number(data?.info?.media_count) || 0, page: pn, hasMore: Boolean(data?.has_more), items };
+    // With a keyword, media_count is still the whole folder's, not the hits: leave total out.
+    return { folderId: id, source: "bilibili", ...(!q && { total: Number(data?.info?.media_count) || 0 }), page: pn, hasMore: Boolean(data?.has_more), items };
   }
 
   const upRow = (mid, person, D) => ({
@@ -124,7 +131,7 @@
   async function history({ cursor }) {
     let at = "";
     if (cursor) {
-      const m = /^(\d+):(\d+):([a-z]*)$/.exec(String(cursor));
+      const m = /^(\d+):(\d+):([a-z-]*)$/.exec(String(cursor));
       if (!m) throw fail("", "cursor must be the cursor a previous get_history returned.");
       at = `&max=${m[1]}&view_at=${m[2]}&business=${m[3]}`;
     }
@@ -153,12 +160,21 @@
   const on = async () => MdgSettings.normalizeSwitches({ mcpPersonalData: (await chrome.storage.sync.get("mcpPersonalData")).mcpPersonalData }).mcpPersonalData;
   const OFF =
     "The user has not allowed AI tools to read their Bilibili favorites, follows and history. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
-  // One call at a time: B站 rate-limits bursts.
+  // One call at a time, GAP_MS apart: B站 rate-limits bursts. deadline: as agent-bridge.js handle.
+  const GAP_MS = 1000;
   let queue = Promise.resolve();
-  function run(fn, params) {
+  let lastAt = 0;
+  function run(fn, params, deadline) {
     const call = queue.then(async () => {
+      const wait = lastAt + GAP_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      if (Date.now() > deadline) throw fail("TIMEOUT", "The call waited too long behind earlier ones.");
       if (!(await on())) throw fail("PERSONAL_DATA_OFF", OFF);
-      return fn(params && typeof params === "object" ? params : {});
+      try {
+        return await fn(params && typeof params === "object" ? params : {});
+      } finally {
+        lastAt = Date.now();
+      }
     });
     queue = call.catch(() => {});
     return call.then(
@@ -167,5 +183,5 @@
     );
   }
 
-  MdgAgentBridge.addMethods(Object.fromEntries(Object.entries(METHODS).map(([name, fn]) => [name, (params) => run(fn, params)])));
+  MdgAgentBridge.addMethods(Object.fromEntries(Object.entries(METHODS).map(([name, fn]) => [name, (params, deadline) => run(fn, params, deadline)])));
 })();

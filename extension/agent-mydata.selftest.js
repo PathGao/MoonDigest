@@ -6,7 +6,10 @@ const vm = require("vm");
 const assert = require("assert");
 
 // The worker's load order, with the bridge's addMethods caught so the methods can be called directly.
-const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout, clearTimeout, setInterval, clearInterval, AbortController });
+// agent-mydata.js's 1 s gap between calls runs at once and is recorded; other timers stay real.
+const gaps = [];
+const fastGap = (fn, ms) => (ms > 0 && ms <= 1000 ? (gaps.push(ms), setImmediate(fn)) : setTimeout(fn, ms));
+const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout: fastGap, clearTimeout, setInterval, clearInterval, AbortController });
 const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js"), "agent-mydata.js loads after the triage helpers it uses");
 let M = null;
@@ -107,6 +110,7 @@ check("folder list: 稍后再看 first, ids as strings", async () => {
 });
 
 check("a ticked folder reads the 分拣台's copy, with tags, note, verdict, summary and 保留; query searches them", async () => {
+  local[K.triageIncludedFolders] = [11];
   local[K.triageSnapshot("11")] = { intro: "", items: [
     { bvid: "BV1aaaaaaaaa", title: "所有权", upper: "UPa", duration: 125, favTime: 1700000000, invalid: false },
     { bvid: "BV1bbbbbbbbb", title: "别的", upper: "UPb", duration: 30, favTime: 1700000001, invalid: true }
@@ -130,12 +134,14 @@ check("a ticked folder reads the 分拣台's copy, with tags, note, verdict, sum
   assert.deepStrictEqual((await M.favorites({ folderId: "11", page: 2 })).data.items, []);
 });
 
-check("another folder: one B站 page, B站 searches by keyword; only videos", async () => {
+check("another folder: one B站 page, B站 searches by keyword (total left out: B站 gives the folder's); only videos", async () => {
+  // An unticked folder's old copy (until the 分拣台 next opens) is not used.
+  local[K.triageSnapshot("22")] = { intro: "", items: [{ bvid: "BV1stale0001", title: "旧", upper: "x", duration: 1, favTime: 1 }] };
   local[K.triageTags] = [{ id: "t9", name: "收藏", folder: "22" }];
   local[K.triageVideoTags] = { BV1remote001: ["t9"] };
   const r = await M.favorites({ folderId: 22, page: 1, query: "远程" });
   assert.strictEqual(r.ok, true);
-  assert.deepStrictEqual(plain(r.data), { folderId: "22", source: "bilibili", total: 50, page: 1, hasMore: true, items: [
+  assert.deepStrictEqual(plain(r.data), { folderId: "22", source: "bilibili", page: 1, hasMore: true, items: [
     { bvid: "BV1remote001", url: "https://www.bilibili.com/video/BV1remote001", title: "远程视频", author: "UPr", duration: 61, favTime: 1700000100, tags: ["收藏"] }
   ] });
   assert.strictEqual(fetched.length, 1);
@@ -187,6 +193,8 @@ check("history: one page, cursor round trip", async () => {
   assert.deepStrictEqual([u.searchParams.get("max"), u.searchParams.get("view_at"), u.searchParams.get("business"), u.searchParams.get("ps")], ["999", "1700000500", "archive", "30"]);
   assert.strictEqual((await M.history({ cursor: "1&x=2" })).ok, false);
   assert.strictEqual(fetched.length, 2, "a bad cursor asks B站 nothing");
+  await M.history({ cursor: "5:1700000400:article-list" });
+  assert.strictEqual(new URL(fetched[2].url).searchParams.get("business"), "article-list", "文集's business has a hyphen");
 });
 
 check("B站 412 is THROTTLED; not logged in is NOT_LOGGED_IN", async () => {
@@ -201,6 +209,8 @@ check("calls run one at a time", async () => {
   const all = await Promise.all([M.history({}), M.favorites({ folderId: "22" }), M.follows({}), M.favorites({})]);
   assert.ok(all.every((r) => r.ok));
   assert.strictEqual(maxInFlight, 1);
+  assert.ok(gaps.length > 0, "calls wait for the gap");
+  assert.strictEqual((await M.history({}, Date.now() - 1)).code, "TIMEOUT", "a call nobody waits for any more asks B站 nothing");
 });
 
 (async () => {

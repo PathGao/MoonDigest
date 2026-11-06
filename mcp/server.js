@@ -179,7 +179,7 @@ export function formatSearch(d) {
 const when = (sec) => (sec > 0 ? new Date(sec * 1000).toLocaleString("sv-SE").slice(0, 16) : "");
 const day = (sec) => when(sec).slice(0, 10);
 const joinParts = (parts) => parts.filter(Boolean).join(" · ");
-const pageLine = (d) => `Page ${d.page}, ${d.items.length} of ${d.total}${d.source === "local" ? " (MoonDigest's copy)" : ""}.${d.hasMore ? ` More: page ${d.page + 1}.` : ""}`;
+const pageLine = (d) => `Page ${d.page}, ${d.items.length}${d.total == null ? "" : ` of ${d.total}`}${d.source === "local" ? " (MoonDigest's copy)" : ""}.${d.hasMore ? ` More: page ${d.page + 1}.` : ""}`;
 
 export function formatFavorites(d) {
   if (d.folders) return ["Folders (id · title · videos):", ...d.folders.map((f) => `- ${f.id} · ${f.title} · ${f.count}`)].join("\n");
