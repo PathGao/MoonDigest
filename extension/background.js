@@ -1,6 +1,19 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits). sidepanel-state.js only for
 // SidepanelState.patchReply (a reply finished after the panel closed).
-importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js");
+importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js", "agent-bridge.js");
+
+// The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
+// for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
+// 设置 → 高级 → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
+const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpEnabled: value }).mcpEnabled;
+MdgAgentBridge.start({
+  extensionVersion: chrome.runtime.getManifest().version,
+  isEnabled: async () => mcpOn((await chrome.storage.sync.get("mcpEnabled")).mcpEnabled),
+  onEnabledChange: (callback) =>
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "sync" && changes.mcpEnabled) callback(mcpOn(changes.mcpEnabled.newValue));
+    })
+});
 
 // Side panel stream watchdog: "first" until any SSE chunk arrives (reasoning chunks count), then "idle" between chunks.
 const STREAM_TIMEOUT_MS = { first: 90000, idle: 60000 };

@@ -72,6 +72,7 @@ const chrome = {
   runtime: { onInstalled: { addListener() {} }, onStartup: { addListener() {} }, onConnect: { addListener() {} }, onMessage: { addListener: (fn) => onMessageListeners.push(fn) }, getURL: (p) => `chrome-extension://mdg/${p}`, getManifest: () => JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")) },
   storage: { local: area(local), sync: area(sync), onChanged: { addListener() {} } },
   permissions: noop,
+  alarms: { onAlarm: { addListener() {} }, create() {}, clear: async () => true }, // agent-bridge.js registers its wake-up listener
   tabs,
   sidePanel: noop,
   declarativeNetRequest: noop

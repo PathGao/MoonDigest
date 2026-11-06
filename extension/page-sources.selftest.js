@@ -68,7 +68,7 @@ if (require.main === module) {
   const files = all.filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && !isDev(f) && f !== "messages.js" && f !== "vendor/defuddle.js");
   assert.deepStrictEqual(files.filter((f) => !shipped.includes(f)), [], "every shipped script is loaded by some runtime");
   assert.deepStrictEqual(own("popup.html"), ["popup.js"]);
-  assert.deepStrictEqual(own("content.js"), ["content.js"], "both content.js entries are one runtime");
+  assert.deepStrictEqual(own("content.js"), ["agent-page.js", "content.js"], "both content.js entries are one runtime");
   assert.ok(own("background.js").includes("triage/follow-bg.js") && !own("background.js").includes("triage/shared.js"));
   assert.ok(favorites.includes("triage/fav-page.js") && follow.includes("triage/follow.js") && !favorites.includes("triage/shared.js"));
   assert.ok(bothModes.every((f) => scripts("triage/triage.html").includes(f)), "bothModes names files the page loads");

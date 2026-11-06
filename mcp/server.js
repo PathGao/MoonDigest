@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+// MoonDigest's MCP server: MCP tools over stdio, the extension's socket per docs/AGENT.md §2.
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { WebSocketServer } from "ws";
+// Low-level Server keeps the tool schemas as plain JSON Schema, so zod is not a dependency.
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+
+const CALL_TIMEOUT_MS = 60_000;
+const PING_MS = 20_000;
+// The extension reconnects within 60 s at most, so right after this server starts
+// listening a call waits this long for it before reporting NOT_CONNECTED.
+const CONNECT_GRACE_MS = 65_000;
+
+class CodedError extends Error {
+  constructor(code, message) { super(message); this.code = code; }
+}
+
+// --- extension socket ---------------------------------------------------------
+
+export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(process.env.MOONDIGEST_MCP_PORT) : 47823, host = "127.0.0.1", callTimeoutMs = CALL_TIMEOUT_MS, pingMs = PING_MS, connectGraceMs = CONNECT_GRACE_MS } = {}) {
+  let wss = null;          // set while listening
+  let listening = null;    // promise of the current listen attempt
+  let listenedAt = 0;
+  let portError = "";
+  let ext = null;          // { ws, hello }
+  let waiters = [];        // resolve callbacks waiting for an extension
+  let nextId = 1;
+  const pending = new Map();
+
+  function listen() {
+    if (wss) return Promise.resolve();
+    if (listening) return listening;
+    listening = new Promise((resolve) => {
+      const server = new WebSocketServer({
+        host, port,
+        verifyClient: ({ origin }) => typeof origin === "string" && origin.startsWith("chrome-extension://"),
+      });
+      server.once("listening", () => {
+        wss = server; listening = null; portError = ""; listenedAt = Date.now();
+        server.on("connection", onConnection);
+        resolve();
+      });
+      server.once("error", (err) => {
+        listening = null;
+        portError = err.code === "EADDRINUSE"
+          ? `Port ${port} is used by another program, most likely another moondigest-mcp started by a different MCP client. The browser extension connects to only one of them. Close the other MCP client (or its moondigest-mcp) and call again; this server takes the port over on the next call.`
+          : `moondigest-mcp could not listen on ${host}:${port}: ${err.message}`;
+        server.close();
+        resolve();
+      });
+    });
+    return listening;
+  }
+
+  function onConnection(ws) {
+    if (ext) { ws.close(4001, "another extension is already connected"); return; }
+    const me = { ws, hello: null, lastSeen: Date.now() };
+    ext = me;
+    const ping = setInterval(() => {
+      // Two missed pings: the socket is dead without a close (sleep, killed worker).
+      if (Date.now() - me.lastSeen > pingMs * 2 + 5_000) { ws.terminate(); return; }
+      send(ws, { type: "ping" });
+    }, pingMs);
+    ws.on("message", (raw) => {
+      me.lastSeen = Date.now();
+      let msg;
+      try { msg = JSON.parse(String(raw)); } catch { return; }
+      if (msg.type === "hello") {
+        me.hello = msg;
+        for (const w of waiters) w();
+        waiters = [];
+        return;
+      }
+      if (msg.type === "pong") return;
+      const p = pending.get(msg.id);
+      if (!p) return;
+      pending.delete(msg.id);
+      clearTimeout(p.timer);
+      if (msg.ok) p.resolve(msg.data);
+      else p.reject(new CodedError(msg.code || "", msg.error || "The extension reported an error."));
+    });
+    ws.on("close", () => {
+      clearInterval(ping);
+      if (ext !== me) return;
+      ext = null;
+      for (const [id, p] of pending) {
+        clearTimeout(p.timer);
+        p.reject(new CodedError("NOT_CONNECTED", "The browser extension disconnected before answering."));
+        pending.delete(id);
+      }
+    });
+    ws.on("error", () => {});
+  }
+
+  async function waitForExtension() {
+    if (ext?.hello) return;
+    const left = connectGraceMs - (Date.now() - listenedAt);
+    if (left <= 0) return;
+    await new Promise((resolve) => {
+      const t = setTimeout(done, left);
+      function done() { clearTimeout(t); waiters = waiters.filter((w) => w !== done); resolve(); }
+      waiters.push(done);
+    });
+  }
+
+  async function call(method, params) {
+    await listen();
+    if (!wss) throw new CodedError("PORT_IN_USE", portError);
+    await waitForExtension();
+    if (!ext?.hello) {
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection), then try again.");
+    }
+    const id = String(nextId++);
+    const { ws } = ext;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new CodedError("TIMEOUT", `The extension did not answer "${method}" within ${Math.round(callTimeoutMs / 1000)} s.`));
+      }, callTimeoutMs);
+      pending.set(id, { resolve, reject, timer });
+      send(ws, { id, method, params });
+    });
+  }
+
+  async function close() {
+    for (const w of waiters) w();
+    if (ext) ext.ws.terminate();
+    if (wss) await new Promise((r) => wss.close(r));
+    wss = null;
+  }
+
+  return {
+    listen, call, close,
+    get port() { return wss?.address().port ?? port; },
+    get connected() { return !!ext?.hello; },
+  };
+}
+
+function send(ws, msg) {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+}
+
+// --- formatting ---------------------------------------------------------------
+
+export function clock(sec) {
+  const t = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h ? `${p(h)}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+}
+
+export function formatVideo(d) {
+  const lines = [];
+  const add = (k, v) => { if (v) lines.push(`${k}: ${v}`); };
+  add("Title", d.title);
+  add("Author", d.author);
+  add("Date", d.uploadDate);
+  if (d.duration) add("Duration", clock(d.duration));
+  add("URL", d.url);
+  if (d.part?.count > 0) add("Part", `${d.part.index}/${d.part.count} ${d.part.title || ""}`.trim());
+  const sub = d.subtitle || {};
+  if (sub.segments?.length) add("Subtitle", sub.lang || "unknown language");
+  else add("Subtitle missing", sub.missing || "no subtitle");
+  if (sub.needLogin) add("Subtitle note", "Bilibili hides subtitles from logged-out users; the user should log in to Bilibili in that browser.");
+  add("Subtitle warning", sub.warning);
+  if (d.description) lines.push("", "Description:", d.description);
+  if (d.chapters?.length) {
+    lines.push("", "Chapters:");
+    for (const c of d.chapters) lines.push(`[${clock(c.from)}] ${c.title}`);
+  }
+  if (sub.segments?.length) {
+    lines.push("", "Transcript:");
+    for (const s of sub.segments) lines.push(`[${clock(s.from)}] ${s.content}`);
+  }
+  if (d.comments?.length) {
+    lines.push("", "Comments:");
+    for (const c of d.comments) lines.push(`- ${c.uname} (${c.like} likes): ${c.message}`);
+  }
+  return lines.join("\n");
+}
+
+// --- MCP ----------------------------------------------------------------------
+
+const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…) or a YouTube watch page (www.youtube.com/watch?v=…).";
+
+const TOOLS = [
+  {
+    name: "get_video",
+    description: "Read a Bilibili or YouTube video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: URL_DOC },
+        raw: { type: "boolean", description: "Return the extension's JSON instead of the compact text. Costs several times more tokens; use only when you need exact segment end times." },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "get_frame",
+    description: "Grab one frame of the video as a JPEG, at a time in seconds. Call get_video first and only grab frames at times worth seeing (a chart, a slide, a demo the transcript mentions). One video at a time, one frame per call. If the result says THROTTLED, stop and tell the user.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: URL_DOC },
+        at: { type: "number", minimum: 0, description: "Time in seconds." },
+        maxWidth: { type: "integer", minimum: 64, description: "Maximum width in pixels, default 1280. Smaller costs fewer tokens." },
+      },
+      required: ["url", "at"],
+    },
+  },
+];
+
+function errorResult(err) {
+  const code = err.code ? `${err.code}: ` : "";
+  const tail = err.code === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon." : "";
+  return { isError: true, content: [{ type: "text", text: `${code}${err.message}${tail}` }] };
+}
+
+export function createMcpServer(bridge) {
+  const server = new Server({ name: "moondigest", version: "0.1.0" }, { capabilities: { tools: {} } });
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const args = params.arguments || {};
+    try {
+      if (typeof args.url !== "string" || !args.url) throw new CodedError("BAD_URL", "url is required.");
+      if (params.name === "get_video") {
+        const data = await bridge.call("get", { url: args.url });
+        return { content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatVideo(data) }] };
+      }
+      if (params.name === "get_frame") {
+        if (typeof args.at !== "number" || !(args.at >= 0)) throw new CodedError("", "at must be a number of seconds ≥ 0.");
+        const p = { url: args.url, at: args.at };
+        if (args.maxWidth != null) p.maxWidth = args.maxWidth;
+        const data = await bridge.call("frame", p);
+        const m = /^data:([^;,]+);base64,(.*)$/s.exec(data.image || "");
+        if (!m) throw new CodedError("", "The extension returned no image.");
+        return {
+          content: [
+            { type: "image", mimeType: m[1], data: m[2] },
+            { type: "text", text: `Frame at ${clock(data.at)} (${data.at}s), ${data.width}x${data.height}.` },
+          ],
+        };
+      }
+      throw new CodedError("", `Unknown tool ${params.name}.`);
+    } catch (err) {
+      return errorResult(err);
+    }
+  });
+  return server;
+}
+
+async function main() {
+  const bridge = createBridge();
+  await bridge.listen();
+  if (process.env.MOONDIGEST_MCP_DEBUG) console.error(`moondigest-mcp: ws://127.0.0.1:${bridge.port}/`);
+  await createMcpServer(bridge).connect(new StdioServerTransport());
+  // The socket server would keep the process (and the port) alive after the MCP client quits.
+  process.stdin.on("close", () => process.exit(0));
+}
+
+const isMain = (() => {
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
+})();
+if (isMain) main();

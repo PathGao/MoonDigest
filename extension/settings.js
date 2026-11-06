@@ -80,6 +80,8 @@
     seenThreshold: SEEN_THRESHOLD.def,
     seenStyle: "badge", // one of SEEN_STYLES
     enableDebugLogs: false,
+    // The agent interface's MCP socket (agent-bridge.js in the background, docs/AGENT.md): off until 设置 → 高级 → 允许 MCP 连接.
+    mcpEnabled: false,
     readerTheme: "light",
     readerFontScale: "m",
     readerLetterSpacing: "normal",

@@ -347,6 +347,10 @@
             <div class="ctl"><input id="enableDebugLogs" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
+            <div class="lab"><label class="name" for="mcpEnabled">允许 MCP 连接</label><p class="hint">让 Cursor、Codex、Claude Code 等 AI 工具通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a> 读 B站和 YouTube 视频的字幕、评论和画面。开着时插件只连本机 127.0.0.1:47823，服务没开时每分钟试一次。</p></div>
+            <div class="ctl"><input id="mcpEnabled" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row">
             <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹、关注和摘读记录的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>
             <div class="ctl end"><button id="exportSettingsBtn" class="sm" type="button">导出设置</button></div>
           </div>

@@ -1,0 +1,408 @@
+// Self-test for agent-bridge.js: node extension/agent-bridge.selftest.js
+// Runs the bridge in a vm with stubbed chrome APIs, a fake WebSocket and manual timers.
+// Uses process.getBuiltinModule so it runs whether this folder is CommonJS or ESM.
+const fs = process.getBuiltinModule("node:fs");
+const vm = process.getBuiltinModule("node:vm");
+const path = process.getBuiltinModule("node:path");
+const assert = process.getBuiltinModule("node:assert/strict");
+
+const here = path.dirname(fs.realpathSync(process.argv[1]));
+const SOURCE = fs.readFileSync(path.join(here, "agent-bridge.js"), "utf8");
+
+const tick = () => new Promise((r) => setImmediate(r));
+const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
+
+function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false }) {
+  const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], enabledCb: null, alarmCb: null, pageReplies: [] };
+  let nextTimer = 1;
+  let nextTab = 100;
+  class FakeWebSocket {
+    static OPEN = 1;
+    constructor(url) { this.url = url; this.readyState = 0; this.out = []; env.sockets.push(this); }
+    send(s) { this.out.push(JSON.parse(s)); }
+    close() { if (this.readyState === 3) return; this.readyState = 3; setImmediate(() => this.onclose && this.onclose()); }
+    open() { this.readyState = 1; this.onopen(); }
+    fail() { this.readyState = 3; this.onclose(); }
+    receive(msg) { this.onmessage({ data: JSON.stringify(msg) }); }
+  }
+  const chrome = {
+    alarms: {
+      create: (name) => env.alarms.add(name),
+      clear: (name) => env.alarms.delete(name),
+      onAlarm: { addListener: (cb) => { env.alarmCb = cb; } },
+    },
+    storage: {
+      local: { set: (o) => Object.assign(env.storage, o) },
+      session: { // shared across makeEnv calls to simulate a service worker restart
+        get: async (k) => (k in session ? { [k]: JSON.parse(session[k]) } : {}),
+        set: async (o) => { for (const k in o) session[k] = JSON.stringify(o[k]); },
+        remove: async (k) => { delete session[k]; },
+      },
+    },
+    tabs: {
+      // url filters are ignored (every test tab is a video site's); active and windowId filter.
+      query: async (q = {}) => tabs.filter((t) => (q.active === undefined || !!t.active === q.active) && (q.windowId === undefined || t.windowId === q.windowId)),
+      get: async (id) => { const t = tabs.find((x) => x.id === id); if (!t) throw new Error("no tab"); return t; },
+      create: async ({ url, active }) => { const t = { id: nextTab++, url, active, windowId: 1 }; tabs.push(t); env.created.push(t); return t; },
+      update: async (id, { url, active }) => { // the URL commits when the test says so, or at once with commitNow
+        const t = tabs.find((x) => x.id === id);
+        if (url !== undefined) {
+          env.updated.push({ id, url });
+          if (commitNow) t.url = url;
+        }
+        if (active) {
+          env.shown.push(id);
+          for (const x of tabs) if (x.windowId === t.windowId) x.active = x.id === id;
+        }
+        return t;
+      },
+      sendMessage: async (tabId, msg) => {
+        env.sent.push({ tabId, msg: JSON.parse(JSON.stringify(msg)) }); // copy out of the vm realm
+        if (answer) return answer(tabs.find((t) => t.id === tabId));
+        const r = env.pageReplies.shift();
+        if (r instanceof Error) throw r;
+        return r;
+      },
+    },
+  };
+  const ctx = {
+    chrome, WebSocket: FakeWebSocket, console, URL, JSON, Promise, Date, Math, Object, String, Map,
+    setTimeout: (fn, ms) => { const id = nextTimer++; env.timers.push({ id, fn, ms }); return id; },
+    clearTimeout: (id) => { env.timers = env.timers.filter((t) => t.id !== id); },
+  };
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(SOURCE, ctx, { filename: "agent-bridge.js" });
+  env.runTimers = () => { const ts = env.timers; env.timers = []; for (const t of ts) t.fn(); };
+  env.start = () => ctx.MdgAgentBridge.start({
+    extensionVersion: "1.2.3",
+    isEnabled: async () => enabled,
+    onEnabledChange: (cb) => { env.enabledCb = cb; },
+  });
+  env.tabs = tabs;
+  return env;
+}
+
+async function openSocket(env) {
+  env.start();
+  await settle();
+  const s = env.sockets.at(-1);
+  s.open();
+  return s;
+}
+
+async function rpc(sock, id, method, params) {
+  sock.receive({ id, method, params });
+  await settle();
+  return sock.out.find((m) => m.id === id);
+}
+
+const cases = [];
+const check = (name, fn) => cases.push([name, fn]);
+
+check("off: no socket, status off", async () => {
+  const env = makeEnv({ enabled: false });
+  env.start();
+  await settle();
+  assert.equal(env.sockets.length, 0);
+  assert.equal(env.storage.mcpStatus, "off");
+  assert.equal(env.alarms.size, 0);
+  env.alarmCb({ name: "agent-bridge" });
+  env.runTimers();
+  assert.equal(env.sockets.length, 0);
+});
+
+check("on: hello, connected, pong", async () => {
+  const env = makeEnv({ enabled: true });
+  env.start();
+  await settle();
+  assert.equal(env.storage.mcpStatus, "disconnected");
+  const s = env.sockets[0];
+  assert.equal(s.url, "ws://127.0.0.1:47823/");
+  s.open();
+  assert.deepEqual(s.out[0], { type: "hello", version: 1, extensionVersion: "1.2.3" });
+  assert.equal(env.storage.mcpStatus, "connected");
+  s.receive({ type: "ping" });
+  assert.deepEqual(s.out[1], { type: "pong" });
+  assert.ok(env.alarms.has("agent-bridge"));
+});
+
+check("BAD_URL for unsupported pages", async () => {
+  const env = makeEnv({ enabled: true });
+  const s = await openSocket(env);
+  for (const [i, url] of ["https://example.com", "https://www.youtube.com/", "https://www.bilibili.com/", "javascript:alert(1)"].entries()) {
+    const r = await rpc(s, `b${i}`, "get", { url });
+    assert.equal(r.ok, false, url);
+    assert.equal(r.code, "BAD_URL", url);
+  }
+  assert.equal(env.created.length, 0);
+  assert.equal(env.sent.length, 0);
+});
+
+check("reuses a tab showing the same video", async () => {
+  const env = makeEnv({ enabled: true, tabs: [{ id: 7, url: "https://www.youtube.com/watch?v=abc&t=30" }] });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: { title: "x" } });
+  const r = await rpc(s, "1", "get", { url: "https://youtube.com/watch?v=abc" });
+  assert.deepEqual(r, { id: "1", ok: true, data: { title: "x" } });
+  assert.equal(env.created.length, 0);
+  assert.deepEqual(env.sent[0], { tabId: 7, msg: { type: "agent-call", method: "get", params: {} } });
+});
+
+check("opens a background tab for another part, waits for its script, then reuses it", async () => {
+  const env = makeEnv({ enabled: true, tabs: [{ id: 7, url: "https://www.bilibili.com/video/BV1xx411c7mD?p=1" }] });
+  const s = await openSocket(env);
+  const url = "https://www.bilibili.com/video/BV1xx411c7mD?p=2";
+  env.pageReplies.push(new Error("Receiving end does not exist."), undefined, { ok: true, data: { at: 5 } });
+  s.receive({ id: "1", method: "frame", params: { url, at: 5, maxWidth: 640 } });
+  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "1"), { id: "1", ok: true, data: { at: 5 } });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.created[0].active, false);
+  assert.equal(env.created[0].url, url);
+  assert.deepEqual(env.sent.at(-1).msg, { type: "agent-call", method: "frame", params: { at: 5, maxWidth: 640 } });
+  // The URL changed (trailing slash, tracking param): the same tab is still used.
+  env.created[0].url = "https://www.bilibili.com/video/BV1xx411c7mD/?p=2&spm_id_from=x";
+  env.pageReplies.push({ ok: false, error: "Bilibili answered 412.", code: "THROTTLED" });
+  const r = await rpc(s, "2", "get", { url });
+  assert.deepEqual(r, { id: "2", ok: false, error: "Bilibili answered 412.", code: "THROTTLED" });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.sent.at(-1).tabId, env.created[0].id);
+});
+
+check("reconnect: 5 s, then backoff to 60 s, reset after a connect", async () => {
+  const env = makeEnv({ enabled: true });
+  env.start();
+  await settle();
+  const delays = [];
+  for (let i = 0; i < 6; i++) {
+    env.sockets.at(-1).fail();
+    assert.equal(env.storage.mcpStatus, "disconnected");
+    assert.equal(env.timers.length, 1);
+    delays.push(env.timers[0].ms);
+    env.runTimers();
+  }
+  assert.deepEqual(delays, [5000, 10000, 20000, 40000, 60000, 60000]);
+  assert.equal(env.sockets.length, 7);
+  env.sockets.at(-1).open();
+  env.sockets.at(-1).fail();
+  assert.equal(env.timers[0].ms, 5000);
+});
+
+check("alarm reconnects when the timer was lost", async () => {
+  const env = makeEnv({ enabled: true });
+  env.start();
+  await settle();
+  env.sockets[0].fail();
+  env.timers = []; // the service worker restarted and lost its timers
+  env.alarmCb({ name: "agent-bridge" });
+  assert.equal(env.sockets.length, 2);
+  env.alarmCb({ name: "agent-bridge" }); // already has a socket: no-op
+  assert.equal(env.sockets.length, 2);
+});
+
+check("switch off: closes, status off, stays off", async () => {
+  const env = makeEnv({ enabled: true });
+  const s = await openSocket(env);
+  env.enabledCb(false);
+  await settle();
+  assert.equal(s.readyState, 3);
+  assert.equal(env.storage.mcpStatus, "off");
+  assert.equal(env.alarms.size, 0);
+  env.runTimers();
+  assert.equal(env.sockets.length, 1);
+  env.enabledCb(true);
+  await settle();
+  assert.equal(env.sockets.length, 2);
+  assert.equal(env.storage.mcpStatus, "disconnected");
+});
+
+const A = "https://www.youtube.com/watch?v=aaa";
+const B = "https://www.youtube.com/watch?v=bbb";
+
+async function call(env, s, id, url, rounds = 3) {
+  s.receive({ id, method: "get", params: { url } });
+  for (let i = 0; i < rounds; i++) { await settle(); env.runTimers(); }
+  await settle();
+  return s.out.find((m) => m.id === id);
+}
+
+check("second video navigates the same own tab, never asks the old page", async () => {
+  const env = makeEnv({ enabled: true });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  assert.deepEqual((await call(env, s, "1", A)).data, { v: "a" });
+  const own = env.created[0];
+  const sentBefore = env.sent.length;
+  s.receive({ id: "2", method: "get", params: { url: B } });
+  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
+  assert.deepEqual(env.updated, [{ id: own.id, url: B }]);
+  assert.equal(env.sent.length, sentBefore, "asked the previous page while the navigation had not committed");
+  own.url = B; // navigation commits
+  env.pageReplies.push({ ok: true, data: { v: "b" } });
+  for (let i = 0; i < 2; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "2").data, { v: "b" });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.sent.at(-1).tabId, own.id);
+  // Back to A: navigates the same tab again, still one tab.
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  s.receive({ id: "3", method: "get", params: { url: A } });
+  await settle(); env.runTimers(); await settle();
+  own.url = A;
+  for (let i = 0; i < 2; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "3").data, { v: "a" });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.updated.length, 2);
+});
+
+check("own tab closed by the user is created again", async () => {
+  const env = makeEnv({ enabled: true });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: {} });
+  await call(env, s, "1", A);
+  env.tabs.splice(env.tabs.indexOf(env.created[0]), 1); // user closes it
+  env.pageReplies.push({ ok: true, data: { v: "b" } });
+  assert.deepEqual((await call(env, s, "2", B)).data, { v: "b" });
+  assert.equal(env.created.length, 2);
+  assert.equal(env.created[1].active, false);
+  assert.equal(env.updated.length, 0);
+});
+
+check("the user's own tab is used but never navigated", async () => {
+  const env = makeEnv({ enabled: true, tabs: [{ id: 7, url: A }] });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  await call(env, s, "1", A);
+  assert.equal(env.sent.at(-1).tabId, 7);
+  env.pageReplies.push({ ok: true, data: { v: "b" } });
+  await call(env, s, "2", B);
+  assert.equal(env.created.length, 1);
+  assert.notEqual(env.created[0].id, 7);
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  await call(env, s, "3", A);
+  assert.equal(env.sent.at(-1).tabId, 7);
+  assert.ok(env.updated.every((u) => u.id !== 7));
+  assert.equal(env.tabs.find((t) => t.id === 7).url, A);
+});
+
+check("restarted worker finds its old tab in storage.session", async () => {
+  const tabs = [];
+  const session = {};
+  const env1 = makeEnv({ enabled: true, tabs, session, commitNow: true, answer: (t) => ({ ok: true, data: { url: t.url } }) });
+  await call(env1, await openSocket(env1), "1", A);
+  assert.equal(env1.created.length, 1);
+  const env2 = makeEnv({ enabled: true, tabs, session, commitNow: true, answer: (t) => ({ ok: true, data: { url: t.url } }) });
+  const r = await call(env2, await openSocket(env2), "2", B);
+  assert.deepEqual(r.data, { url: B });
+  assert.equal(env2.created.length, 0);
+  assert.deepEqual(env2.updated, [{ id: env1.created[0].id, url: B }]);
+});
+
+check("concurrent calls for two videos queue on the one own tab", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, answer: (t) => ({ ok: true, data: { url: t.url } }) });
+  const s = await openSocket(env);
+  s.receive({ id: "1", method: "get", params: { url: A } });
+  s.receive({ id: "2", method: "get", params: { url: B } });
+  for (let i = 0; i < 4; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "1").data, { url: A });
+  assert.deepEqual(s.out.find((m) => m.id === "2").data, { url: B });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.updated.length, 1);
+});
+
+check("a frame in a tab never shown: shows it, then the tab that was in front again", async () => {
+  const front = { id: 1, url: "https://example.com/", active: true, windowId: 1 };
+  const env = makeEnv({
+    enabled: true,
+    tabs: [front],
+    commitNow: true,
+    answer: (tab) => (tab.active ? { ok: true, data: { at: 5 } } : { ok: false, code: "TAB_HIDDEN", error: "hidden" }),
+  });
+  const s = await openSocket(env);
+  const got = await rpc(s, 1, "frame", { url: "https://www.youtube.com/watch?v=abc", at: 5 });
+  assert.deepEqual(got, { id: 1, ok: true, data: { at: 5 } });
+  const own = env.created[0].id;
+  assert.deepEqual(env.shown, [own, 1], "shown for the frame, then the user's tab is in front again");
+  assert.equal(front.active, true);
+  // get never shows a tab.
+  const g = await rpc(s, 2, "get", { url: "https://www.youtube.com/watch?v=abc" });
+  assert.equal(g.ok, false);
+  assert.deepEqual(env.shown, [own, 1]);
+});
+
+check("a discarded tab of the user's is skipped; the own tab is muted", async () => {
+  const env = makeEnv({ enabled: true, tabs: [{ id: 7, url: A, discarded: true }] });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  await call(env, s, "1", A);
+  assert.equal(env.created.length, 1);
+  assert.equal(env.sent.at(-1).tabId, env.created[0].id);
+});
+
+check("a loaded own tab no call answered in is navigated again, not trusted", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: false, code: "THROTTLED", error: "limit" });
+  await call(env, s, "1", A);
+  const own = env.created[0];
+  own.url = B; // the user went to another video in it
+  own.status = "complete";
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  await call(env, s, "2", A);
+  assert.deepEqual(env.updated.at(-1), { id: own.id, url: A });
+});
+
+check("the front tab is not taken back when the user moved on during the frame", async () => {
+  const front = { id: 1, url: "https://example.com/", active: true, windowId: 1 };
+  const other = { id: 2, url: "https://example.org/", active: false, windowId: 1 };
+  let env;
+  env = makeEnv({
+    enabled: true,
+    tabs: [front, other],
+    commitNow: true,
+    answer: (tab) => {
+      if (!tab.active) return { ok: false, code: "TAB_HIDDEN", error: "hidden" };
+      for (const t of env.tabs) t.active = t.id === 2; // the user clicks another tab while the frame runs
+      return { ok: true, data: { at: 5 } };
+    },
+  });
+  const s = await openSocket(env);
+  await rpc(s, 1, "frame", { url: A, at: 5 });
+  assert.equal(other.active, true);
+  assert.equal(front.active, false);
+});
+
+check("a call still queued when the server has given up is dropped", async () => {
+  let release;
+  const env = makeEnv({ enabled: true, commitNow: true, answer: () => new Promise((r) => (release = r)) });
+  const s = await openSocket(env);
+  s.receive({ id: "1", method: "get", params: { url: A } });
+  await settle();
+  s.receive({ id: "2", method: "get", params: { url: B } });
+  await settle();
+  const realNow = Date.now;
+  Date.now = () => realNow() + 120_000;
+  try {
+    release({ ok: true, data: { v: "a" } });
+    await settle();
+  } finally {
+    Date.now = realNow;
+  }
+  const second = s.out.find((m) => m.id === "2");
+  assert.deepEqual([second.ok, second.code], [false, "TIMEOUT"]);
+  assert.equal(env.created.length, 1, "B was never loaded");
+  assert.equal(env.updated.length, 0);
+});
+
+(async () => {
+  let failed = 0;
+  for (const [name, fn] of cases) {
+    try { await fn(); console.log(`ok   ${name}`); } catch (e) { failed++; console.log(`FAIL ${name}\n${e.stack}`); }
+  }
+  console.log(failed ? `${failed} failed` : `all ${cases.length} passed`);
+  process.exitCode = failed ? 1 : 0;
+})();

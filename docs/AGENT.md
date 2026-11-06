@@ -1,0 +1,82 @@
+# MoonDigest agent interface v1
+
+How AI agents read a video through MoonDigest: page messages for agents that drive the browser (the skill, `skills/moondigest/SKILL.md`), and a local MCP server (`mcp/`) for any MCP client. Read-only: no keys, notes, conversations or 分拣 results.
+
+Supported pages: Bilibili video pages (`www.bilibili.com/video/…`, `/bangumi/play/…`, `/list/…`, `/festival/…`) and YouTube watch pages (`www.youtube.com/watch?v=…`).
+
+## 1. Page messages (what the skill uses)
+
+An agent that drives a browser runs JS in the video page and talks to the extension with `window.postMessage`. Only messages whose `event.source === window` are answered (the page's own scripts, not other frames). Replies are posted to `location.origin`.
+
+Request envelope: `{ type, id, ...params }`. `id` is any string the caller picks.
+Reply envelope: `{ source: "moondigest", id, ok: true, version, data }` or `{ source: "moondigest", id, ok: false, version, error, code? }`.
+
+- `version`: protocol version, `1`.
+- `error`: a sentence for a human. `code`: a stable string when there is one (see §4).
+
+### `moondigest-get`
+
+Params: none. Reads the page's current video (waits for a read in flight; does not reread a video already read).
+
+`data`:
+
+| field | type | meaning |
+|---|---|---|
+| `url` | string | `location.href` |
+| `site` | `"bilibili"` \| `"youtube"` | |
+| `videoId` | string | BV id or YouTube id |
+| `title`, `author`, `uploadDate`, `description` | string | `""` when unknown |
+| `duration` | number | seconds, `0` when unknown |
+| `part` | `{ index, count, title }` | Bilibili multi-part; `count` 0 = not multi-part |
+| `chapters` | `[{ title, from, to }]` | seconds |
+| `subtitle.segments` | `[{ from, to, content }]` | seconds; `[]` when none |
+| `subtitle.lang` | string | the track's label or language |
+| `subtitle.warning` | string | the subtitle's time range does not match the video |
+| `subtitle.missing` | string | why there is no subtitle; `""` when there is one |
+| `subtitle.needLogin` | boolean | Bilibili hides subtitles from logged-out users |
+| `comments` | `[{ uname, like, message }]` | hot comments, `message` ≤ 500 chars |
+
+### `moondigest-frame`
+
+Params: `at` (seconds, required), `maxWidth` (pixels, optional, default 1280).
+
+Pauses the page's `<video>`, seeks to `at`, waits for `seeked` and a decoded frame, draws it to a canvas and returns a JPEG (quality 0.85, scaled down to `maxWidth` keeping the ratio). The video stays paused at `at`. Bilibili's danmaku is not in the frame (it is drawn over the video, not into it).
+
+On YouTube, while an ad plays (`#movie_player.ad-showing`) the frame waits: it clicks the skip button when one shows and gives up after 30 s with code `AD_PLAYING` (short enough to come back through the MCP server's 60 s).
+
+`data`: `{ at, width, height, image }`, `at` the time actually shown (`video.currentTime`), `image` a `data:image/jpeg;base64,…` URL.
+
+Errors: `NO_VIDEO` (no `<video>` on the page), `TAB_HIDDEN` (the tab has never been shown, so Chrome has not loaded the video), `SEEK_TIMEOUT` (no `seeked` within 15 s), `AD_PLAYING`, `FRAME_BLOCKED` (the canvas is tainted).
+
+## 2. Extension ↔ MCP server (what the MCP uses)
+
+Off by default. The user turns it on in 设置 → 高级 → 允许 MCP 连接 (`mcpEnabled`). While on, the extension's service worker keeps a WebSocket to `ws://127.0.0.1:47823/` (the MCP server is the listener). When the socket closes it reconnects after 5 s, then backs off to 60 s; it stops when the switch is turned off.
+
+The server accepts a connection only when its `Origin` header starts with `chrome-extension://` (web pages can open WebSockets to localhost too). Any installed extension passes that check, so an extension the user installed could take the one connection and answer with made-up data; the server trusts the user's own extensions. When a second extension connects, the server keeps the first and closes the second with code 4001.
+
+Messages are JSON text frames.
+
+Extension → server on open: `{ type: "hello", version, extensionVersion }`. The server counts the extension as connected only after `hello`.
+
+Server → extension: `{ id, method, params }`. Extension → server: `{ id, ok: true, data }` or `{ id, ok: false, error, code? }`.
+
+| method | params | does |
+|---|---|---|
+| `get` | `{ url }` | Same `data` as `moondigest-get`, for the video at `url` |
+| `frame` | `{ url, at, maxWidth? }` | Same `data` as `moondigest-frame` |
+
+Both find a tab already showing that video (same site and video id; Bilibili `/video/` also the part `p`, default 1; `/list/` and `/festival/` match on the `bvid` query, else the path; `/bangumi/` on its ep/ss id). A discarded tab (no content script until shown) is never picked. Else they load `url` in the extension's own tab: at most one, opened muted with `active: false` on first need and navigated to the next video afterwards, so calls never pile up tabs. Calls that need it run one at a time, and a call still queued when the server has given up (55 s after it arrived) is dropped with `TIMEOUT` instead of loading anything. A tab that no call has answered in yet counts as the requested video only while it is still loading. The extension waits up to 50 s for that tab's content script to answer (a missing reply or one without `ok` means not loaded yet), then fails with `TIMEOUT`, before the server's own 60 s. The extension rejects any `url` that is not a supported page with code `BAD_URL`. Then they run the same handler the page messages run, in that tab's content script (`chrome.tabs.sendMessage`), so both paths return identical results. A `frame` that comes back `TAB_HIDDEN` (Chrome loads no media in a tab never shown) is asked again with that tab in front, and the tab that was in front of its window is brought back afterwards, unless the user switched tabs meanwhile; `get` never switches tabs. Timeout: 60 s per call, code `TIMEOUT`.
+
+Keepalive: the server sends `{ type: "ping" }` every 20 s and the extension answers `{ type: "pong" }` (WebSocket traffic keeps an MV3 service worker alive in Chrome 116+).
+
+## 3. Code
+
+- `extension/agent-page.js` (content script): `MdgAgentPage.bind({ read, signal })`. `read()` is content.js's `agentRead`, the side panel's read of the page's video, resolving to §1's `get` data or rejecting with an `Error` carrying `code`. It answers the page messages and the bridge's `chrome.runtime` messages `{ type: "agent-call", method, params }` (`params` without `url`) with `{ ok, data }` or `{ ok: false, error, code }`, and runs `frame` itself.
+- `extension/agent-bridge.js` (service worker): `MdgAgentBridge.start({ extensionVersion, isEnabled, onEnabledChange })`, §2's socket and tab handling.
+- `mcp/server.js`: the MCP server, `npm test` in `mcp/`.
+
+## 4. Codes
+
+`NOT_VIDEO_PAGE`, `TAB_HIDDEN`, `THROTTLED` (Bilibili 412 / YouTube 429: stop, do not retry soon), `NO_VIDEO`, `SEEK_TIMEOUT`, `AD_PLAYING`, `FRAME_BLOCKED`, `BAD_URL`, `TIMEOUT`, `NOT_CONNECTED` (MCP server: no extension connected), `PORT_IN_USE` (MCP server: another moondigest-mcp holds the port; it takes over when that one exits).
+
+The port is fixed at 47823 on both sides. The server's `MOONDIGEST_MCP_PORT` is for tests only.

@@ -1,0 +1,24 @@
+{
+  "name": "moondigest-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI agents read Bilibili and YouTube videos through the MoonDigest browser extension.",
+  "type": "module",
+  "bin": {
+    "moondigest-mcp": "server.js"
+  },
+  "files": [
+    "server.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "GPL-3.0-only",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ws": "^8.22.1"
+  }
+}
