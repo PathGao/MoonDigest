@@ -1,5 +1,5 @@
 // node extension/naming.selftest.js
-// 3.6 dropped the prefix MoonDigest inherited from upstream. Fails when it shows up again in extension/, docs/ or README.md.
+// 3.6 dropped the prefix MoonDigest inherited from upstream. Fails when it shows up again in extension/, docs/, README.md or PRIVACY.md.
 const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
@@ -18,7 +18,7 @@ const TEXT = /\.(js|mjs|css|html|json|md|svg|txt|py|sh|yml)$/;
 
 // Paths from the repository root. Only the three scanned places are walked, not the whole checkout (worktrees, big untracked folders).
 const { walk } = require("./page-sources.selftest.js");
-const files = [...walk("../extension"), ...walk("../docs"), "../README.md"].map((f) => f.slice("../".length)).filter((f) => TEXT.test(f));
+const files = [...walk("../extension"), ...walk("../docs"), "../README.md", "../PRIVACY.md"].map((f) => f.slice("../".length)).filter((f) => TEXT.test(f));
 assert.ok(files.includes("extension/content.js") && files.includes("docs/ARCHITECTURE.md"), `scanned ${files.length} files`);
 
 const self = "extension/naming.selftest.js";
