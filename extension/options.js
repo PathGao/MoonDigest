@@ -42,27 +42,42 @@ const STATE_KEY_NODES = {
   biliMarksOff: elements.biliMarks
 };
 
-// The form differs from what was last loaded or saved; a passed provider test reminds the user to save.
+// The form differs from what was last loaded or saved.
 let hasUnsavedChanges = false;
 let savedForm = null;
+// Edits save themselves (saveSettings): 0.4 s after the last keystroke, not while an IME is composing, and at once when a
+// box is left or a switch flipped. Saves run one after another; while one is waiting or running the form is not
+// reported as unsaved, so the amber dots and 「有未保存的修改」 mean an edit that could not be saved.
+const SAVE_DELAY_MS = 400;
+let saveTimer = 0;
+let savesRunning = 0;
+let saveQueue = Promise.resolve();
+let savedStatusTimer = 0;
 // The URL and key of the last Obsidian test and whether it passed; the header says 「已连接」 only while those are saved.
 let obsidianTest = null;
 // The 测试连接 in flight: an edit away from the tested 地址 and Key ends it, so its answer is not shown for other values.
 const obsidianTests = MdgCommon.latest();
-// The button whose save or test is running (setBusy).
+// The Obsidian 测试连接 while it runs (setBusy).
 let busyButton = null;
 
 init();
 
 function init() {
   loadSettings();
-  ["input", "change"].forEach((type) => document.addEventListener(type, syncUnsaved));
-  window.addEventListener("beforeunload", (event) => {
-    if (hasUnsavedChanges) {
-      event.preventDefault();
-    }
+  document.addEventListener("input", (event) => {
+    syncUnsaved();
+    if (!event.isComposing) scheduleSave();
   });
-  elements.saveBtn.addEventListener("click", saveSettings);
+  document.addEventListener("compositionend", scheduleSave);
+  document.addEventListener("change", () => {
+    syncUnsaved();
+    flushSave({ quiet: false });
+  });
+  // A save still waiting goes out now; only an edit that cannot be saved (or one still being written) asks.
+  window.addEventListener("beforeunload", (event) => {
+    if (saveTimer) flushSave({ quiet: false });
+    else if (hasUnsavedChanges) event.preventDefault();
+  });
   initPromptTabs();
   document.getElementById("exportSettingsBtn").addEventListener("click", exportSettingsFile);
   const importFile = document.getElementById("importSettingsFile");
@@ -124,7 +139,11 @@ function init() {
     else event.target.classList?.remove("input-error");
   });
   elements.obsidianApiKey.addEventListener("input", syncObsidianKeyTag);
-  for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) box.addEventListener("input", syncObsidianTest);
+  for (const box of [elements.obsidianApiBaseUrl, elements.obsidianApiKey]) {
+    box.addEventListener("input", syncObsidianTest);
+    // Shown as saved once the box is left (not while typing, which would move the caret).
+    box.addEventListener("change", collectFormPayload);
+  }
   // Focuses an open triage or 摘读记录 tab instead of a second one.
   for (const [page, type] of [[MdgCommon.PAGES.triage, "triage-open"], [MdgCommon.PAGES.history, "history-open"]]) {
     document.querySelector(`a.jump[href$="${page}"]`)?.addEventListener("click", async (event) => {
@@ -206,6 +225,8 @@ async function importSettingsFile(file) {
   const resp = await chrome.runtime.sendMessage({ type: "settings-import", file: data }).catch((e) => ({ error: e.message }));
   if (!resp?.ok) return setStatus(`导入失败：${MdgErrors.text(resp)}`, true);
   // Reload so every control, the AI list and the host-permission banner show the imported values.
+  clearTimeout(saveTimer);
+  saveTimer = 0;
   hasUnsavedChanges = false;
   location.reload();
 }
@@ -333,75 +354,102 @@ function syncSeenRows() {
   cover("half", half, MdgSurfaces.seenWords(half, false));
 }
 
-async function saveSettings() {
-  clearInputErrors();
-  const payload = collectFormPayload();
-  const validation = validateSettings(payload, { testing: false });
-  if (!validation.ok) {
-    applyValidationError(validation);
-    return;
-  }
-  const aiProvidersPayload = collectAiProviders();
-  const aiProvidersValidation = validateAiProviders(aiProvidersPayload);
-  if (!aiProvidersValidation.ok) {
-    const { index, box, message } = aiProvidersValidation;
-    const row = elements.aiProvidersList.querySelectorAll(".ai-provider-row")[index];
-    applyValidationError({ field: box ? row?.querySelector(box) : null, message });
-    return;
-  }
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => flushSave({ quiet: true }), SAVE_DELAY_MS);
+  syncUnsaved();
+}
 
-  // Remote hosts are optional permissions; the save click is the user gesture that may request them.
-  const hostUrls = hostPermissionUrls(payload, aiProvidersPayload);
-  const deniedHosts = await requestHostPermissions(hostUrls);
-
-  setBusy(elements.saveBtn);
-  setStatus("正在保存…", false, true);
-  try {
-    const fail = (error) => ({ ok: false, error: error.message });
-    const resp = await chrome.runtime.sendMessage({ type: "save-settings", settings: payload }).catch(fail);
-    if (!resp?.ok) {
-      // A setting too long for Chrome's sync storage: the box it came from is marked, as a validation error is.
-      if (elements[resp?.field]) applyValidationError({ field: elements[resp.field], message: resp.error });
-      else setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}`, true);
-      return;
-    }
-    renderFixedPropertyRows(payload.fixedFrontmatterProperties);
-    renderNoteSectionRows(payload.notePlaceholderSections);
-    // The box shows what was saved: 150 is stored and shown as 100; an emptied box stays empty under 「默认 N」.
-    TriageUi.clampNumber(elements.seenThreshold);
-    elements.aiPresetPrompts.value = payload.aiPresetPrompts.join("\n");
-    elements.webAiPresetPrompts.value = payload.webAiPresetPrompts.join("\n");
-    // The settings are saved whatever the AI platforms' save does: a failure there leaves only the platforms unsaved.
-    savedForm.payload = readFormState().payload;
-    // A test of other values says nothing about the ones just saved.
-    if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
-      obsidianTest = null;
-      obsidianTests.next();
-      setTestResult("");
-    }
-
-    // AI 平台：list 走 sync、apiKey 走 local
-    const aiResp = await chrome.runtime.sendMessage({ type: "ai-providers-save", providers: aiProvidersPayload }).catch(fail);
-    if (!aiResp?.ok) {
+function flushSave(options) {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  savesRunning++;
+  saveQueue = saveQueue
+    .then(() => saveSettings(options))
+    .catch((error) => setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${error.message || MdgErrors.TEXT.unknown}`, true))
+    .finally(() => {
+      savesRunning--;
       syncUnsaved();
-      renderSavedState();
-      setStatus(`${MdgErrors.TEXT.settingsSaved}，但 AI 平台保存失败：${MdgErrors.text(aiResp)}`, true);
-      return;
-    }
-    // 用最新列表（含 hasSavedKey）重新渲染，避免误以为 Key 丢了
-    renderAiProviders(aiResp.providers || []);
-    markSaved();
-    renderHostPermissionBanner(hostUrls);
-    if (deniedHosts.length) {
-      setStatus(`已保存，但未授权访问 ${deniedHosts.join("、")}，相关请求会失败；重新保存可再次授权`, true);
-      return;
-    }
-    setStatus(`${MdgErrors.TEXT.settingsSaved}${payload.obsidianEnabled && !payload.obsidianApiKey ? "（未填写 Local REST API Key，暂不可写入 Obsidian）" : ""}`);
-  } catch (error) {
-    setStatus(`${MdgErrors.TEXT.settingsSaveFailed}：${error.message || MdgErrors.TEXT.unknown}`, true);
-  } finally {
-    setBusy(null);
+    });
+}
+
+// Saves the settings and the AI platforms apart, each only when it changed and is valid: a half-filled platform row
+// does not hold back the other settings. quiet (while typing) leaves an invalid part unsaved without marking it; leaving
+// the box marks it, without moving the focus. What is marked saved is the form as it was sent, so typing during the save
+// is saved next. Host permissions are not asked for here (no click to ask in): the 「未授权访问」 banner offers 授权.
+async function saveSettings({ quiet }) {
+  if (!savedForm) return;
+  const now = readFormState();
+  const differs = (key) => JSON.stringify(now[key]) !== JSON.stringify(savedForm[key]);
+  const parts = [differs("payload") && saveFormSettings, differs("providers") && saveFormProviders].filter(Boolean);
+  if (!parts.length) return;
+  let invalid = null;
+  let error = "";
+  for (const part of parts) {
+    const result = await part(now, quiet);
+    invalid ||= result.invalid && (!quiet || result.always) ? result.invalid : null;
+    error ||= result.error || "";
   }
+  syncUnsaved();
+  renderSavedState();
+  renderHostPermissionBanner(hostPermissionUrls(savedForm.payload, savedForm.providers));
+  if (error) return setStatus(error, true);
+  if (invalid) return applyValidationError(invalid, { focus: false });
+  if (hasUnsavedChanges) return setStatus("");
+  const { obsidianEnabled, obsidianApiKey } = savedForm.payload;
+  setStatus(`${MdgErrors.TEXT.settingsSaved}${obsidianEnabled && !obsidianApiKey ? "（未填写 Local REST API Key，暂不可写入 Obsidian）" : ""}`);
+  // A plain 「已保存」 goes after a moment; one with a reason stays.
+  clearTimeout(savedStatusTimer);
+  const shown = elements.status.textContent;
+  if (shown === MdgErrors.TEXT.settingsSaved) savedStatusTimer = setTimeout(() => elements.status.textContent === shown && setStatus(""), 2000);
+}
+
+const rowOf = (id) => elements.aiProvidersList.querySelector(`.ai-provider-row[data-provider-id="${CSS.escape(id)}"]`);
+const sendFailed = (error) => ({ ok: false, error: error.message });
+
+async function saveFormSettings(now) {
+  const payload = readFormPayload();
+  const validation = validateSettings(payload, { testing: false });
+  if (!validation.ok) return { invalid: validation };
+  const resp = await chrome.runtime.sendMessage({ type: "save-settings", settings: payload }).catch(sendFailed);
+  if (!resp?.ok) {
+    // A setting too long for Chrome's sync storage: the box it came from is marked, even while typing.
+    if (elements[resp?.field]) return { invalid: { field: elements[resp.field], message: resp.error }, always: true };
+    return { error: `${MdgErrors.TEXT.settingsSaveFailed}：${MdgErrors.text(resp)}` };
+  }
+  savedForm.payload = now.payload;
+  // A test of other values says nothing about the ones just saved.
+  if (obsidianTest && obsidianTest.target !== obsidianTarget(payload)) {
+    obsidianTest = null;
+    obsidianTests.next();
+    setTestResult("");
+  }
+  return {};
+}
+
+// The rows are not redrawn (that would take the box being typed in): a row whose Key is now saved only learns so.
+// A 接口地址 moved to another host drops its saved Key (writeAiProviders), so that waits until the box is left: a
+// half-typed address must not delete the Key.
+async function saveFormProviders(now, quiet) {
+  if (quiet && now.providers.some((item) => !item.apiKey && !item.hasSavedKey && rowOf(item.id)?.dataset.hasSavedKey === "1")) return {};
+  const validation = validateAiProviders(now.providers);
+  if (!validation.ok) {
+    const { index, box, message } = validation;
+    const row = elements.aiProvidersList.querySelectorAll(".ai-provider-row")[index];
+    return { invalid: { field: box ? row?.querySelector(box) : null, message } };
+  }
+  // AI 平台：list 走 sync、apiKey 走 local
+  const resp = await chrome.runtime.sendMessage({ type: "ai-providers-save", providers: now.providers }).catch(sendFailed);
+  if (!resp?.ok) return { error: `AI 平台保存失败：${MdgErrors.text(resp)}` };
+  const keyed = new Set((resp.providers || []).filter((p) => p.hasSavedKey).map((p) => p.id));
+  for (const item of now.providers) {
+    const row = rowOf(item.id);
+    if (!row || !keyed.has(item.id)) continue;
+    row.dataset.hasSavedKey = "1";
+    row.dataset.keyOrigin = MdgSettings.urlOrigin(item.baseUrl);
+  }
+  savedForm.providers = now.providers.map((item) => ({ ...item, hasSavedKey: keyed.has(item.id) }));
+  return {};
 }
 
 async function getSettings() {
@@ -417,12 +465,13 @@ function setStatus(text, isError = false, busy = false) {
   syncSaveBar();
 }
 
-// One sticky bar: shown while there are unsaved edits or a status to read; save is clickable only with edits.
+// One sticky bar: shown while an edit could not be saved, or with a status to read.
 function setUnsaved(value) {
   hasUnsavedChanges = value;
-  if (value) setStatus("");
   syncSaveBar();
 }
+
+const saveSettled = () => !saveTimer && !savesRunning;
 
 // Compares content, so an edit that is undone (add a row, then remove it) is not "unsaved".
 // Rows are compared as typed: a half-filled one is dropped from the payload, but it is still an edit that saving must validate.
@@ -454,10 +503,11 @@ function changedSections() {
 
 function syncUnsaved() {
   const changed = changedSections();
+  const shown = saveSettled() ? changed : [];
   elements.toc.querySelectorAll("a").forEach((link) => {
-    link.querySelector(".dot").hidden = !changed.some((section) => section && link.hash === `#${section.id}`);
+    link.querySelector(".dot").hidden = !shown.some((section) => section && link.hash === `#${section.id}`);
   });
-  const names = Array.from(document.querySelectorAll("section.sec"), (section) => changed.includes(section) && section.dataset.name).filter(Boolean);
+  const names = Array.from(document.querySelectorAll("section.sec"), (section) => shown.includes(section) && section.dataset.name).filter(Boolean);
   elements.unsavedWhere.textContent = names.length ? `：${names.join("、")}` : "";
   setUnsaved(changed.length > 0);
 }
@@ -510,7 +560,7 @@ function syncObsidianKeyTag() {
 }
 
 // 测试连接 needs the 地址 and the Key: disabled with the reason while either box is empty, like an AI platform row's.
-// While a save or a test runs it stays disabled; setBusy(null) calls this again.
+// While a test runs it stays disabled; setBusy(null) calls this again.
 // The result next to it is for the 地址 and Key it tested: an edit away from them clears it.
 function syncObsidianTest() {
   const typed = { obsidianApiBaseUrl: MdgSettings.trimBaseUrl(elements.obsidianApiBaseUrl.value), obsidianApiKey: MdgSettings.normalizeApiKey(elements.obsidianApiKey.value) };
@@ -524,9 +574,9 @@ function syncObsidianTest() {
 }
 
 function syncSaveBar() {
-  elements.saveBar.hidden = !hasUnsavedChanges && !elements.status.textContent;
-  elements.unsavedHint.hidden = !hasUnsavedChanges;
-  elements.saveBtn.hidden = !hasUnsavedChanges;
+  const unsaved = hasUnsavedChanges && saveSettled();
+  elements.saveBar.hidden = !unsaved && !elements.status.textContent;
+  elements.unsavedHint.hidden = !unsaved;
 }
 
 // Also writes the normalized Obsidian URL and key back into their inputs.
@@ -659,12 +709,12 @@ function initPromptTabs() {
   });
 }
 
-function applyValidationError(validation) {
+function applyValidationError(validation, { focus = true } = {}) {
   clearInputErrors();
   validation?.row?.closest("details")?.setAttribute("open", "");
   if (validation?.field) {
     validation.field.classList.add("input-error");
-    validation.field.focus();
+    if (focus) validation.field.focus();
   }
   // A property or section row's own error line repeats the message under the row (validation.field marks its box).
   const rowError = validation?.row?.querySelector(".fixed-property-error, .note-section-error");
@@ -1017,7 +1067,7 @@ async function testConnection() {
     }
 
     const service = resp?.service ? `（${resp.service}）` : "";
-    setTestResult(`连接成功${service}${hasUnsavedChanges ? "，记得保存设置" : ""}`);
+    setTestResult(`连接成功${service}`);
   } catch (error) {
     setTestResult(`失败：${error.message || MdgErrors.TEXT.unknown}`, true);
   } finally {
@@ -1040,7 +1090,7 @@ function setTestResult(text, isError = false) {
 // its words from options.html.
 function setBusy(active) {
   busyButton = active;
-  for (const [button, busy] of [[elements.saveBtn, "保存中…"], [elements.testConnectionBtn, "测试中…"]]) {
+  for (const [button, busy] of [[elements.testConnectionBtn, "测试中…"]]) {
     button.dataset.idle ??= button.textContent;
     button.disabled = Boolean(active);
     button.textContent = button === active ? busy : button.dataset.idle;
@@ -1263,7 +1313,7 @@ async function testAiProviderRow(row, sync) {
   sync();
   if (row.dataset.edited) return;
   if (resp?.ok) {
-    showAiProviderStatus(statusNode, hasUnsavedChanges ? "连接成功，记得保存设置" : "连接成功");
+    showAiProviderStatus(statusNode, "连接成功");
     return;
   }
   showAiProviderStatus(statusNode, `失败：${MdgErrors.text(resp)}`, true);
@@ -1349,17 +1399,7 @@ async function missingHostPermissions(urls) {
   return missing;
 }
 
-// Returns the patterns the user declined (empty when everything is granted).
-async function requestHostPermissions(urls) {
-  const missing = await missingHostPermissions(urls);
-  if (!missing.length) {
-    return [];
-  }
-  const granted = await chrome.permissions.request({ origins: missing }).catch(() => false);
-  return granted ? [] : missing;
-}
-
-// Installs upgraded from before 1.2.0 never went through the save-time request.
+// Where a saved address lacks its host permission, 授权 asks for it: saving does not ask, it has no click to ask in.
 async function renderHostPermissionBanner(urls) {
   const missing = await missingHostPermissions(urls);
   elements.hostPermissionBanner.hidden = !missing.length;

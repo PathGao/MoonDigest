@@ -190,10 +190,10 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.strictEqual(warn.hidden, true);
 }
 
-// A28: Obsidian's 测试连接 stays disabled while a test or a save runs, whatever is typed; it comes back when it ends.
+// A28: Obsidian's 测试连接 stays disabled while a test runs, whatever is typed; it comes back when it ends.
 {
   const btn = (textContent) => ({ textContent, dataset: {}, setAttribute() {}, removeAttribute() {} });
-  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, busyButton: null, obsidianTest: null, elements: { saveBtn: btn("保存"), testConnectionBtn: btn("测试连接"), obsidianApiBaseUrl: { value: "http://127.0.0.1:27123" }, obsidianApiKey: { value: "" } } });
+  const page = vm.createContext({ MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, busyButton: null, obsidianTest: null, elements: { testConnectionBtn: btn("测试连接"), obsidianApiBaseUrl: { value: "http://127.0.0.1:27123" }, obsidianApiKey: { value: "" } } });
   vm.runInContext([fn("setBusy"), fn("syncObsidianTest")].join("\n"), page);
   page.setBusy(page.elements.testConnectionBtn);
   page.elements.obsidianApiKey.value = "new key";
@@ -364,30 +364,63 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.strictEqual(table.rows[0]?.kids[0]?.textContent, "读取存储用量失败：读不了");
 })().catch((e) => (console.error(e), process.exit(1)));
 
-// C239, C243: the settings saved, the AI platforms not: the settings no longer count as unsaved, and the status says
-// the settings are saved, whether the platforms' save answered with an error or threw.
+// C239, C243: the settings saved, the AI platforms not: the settings no longer count as unsaved, the platforms do, and
+// the status says the platforms' save failed, whether it answered with an error or threw.
+// Autosave: what counts as saved is the form as it was sent (typing during the save stays unsaved); while typing
+// (quiet) an invalid part is neither saved nor marked, leaving the box marks it without moving the focus; and a quiet save
+// does not send a platform whose 接口地址 moved off its saved Key's host, which would delete the Key.
 (async () => {
-  for (const [how, reason] of [["reply", "写不进"], ["throw", "断开"]]) {
+  const run = async ({ reply = () => ({ ok: true }), quiet = false, settingsOk = true, provider = { id: "p1", apiKey: "", hasSavedKey: true }, rowSavedKey = "1" } = {}) => {
     const log = [];
+    const sent = [];
+    let form = { payload: { folder: "新" }, providers: [provider] };
+    const row = { dataset: { hasSavedKey: rowSavedKey } };
     const page = vm.createContext({
-      MdgErrors: ctx.MdgErrors, TriageUi: { clampNumber() {} },
-      elements: { saveBtn: {}, seenThreshold: {}, aiPresetPrompts: {}, webAiPresetPrompts: {} },
-      savedForm: { payload: { folder: "旧" }, providers: ["旧平台"] }, obsidianTest: null,
-      clearInputErrors() {}, collectFormPayload: () => ({ aiPresetPrompts: [], webAiPresetPrompts: [] }), validateSettings: () => ({ ok: true }),
-      collectAiProviders: () => [], validateAiProviders: () => ({ ok: true }), hostPermissionUrls: () => [], requestHostPermissions: async () => [],
-      setBusy() {}, setStatus: (text, isError) => log.push([text, isError]), renderFixedPropertyRows() {}, renderNoteSectionRows() {},
-      readFormState: () => ({ payload: { folder: "新" }, providers: ["新平台"] }),
-      syncUnsaved() {}, renderSavedState() {}, markSaved: () => log.push("markSaved"),
+      MdgErrors: ctx.MdgErrors, MdgSettings: ctx.MdgSettings, CSS: { escape: (x) => x }, hasUnsavedChanges: false, savedStatusTimer: 0,
+      elements: { status: { textContent: "" }, aiProvidersList: { querySelector: () => row, querySelectorAll: () => [row] } },
+      savedForm: { payload: { folder: "旧" }, providers: [{ ...provider, model: "旧" }] }, obsidianTest: null,
+      readFormPayload: () => ({ folder: form.payload.folder }), validateSettings: () => (settingsOk ? { ok: true } : { ok: false, message: "文件夹不对" }),
+      validateAiProviders: () => ({ ok: true }), hostPermissionUrls: () => [], renderHostPermissionBanner() {},
+      setStatus: (text, isError) => log.push([text, isError]), applyValidationError: (v, o) => log.push(["mark", v.message, o.focus]),
+      readFormState: () => form, syncUnsaved() {}, renderSavedState() {}, setTimeout() {}, clearTimeout() {},
       chrome: { runtime: { sendMessage: async (m) => {
+        sent.push(m.type);
+        // The user types on while the message is out.
+        form = { ...form, payload: { folder: "更新" } };
         if (m.type === "save-settings") return { ok: true };
-        if (how === "throw") throw new Error(reason);
-        return { ok: false, error: reason };
+        return reply(m);
       } } }
     });
-    vm.runInContext(`async ${fn("saveSettings")}`, page);
-    await page.saveSettings();
-    assert.deepStrictEqual([page.savedForm.payload.folder, page.savedForm.providers[0]], ["新", "旧平台"], how);
-    assert.deepStrictEqual(log.at(-1), [`设置已保存，但 AI 平台保存失败：${reason}`, true], how);
+    vm.runInContext([constant("rowOf"), constant("sendFailed"), `async ${fn("saveSettings")}`, `async ${fn("saveFormSettings")}`, `async ${fn("saveFormProviders")}`].join("\n"), page);
+    await page.saveSettings({ quiet });
+    return { page, log, sent, row };
+  };
+  for (const [how, reason] of [["reply", "写不进"], ["throw", "断开"]]) {
+    const { page, log } = await run({ reply: () => { if (how === "throw") throw new Error(reason); return { ok: false, error: reason }; } });
+    assert.deepStrictEqual([page.savedForm.payload.folder, page.savedForm.providers[0].model], ["新", "旧"], how);
+    assert.deepStrictEqual(log.at(-1), [`AI 平台保存失败：${reason}`, true], how);
+  }
+  {
+    const { page, log } = await run({ reply: () => ({ ok: true, providers: [{ id: "p1", hasSavedKey: true }] }) });
+    assert.strictEqual(page.savedForm.payload.folder, "新", "the folder typed during the save is saved next");
+    assert.deepStrictEqual(log.at(-1), ["设置已保存", undefined]);
+  }
+  {
+    const { page, log, sent } = await run({ quiet: true, settingsOk: false });
+    assert.deepStrictEqual([page.savedForm.payload.folder, sent, log.some(([t]) => t === "mark")], ["旧", ["ai-providers-save"], false], "quiet: invalid part unsaved, not marked");
+  }
+  {
+    const { log } = await run({ settingsOk: false });
+    assert.deepStrictEqual(log.at(-1), ["mark", "文件夹不对", false], "left the box: marked, focus stays");
+  }
+  {
+    const moved = { id: "p1", apiKey: "", hasSavedKey: false };
+    assert.deepStrictEqual((await run({ quiet: true, provider: moved })).sent, ["save-settings"], "a half-typed address does not delete the Key");
+    assert.deepStrictEqual((await run({ provider: moved })).sent, ["save-settings", "ai-providers-save"], "left the box: saved");
+  }
+  {
+    const { page, row } = await run({ provider: { id: "p1", baseUrl: "https://a.example/v1", apiKey: "k", hasSavedKey: false }, rowSavedKey: "0", reply: () => ({ ok: true, providers: [{ id: "p1", hasSavedKey: true }] }) });
+    assert.deepStrictEqual([row.dataset.hasSavedKey, row.dataset.keyOrigin, page.savedForm.providers[0].hasSavedKey], ["1", "https://a.example", true], "a newly saved Key is known without redrawing the row");
   }
 })().catch((e) => (console.error(e), process.exit(1)));
 
@@ -456,7 +489,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.strictEqual(replies[0].code, "AI_ACCESS");
   allow = true;
   await status.kids[0].on.click();
-  assert.deepStrictEqual([log.slice(1), status.textContent], [["ask https://api.example.com/*", "ask https://api.example.com/*", "test https://api.example.com/v1"], "连接成功，记得保存设置"]);
+  assert.deepStrictEqual([log.slice(1), status.textContent], [["ask https://api.example.com/*", "ask https://api.example.com/*", "test https://api.example.com/v1"], "连接成功"]);
   console.log("options selftest: all passed");
 })().catch((e) => (console.error(e), process.exit(1)));
 
