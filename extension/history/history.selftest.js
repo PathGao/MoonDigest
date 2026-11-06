@@ -1087,7 +1087,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     assert.deepStrictEqual([els.rsBatchInput.value, els.rsIntervalInput.value, els.rsNewMaxInput.value, els.rsRemoveInput.checked], [7, 0, 3, true], "the dialog shows the stored values");
     els.rsBatchInput.value = "1";
     els.rsNewMaxInput.value = "2";
-    els.readingSettingsDialog.returnValue = "save";
     for (const f of L.readingSettingsDialog.close) await f();
     assert.deepStrictEqual(plain(sync), { [RS]: { batchSize: 1, intervalSec: 0, newTagMax: 2, allowRemove: true } }, "only 摘读记录's key changes");
     assert.ok(!sent.some((m) => m.type === "triage-settings-save"), "the 收藏夹's settings are not written");
@@ -1096,7 +1095,6 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(20);
     sync[RS] = { ...sync[RS], intervalSec: 9 };
     els.rsNewMaxInput.value = "3";
-    els.readingSettingsDialog.returnValue = "save";
     for (const f of L.readingSettingsDialog.close) await f();
     assert.deepStrictEqual(plain(sync[RS]), { batchSize: 1, intervalSec: 9, newTagMax: 3, allowRemove: true }, "the imported 9 stays");
     sync[RS] = { batchSize: 1, intervalSec: 0, newTagMax: 2, allowRemove: true };

@@ -847,9 +847,20 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.strictEqual(p.$("fwNewMaxInput").value, 3);
     p.sync.follow_ai_settings = { ...p.sync.follow_ai_settings, intervalSec: 9 };
     p.$("fwNewMaxInput").value = "4";
-    p.$("fwSettingsDialog").returnValue = "save";
     for (const f of p.$("fwSettingsDialog").L.close) await f();
     assert.deepStrictEqual(plain(p.sync), { follow_ai_settings: { batchSize: 10, intervalSec: 9, newTagMax: 4, allowRemove: false } }, "the imported 9 stays; the days are not written");
+    // 完成 and Esc save, so an invalid 天数 stops both with the reason; closed anyway (a second Esc), nothing is written.
+    await p.FW.openSettings();
+    p.$("fwSlowInput").value = "30";
+    p.$("fwDeadInput").value = "20";
+    // Esc here; 完成 (submit) runs the same check.
+    let stopped = false;
+    for (const f of p.$("fwSettingsDialog").L.cancel) f({ preventDefault: () => (stopped = true) });
+    assert.ok(stopped && !p.$("fwSettingsError").hidden, "Esc stopped with the reason");
+    const before = JSON.stringify(p.sync);
+    for (const f of p.$("fwSettingsDialog").L.close) await f();
+    assert.strictEqual(JSON.stringify(p.sync), before, "invalid: nothing written");
+    assert.ok(p.toasts.at(-1).startsWith(`${p.ctx.MdgErrors.TEXT.settingsSaveFailed}：`), p.toasts.at(-1));
   }
 
   // 关注设置, 「允许 AI 去掉已有标签」 and the AI settings they seed: a failed chrome.storage.sync.set says so in red, as
@@ -865,7 +876,6 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     assert.deepStrictEqual(p.toasts.filter((t) => t === failed).length, 2, "the seed and the switch");
     await p.FW.openSettings();
     p.$("fwNewMaxInput").value = "4";
-    p.$("fwSettingsDialog").returnValue = "save";
     for (const f of p.$("fwSettingsDialog").L.close) await f();
     assert.strictEqual(p.toasts.at(-1), failed);
   }
