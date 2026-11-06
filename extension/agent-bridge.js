@@ -138,7 +138,12 @@
 
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so
   // nothing loads a video or asks the site for a call nobody waits for any more.
+  // Methods other files add (agent-mydata.js): each takes params and resolves to a reply, without a tab.
+  const added = {};
+  const addMethods = (methods) => Object.assign(added, methods);
+
   async function handle(method, params, deadline = Date.now() + CALL_BUDGET_MS) {
+    if (Object.hasOwn(added, method)) return added[method](params);
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
     const url = params && params.url;
     const key = typeof url === "string" ? videoKey(url) : null;
@@ -242,5 +247,5 @@
     Promise.resolve(o.isEnabled()).then(apply, () => apply(false));
   }
 
-  globalThis.MdgAgentBridge = { start };
+  globalThis.MdgAgentBridge = { start, addMethods };
 })();

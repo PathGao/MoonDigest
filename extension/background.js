@@ -1295,6 +1295,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 // background is the only writer to Obsidian.
 // follow-core.js (FollowCore) gives follow-bg.js the page's groupsOf, so an UP's groups are read one way on both sides.
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
+// The agent interface's personal-data methods (docs/AGENT.md §2) read through triage-bg.js and follow-core.js.
+importScripts("agent-mydata.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
 triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json", "fetch-json-cancel"], (r) => r);

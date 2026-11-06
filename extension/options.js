@@ -132,6 +132,7 @@ function init() {
     scheduleSave();
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
+  elements.mcpEnabled.addEventListener("change", syncMcpRows);
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -280,6 +281,7 @@ async function loadSettings() {
   for (const k of SWITCH_KEYS) elements[k].checked = settings[k];
   for (const k of VALUE_KEYS) elements[k].value = String(settings[k] ?? "");
   syncObsidianBody();
+  syncMcpRows();
   renderBiliMarks(settings.biliMarksOff);
   syncSeenRows();
   syncBiliMarks();
@@ -687,6 +689,11 @@ function validateNoteExtras() {
 }
 
 // Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
+// 允许 AI 工具读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
+function syncMcpRows() {
+  MdgErrors.setReason(elements.mcpPersonalData, elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」");
+}
+
 function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
 }
