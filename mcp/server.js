@@ -199,7 +199,7 @@ export function formatFollows(d) {
   const ignored = d.queryIgnored ? " Query ignored: MoonDigest has not synced the follow list, so this is Bilibili's list unfiltered." : "";
   const lines = [`Follows. ${pageLine(d)}${ignored}`];
   for (const u of d.items) {
-    lines.push("- " + joinParts([`${u.name} (mid ${u.mid})`, u.groups?.length && `groups: ${u.groups.join(", ")}`, u.tags?.length && `tags: ${u.tags.join(", ")}`, u.sign]));
+    lines.push("- " + joinParts([`${u.name} (mid ${u.mid})`, u.groups?.length && `groups: ${u.groups.join(", ")}`, u.tags?.length && `tags: ${u.tags.join(", ")}`, u.sign?.replace(/\s+/g, " ")]));
   }
   return lines.join("\n");
 }

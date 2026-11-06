@@ -265,9 +265,9 @@ test("personal data: favorites, follows and history formatting", () => {
     "- [02:05] Rust 入门 · UP · https://www.bilibili.com/video/BV1 · kept · AI: keep · tags: 教程, Rust · summary: 所有权讲透 · note: 第二遍 再看",
     "- [00:00] Gone · https://www.bilibili.com/video/BV2 · unavailable",
   ].join("\n"));
-  const fol = formatFollows({ source: "bilibili", queryIgnored: true, total: 2, page: 1, hasMore: false, items: [{ mid: "7", name: "A", sign: "hi", groups: ["特别关注", "默认分组"] }] });
+  const fol = formatFollows({ source: "bilibili", queryIgnored: true, total: 2, page: 1, hasMore: false, items: [{ mid: "7", name: "A", sign: "hi\nthere", groups: ["特别关注", "默认分组"] }] });
   assert.match(fol, /^Follows\. Page 1, 1 of 2\. Query ignored:/);
-  assert.match(fol, /\n- A \(mid 7\) · groups: 特别关注, 默认分组 · hi$/);
+  assert.match(fol, /\n- A \(mid 7\) · groups: 特别关注, 默认分组 · hi there$/);
   const his = formatHistory({ cursor: "9:100:archive", items: [{ bvid: "BV1", url: "u", title: "T", author: "UP", viewAt: 100, progress: -1, duration: 60, kind: "archive" }, { url: "l", title: "Live", author: "", viewAt: 0, progress: 0, duration: 0, kind: "live" }] });
   const lines = his.split("\n");
   assert.equal(lines[0], 'History, newest first, 2 items. More: cursor "9:100:archive".');
