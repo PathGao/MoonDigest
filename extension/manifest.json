@@ -39,13 +39,13 @@
         "https://www.bilibili.com/festival/*",
         "https://www.youtube.com/*"
       ],
-      "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "content.js"],
+      "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "agent-page.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.bilibili.com/video/*", "https://www.bilibili.com/bangumi/play/*"],
-      "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "content.js"],
+      "js": ["common.js", "errors.js", "limits.js", "typing.js", "settings.js", "sites.js", "tag-core.js", "note.js", "note-actions.js", "agent-page.js", "content.js"],
       "css": ["content.css"],
       "all_frames": true,
       "run_at": "document_idle"

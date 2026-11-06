@@ -418,6 +418,7 @@ function init() {
   }
 
   bindRuntimeEvents();
+  bindAgentBridge();
   bindSettingsWatcher();
   bindReaderSettingsDismiss();
   bindNormalPageStateGuard();
@@ -1032,6 +1033,50 @@ async function clipContext(refresh) {
     if (comments.length) state.hotComments = comments;
     return buildSidepanelContext();
   }
+}
+
+// The agent interface (docs/AGENT.md): agents read the video from the page (moondigest-get, moondigest-frame,
+// agent-page.js) or through the MCP server (mcp/, agent-bridge.js in the background). The read is the side panel's.
+// Read-only, and only what this site already gives this page: no keys, notes, conversations or 分拣 results.
+function bindAgentBridge() {
+  MdgAgentPage.bind({ read: agentRead, signal: life.signal });
+}
+
+async function agentRead() {
+  try {
+    await clipContext(false);
+  } catch (error) {
+    const code = MdgSites.isLimit(error) ? "THROTTLED" : error?.message === MdgErrors.TEXT.notVideoPage ? "NOT_VIDEO_PAGE" : "";
+    throw Object.assign(new Error(fetchErrorText(error)), code ? { code } : {});
+  }
+  return agentPayload();
+}
+
+function agentPayload() {
+  const segments = state.subtitleBody || [];
+  const duration = state.videoDuration || 0;
+  const { pageIndex, pageCount } = clipPage(state);
+  return {
+    url: location.href,
+    site: state.site || "",
+    videoId: state.videoId || "",
+    title: state.title || "",
+    author: state.author || "",
+    uploadDate: state.uploadDate || "",
+    duration,
+    description: state.description || "",
+    // A single part is count 0, without a part title; a chapter's open end is the video's end.
+    part: pageCount > 1 ? { index: pageIndex, count: pageCount, title: state.pageTitle || "" } : { index: 1, count: 0, title: "" },
+    chapters: MdgSites.chapterRanges(state.chapters).map(({ title, from, to }) => ({ title, from, to: Number.isFinite(to) ? to : duration })),
+    subtitle: {
+      lang: state.selectedSubtitleLang || "",
+      warning: state.subtitleWarning || "",
+      missing: segments.length ? "" : noTrackText(),
+      needLogin: !segments.length && Boolean(state.subtitleNeedLogin),
+      segments: segments.map(({ from, to, content }) => ({ from, to, content }))
+    },
+    comments: state.hotComments || []
+  };
 }
 
 // Every run registers itself, whoever started it (popup, URL watcher, refresh button), so settledClip can join it.

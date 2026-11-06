@@ -60,6 +60,9 @@
       builder: "content.js:buildSidepanelContext",
       payload: ["url", "title", "author", "uploadDate", "site", "videoId", "cid", "aid", "description", "pageIndex", "pageCount", "pageTitle", "subtitleMarkdown", "subtitleFailure", "subtitleNeedLogin", "subtitleWarning", "subtitleLang", "selectedSubtitleId", "selectedSubtitleUrl", "subtitleOptions", "subtitleMissing", "hotComments"]
     },
+    // The MCP bridge (agent-bridge.js, in the background) to the video page (agent-page.js), docs/AGENT.md §2. Not here:
+    // the page's moondigest-get / moondigest-frame, window.postMessage from agents' JS (docs/AGENT.md §1).
+    "agent-call": { from: ["agent-bridge.js"], to: "agent-page.js", request: ["method", "params"], response: ["data"] },
     "sidepanel-seek-video-time": { from: ["sidepanel.js"], to: "content.js", request: ["seconds", "videoId"], response: ["currentTime"] },
 
     // The side panel's context, through the background

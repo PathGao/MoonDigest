@@ -176,6 +176,51 @@
 
 「已出分拣范围」里卡片键只有 `E`、`Q`、`X`、`O` / `Enter` 可用，`U` 照常撤销上一步；点卡片选中。
 
+## 给 AI agent 用
+
+Agent 查资料碰到视频，通常只能看标题和封面，要么把视频下载下来用 Whisper 转写。装了 MoonDigest，agent 就能借你浏览器的登录状态，一次拿到标题、简介、章节、带时间戳的逐句字幕和热门评论，还能截取任意一秒的画面（不带弹幕）。不下载视频，不会被 B站 412 或 YouTube 429 拦住，不花 AI 额度，读不到你的 API Key、笔记、对话和分拣结果。
+
+```
+            ┌─ skill：agent 自己驱动浏览器（ego、Claude in Chrome、Playwright…）
+agent ──────┤        在视频页里 postMessage ──> MoonDigest 回 JSON / 截帧
+            └─ MCP：Claude Code、Cursor、Codex 等 ──> moondigest-mcp ──> MoonDigest
+```
+
+先登录 B站（B站 只给登录用户看字幕，AI 字幕也一样），再二选一：
+
+**skill**（agent 能驱动浏览器时）：把 [skills/moondigest](skills/moondigest/SKILL.md) 放进 agent 的 skills 目录，Claude Code 是：
+
+```sh
+git clone https://github.com/PathGao/MoonDigest.git
+mkdir -p ~/.claude/skills && cp -r MoonDigest/skills/moondigest ~/.claude/skills/
+```
+
+**MCP**（任何 MCP 客户端，agent 不用会操控浏览器）：
+
+1. 打开「设置 → 高级 → 允许 MCP 连接」。打开后插件只连本机 `127.0.0.1:47823`，服务没开时每分钟试一次。
+2. 装 MCP 服务（要 Node 20+，还没发布到 npm，先用本地路径）：
+
+   ```sh
+   git clone https://github.com/PathGao/MoonDigest.git
+   cd MoonDigest/mcp && npm install
+   claude mcp add moondigest -- node "$PWD/server.js"
+   ```
+
+   Cursor、Codex 的配置写法见 [mcp/README.md](mcp/README.md)。
+3. 用的时候浏览器要开着。工具有两个：`get_video({ url })` 拿字幕和信息，`get_frame({ url, at })` 拿 `at` 秒的一帧。扩展最多开一个自己的后台标签页；`get_frame` 第一次在没显示过的标签页里截帧时，会把它切到前台截完再切回，屏幕会闪一下（Chrome 不给没显示过的标签页加载视频）。
+
+不装 skill 也行，把这段提示词粘给 agent（用 MCP 时把第 1、2 步换成 get_video、get_frame）：
+
+```text
+需要了解 B站 或 YouTube 视频的内容时，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
+1. 在视频页执行文档里的 JS，用 moondigest-get 拿字幕、章节、简介和评论。
+2. 按章节读字幕。要核对画面（图表、代码、屏幕上的文字）时，用 moondigest-frame 跳到对应秒数截一帧，图片别直接打印进上下文。
+3. 结论带上时间戳（mm:ss）和能跳到那一刻的链接。
+4. 没字幕、没登录 B站 或被限流时，告诉我原因，不要反复重试，一次只读一个视频。
+```
+
+接口的完整说明在 [docs/AGENT.md](docs/AGENT.md)。
+
 ## 安装与更新
 
 支持 Chrome 和其他 Chromium 内核浏览器（只在 Chrome 上测试过），不支持 Firefox。网站支持 B站视频页、稍后再看和 YouTube 视频页。
@@ -190,6 +235,7 @@
 
 - 设置、分拣结果、备注和对话都存在浏览器本地。API Key 也存在本地，不会出现在任何导出文件里。
 - 插件只连这些地方：B站和 YouTube、你配置的 AI 平台、你本机的 Obsidian。允许读取网页以后，侧边栏开着时会在本机读它跟随的每个网页的正文；只有你提问或点 AI 总结时，正文才发给你选的 AI 平台。没有作者的服务器，没有统计。
+- B站 和 YouTube 视频页上的网页脚本（包括你用的 AI agent）可以向插件要这个视频的信息、字幕、章节和热门评论，这些都是网站本来就给这个页面的数据。打开「允许 MCP 连接」后，插件还会连本机 `127.0.0.1:47823` 上的 MCP 服务（`mcp/`），只接受打开 B站 和 YouTube 视频页的请求。见「给 AI agent 用」。
 - 分拣台只读取你勾选的收藏夹的内容。为了列出可勾选和可移动到的收藏夹，会读收藏夹的名称和数量。
 - 分拣台的「关注」读你的关注列表、关注分组、每个人的粉丝数，以及关注的人新发的视频。只在你打开「关注」或点刷新时读。
 - **观看进度**不是「关」时，会读你自己的 B站历史记录：只在你打开分拣台或 B站页面时读，最多 10 分钟一次，只读上次之后新增的部分。每个视频只在本地存两个数：看到百分之多少、最后观看时间，留 1 年、最多 5000 个（勾选收藏夹里的视频不删）。这些数据不发往任何地方。选「关」就不读。
@@ -203,9 +249,9 @@
 | `sidePanel` | 显示 AI 侧边栏 |
 | `cookies` | 读取 B站的 `bili_jct`，分拣台改动收藏（取消收藏、移动、复制、新建收藏夹）和关注（取消或重新关注、特别关注、关注分组）时要用 |
 | `declarativeNetRequest` | 给分拣台发往 B站接口的请求加上 B站的 Referer 和 Origin |
-| `alarms` | 刷新关注列表时，后台被浏览器回收后从断点接着刷新。刷新完就清除 |
+| `alarms` | 刷新关注列表时，后台被浏览器回收后从断点接着刷新，刷新完就清除；打开「允许 MCP 连接」后每分钟检查一次本机 MCP 服务，关掉就清除 |
 | B站、YouTube 域名 | 读取视频信息、字幕和评论；读写你的收藏夹、稍后再看和关注列表；观看进度打开时读历史记录；在 B站页面显示分拣标记和观看进度 |
-| `127.0.0.1`、`localhost` | 连接本机的 Obsidian Local REST API |
+| `127.0.0.1`、`localhost` | 连接本机的 Obsidian Local REST API；打开「允许 MCP 连接」后连本机的 MCP 服务（`mcp/`） |
 | 可选：任意 http/https 地址 | 你添加 AI 平台时针对那个地址申请；在侧边栏点「允许读取网页」时一次申请所有网站，用来读网页正文 |
 
 ## 常见问题

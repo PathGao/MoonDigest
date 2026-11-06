@@ -51,6 +51,8 @@ const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}
   set: (o, k, v) => ((o[k] = v), true)
 });
 const listeners = { message: [], storage: [] };
+const winListeners = { message: [] }; // window events (the agent bridge); listeners.message is chrome.runtime's
+const posted = [];
 const ctx = vm.createContext({
   console,
   structuredClone,
@@ -68,7 +70,9 @@ const ctx = vm.createContext({
     }
   },
   performance: { getEntriesByType: () => [] },
-  location: { href: "https://www.bilibili.com/video/BV1GJ411x7h7/", hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7/", search: "" },
+  addEventListener: (type, f) => (winListeners[type] ||= []).push(f),
+  postMessage: (data, origin) => posted.push({ data, origin }),
+  location: { href: "https://www.bilibili.com/video/BV1GJ411x7h7/", origin: "https://www.bilibili.com", hostname: "www.bilibili.com", pathname: "/video/BV1GJ411x7h7/", search: "" },
   document: {
     documentElement: stubEl(),
     body: stubEl(),
@@ -85,7 +89,7 @@ const ctx = vm.createContext({
       getManifest: () => ({ version: "0.0.0" }),
       getURL: (p) => p,
       sendMessage: () => Promise.resolve(),
-      onMessage: { addListener: (f) => listeners.message.push(f) }
+      onMessage: { addListener: (f) => listeners.message.push(f), removeListener: (f) => listeners.message.splice(listeners.message.indexOf(f) >>> 0, 1) }
     },
     storage: {
       local: { get: async () => ({}), set: async () => {}, remove: async () => {} },
@@ -96,6 +100,7 @@ const ctx = vm.createContext({
 });
 ctx.window = ctx;
 ctx.globalThis = ctx;
+vm.runInContext("globalThis.top = globalThis;", ctx); // the top frame: agent-page.js answers only there
 // The scripts the manifest injects before content.js, read from it so the test cannot load a different set.
 const entries = JSON.parse(fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8")).content_scripts.filter((c) => c.js.includes("content.js"));
 assert.ok(entries.length && entries.every((c) => JSON.stringify(c.js) === JSON.stringify(entries[0].js)), "every content.js entry injects the same scripts");
@@ -137,6 +142,44 @@ const settle = async () => {
 };
 
 (async () => {
+  // The agent interface's page side (agent-page.js, bound by content.js): only this window's own scripts are answered, with the
+  // side panel's read, and never more than the page's own video data.
+  {
+    const saved = { clipContext: t.clipContext };
+    t.bindAgentBridge();
+    const self = vm.runInContext("window", t); // the page's window as content.js sees it, not the sandbox object
+    const post = (data, source = self) => winListeners.message.forEach((f) => f({ source, data }));
+    const segments = [{ from: 1, to: 2, content: "第一句" }];
+    const set = { site: "bilibili", videoId: "BV1GJ411x7h7", title: "T", videoDuration: 90, chapters: [{ title: "开头", from: 0, to: 30 }], subtitleBody: segments, selectedSubtitleLang: "中文", hotComments: [{ uname: "a", like: 1, message: "m" }] };
+    const keep = Object.fromEntries(Object.keys(set).map((k) => [k, state[k]]));
+    Object.assign(state, set);
+    let reads = 0;
+    t.clipContext = async () => void reads++;
+    post({ type: "moondigest-get", id: 7 });
+    post({ type: "moondigest-get", id: 8 }, {}); // another frame's
+    post({ type: "other", id: 9 });
+    await settle();
+    assert.strictEqual(reads, 1, "only this window's moondigest-get is read");
+    assert.strictEqual(posted.length, 1);
+    const [{ data: r, origin }] = posted;
+    assert.strictEqual(origin, "https://www.bilibili.com", "the reply stays in this page's origin");
+    assert.deepStrictEqual([r.source, r.id, r.ok, r.version], ["moondigest", 7, true, 1]);
+    assert.deepStrictEqual(Object.keys(r.data), ["url", "site", "videoId", "title", "author", "uploadDate", "duration", "description", "part", "chapters", "subtitle", "comments"]);
+    assert.strictEqual(JSON.stringify([r.data.duration, r.data.subtitle.segments, r.data.subtitle.missing, r.data.chapters, r.data.part, r.data.comments[0].message]), JSON.stringify([90, segments, "", [{ title: "开头", from: 0, to: 30 }], { index: 1, count: 0, title: "" }, "m"]));
+    posted.length = 0;
+    t.clipContext = async () => {
+      throw Object.assign(new Error("限流"), { code: t.MdgErrors.CODE.THROTTLED });
+    };
+    post({ type: "moondigest-get", id: 10 });
+    await settle();
+    assert.deepStrictEqual([posted[0].data.id, posted[0].data.ok, posted[0].data.code], [10, false, t.MdgErrors.CODE.THROTTLED]);
+    assert.ok(posted[0].data.error, "with the error text");
+    posted.length = 0;
+    winListeners.message.length = 0;
+    Object.assign(state, keep);
+    Object.assign(t, saved);
+  }
+
   // The player's AI button waits for a platform; the focus-mode one is never hidden for it.
   {
     const realSync = t.chrome.storage.sync.get;
