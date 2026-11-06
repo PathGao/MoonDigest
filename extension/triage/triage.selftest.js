@@ -16,7 +16,7 @@ assert.ok(!/await import|^init\(\);$/m.test(entry), "harness strips the page ent
 // 收藏夹's code, for the checks below that read it.
 const source = PS.text(PS.favorites);
 // 优先看, then 播放列表, was renamed 待播: no page text or README still says an old name ("YouTube 播放列表" in the README is YouTube's own).
-for (const f of [...PS.pageCode, "triage/shared.js", "triage/triage.html", "options.html", "sidepanel.html", "popup.html", "../README.md", "../docs/TRIAGE.md"]) {
+for (const f of [...PS.pageCode, "triage/shared.js", "triage/triage.html", "options.html", "sidepanel.html", "popup.html", "../README.md", "../PRIVACY.md", "../docs/TRIAGE.md"]) {
   const text = PS.read(f).replaceAll("YouTube 播放列表", "");
   for (const old of ["优先看", "播放列表"]) assert.ok(!text.includes(old), `${f} still says ${old}`);
 }
@@ -670,7 +670,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.viewing = "";
   t.renderBasket();
   assert.ok(t.el.basketList.innerHTML.includes('data-basket="remove" aria-label="从待播移除 ') && t.el.basketList.innerHTML.includes('title="从待播移除">移除</button>') && !t.el.basketList.innerHTML.includes("已看"), "待播 says 移除");
-  for (const f of ["triage.html", "../../README.md", "../../docs/TRIAGE.md"]) assert.ok(!/「已看」/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still says 「已看」`);
+  for (const f of ["triage.html", "../../README.md", "../../PRIVACY.md", "../../docs/TRIAGE.md"]) assert.ok(!/「已看」/.test(fs.readFileSync(path.join(__dirname, f), "utf8")), `${f} still says 「已看」`);
   // H11: an entry saved without a duration (BVgone, an old one) shows none, not 「0:00」.
   assert.ok(!t.S.itemMap.has("BVgone") && !t.el.basketList.innerHTML.includes("0:00"), "no 0:00 for an entry without a duration");
   // 清空 empties the list in one undoable step.
@@ -3807,7 +3807,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const viewer = html.slice(html.indexOf('<aside id="viewer"'), html.indexOf("</aside>", html.indexOf('<aside id="viewer"')));
       assert.ok(viewer && !/viewer-head|viewerTitle|viewerFocusBtn|viewerTabBtn|专注模式|在 B站打开/.test(viewer), "no top bar in the player");
       // No 已看，下一个 either: the 待播 panel's 移除 and 清空 take videos out.
-      for (const f of ["triage/triage.html", ...PS.triage, "triage/follow.css", "../README.md", "../docs/TRIAGE.md"]) {
+      for (const f of ["triage/triage.html", ...PS.triage, "triage/follow.css", "../README.md", "../PRIVACY.md", "../docs/TRIAGE.md"]) {
         assert.ok(!/已看，下一个|viewerNextBtn|viewerBasket|basketDoneAndNext/.test(PS.read(f)), `${f} still has 已看，下一个`);
       }
       assert.ok(!/viewer-head/.test(fs.readFileSync(path.join(__dirname, "triage.css"), "utf8")), "no top bar CSS");
