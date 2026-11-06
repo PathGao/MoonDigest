@@ -13,7 +13,7 @@
 //       that two pages (or a page and a shared file) both write fails, unless DUPLICATES below gives the reason;
 //   (f) no word DESIGN's 术语表 lists under 不用, for the words that can be told apart from plain text (TERMS below).
 // --report lists every finding instead of failing on the first kind.
-if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in README.md)."), process.exit(1));
+if (process.versions.bun) (console.error("This selftest needs Node: it fails or hangs under bun (see 自检 in CONTRIBUTING.md)."), process.exit(1));
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
