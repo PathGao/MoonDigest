@@ -957,6 +957,53 @@ function triageBvToAv(bvid) {
   return String((n ^ 23442827791579n) & ((1n << 51n) - 1n));
 }
 
+// One 稍后再看 entry as the 分拣台's item (agent-mydata.js reads 稍后再看 the same way).
+function triageToviewItem(m) {
+  return {
+    bvid: m.bvid,
+    aid: m.aid,
+    title: m.title,
+    cover: m.pic,
+    upper: m.owner?.name || "",
+    upperMid: m.owner?.mid ? String(m.owner.mid) : undefined,
+    duration: m.duration,
+    pubdate: m.pubdate,
+    favTime: m.add_at,
+    intro: m.desc,
+    invalid: m.state !== 0,
+    // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
+    seen: m.progress,
+    // 播放量 comes with the list; no extra request.
+    play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined,
+    // A 番剧 episode redirects to its /bangumi/ page and has a pgc_label (season_id can be 0 on a video): marked so a
+    // write into a folder sends aid:42; B站 would store aid:2 as an odd video entry.
+    ...((/\/bangumi\//.test(m.redirect_url || "") || m.pgc_label) && { ogv: true })
+  };
+}
+
+// One favorites list entry as the 分拣台's item (agent-mydata.js too); null for types the 分拣台 does not list.
+function triageFavItem(m) {
+  const ogv = TRIAGE_OGV.includes(m.type);
+  if (m.type !== 2 && !ogv) return null;
+  return {
+    bvid: m.bvid || m.bv_id,
+    aid: ogv ? triageBvToAv(m.bvid || m.bv_id) : m.id,
+    ...(ogv && { ogv: true, ep: `${m.id}:${m.type}` }),
+    // A 番剧 episode: title is the season's, intro the episode's (第1集 …); its counts are all 0.
+    title: ogv && m.intro ? `${m.title} ${m.intro}` : m.title,
+    cover: m.cover,
+    upper: m.upper?.name || "",
+    // The UP's mid finds its 关注 UP 标签 in the player; snapshots saved before have none (matched by name).
+    upperMid: m.upper?.mid ? String(m.upper.mid) : undefined,
+    duration: m.duration,
+    pubdate: m.pubtime,
+    favTime: m.fav_time,
+    intro: ogv ? "" : m.intro,
+    invalid: m.attr !== 0,
+    play: !ogv && Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
+  };
+}
+
 const TRIAGE_HANDLERS = {
   "triage-open": (msg) => triageOpenPage(msg?.hash),
   "triage-write-note": (msg) => triageWriteNote(msg),
@@ -973,26 +1020,7 @@ const TRIAGE_HANDLERS = {
   "triage-folder-items": async ({ mediaId, known }) => {
     if (!triageFolderId(mediaId)) throw triageError("缺少 mediaId");
     if (mediaId === TRIAGE_TOVIEW) {
-      const items = (await triageToviewList()).map((m) => ({
-        bvid: m.bvid,
-        aid: m.aid,
-        title: m.title,
-        cover: m.pic,
-        upper: m.owner?.name || "",
-        upperMid: m.owner?.mid ? String(m.owner.mid) : undefined,
-        duration: m.duration,
-        pubdate: m.pubdate,
-        favTime: m.add_at,
-        intro: m.desc,
-        invalid: m.state !== 0,
-        // Seconds watched on Bilibili, -1 once finished; the card shows it as 看到 N% or 已看完.
-        seen: m.progress,
-        // 播放量 comes with the list; no extra request.
-        play: Number.isFinite(m.stat?.view) ? m.stat.view : undefined,
-        // A 番剧 episode redirects to its /bangumi/ page and has a pgc_label (season_id can be 0 on a video): marked so a
-        // write into a folder sends aid:42; B站 would store aid:2 as an odd video entry.
-        ...((/\/bangumi\//.test(m.redirect_url || "") || m.pgc_label) && { ogv: true })
-      }));
+      const items = (await triageToviewList()).map(triageToviewItem);
       return { items, ids: items.map((it) => it.bvid), info: { title: MdgErrors.LABEL.watchLater, intro: "" } };
     }
     const items = [];
@@ -1011,25 +1039,8 @@ const TRIAGE_HANDLERS = {
       }
       info ||= data?.info ? { title: data.info.title || "", intro: data.info.intro || "" } : null;
       for (const m of data?.medias || []) {
-        const ogv = TRIAGE_OGV.includes(m.type);
-        if (m.type !== 2 && !ogv) continue;
-        items.push({
-          bvid: m.bvid || m.bv_id,
-          aid: ogv ? triageBvToAv(m.bvid || m.bv_id) : m.id,
-          ...(ogv && { ogv: true, ep: `${m.id}:${m.type}` }),
-          // A 番剧 episode: title is the season's, intro the episode's (第1集 …); its counts are all 0.
-          title: ogv && m.intro ? `${m.title} ${m.intro}` : m.title,
-          cover: m.cover,
-          upper: m.upper?.name || "",
-          // The UP's mid finds its 关注 UP 标签 in the player; snapshots saved before have none (matched by name).
-          upperMid: m.upper?.mid ? String(m.upper.mid) : undefined,
-          duration: m.duration,
-          pubdate: m.pubtime,
-          favTime: m.fav_time,
-          intro: ogv ? "" : m.intro,
-          invalid: m.attr !== 0,
-          play: !ogv && Number.isFinite(m.cnt_info?.play) ? m.cnt_info.play : undefined
-        });
+        const item = triageFavItem(m);
+        if (item) items.push(item);
       }
       if (!data?.has_more) break;
       // More to come but nothing on this page (seen under risk control): what follows is unread, not gone.
