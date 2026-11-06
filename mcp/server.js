@@ -10,8 +10,6 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 
 const CALL_TIMEOUT_MS = 60_000;
 const PING_MS = 20_000;
-// The extension reconnects within 60 s at most, so right after this server starts
-// listening a call waits this long for it before reporting NOT_CONNECTED.
 
 class CodedError extends Error {
   constructor(code, message) { super(message); this.code = code; }
