@@ -30,5 +30,5 @@
 ## 与基线的差异
 
 - 保留 `accessibility`：采用前就有的项目 label。
-- main 不要求 CI 检查：仓库只有发版流水线，PR 上没有 CI。自检在本地跑，见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+- CI 是自检加冒烟（`.github/workflows/check.yml`，PR 和推送 main 都会跑），main 要求 `check` 通过才能合并。本地怎么跑见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 - 模板与文档用中文。label 脚本放在 `scripts/`，与仓库现有脚本一致。
