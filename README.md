@@ -73,10 +73,10 @@ Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能
 不装 skill 也行，把这段提示词粘给 agent（用 MCP 时把第 1、2 步换成 get_video、get_frame）：
 
 ```text
-需要了解 B站 或 YouTube 视频的内容时，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
+需要了解 B站 或 YouTube 视频的内容时，包括查资料时搜到的视频，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
 1. 在视频页执行文档里的 JS，用 moondigest-get 拿字幕、章节、简介和评论。
 2. 按章节读字幕。要核对画面（图表、代码、屏幕上的文字）时，用 moondigest-frame 跳到对应秒数截一帧，图片别直接打印进上下文。
-3. 结论带上时间戳（mm:ss）和能跳到那一刻的链接。
+3. 查资料搜到多个视频时，挑最相关的几个读，只引用或推荐真正讲了我要的内容的。结论带上时间戳（mm:ss）和能跳到那一刻的链接。
 4. 没字幕、没登录 B站 或被限流时，告诉我原因，不要反复重试，一次只读一个视频。
 ```
 

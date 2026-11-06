@@ -1,11 +1,16 @@
 ---
 name: moondigest
-description: Read and watch a Bilibili or YouTube video through the user's own browser. Open the video page in a browser that has the MoonDigest extension, get title, description, chapters, timestamped transcript and hot comments in one call, then grab frames at the moments worth seeing. Use when the user gives a bilibili.com / b23.tv / youtube.com / youtu.be link, or asks to summarize, check or quote a video. No download, no local transcription.
+description: Read and watch a Bilibili or YouTube video through the user's own browser. Open the video page in a browser that has the MoonDigest extension, get title, description, chapters, timestamped transcript and hot comments in one call, then grab frames at the moments worth seeing. Use when the user gives a bilibili.com / b23.tv / youtube.com / youtu.be link, asks to summarize, check or quote a video, or when you research a topic and your search results include Bilibili or YouTube videos: read them to check they really cover what the user asked before citing or recommending them. No download, no local transcription.
 ---
 
 # MoonDigest: read a video in the browser
 
 The MoonDigest extension answers JS running in a Bilibili or YouTube video page. It reads the video the way the page does, with the user's login, so Bilibili's login-only subtitles work and there is no 429 / 412 from a server IP. It is read-only: no AI quota, no access to the user's notes or keys. The full contract is in [docs/AGENT.md](../../docs/AGENT.md).
+
+## When to use it
+
+- The user links a video or asks about one.
+- You are researching, looking for tutorials or comparing sources, and your search turns up Bilibili or YouTube videos. Do not judge them by title, thumbnail or view count. Read the most promising few, keep the ones that really cover what the user asked, and say what each one says with timestamps. MoonDigest cannot search: find the videos with your own search tools first.
 
 ## Before you start
 
