@@ -3567,7 +3567,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       let drawn = 0;
       t.render = () => drawn++;
       t.S.allFolders = [];
-      t.el.settingsDialog.returnValue = "save";
       handlers["triage-settings-save"] = () => ({ ok: true });
       fire("settingsDialog", "close");
       for (let i = 0; i < 5; i++) await new Promise(setImmediate);
@@ -3592,7 +3591,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.el.intervalInput.value = "99";
       let saved = null;
       handlers["triage-settings-save"] = (m) => ((saved = m), { ok: true });
-      t.el.settingsDialog.returnValue = "save";
       fire("settingsDialog", "close");
       for (let i = 0; i < 5; i++) await new Promise(setImmediate);
       const { type, aiProviderId, ...patch } = saved;
@@ -3608,7 +3606,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       const close = async () => {
         t.openSettings();
         t.S.included = store[t.K.included] = ["1", "2"]; // 导入设置 lands
-        t.el.settingsDialog.returnValue = "save";
         fire("settingsDialog", "close");
         for (let i = 0; i < 5; i++) await new Promise(setImmediate);
       };
@@ -3617,10 +3614,26 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.S.included = ["1"];
       t.openSettings();
       ticked = ["2"];
-      t.el.settingsDialog.returnValue = "save";
       fire("settingsDialog", "close");
       for (let i = 0; i < 5; i++) await new Promise(setImmediate);
       assert.deepStrictEqual([plain(store[t.K.included]), applied], [["2"], [["2"]]], "a changed tick is written");
+      // Closing is not a deliberate 保存, so an untick (it deletes records) asks; declined, the ticks stay.
+      const askWas = t.askConfirm;
+      const asks = [];
+      t.askConfirm = async (title, body) => (asks.push([title, body]), false);
+      t.S.included = ["2"]; // applyIncluded is stubbed: take the written choice
+      t.openSettings();
+      ticked = ["1"];
+      fire("settingsDialog", "close");
+      for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      assert.deepStrictEqual([plain(store[t.K.included]), applied.length, asks.length, toasts.at(-1)], [["2"], 1, 1, "收藏夹的勾选没有改"], "declined: nothing written");
+      assert.ok(asks[0][0] === "取消勾选 1 个收藏夹？" && asks[0][1].includes("「二」") && asks[0][1].includes("已出分拣范围"), asks[0][1]);
+      t.openSettings();
+      ticked = ["2", "1"];
+      fire("settingsDialog", "close");
+      for (let i = 0; i < 5; i++) await new Promise(setImmediate);
+      assert.deepStrictEqual([plain(store[t.K.included]), asks.length], [["2", "1"], 1], "a tick added only does not ask");
+      t.askConfirm = askWas;
       Object.assign(t, { applyIncluded: keep.applyIncluded });
       Object.assign(t.S, { included: keep.included });
       t.el.folderToggles = keep.folderToggles;

@@ -978,7 +978,7 @@ table.marks input:disabled {
   border-top-color: var(--border-strong);
 }
 
-/* Save bar: amber while there are edits, then the result of the last save or test. */
+/* Save bar: amber while an edit could not be saved, then the result of the last save or test. */
 .savebar {
   position: fixed;
   left: 0;

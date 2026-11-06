@@ -1134,23 +1134,26 @@ async function openSettings() {
   $("fwRemoveInput").checked = ai.allowRemove;
   settingsShown = settingsFields();
   $("fwSettingsError").hidden = true;
-  settingsDialog.returnValue = "";
   settingsDialog.showModal();
 }
-// As 收藏夹设置: an invalid value keeps the dialog open with the reason; the rest is clamped on save.
-settingsDialog.querySelector("form").addEventListener("submit", (e) => {
-  if (e.submitter?.value !== "save") return;
+// 完成 or Esc saves, as 收藏夹设置. An invalid value keeps the dialog open with the reason (Chrome may still close it on
+// a second Esc: then nothing is saved and a toast says why); the rest is clamped on save.
+const settingsInvalid = (e) => {
   const why = settingsProblem($("fwSlowInput").value, $("fwDeadInput").value);
   $("fwSettingsError").hidden = !why;
   if (!why) return;
   e.preventDefault();
   $("fwSettingsError").textContent = why;
   $("fwDeadInput").focus();
-});
+};
+settingsDialog.querySelector("form").addEventListener("submit", settingsInvalid);
+settingsDialog.addEventListener("cancel", settingsInvalid);
 settingsDialog.addEventListener("close", async () => {
-  if (settingsDialog.returnValue !== "save") return;
+  const why = settingsProblem($("fwSlowInput").value, $("fwDeadInput").value);
+  if (why) return toast(`${MdgErrors.TEXT.settingsSaveFailed}：${why}`, true);
   // Only the fields changed since the dialog opened, over what is stored now: a setting imported meanwhile keeps its value.
   const { followSlowDays, followDeadDays, ...aiPatch } = UI.changedFields(settingsFields(), settingsShown);
+  if (!Object.keys(aiPatch).length && !followSlowDays && !followDeadDays) return; // closed unchanged
   let ai, days;
   try {
     ai = { ...(await aiSettings()), ...aiPatch };

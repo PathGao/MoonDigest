@@ -529,22 +529,33 @@ function bindEvents() {
     if (!all && !e.target.closest("[data-folders-none]")) return;
     for (const box of el.folderToggles.querySelectorAll("input")) box.checked = Boolean(all);
   });
+  // 完成 or Esc saves; there is no 取消 (as the settings page, which saves as it is edited).
   el.settingsDialog.addEventListener("close", async () => {
-    if (el.settingsDialog.returnValue !== "save") return;
     // Only the fields changed since the dialog opened: a setting written elsewhere meanwhile (导入设置) keeps that value.
     const patch = UI.changedFields(settingsFields(), settingsShown);
-    const r = await send({ type: "triage-settings-save", ...patch });
-    if (!r.ok) {
-      toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true);
-      return;
+    if (Object.keys(patch).length) {
+      const r = await send({ type: "triage-settings-save", ...patch });
+      if (!r.ok) {
+        toast(`${MdgErrors.TEXT.settingsSaveFailed}：${r.error}`, true);
+        return;
+      }
+      Object.assign(S.settings, patch);
+      renderTagLimit();
+      render(); // the batch sizes are on row 3's buttons and 粗看完成's 下一批 marks
+      toast(MdgErrors.TEXT.settingsSaved);
     }
-    Object.assign(S.settings, patch);
-    renderTagLimit();
-    render(); // the batch sizes are on row 3's buttons and 粗看完成's 下一批 marks
-    toast(MdgErrors.TEXT.settingsSaved);
     const ticked = [...el.folderToggles.querySelectorAll("input:checked")].map((x) => x.value);
     // Ticks left as they opened write nothing: a folder choice imported meanwhile (导入设置) stays.
     if (!S.allFolders.length || sameSet(ticked, ticksShown)) return;
+    // Unticking deletes records, and closing the dialog is no longer a deliberate 保存: it asks, naming the folders.
+    const unticked = ticksShown.filter((id) => !ticked.includes(id));
+    if (unticked.length) {
+      const names = unticked.map((id) => `「${esc(folderName(id))}」`).join("");
+      if (!(await askConfirm(`取消勾选 ${unticked.length} 个收藏夹？`, `<p>${names}不再参与分拣：${MdgErrors.TEXT.foldersLeave}</p>`, "取消勾选", { danger: true }))) {
+        toast("收藏夹的勾选没有改");
+        return;
+      }
+    }
     // 稍后再看 had no checkbox (its read failed): its choice stays as it was.
     const included = S.toviewUnread && S.included.includes(TOVIEW) ? [...ticked, TOVIEW] : ticked;
     if (!sameSet(included, S.included)) {
@@ -680,7 +691,6 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   renderTokenHints();
   settingsShown = settingsFields();
   ticksShown = S.allFolders.map((f) => String(f.id)).filter((id) => S.included.includes(id));
-  el.settingsDialog.returnValue = "";
   el.settingsDialog.showModal();
   if (scrollToLimits) el.titleMaxInput.scrollIntoView({ block: "center" });
 }

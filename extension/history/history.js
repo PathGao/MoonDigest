@@ -938,14 +938,13 @@ async function openSettings() {
   $("rsNewMaxInput").value = s.newTagMax;
   $("rsRemoveInput").checked = s.allowRemove;
   settingsShown = settingsFields();
-  settingsDialog.returnValue = "";
   settingsDialog.showModal();
 }
+// 完成 or Esc saves, as 收藏夹设置.
 settingsDialog.addEventListener("close", async () => {
-  if (settingsDialog.returnValue !== "save") return;
   // Only the fields changed since the dialog opened, over what is stored now: a setting imported meanwhile keeps its value.
   const patch = UI.changedFields(settingsFields(), settingsShown);
-  if (!Object.keys(patch).length || (await saveAiSettings({ ...(await aiSettings()), ...patch }))) setStatus(MdgErrors.TEXT.settingsSaved);
+  if (Object.keys(patch).length && (await saveAiSettings({ ...(await aiSettings()), ...patch }))) setStatus(MdgErrors.TEXT.settingsSaved);
 });
 // AI conversations only: triage analyses and notes are other features' data and stay. A starred record's are kept too
 // (星标 keeps a record with its conversations); its own 删除 AI 对话 still deletes them.
