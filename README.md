@@ -7,7 +7,7 @@
 收藏了却没看的视频、想读的网页，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.7.6-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.7.7-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -52,7 +52,7 @@
 
 ## 给 AI agent 用
 
-Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。不下载视频，不花 AI 额度，读不到你的 Key、笔记和对话。两种接法：
+Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。用 MCP 时，agent 还能借你的登录搜 B站和 YouTube 视频。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。你的收藏夹、关注、观看历史和分拣台里的标签、备注，只有打开「允许 AI 工具读我的收藏、关注和历史」后才能通过 MCP 读，只读不改。两种接法：
 
 - **skill**（agent 能操控浏览器，如 ego、Claude in Chrome、Playwright）：
 
@@ -68,9 +68,9 @@ Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能
   cd MoonDigest/mcp && npm install && claude mcp add moondigest -- node "$PWD/server.js"
   ```
 
-  Cursor、Codex 的配置和注意事项见 [mcp/README.md](mcp/README.md)。
+  Cursor、Codex 的配置和注意事项见 [mcp/README.md](mcp/README.md)。插件会自动更新，MCP 服务不会：以前装过的，在 `MoonDigest` 目录里 `git pull` 后重开 agent，才能用上新工具。
 
-不装 skill 也行，把这段提示词粘给 agent（用 MCP 时把第 1、2 步换成 get_video、get_frame）：
+不装 skill 也行，把这段提示词粘给 agent（用 MCP 时把第 1、2 步换成 get_video、get_frame，找视频用 search_videos）：
 
 ```text
 需要了解 B站 或 YouTube 视频的内容时，包括查资料时搜到的视频，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
