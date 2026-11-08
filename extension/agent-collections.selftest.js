@@ -143,7 +143,8 @@ check("a write: no-op skipped, the rest written one at a time 1.5–3 s apart, c
   assert.deepStrictEqual(plain(r.data.undo), { site: "youtube", op: "remove", kind: "watch_later", items: [ID(2), ID(3)] });
   assert.deepStrictEqual(sent("browse/edit_playlist").map(([, b]) => plain(b)), [ID(2), ID(3)].map((v) => ({ playlistId: "WL", actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: v }] })), "ID(1) was already there: not sent");
   assert.deepStrictEqual(calls.map(([e]) => e), ["playlist/get_add_to_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist", "playlist/get_add_to_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist", "playlist/get_add_to_playlist"]);
-  const itemGaps = gaps.filter((g) => g !== 1000);
+  // A call gap is what is left of CALL_GAP_MS (at most 1000, less under load); an item gap is at least 1500.
+  const itemGaps = gaps.filter((g) => g > 1000);
   assert.strictEqual(itemGaps.length, 2, "a gap before each item after the first");
   assert.ok(itemGaps.every((g) => g >= 1500 && g <= 3000), itemGaps.join());
   // The undo runs as given and puts things back.
