@@ -351,8 +351,12 @@
             <div class="ctl"><input id="mcpEnabled" type="checkbox" class="switch" /></div>
           </div>
           <div class="row sub">
-            <div class="lab"><label class="name" for="mcpPersonalData">允许 AI 工具读我的收藏、关注和历史</label><p class="hint">AI 工具还能通过 MCP 读你 B站的收藏夹和里面的视频（带分拣台的标签、备注和 AI 判断）、关注和分组（带 UP 标签）、观看历史、稍后再看。只读，不改 B站 和 MoonDigest 里的任何东西；不含 API Key 和 AI 对话。要先打开「允许 MCP 连接」。</p></div>
+            <div class="lab"><label class="name" for="mcpPersonalData">允许 AI 工具读我的收藏、关注和历史</label><p class="hint">AI 工具还能通过 MCP 读你 B站的收藏夹和里面的视频（带分拣台的标签、备注和 AI 判断）、关注和分组（带 UP 标签）、观看历史、稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表。只读，不改 B站、YouTube 和 MoonDigest 里的任何东西；不含 API Key 和 AI 对话。要先打开「允许 MCP 连接」。</p></div>
             <div class="ctl"><input id="mcpPersonalData" type="checkbox" class="switch" /></div>
+          </div>
+          <div class="row sub">
+            <div class="lab"><label class="name" for="mcpCollectionWrite">允许 AI 工具改我的收藏</label><p class="hint">AI 工具还能通过 MCP 把视频加进或移出你的 YouTube 稍后观看和你自己建的 YouTube 播放列表。一次不超过 20 个，一个一个改，改前改后各读一次，YouTube 限流就停。要先打开「允许 AI 工具读我的收藏、关注和历史」。</p></div>
+            <div class="ctl"><input id="mcpCollectionWrite" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
             <div class="lab"><span class="name">导出设置</span><p class="hint">本页、收藏夹、关注和摘读记录的全部设置存成一个 JSON 文件，换电脑或换浏览器时导入。不含 Key 和分拣数据。</p></div>

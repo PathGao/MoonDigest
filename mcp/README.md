@@ -26,6 +26,11 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 
 这三个工具一次只读一页，同一时间只跑一个，不会一口气读完。
 
+你自己 YouTube 的收藏有两个工具。MoonDigest 不为它们做页面，AI 工具就是界面：
+
+- `list_collection({ site, kind, id?, cursor?, raw? })`：`site` 写 `youtube`，`kind` 是 `watch_later`（稍后观看）、`playlists`（你的播放列表）、`playlist`（`id` 那个播放列表里的视频）、`likes`（赞过的视频）、`subscriptions`（订阅）、`history`（历史记录）。一次一页，把返回的 `cursor` 传回去读下一页。和上面三个用同一个开关，关着时返回 `PERSONAL_DATA_OFF`。
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频（`items` 是视频 id）加进或移出稍后观看（`kind: "watch_later"`）或你自己的播放列表（`kind: "playlist"`, `id`）。赞和订阅只能读。默认关闭，要在「允许 AI 工具读我的收藏、关注和历史」下面再打开「允许 AI 工具改我的收藏」，关着时返回 `WRITE_OFF`；`dryRun: true` 只读、不改，只要读的开关。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。
+
 `get_video` 默认返回紧凑文本，每条字幕一行 `[mm:ss] 内容`（超过一小时用 `hh:mm:ss`）。扩展原始 JSON 每条字幕都带 `from`、`to`、`content` 三个键名和小数时间，实测体积约是文本的两倍，而模型几乎用不到结束时间。确实要精确时间时传 `raw: true`。
 
 ### 用 MCP 还是用 skill
@@ -82,7 +87,8 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 扩展只会打开 B站视频页（`/video/`、`/bangumi/play/`、`/list/`、`/festival/`）和 YouTube 观看页（`/watch?v=`），其他网址一律返回 `BAD_URL`。扩展最多开一个自己的后台标签页，之后的视频都在它里面打开。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 开关默认关闭。关着的时候扩展不建任何连接。
-- 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只发 B站 的读取请求（GET），不改 B站，也不改插件存的数据；API Key 和 AI 对话不会给出去。
+- 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只读，不改 B站 和 YouTube，也不改插件存的数据；API Key 和 AI 对话不会给出去。
+- 改收藏再有一个开关，默认关闭，上面两个有一个关着它就变灰。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 
 ### 两个 MCP 客户端同时开着
 
@@ -105,7 +111,8 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 字幕说要登录（`Subtitle note`）：在这个浏览器里登录 B站。
 - `AD_PLAYING`：YouTube 广告一直在播，等广告结束再取帧。
 - `PERSONAL_DATA_OFF`：「允许 AI 工具读我的收藏、关注和历史」没开。
-- `NOT_LOGGED_IN`：这个浏览器没登录 B站。
+- `WRITE_OFF`：「允许 AI 工具改我的收藏」没开。
+- `NOT_LOGGED_IN`：这个浏览器没登录 B站（收藏工具：没登录 YouTube）。
 
 ### 测试
 
@@ -136,6 +143,11 @@ Three tools read your own Bilibili data. All are read-only and off by default: t
 - `get_history({ cursor?, raw? })`: watch history, newest first, 30 a call. Pass the returned `cursor` back for older items.
 
 These return one page per call and run one at a time, a second apart.
+
+Two tools work on your own YouTube collections. MoonDigest has no pages for them: the AI tool is the UI.
+
+- `list_collection({ site, kind, id?, cursor?, raw? })`: `site` is `youtube`; `kind` is `watch_later`, `playlists` (your playlists), `playlist` (the videos of playlist `id`), `likes`, `subscriptions` or `history`. One page a call; pass the returned `cursor` back for the next. Same switch as the three above: `PERSONAL_DATA_OFF` while it is off.
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos (`items`, video ids) to or removes them from Watch later (`kind: "watch_later"`) or one of your own playlists (`kind: "playlist"`, `id`). Likes and subscriptions are read-only. Off by default: turn on 允许 AI 工具改我的收藏 under 允许 AI 工具读我的收藏、关注和历史; while it is off a write returns `WRITE_OFF`, and `dryRun: true` (reads only) needs only the read switch. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it.
 
 `get_video` returns compact text by default, one transcript line per segment as `[mm:ss] text` (`hh:mm:ss` past an hour). The extension's raw JSON repeats the `from`, `to` and `content` keys and fractional times on every segment, which measures about twice the size, and models rarely need end times. Pass `raw: true` when you do need exact times.
 
@@ -193,7 +205,8 @@ Then turn on 允许 MCP 连接 in MoonDigest's settings (高级).
 - The extension opens only Bilibili video pages (`/video/`, `/bangumi/play/`, `/list/`, `/festival/`) and YouTube watch pages (`/watch?v=`). Any other URL gets `BAD_URL`. It keeps at most one background tab of its own and opens later videos in it. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - The switch is off by default. While off, the extension opens no socket.
-- Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only sends Bilibili read requests (GET): it changes nothing on Bilibili or in its own storage, and never gives out API keys or AI conversations.
+- Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only reads: it changes nothing on Bilibili, YouTube or in its own storage, and never gives out API keys or AI conversations.
+- Changing collections has one more switch, off by default and greyed out while either of the two above is off. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 
 ### Two MCP clients at once
 
@@ -216,7 +229,8 @@ With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 
 - The subtitle says log in (`Subtitle note`): log in to Bilibili in that browser.
 - `AD_PLAYING`: a YouTube ad kept playing. Wait for it to end and grab the frame again.
 - `PERSONAL_DATA_OFF`: 允许 AI 工具读我的收藏、关注和历史 is off.
-- `NOT_LOGGED_IN`: that browser is not logged in to Bilibili.
+- `WRITE_OFF`: 允许 AI 工具改我的收藏 is off.
+- `NOT_LOGGED_IN`: that browser is not logged in to Bilibili (for the collection tools: YouTube).
 
 ### Tests
 
