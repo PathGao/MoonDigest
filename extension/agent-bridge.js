@@ -160,9 +160,10 @@
 
   // Chrome loads no media in a tab that has never been shown, so a frame there fails with TAB_HIDDEN. Show the tab for
   // that one frame, then give its window back the tab that was in front. Once loaded, later frames need no switch.
-  async function callShown(target, method, params, deadline, ask) {
+  // show false: never take the front (any web page, which the user did not pick): TAB_HIDDEN goes back to the agent.
+  async function callShown(target, method, params, deadline, ask, show = true) {
     const reply = await callPage(target, method, params, deadline, ask);
-    if (method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
+    if (!show || method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return reply;
     const [front] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
@@ -228,7 +229,7 @@
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
       const ask = site.read === "content" ? undefined : method === "get" ? readInPage(site, url) : frameInPage(rest);
-      const reply = await callShown(own, method, rest, deadline, ask);
+      const reply = await callShown(own, method, rest, deadline, ask, !site.fallback);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;

@@ -492,6 +492,18 @@ check("a page-read site's frame injects agent-page.js into its own tab and runs 
   assert.equal(env.sent.length, 0, "no content-script message");
 });
 
+check("any web page (the fallback) never takes the front for a frame: TAB_HIDDEN goes back to the agent", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://*/*"], sync: { mcpWebPages: true },
+    inject: (_tab, d) => (d.files ? undefined : { ok: false, code: "TAB_HIDDEN", error: "hidden" }) });
+  env.sites.register({ id: "any", origins: ["https://*/*"], fallback: true, key: (u) => `${u.hostname}:`, read: () => null });
+  const s = await openSocket(env);
+  s.receive({ id: "1", method: "frame", params: { url: "https://example.com/", at: 5 } });
+  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "1"), { id: "1", ok: false, error: "hidden", code: "TAB_HIDDEN" });
+  assert.deepEqual(env.shown, []);
+});
+
 check("a page-read site's { error, code } is the call's error, asked once", async () => {
   const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ error: "Demo asks for a captcha.", code: "THROTTLED" }) });
   demoSite(env);
