@@ -112,10 +112,14 @@
   }
 
   // A site whose adapter reads the page itself: read(url) runs in the page's own world (its globals in reach) and returns
-  // §1's get data, or a falsy value while the page is not ready (callPage asks again).
+  // §1's get data, { error, code? } when the site refuses (asked no more), or a falsy value while the page is not ready
+  // (callPage asks again).
   const readInPage = (site, url) => async (tabId) => {
     const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
-    return r?.result ? { ok: true, data: { ...r.result, site: site.id } } : undefined;
+    const d = r?.result;
+    if (!d) return undefined;
+    if (typeof d.error === "string") return { ok: false, error: d.error, ...(typeof d.code === "string" ? { code: d.code } : {}) };
+    return { ok: true, data: { ...d, site: site.id } };
   };
 
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so

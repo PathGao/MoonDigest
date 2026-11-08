@@ -454,6 +454,14 @@ check("a page-read site runs read in its own tab's MAIN world, never the user's 
   assert.equal(env.sent.length, 0, "no content-script message");
 });
 
+check("a page-read site's { error, code } is the call's error, asked once", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ error: "Demo asks for a captcha.", code: "THROTTLED" }) });
+  demoSite(env);
+  const s = await openSocket(env);
+  assert.deepEqual(await call(env, s, "1", DEMO), { id: "1", ok: false, error: "Demo asks for a captcha.", code: "THROTTLED" });
+  assert.equal(env.injected.length, 1);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of cases) {
