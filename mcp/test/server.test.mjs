@@ -183,7 +183,7 @@ test("stdio binary lists the tools", async () => {
   const client = new Client({ name: "test", version: "0" });
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "get_follows", "get_history", "list_collection", "collection_write"]);
+  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "get_follows", "get_history", "list_collection", "collection_write", "set_triage", "propose_fav_change"]);
   // The server tells the model to check videos that turn up in its own searches, not only linked ones.
   assert.match(client.getInstructions() || "", /search turns up Bilibili or YouTube videos/);
   assert.match(tools.find((t) => t.name === "get_video").description, /search results/);
@@ -359,6 +359,29 @@ test("collection tools: params pass through; a stopped batch is an error with it
   const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
   assert.deepEqual(calls[0], { method: "collection", params: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C" } });
   assert.deepEqual(calls[1], { method: "collectionWrite", params: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"], dryRun: false } });
+  ext.ws.close();
+  await s.close();
+});
+
+test("分拣台 writes: params pass through, the answers say what happened, WRITES_OFF passes through", async () => {
+  const s = await setup();
+  let off = false;
+  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (off
+    ? { ok: false, code: "WRITES_OFF", error: "Ask the user to turn it on." }
+    : { ok: true, data: m.method === "triage" ? { changed: 2, tagsNotMade: ["新"] } : { id: "p1", status: "proposed" } }) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  const items = [{ bvid: "BV1aaaaaaaaa", verdict: "keep", summary: "好", addTags: ["新"], folderId: "11" }];
+  let r = await s.client.callTool({ name: "set_triage", arguments: { items } });
+  assert.equal(r.content[0].text, "Saved in the 分拣台: 2 video(s) changed. The user can undo this call there. Not made (the folder is at its tag limit): 新.");
+  r = await s.client.callTool({ name: "propose_fav_change", arguments: { action: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"], extra: 1 } });
+  assert.match(r.content[0].text, /^Proposed \(p1\)\. Nothing has changed on Bilibili/);
+  const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
+  assert.deepEqual(calls, [{ method: "triage", params: { items } }, { method: "propose", params: { action: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"] } }]);
+  off = true;
+  r = await s.client.callTool({ name: "set_triage", arguments: { items } });
+  assert.equal(r.isError, true);
+  assert.equal(r.content[0].text, "WRITES_OFF: Ask the user to turn it on.");
   ext.ws.close();
   await s.close();
 });

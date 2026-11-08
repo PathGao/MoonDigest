@@ -226,7 +226,7 @@ async function openFolder(mediaId) {
   S.tagState = "";
   S.aiRecentFilter = false;
   S.kindFilter = "";
-  S.undo = [];
+  S.undo = agentSteps();
   S.focused = "";
   S.syncError = S.readError = "";
   hideSyncNotice();
@@ -610,9 +610,9 @@ async function cleanRemoved(list) {
       notePending.delete(b);
       await MdgLimits.saveVideoNote(b, "", (notes) => storeSet(K.notes, notes));
     }
-    const write = { [K.removed]: rec, ...tagsDb.without(bvids) };
-    noteOwnWrites(write);
-    if (!(await store(write))) return;
+    if (!(await storeSet(K.removed, rec))) return;
+    const untag = (map) => Object.fromEntries(Object.entries(map).filter(([b]) => !set.has(b)));
+    if (!(await tagsDb.write((cur) => ({ ...cur, map: untag(cur.map) })))) return;
     // 保留 and 待播 are every tab's: each by read-modify-write, only these videos taken out.
     await patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
     await editBasket((b) => b.filter((x) => !set.has(x.bvid)));

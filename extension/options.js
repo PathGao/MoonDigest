@@ -690,11 +690,11 @@ function validateNoteExtras() {
 }
 
 // Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
-// 允许 AI 工具读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
-// 允许 AI 工具改我的收藏 hangs on both the same way: a write reads first.
+// 允许 AI 工具读我的收藏… and 允许 AI 工具改分拣台 work only over the MCP connection: greyed out while 允许 MCP 连接 is
+// off, each keeping its own value. 允许 AI 工具改我的收藏 hangs on both the same way: a write reads first.
 function syncMcpRows() {
   const mcp = elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」";
-  MdgErrors.setReason(elements.mcpPersonalData, mcp);
+  for (const box of [elements.mcpPersonalData, elements.mcpWrites]) MdgErrors.setReason(box, mcp);
   MdgErrors.setReason(elements.mcpCollectionWrite, mcp || (elements.mcpPersonalData.checked ? "" : "先打开「允许 AI 工具读我的收藏、关注和历史」"));
 }
 

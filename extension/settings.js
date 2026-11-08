@@ -86,6 +86,8 @@
     mcpPersonalData: false,
     // It may also change them (agent-collections.js, docs/AGENT.md §2 collectionWrite): off until 允许 AI 工具改我的收藏.
     mcpCollectionWrite: false,
+    // The MCP server may also change the 分拣台's results and propose B站 favorites changes (agent-writes.js): off until 允许 AI 工具改分拣台.
+    mcpWrites: false,
     readerTheme: "light",
     readerFontScale: "m",
     readerLetterSpacing: "normal",

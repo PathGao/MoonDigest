@@ -520,7 +520,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload"), fn("syncMcpRows")].join("\n"), page);
   await page.loadSettings();
   const payload = page.readFormPayload();
-  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "mcpCollectionWrite", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
+  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "mcpCollectionWrite", "mcpWrites", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
   assert.deepStrictEqual(Object.keys(payload).sort(), [...keys].sort(), "the page sends exactly its own settings");
   assert.deepStrictEqual(plainOf(payload), plainOf(Object.fromEntries(keys.map((k) => [k, settings[k]]))));
   // 允许 AI 工具读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
@@ -528,6 +528,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
   assert.deepStrictEqual([els.mcpPersonalData.disabled, els.mcpPersonalData.title], [true, "先打开「允许 MCP 连接」"]);
+  assert.deepStrictEqual([els.mcpWrites.disabled, els.mcpWrites.title], [true, "先打开「允许 MCP 连接」"], "允许 AI 工具改分拣台 hangs on it too");
   assert.deepStrictEqual([page.readFormPayload().mcpEnabled, page.readFormPayload().mcpPersonalData], [false, true], "turning MCP off keeps the stored value");
   els.mcpEnabled.checked = true;
   page.syncMcpRows();

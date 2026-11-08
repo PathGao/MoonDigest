@@ -27,7 +27,7 @@ const runName = (step, redo) => (redo ? `按新标准重新${STEP_NAME[step].sli
 const KEYS = MdgLimits.KEYS;
 const K = {
   lastFolder: "triage_last_folder",
-  folderList: "triage_folder_list", // { mid, folders }: B站's folder list as last read, so the page opens before it reads it again
+  folderList: KEYS.triageFolderList, // the page opens from it before it reads B站's list again
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
   folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
   videoTags: KEYS.triageVideoTags,
@@ -43,7 +43,9 @@ const K = {
   readAt: "triage_read_at", // { [mediaId]: ms }: when each folder's list was last read from B站, for 「今天 HH:MM 刷新过」
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
   aiRecent: "triage_ai_recent", // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
-  aiProposals: "triage_ai_proposals" // { [mediaId]: proposal }: AI 打标签 proposals waiting for 应用, kept across a reload
+  aiProposals: "triage_ai_proposals", // { [mediaId]: proposal }: AI 打标签 proposals waiting for 应用, kept across a reload
+  agentLog: KEYS.triageAgentLog,
+  agentProposals: KEYS.triageAgentProposals
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
@@ -139,7 +141,9 @@ const S = {
   coarseFailed: new Map(), // bvid → why its 粗看 failed (this page only, like a failed 细看)
   analyzing: new Set(),
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
-  undo: [], // 收藏夹's steps; a folder switch clears them
+  undo: [], // 收藏夹's steps; a folder switch clears them but an AI tool's (agentSteps)
+  agentLog: [], // an AI tool's 分拣台 writes over MCP (agent-writes.js), each a U step
+  agentProposals: [], // its B站 proposals waiting for the user: [{ id, at, action, from, to?, bvids, reason? }]
   modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
   lastSyncAt: 0,
   readAt: {}, // K.readAt
@@ -172,13 +176,14 @@ const S = {
 const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
 // What runs or waits, in this order on every tab (the first wins), then the finished lines. A run's row is its own;
 // these are mirrored from elsewhere.
-const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
+const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "agent", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
 // S.syncing is the view run of the folder being read: one left meanwhile no longer shows it.
 const ownSync = () => Boolean(S.syncing?.alive);
 runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
+runs.put("agent", () => S.agentProposals.length > 0 && { text: `AI 工具的 ${S.agentProposals.length} 条收藏夹提议等你确认` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: MdgErrors.LABEL.seen, wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
@@ -192,7 +197,8 @@ const PILL_BTN = {
   fav: ["fav", MdgErrors.LABEL.stop, MdgErrors.LABEL.stopping, globalThis.TriageUi.WRITE_STOPPING],
   ai: ["tags", VIEW],
   proposal: ["tags", VIEW],
-  aiOther: ["aiOther", VIEW]
+  aiOther: ["aiOther", VIEW],
+  agent: ["agent", VIEW]
 };
 const stopWhy = (act) => Object.values(PILL_BTN).find((b) => b[0] === act)?.[3] || "";
 const aiRunning = () => Boolean(runs.get("ai"));

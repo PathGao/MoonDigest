@@ -58,8 +58,8 @@
   // verdict: keep / drop / unsure, or "none"; stage: 2 细看, 1 粗看, 0 only invalid, -1 none.
   function verdictOf({ title, analysis, invalid } = {}) {
     let v = { verdict: "none", reason: "", stage: -1 };
-    if (analysis?.status === "done") v = { verdict: VERDICTS[analysis.verdict] ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };
-    else if (VERDICTS[title?.verdict]) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
+    if (analysis?.status === "done") v = { verdict: Object.hasOwn(VERDICTS, analysis.verdict) ? analysis.verdict : "unsure", reason: analysis.reason, stage: 2 };
+    else if (Object.hasOwn(VERDICTS, title?.verdict ?? "")) v = { verdict: title.verdict, reason: title.reason, stage: 1, low: title.confidence === "low" };
     if (!invalid) return v;
     return { verdict: "drop", reason: v.reason ? `${INVALID}。AI 原理由：${v.reason}` : INVALID, stage: Math.max(v.stage, 0) };
   }

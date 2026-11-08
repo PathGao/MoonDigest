@@ -24,6 +24,11 @@ assert.deepStrictEqual(V({}), { verdict: "none", reason: "", stage: -1 });
 assert.deepStrictEqual(V({ title: { verdict: "drop", reason: "r", confidence: "low" } }), { verdict: "drop", reason: "r", stage: 1, low: true });
 assert.deepStrictEqual(V({ title: { verdict: "t-must" } }), { verdict: "none", reason: "", stage: -1 }, "an old custom-tier 粗看 is not classified");
 assert.deepStrictEqual(V({ title: { verdict: "keep" }, analysis: { status: "done", verdict: "t-must", reason: "a" } }), { verdict: "unsure", reason: "a", stage: 2 }, "细看 wins; unknown = 拿不准");
+// A name Object.prototype has is no verdict (stored data or an AI tool's words): never a function as the badge.
+for (const bad of ["toString", "constructor", "__proto__"]) {
+  assert.deepStrictEqual(V({ title: { verdict: bad } }), { verdict: "none", reason: "", stage: -1 }, bad);
+  assert.strictEqual(V({ analysis: { status: "done", verdict: bad } }).verdict, "unsure", bad);
+}
 assert.deepStrictEqual(V({ analysis: { status: "error" } }), { verdict: "none", reason: "", stage: -1 });
 assert.deepStrictEqual(V({ invalid: true }), { verdict: "drop", reason: "视频已失效", stage: 0 });
 assert.deepStrictEqual(V({ invalid: true, analysis: { status: "done", verdict: "keep", reason: "好" } }), { verdict: "drop", reason: "视频已失效。AI 原理由：好", stage: 2 });

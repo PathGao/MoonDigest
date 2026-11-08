@@ -37,27 +37,21 @@
   // page's writer has said why). put(part) gets only the changed parts ({ tags?, map? }) after they are stored.
   const changedParts = (cur, next) => Object.fromEntries(["tags", "map"].filter((k) => next[k] !== cur[k]).map((k) => [k, next[k]]));
 
-  // 收藏夹: the page holds them (get()); save(patch) is its storage write (echo bookkeeping, failure toast) → stored?
-  // One write at a time across the pages that hold these keys (MdgLimits.locked).
+  // 收藏夹: the page holds a copy (get()); save(patch) is its storage write (echo bookkeeping, failure toast) → stored?
+  // A write starts from what storage holds, under the lock the other tabs and the background (agent-writes.js, an AI
+  // tool's tags) take for these keys: the page's copy may not have their last write yet. put gets both parts.
   function local({ keys, get, put, save }) {
     function write(fn) {
-      return MdgLimits.locked(`mdg-key:${keys.tags}`, async () => {
-        const cur = get();
+      return MdgLimits.locked(MdgLimits.keyLock(keys.tags), async () => {
+        const got = await chrome.storage.local.get([keys.tags, keys.map]);
+        const cur = { tags: got[keys.tags] || [], map: got[keys.map] || {} };
         const part = changedParts(cur, fn(cur));
-        if (!Object.keys(part).length) return true;
-        if (!(await save(Object.fromEntries(Object.entries(part).map(([k, v]) => [keys[k], v]))))) return false;
-        put(part);
+        if (Object.keys(part).length && !(await save(Object.fromEntries(Object.entries(part).map(([k, v]) => [keys[k], v]))))) return false;
+        put({ ...cur, ...part });
         return true;
       });
     }
-    // 清理 forgets videos in one write of several keys: the map without them, as a patch for that write (put now).
-    function without(itemKeys) {
-      const map = { ...get().map };
-      for (const k of itemKeys) delete map[k];
-      put({ map });
-      return { [keys.map]: map };
-    }
-    return { tags: () => get().tags, map: () => get().map, write, without };
+    return { tags: () => get().tags, map: () => get().map, write };
   }
 
   // 关注: follow_tags / follow_tag_map, under the lock the background takes for its own follow_* writes (a sync, B站
