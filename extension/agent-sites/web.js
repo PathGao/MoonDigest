@@ -6,7 +6,7 @@ MdgAgentSites.register({
   fallback: true,
   key: (u) => `${u.href.split("#")[0]}:`,
   // Runs in the page's MAIN world: the page is untrusted, so every size is capped and every wait bounded.
-  read: async function read() {
+  read: async () => {
     if (document.readyState === "loading") return null;
     const MAX_TEXT = 100000; // characters of page text, and of all subtitle text together
     const MAX_TRACK_BYTES = 2000000;

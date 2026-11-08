@@ -11,7 +11,6 @@ MdgAgentSites.register({
     const id = /^\/video\/(\d+)\/?$/.exec(u.pathname)?.[1] || u.searchParams.get("modal_id");
     return /^\d+$/.test(id || "") ? `${id}:` : null;
   },
-  // An arrow, not a method: executeScript serializes it as "(" + source + ")", which a method's source is not.
   read: async (url) => {
     const u = new URL(url);
     const id = /^\/video\/(\d+)/.exec(u.pathname)?.[1] || u.searchParams.get("modal_id");

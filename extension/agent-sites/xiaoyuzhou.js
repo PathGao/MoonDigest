@@ -7,8 +7,7 @@ MdgAgentSites.register({
     const m = /^\/episode\/([0-9A-Za-z]+)\/?$/.exec(u.pathname);
     return u.hostname.replace(/^www\./, "") === "xiaoyuzhoufm.com" && m ? `${m[1]}:` : null;
   },
-  // A plain function, not a method: executeScript serializes it with toString().
-  read: function (url) {
+  read: (url) => {
     const p = window.__NEXT_DATA__?.props?.pageProps;
     const e = p?.episode;
     // Another episode's data (a client-side navigation) counts as not ready.

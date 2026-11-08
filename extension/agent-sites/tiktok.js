@@ -7,7 +7,6 @@ MdgAgentSites.register({
     const m = /^\/@[^/]*\/video\/(\d+)\/?$/.exec(u.pathname);
     return u.hostname === "www.tiktok.com" && m ? `${m[1]}:` : null;
   },
-  // An arrow, not a method: executeScript serializes it as "(" + source + ")", which a method's source is not.
   read: async (url) => {
     const id = /\/video\/(\d+)/.exec(new URL(url).pathname)[1];
     if (document.querySelector("#captcha_container, #captcha-verify-container-main-page, .captcha_verify_container")) {
