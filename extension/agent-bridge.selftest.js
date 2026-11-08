@@ -7,8 +7,8 @@ const path = process.getBuiltinModule("node:path");
 const assert = process.getBuiltinModule("node:assert/strict");
 
 const here = path.dirname(fs.realpathSync(process.argv[1]));
-// The worker's order: the registry, the sites, the bridge.
-const SOURCES = ["agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
+// The worker's order: sites.js (MdgSites.cleanComment) and what it needs, the registry, the sites, the bridge.
+const SOURCES = ["common.js", "errors.js", "limits.js", "sites.js", "agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
 
 const tick = () => new Promise((r) => setImmediate(r));
 const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
@@ -444,12 +444,14 @@ check("a page-read site without access: NO_ACCESS for get and frame, no tab, not
 });
 
 check("a page-read site runs read in its own tab's MAIN world, never the user's tab, until the page is ready", async () => {
-  const replies = [null, { title: "t", site: "spoofed" }];
+  const raw = { uname: " ", like: "x", message: ` ${"字".repeat(600)} ` };
+  const replies = [null, { title: "t", site: "spoofed", comments: [raw, { uname: "a", message: " " }] }];
   const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], tabs: [{ id: 7, url: DEMO }], inject: () => replies.shift() });
   demoSite(env);
   const s = await openSocket(env);
   const r = await call(env, s, "1", DEMO);
-  assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "demo" } });
+  // Comments come out as MdgSites.cleanComment gives them (匿名, 500 characters); an empty one is dropped.
+  assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "demo", comments: [{ uname: "匿名", like: 0, message: "字".repeat(500) }] } });
   assert.equal(env.created.length, 1);
   assert.equal(env.created[0].active, false);
   assert.deepEqual(env.injected.map((i) => i.tabId), [env.created[0].id, env.created[0].id]);

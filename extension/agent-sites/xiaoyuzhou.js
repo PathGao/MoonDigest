@@ -27,7 +27,7 @@ MdgAgentSites.register({
         segments: [], lang: "", warning: "",
         missing: "Xiaoyuzhou shows transcripts only to logged-in app users." + (audio ? ` Audio to transcribe: ${audio}` : "")
       },
-      comments: (p.comments || []).map((c) => ({ uname: c.author?.nickname || "", like: c.likeCount || 0, message: c.text || "" }))
+      comments: (p.comments || []).map((c) => ({ uname: c.author?.nickname, like: c.likeCount, message: c.text }))
     };
   }
 });
