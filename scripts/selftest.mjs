@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ext = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "extension");
-const tests = ["", "triage", "history"].flatMap((dir) =>
+const tests = ["", "triage", "history", "agent-sites"].flatMap((dir) =>
   fs.readdirSync(path.join(ext, dir)).filter((f) => f.endsWith(".selftest.js")).sort().map((f) => path.join(ext, dir, f))
 );
 for (const test of tests) {

@@ -7,13 +7,15 @@ const path = process.getBuiltinModule("node:path");
 const assert = process.getBuiltinModule("node:assert/strict");
 
 const here = path.dirname(fs.realpathSync(process.argv[1]));
-const SOURCE = fs.readFileSync(path.join(here, "agent-bridge.js"), "utf8");
+// The worker's order: the registry, the sites, the bridge.
+const SOURCES = ["agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
 
 const tick = () => new Promise((r) => setImmediate(r));
 const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
 
-function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false }) {
-  const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], enabledCb: null, alarmCb: null, pageReplies: [] };
+// granted: the origins chrome.permissions.contains answers true for; inject(tab, details): executeScript's result.
+function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false, granted = [], inject = null }) {
+  const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], injected: [], enabledCb: null, alarmCb: null, pageReplies: [] };
   let nextTimer = 1;
   let nextTab = 100;
   class FakeWebSocket {
@@ -26,6 +28,13 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     receive(msg) { this.onmessage({ data: JSON.stringify(msg) }); }
   }
   const chrome = {
+    permissions: { contains: async ({ origins }) => origins.every((o) => granted.includes(o)) },
+    scripting: {
+      executeScript: async (d) => {
+        env.injected.push({ tabId: d.target.tabId, world: d.world, args: JSON.parse(JSON.stringify(d.args)) }); // out of the vm realm
+        return [{ result: await inject(tabs.find((t) => t.id === d.target.tabId), d) }];
+      },
+    },
     alarms: {
       create: (name) => env.alarms.add(name),
       clear: (name) => env.alarms.delete(name),
@@ -72,7 +81,8 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(SOURCE, ctx, { filename: "agent-bridge.js" });
+  for (const [filename, source] of SOURCES) vm.runInContext(source, ctx, { filename });
+  env.sites = ctx.MdgAgentSites;
   env.runTimers = () => { const ts = env.timers; env.timers = []; for (const t of ts) t.fn(); };
   env.start = () => ctx.MdgAgentBridge.start({
     extensionVersion: "1.2.3",
@@ -408,6 +418,40 @@ check("a call still queued when the server has given up is dropped", async () =>
   assert.deepEqual([second.ok, second.code], [false, "TIMEOUT"]);
   assert.equal(env.created.length, 1, "B was never loaded");
   assert.equal(env.updated.length, 0);
+});
+
+// A site whose adapter reads the page itself (read is a function run in the page's MAIN world).
+const DEMO = "https://www.demo.test/v/1";
+const demoSite = (env) => env.sites.register({
+  id: "demo",
+  origins: ["https://www.demo.test/*"],
+  key: (u) => (u.hostname === "www.demo.test" && u.pathname.startsWith("/v/") ? `${u.pathname.slice(3)}:` : null),
+  read: () => globalThis.__STATE__,
+});
+
+check("a page-read site without access: NO_ACCESS, no tab, nothing injected; frame refused", async () => {
+  const env = makeEnv({ enabled: true });
+  demoSite(env);
+  const s = await openSocket(env);
+  assert.deepEqual(await rpc(s, "1", "get", { url: DEMO }), { id: "1", ok: false, error: "MoonDigest has no access to https://www.demo.test/*: ask the user to allow it.", code: "NO_ACCESS" });
+  assert.deepEqual(await rpc(s, "2", "frame", { url: DEMO, at: 1 }), { id: "2", ok: false, error: "demo pages answer get only." });
+  assert.match((await rpc(s, "3", "get", { url: "https://example.com/" })).error, /Sites: bilibili, youtube, demo\./);
+  assert.equal(env.created.length, 0);
+  assert.equal(env.injected.length, 0);
+});
+
+check("a page-read site runs read in its own tab's MAIN world, never the user's tab, until the page is ready", async () => {
+  const replies = [null, { title: "t", site: "spoofed" }];
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], tabs: [{ id: 7, url: DEMO }], inject: () => replies.shift() });
+  demoSite(env);
+  const s = await openSocket(env);
+  const r = await call(env, s, "1", DEMO);
+  assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "demo" } });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.created[0].active, false);
+  assert.deepEqual(env.injected.map((i) => i.tabId), [env.created[0].id, env.created[0].id]);
+  assert.deepEqual(env.injected[0], { tabId: env.created[0].id, world: "MAIN", args: [DEMO] });
+  assert.equal(env.sent.length, 0, "no content-script message");
 });
 
 (async () => {

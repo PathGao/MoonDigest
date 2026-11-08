@@ -13,7 +13,7 @@ const ctx = vm.createContext({
   setTimeout: (fn, ms) => (waits.push(ms), setImmediate(fn)),
   chrome: { storage: { local: {} } }
 });
-for (const f of ["common.js", "limits.js", "errors.js", "sites.js", "agent-search.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
+for (const f of ["common.js", "limits.js", "errors.js", "sites.js", "agent-sites/registry.js", "agent-search.js", "agent-sites/bilibili.js", "agent-sites/youtube.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), ctx);
 const A = ctx.MdgAgentSearch;
 const eq = (actual, expected) => assert.deepStrictEqual(JSON.parse(JSON.stringify(actual)), expected);
 
@@ -66,7 +66,14 @@ ctx.fetchWithTimeout = async (url, init) => (calls.push(url), { ok: ytStatus < 3
 
 (async () => {
   const far = Date.now() + 60_000;
-  eq(await A.search({ site: "vimeo", query: "x" }, far), { ok: false, error: 'site must be "bilibili" or "youtube".' });
+  eq(await A.search({ site: "vimeo", query: "x" }, far), { ok: false, error: 'site must be one of "bilibili", "youtube".' });
+  // A site without search is not offered; one with search is dispatched to, through the same queue.
+  ctx.MdgAgentSites.register({ id: "nosearch", origins: ["https://n.test/*"], key: () => null, read: "content" });
+  ctx.MdgAgentSites.register({ id: "demo", origins: ["https://d.test/*"], key: () => null, read: "content", search: async (q, p) => [{ q, p }] });
+  eq(await A.search({ site: "nosearch", query: "x" }, far), { ok: false, error: 'site must be one of "bilibili", "youtube", "demo".' });
+  eq(await A.search({ site: "demo", query: " x ", page: 3 }, far), { ok: true, data: { site: "demo", query: "x", page: 3, items: [{ q: "x", p: 3 }] } });
+  eq(await A.search({ site: "toString", query: "x" }, far), { ok: false, error: 'site must be one of "bilibili", "youtube", "demo".' });
+  waits.length = 0;
   eq(await A.search({ site: "bilibili", query: "  " }, far), { ok: false, error: "query is required." });
   eq(await A.search({ site: "bilibili", query: "x", page: 0 }, far), { ok: false, error: "page must be an integer ≥ 1." });
   assert.strictEqual(calls.length, 0);

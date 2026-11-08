@@ -1,5 +1,6 @@
-// MoonDigest's agent interface, docs/AGENT.md §2 method `search`: a video search on Bilibili or YouTube, run in the
-// service worker with the user's cookies (no tab). agent-bridge.js dispatches to MdgAgentSearch.search.
+// MoonDigest's agent interface, docs/AGENT.md §2 method `search`: a video search on a site whose adapter has search
+// (agent-sites/), run in the service worker with the user's cookies (no tab). agent-bridge.js dispatches to
+// MdgAgentSearch.search; the queue and the checks here are every site's. Bilibili's and YouTube's search are below.
 // Bilibili goes through triage-bg.js's channel (triageBiliGet, TRIAGE_BILI_IO for the WBI key), YouTube through
 // background.js's fetchWithTimeout; the worker loads those after this file, so they are read only when a search runs.
 (() => {
@@ -98,7 +99,11 @@
     const site = params?.site;
     const query = typeof params?.query === "string" ? params.query.trim() : "";
     const page = params?.page ?? 1;
-    if (site !== "bilibili" && site !== "youtube") return Promise.resolve({ ok: false, error: 'site must be "bilibili" or "youtube".' });
+    const adapter = typeof site === "string" ? MdgAgentSites.get(site) : null;
+    if (!adapter?.search) {
+      const ids = MdgAgentSites.list().filter((s) => s.search).map((s) => `"${s.id}"`);
+      return Promise.resolve({ ok: false, error: `site must be one of ${ids.join(", ")}.` });
+    }
     if (!query) return Promise.resolve({ ok: false, error: "query is required." });
     if (!Number.isInteger(page) || page < 1) return Promise.resolve({ ok: false, error: "page must be an integer ≥ 1." });
     const run = queue.then(async () => {
@@ -106,7 +111,7 @@
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The search waited too long behind earlier ones." };
       try {
-        const items = await (site === "bilibili" ? searchBili : searchYt)(query, page);
+        const items = await adapter.search(query, page);
         return { ok: true, data: { site, query, page, items } };
       } catch (e) {
         return { ok: false, error: e.message, ...(e.code === MdgErrors.CODE.THROTTLED && { code: e.code }) };
@@ -118,5 +123,5 @@
     return run;
   }
 
-  globalThis.MdgAgentSearch = { search, biliItems, ytItems };
+  globalThis.MdgAgentSearch = { search, searchBili, searchYt, biliItems, ytItems };
 })();

@@ -1,6 +1,9 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits). sidepanel-state.js only for
 // SidepanelState.patchReply (a reply finished after the panel closed).
-importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js", "agent-search.js", "agent-bridge.js");
+importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js", "agent-sites/registry.js", "agent-search.js", "agent-bridge.js");
+// The sites the agent interface reads (docs/AGENT.md §5), one line each.
+importScripts("agent-sites/bilibili.js");
+importScripts("agent-sites/youtube.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
