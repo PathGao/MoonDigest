@@ -93,6 +93,11 @@ const localDay = (sec) => { const t = new Date(sec * 1000); return `${t.getFullY
   assert.deepStrictEqual(await pg.read(), { error: "Douyin answers empty (anti-bot): stop, do not retry soon.", code: "THROTTLED" });
   assert.strictEqual(pg.sent.length, 3);
 
+  // Each answered get starts the tries afresh: a fourth get on the same page is read, not THROTTLED.
+  pg = page({ replies: Array.from({ length: 4 }, () => ok(detail)) });
+  for (let i = 0; i < 4; i++) { pg.tick(3000); assert.strictEqual((await pg.read()).videoId, "6961737553342991651", `get ${i + 1}`); }
+  assert.strictEqual(pg.sent.length, 4);
+
   // Risk control is THROTTLED, never data.
   for (const p of [page({ captcha: true }), page({ title: "验证码中间页" })]) {
     assert.strictEqual((await p.read()).code, "THROTTLED");

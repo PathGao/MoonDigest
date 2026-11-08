@@ -20,8 +20,10 @@ MdgAgentSites.register({
     // challenge page (no RENDER_DATA) may still be reloading itself.
     const booted = document.getElementById("RENDER_DATA") && performance.getEntriesByType("resource").some((e) => e.name.includes("/aweme/v1/web/"));
     if (!booted) return null;
-    // read is asked every 0.5 s while it returns null: at most 3 requests per page, 3 s apart.
-    const st = (window.__mdgDouyinRead ||= { tries: 0, at: 0 });
+    // read is asked every 0.5 s while it returns null: at most 3 requests per call, 3 s apart. An answer ends the call's
+    // tries, so the next get on this page (or another video in it) starts afresh.
+    let st = window.__mdgDouyinRead;
+    if (!st || st.id !== id) st = window.__mdgDouyinRead = { id, tries: 0, at: 0 };
     if (Date.now() - st.at < 3000) return null;
     if (st.tries >= 3) return throttled("answers empty (anti-bot)");
     st.tries++;
@@ -36,6 +38,7 @@ MdgAgentSites.register({
     });
     if (r.status === 403 || r.status === 412 || r.status === 429) return throttled(`answered ${r.status}`);
     if (!r.text) return null; // empty 200: the SDK had not signed it; asked again
+    delete window.__mdgDouyinRead;
     let j;
     try { j = JSON.parse(r.text); } catch { return throttled("answered a verify page"); }
     if (j.verify_ticket) return throttled("asks for a verification (verify_ticket)");
