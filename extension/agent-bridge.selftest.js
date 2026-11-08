@@ -31,7 +31,8 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     permissions: { contains: async ({ origins }) => origins.every((o) => granted.includes(o)) },
     scripting: {
       executeScript: async (d) => {
-        env.injected.push({ tabId: d.target.tabId, world: d.world, args: JSON.parse(JSON.stringify(d.args)) }); // out of the vm realm
+        // out of the vm realm
+        env.injected.push(d.files ? { tabId: d.target.tabId, files: [...d.files] } : { tabId: d.target.tabId, world: d.world, args: JSON.parse(JSON.stringify(d.args)) });
         return [{ result: await inject(tabs.find((t) => t.id === d.target.tabId), d) }];
       },
     },
@@ -429,12 +430,12 @@ const demoSite = (env) => env.sites.register({
   read: () => globalThis.__STATE__,
 });
 
-check("a page-read site without access: NO_ACCESS, no tab, nothing injected; frame refused", async () => {
+check("a page-read site without access: NO_ACCESS for get and frame, no tab, nothing injected", async () => {
   const env = makeEnv({ enabled: true });
   demoSite(env);
   const s = await openSocket(env);
   assert.deepEqual(await rpc(s, "1", "get", { url: DEMO }), { id: "1", ok: false, error: "MoonDigest has no access to https://www.demo.test/*: ask the user to allow it.", code: "NO_ACCESS" });
-  assert.deepEqual(await rpc(s, "2", "frame", { url: DEMO, at: 1 }), { id: "2", ok: false, error: "demo pages answer get only." });
+  assert.equal((await rpc(s, "2", "frame", { url: DEMO, at: 1 })).code, "NO_ACCESS");
   assert.match((await rpc(s, "3", "get", { url: "https://example.com/" })).error, /Sites: bilibili, youtube, demo\./);
   assert.equal(env.created.length, 0);
   assert.equal(env.injected.length, 0);
@@ -451,6 +452,22 @@ check("a page-read site runs read in its own tab's MAIN world, never the user's 
   assert.equal(env.created[0].active, false);
   assert.deepEqual(env.injected.map((i) => i.tabId), [env.created[0].id, env.created[0].id]);
   assert.deepEqual(env.injected[0], { tabId: env.created[0].id, world: "MAIN", args: [DEMO] });
+  assert.equal(env.sent.length, 0, "no content-script message");
+});
+
+check("a page-read site's frame injects agent-page.js into its own tab and runs its frame there, in front when hidden", async () => {
+  const replies = [{ ok: false, code: "TAB_HIDDEN", error: "hidden" }, { ok: true, data: { at: 5 } }];
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: (_tab, d) => (d.files ? undefined : replies.shift()) });
+  demoSite(env);
+  const s = await openSocket(env);
+  s.receive({ id: "1", method: "frame", params: { url: DEMO, at: 5, maxWidth: 640 } });
+  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "1"), { id: "1", ok: true, data: { at: 5 } });
+  const id = env.created[0].id;
+  const ask = [{ tabId: id, files: ["agent-page.js"] }, { tabId: id, world: undefined, args: [{ at: 5, maxWidth: 640 }] }];
+  assert.deepEqual(env.injected, [...ask, ...ask]);
+  assert.deepEqual(env.shown, [id]);
   assert.equal(env.sent.length, 0, "no content-script message");
 });
 

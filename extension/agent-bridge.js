@@ -95,15 +95,15 @@
 
   // Chrome loads no media in a tab that has never been shown, so a frame there fails with TAB_HIDDEN. Show the tab for
   // that one frame, then give its window back the tab that was in front. Once loaded, later frames need no switch.
-  async function callShown(target, method, params, deadline) {
-    const reply = await callPage(target, method, params, deadline);
+  async function callShown(target, method, params, deadline, ask) {
+    const reply = await callPage(target, method, params, deadline, ask);
     if (method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return reply;
     const [front] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     await chrome.tabs.update(tab.id, { active: true });
     try {
-      return await callPage(target, method, params, deadline);
+      return await callPage(target, method, params, deadline, ask);
     } finally {
       // Give the front back only if ours is still in front: the user may have switched tabs meanwhile.
       const now = await chrome.tabs.get(tab.id).catch(() => null);
@@ -116,6 +116,13 @@
   const readInPage = (site, url) => async (tabId) => {
     const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
     return r?.result ? { ok: true, data: { ...r.result, site: site.id } } : undefined;
+  };
+
+  // A frame there: agent-page.js's frame, injected into the page's isolated world (it stays loaded for the next frame).
+  const frameInPage = (params) => async (tabId) => {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["agent-page.js"] });
+    const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: (p) => MdgAgentPage.frame(p), args: [params] });
+    return r?.result;
   };
 
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so
@@ -138,7 +145,6 @@
       if (user) return callShown(user, method, rest, deadline);
     } else {
       // Only in the own tab: nothing runs in the user's tabs.
-      if (method !== "get") return { ok: false, error: `${site.id} pages answer get only.` };
       if (!(await chrome.permissions.contains({ origins: site.origins }))) {
         return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
       }
@@ -146,7 +152,8 @@
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
-      const reply = site.read === "content" ? await callShown(own, method, rest, deadline) : await callPage(own, method, rest, deadline, readInPage(site, url));
+      const ask = site.read === "content" ? undefined : method === "get" ? readInPage(site, url) : frameInPage(rest);
+      const reply = await callShown(own, method, rest, deadline, ask);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;

@@ -5,6 +5,7 @@ importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", 
 importScripts("agent-sites/bilibili.js");
 importScripts("agent-sites/youtube.js");
 importScripts("agent-sites/xiaoyuzhou.js");
+importScripts("agent-sites/web.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until

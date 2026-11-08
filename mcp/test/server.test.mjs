@@ -76,6 +76,7 @@ test("hello, get_video formatting, pings", async () => {
 });
 
 test("missing subtitle header", () => {
+  assert.match(formatVideo({ ...VIDEO, description: "D", text: "Body text" }), /Description:\nD\n\nPage text:\nBody text\n\nChapters:/);
   const t = formatVideo({ ...VIDEO, subtitle: { segments: [], lang: "", warning: "", missing: "No subtitle track", needLogin: true } });
   assert.match(t, /Subtitle missing: No subtitle track\nSubtitle note: Bilibili hides/);
   assert.doesNotMatch(t, /Transcript:/);

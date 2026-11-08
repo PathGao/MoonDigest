@@ -29,5 +29,13 @@ if (require.main === module) {
     assert.throws(() => S.register(bad), /MdgAgentSites/);
   }
   assert.strictEqual(S.list().length, 1);
+  // A fallback site is asked after every other one, even those registered after it; only one fallback.
+  const any = { id: "any", origins: ["*://*/*"], key: (u) => `${u.hostname}:`, read: "content", fallback: true };
+  S.register(any);
+  S.register({ ...site, id: "late", key: (u) => (u.hostname === "late.test" ? "x:" : null) });
+  assert.strictEqual(S.keyOf("https://demo.test/abc"), "demo:abc:");
+  assert.strictEqual(S.keyOf("https://late.test/"), "late:x:");
+  assert.strictEqual(S.keyOf("https://other.test/abc"), "any:other.test:");
+  assert.throws(() => S.register({ ...any, id: "any2" }), /MdgAgentSites/);
   console.log("agent-sites registry selftest ok");
 }
