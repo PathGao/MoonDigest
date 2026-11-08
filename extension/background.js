@@ -1300,6 +1300,8 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
 // The agent interface's personal-data methods (docs/AGENT.md §2) read through triage-bg.js and follow-core.js.
 importScripts("agent-mydata.js");
+// The user's collections on the sites whose adapter has them (docs/AGENT.md §2 collection, collectionWrite).
+importScripts("agent-collections.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
 triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json", "fetch-json-cancel"], (r) => r);

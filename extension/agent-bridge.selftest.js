@@ -49,8 +49,9 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
       },
     },
     tabs: {
-      // url filters are ignored (every test tab is a video site's); active and windowId filter.
-      query: async (q = {}) => tabs.filter((t) => (q.active === undefined || !!t.active === q.active) && (q.windowId === undefined || t.windowId === q.windowId)),
+      // url, active and windowId filter; a url pattern's host is matched, "*." as any subdomain.
+      query: async (q = {}) => tabs.filter((t) => (q.active === undefined || !!t.active === q.active) && (q.windowId === undefined || t.windowId === q.windowId) &&
+        (q.url === undefined || q.url.some((p) => { const h = p.split("/")[2]; const host = new URL(t.url).hostname; return h.startsWith("*.") ? host === h.slice(2) || host.endsWith(h.slice(1)) : host === h; }))),
       get: async (id) => { const t = tabs.find((x) => x.id === id); if (!t) throw new Error("no tab"); return t; },
       create: async ({ url, active }) => { const t = { id: nextTab++, url, active, windowId: 1 }; tabs.push(t); env.created.push(t); return t; },
       update: async (id, { url, active }) => { // the URL commits when the test says so, or at once with commitNow
@@ -91,6 +92,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
   });
   env.tabs = tabs;
   env.addMethods = (m) => ctx.MdgAgentBridge.addMethods(m);
+  env.inSitePage = (...a) => ctx.MdgAgentBridge.inSitePage(...a);
   return env;
 }
 
@@ -452,6 +454,54 @@ check("a page-read site runs read in its own tab's MAIN world, never the user's 
   assert.deepEqual(env.injected.map((i) => i.tabId), [env.created[0].id, env.created[0].id]);
   assert.deepEqual(env.injected[0], { tabId: env.created[0].id, world: "MAIN", args: [DEMO] });
   assert.equal(env.sent.length, 0, "no content-script message");
+});
+
+// inSitePage: an adapter's collection call (§5) in the own tab on any page of the site.
+const DEMO_HOME = "https://www.demo.test/";
+const ready = () => "ready";
+const func = () => "func";
+const sitePage = (o) => {
+  let readyAsks = 0; // the first ask: not ready yet
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], ...o,
+    inject: (tab, d) => (d.func === ready ? (readyAsks++ ? { ok: true } : undefined) : o.inject ? o.inject() : { status: 200 }) });
+  demoSite(env);
+  env.run = async () => {
+    const p = env.inSitePage(env.sites.get("demo"), DEMO_HOME, ready, func, ["x"], Date.now() + 60_000);
+    for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+    return JSON.parse(JSON.stringify(await p));
+  };
+  env.funcRuns = () => env.injected.filter((i) => i.args.length).length;
+  return env;
+};
+
+check("inSitePage: no own tab opens the site muted in the background, waits until ready, runs func once; the user's tab untouched", async () => {
+  const env = sitePage({ tabs: [{ id: 7, url: DEMO, active: true }] });
+  assert.deepEqual(await env.run(), { ok: true, data: { status: 200 } });
+  assert.deepEqual(env.created.map((t) => [t.url, t.active]), [[DEMO_HOME, false]]);
+  assert.ok(env.injected.every((i) => i.tabId === env.created[0].id && i.world === "MAIN"));
+  assert.equal(env.funcRuns(), 1);
+  assert.equal(env.injected.length, 3, "ready asked again until the page answers");
+});
+
+check("inSitePage: an own tab on another site is navigated; one already on the site is used as it is", async () => {
+  const own = (url) => ({ session: { agentBridgeTab: JSON.stringify({ tabId: 50, key: "bilibili:BV1:1", pageKey: null, staleUrl: null }) }, tabs: [{ id: 50, url }] });
+  let env = sitePage(own("https://www.bilibili.com/video/BV1/"));
+  assert.equal((await env.run()).ok, true);
+  assert.deepEqual([env.created.length, env.updated], [0, [{ id: 50, url: DEMO_HOME }]]);
+  env = sitePage(own("https://www.demo.test/v/9"));
+  assert.equal((await env.run()).ok, true);
+  assert.deepEqual([env.created.length, env.updated.length], [0, 0]);
+});
+
+check("inSitePage: func failing is not run again (it may be a write); no access is NO_ACCESS with nothing injected", async () => {
+  const env = sitePage({ tabs: [], inject: () => { throw new Error("frame gone"); } });
+  const r = await env.run();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /frame gone/);
+  assert.equal(env.funcRuns(), 1);
+  const denied = sitePage({ granted: [] });
+  assert.equal((await denied.run()).code, "NO_ACCESS");
+  assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
 });
 
 (async () => {

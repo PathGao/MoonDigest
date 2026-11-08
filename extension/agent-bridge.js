@@ -55,9 +55,15 @@
     // Without a pageKey (no call answered there yet) the tab counts as this video's only while it is still loading it
     // (a redirect, such as /video/av… to /video/BV…): once loaded it may show anything the user went to.
     if (own && (k === key || (own.key === key && (own.pageKey ? k === own.pageKey : tab.status === "loading")))) return own;
-    if (own) {
-      own = { tabId: own.tabId, key, pageKey: null, staleUrl: tab.url || "" };
-      await chrome.tabs.update(own.tabId, { url });
+    return openOwn(own && tab, key, url);
+  }
+
+  // Loads url in the own tab (tab, or a new one when null) and saves it.
+  async function openOwn(tab, key, url) {
+    let own;
+    if (tab) {
+      own = { tabId: tab.id, key, pageKey: null, staleUrl: tab.url || "" };
+      await chrome.tabs.update(tab.id, { url });
     } else {
       const created = await chrome.tabs.create({ url, active: false });
       // Once shown for a frame its video may play on in the background: keep it silent.
@@ -66,6 +72,31 @@
     }
     await saveOwn(own);
     return own;
+  }
+
+  // For adapters' collection calls (§5): runs func(...args) in the MAIN world of the own tab on any page of site, loading
+  // url there when it shows another site, once ready() there returns { ok: true }. func runs once, never again on a
+  // failure: it may be a write. Resolves to { ok, data: func's result } or { ok: false, error, code? }.
+  function inSitePage(site, url, ready, func, args, deadline) {
+    const run = (f, a) => async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: f, args: a }))[0]?.result;
+    return inOwnTab(async () => {
+      if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
+      if (!(await chrome.permissions.contains({ origins: site.origins }))) {
+        return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
+      }
+      let own = await loadOwn();
+      const tab = own && (await chrome.tabs.get(own.tabId).catch(() => null));
+      const onSite = tab && (await chrome.tabs.query({ url: site.origins })).some((t) => t.id === tab.id);
+      if (!onSite) own = await openOwn(tab, null, url);
+      const target = { tabId: own.tabId, staleUrl: onSite ? null : own.staleUrl };
+      const up = await callPage(target, "", null, deadline, run(ready, []));
+      if (!up.ok) return up;
+      try {
+        return { ok: true, data: await run(func, args)(target.tabId) };
+      } catch (e) {
+        return { ok: false, error: `The ${site.id} tab did not run the call: ${e?.message || e}` };
+      }
+    });
   }
 
   // Retries until the tab's content script (or ask) answers; get and frame are safe to repeat.
@@ -239,5 +270,5 @@
     Promise.resolve(o.isEnabled()).then(apply, () => apply(false));
   }
 
-  globalThis.MdgAgentBridge = { start, addMethods };
+  globalThis.MdgAgentBridge = { start, addMethods, inSitePage };
 })();

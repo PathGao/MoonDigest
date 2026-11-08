@@ -84,6 +84,8 @@
     mcpEnabled: false,
     // The MCP server may also read the user's B站 favorites, follows and history (agent-mydata.js): off until 允许 AI 工具读我的收藏、关注和历史.
     mcpPersonalData: false,
+    // It may also change them (agent-collections.js, docs/AGENT.md §2 collectionWrite): off until 允许 AI 工具改我的收藏.
+    mcpCollectionWrite: false,
     readerTheme: "light",
     readerFontScale: "m",
     readerLetterSpacing: "normal",

@@ -7,7 +7,7 @@ import WebSocket from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createBridge, createMcpServer, formatSearch, formatVideo, formatFavorites, formatFollows, formatHistory } from "../server.js";
+import { createBridge, createMcpServer, formatSearch, formatVideo, formatFavorites, formatFollows, formatHistory, formatCollection, formatCollectionWrite } from "../server.js";
 
 const SERVER = fileURLToPath(new URL("../server.js", import.meta.url));
 
@@ -178,7 +178,7 @@ test("stdio binary lists the tools", async () => {
   const client = new Client({ name: "test", version: "0" });
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "get_follows", "get_history"]);
+  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "get_follows", "get_history", "list_collection", "collection_write"]);
   // The server tells the model to check videos that turn up in its own searches, not only linked ones.
   assert.match(client.getInstructions() || "", /search turns up Bilibili or YouTube videos/);
   assert.match(tools.find((t) => t.name === "get_video").description, /search results/);
@@ -307,6 +307,53 @@ test("personal data tools: params pass through, PERSONAL_DATA_OFF passes through
   r = await s.client.callTool({ name: "get_follows", arguments: {} });
   assert.equal(r.isError, true);
   assert.equal(r.content[0].text, "PERSONAL_DATA_OFF: The user has not allowed it. Ask the user to turn it on.");
+  ext.ws.close();
+  await s.close();
+});
+
+test("collection formatting: videos, playlists, channels; a write's items, lists and undo", () => {
+  const t = formatCollection({ site: "youtube", kind: "watch_later", cursor: "TOK", items: [
+    { videoId: "v1", url: "u1", title: "T", author: "A", duration: 125 }, { videoId: "v2", url: "u2", title: "Gone", author: "", duration: 0, unavailable: true },
+  ] });
+  assert.equal(t, 'youtube watch_later, 2 items. More: cursor "TOK".\n- [02:05] T · A · u1\n- Gone · u2 · unavailable');
+  assert.equal(formatCollection({ site: "youtube", kind: "playlists", cursor: "", items: [{ id: "PL1", title: "Mine", count: 3 }, { id: "PL2", title: "New" }] }), "youtube playlists, 2 items. No more.\n- PL1 · Mine · 3 videos\n- PL2 · New");
+  assert.equal(formatCollection({ site: "youtube", kind: "subscriptions", cursor: "", items: [{ channelId: "UC1", url: "c", title: "Chan" }] }), "youtube subscriptions, 1 items. No more.\n- Chan · UC1 · c");
+  const w = formatCollectionWrite({ site: "youtube", op: "add", kind: "playlist", id: "PL1", dryRun: false, done: ["b"], notDone: ["d"], stopped: "THROTTLED",
+    results: [{ item: "a", status: "unchanged", before: true }, { item: "b", status: "done", before: false, after: true }, { item: "c", status: "failed", before: false, error: "HTTP 429" }],
+    undo: { site: "youtube", op: "remove", kind: "playlist", id: "PL1", items: ["b"] } });
+  assert.equal(w, [
+    "add on youtube playlist PL1.", "- a: already so, skipped (was in)", "- b: done (was not in, now in)", "- c: failed (was not in): HTTP 429",
+    "Done: b.", "Not tried: d.", "Stopped: THROTTLED. Stop calling MoonDigest for now and tell the user; do not retry soon.",
+    'Undo: collection_write {"site":"youtube","op":"remove","kind":"playlist","id":"PL1","items":["b"]}',
+  ].join("\n"));
+  const dry = formatCollectionWrite({ site: "youtube", op: "remove", kind: "watch_later", dryRun: true, done: [], notDone: [], results: [{ item: "a", status: "would_change", before: true }], undo: null });
+  assert.equal(dry, "Dry run, nothing changed: remove on youtube watch_later.\n- a: would change (was in)");
+});
+
+test("collection tools: params pass through; a stopped batch is an error with its lists, a timed-out one is not; WRITE_OFF passes through", async () => {
+  const s = await setup();
+  let reply = null;
+  const ext = fakeExtension(s.bridge.port, { onCall: () => reply });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  reply = { ok: true, data: { site: "youtube", kind: "playlist", id: "PL1", items: [], cursor: "" } };
+  let r = await s.client.callTool({ name: "list_collection", arguments: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C", raw: false } });
+  assert.equal(r.content[0].text, "youtube playlist PL1, 0 items. No more.");
+  const base = { site: "youtube", op: "add", kind: "watch_later", dryRun: false, results: [], done: [], notDone: ["v2"], undo: null };
+  reply = { ok: true, data: { ...base, stopped: "THROTTLED" } };
+  r = await s.client.callTool({ name: "collection_write", arguments: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"], dryRun: false } });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /^THROTTLED: add on youtube watch_later\.[\s\S]*Not tried: v2\./);
+  reply = { ok: true, data: { ...base, stopped: "TIMEOUT" } };
+  r = await s.client.callTool({ name: "collection_write", arguments: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"] } });
+  assert.equal(r.isError, undefined);
+  assert.match(r.content[0].text, /Call again with the items not tried\./);
+  reply = { ok: false, code: "WRITE_OFF", error: "Not allowed." };
+  r = await s.client.callTool({ name: "collection_write", arguments: { site: "youtube", op: "remove", kind: "watch_later", items: ["v1"] } });
+  assert.deepEqual([r.isError, r.content[0].text], [true, "WRITE_OFF: Not allowed."]);
+  const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
+  assert.deepEqual(calls[0], { method: "collection", params: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C" } });
+  assert.deepEqual(calls[1], { method: "collectionWrite", params: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"], dryRun: false } });
   ext.ws.close();
   await s.close();
 });
