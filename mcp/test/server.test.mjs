@@ -230,12 +230,26 @@ test("search_videos: bad arguments never reach the extension", async () => {
   const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: true, data: RESULTS }) });
   await ext.opened;
   await until(() => s.bridge.connected);
-  for (const [args, re] of [[{}, /query is required/], [{ query: "x", site: "vimeo" }, /site must be/], [{ query: "x", page: 0 }, /page must be/], [{ query: "x", page: 1.5 }, /page must be/]]) {
+  for (const [args, re] of [[{}, /query is required/], [{ query: "x", site: "" }, /site must be/], [{ query: "x", page: 0 }, /page must be/], [{ query: "x", page: 1.5 }, /page must be/]]) {
     const r = await s.client.callTool({ name: "search_videos", arguments: args });
     assert.equal(r.isError, true);
     assert.match(r.content[0].text, re);
   }
   assert.equal(ext.messages.filter((m) => m.method).length, 0);
+  ext.ws.close();
+  await s.close();
+});
+
+test("search_videos: the extension says which sites search", async () => {
+  const s = await setup();
+  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: false, error: 'site must be one of "bilibili", "youtube".' }) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  const r = await s.client.callTool({ name: "search_videos", arguments: { query: "x", site: "vimeo" } });
+  assert.equal(r.isError, true);
+  assert.equal(r.content[0].text, 'site must be one of "bilibili", "youtube".');
+  assert.deepEqual(ext.messages.find((m) => m.method).params, { site: "vimeo", query: "x", page: 1 });
+  assert.equal(formatSearch({ site: "demo", query: "x", page: 1, items: [] }), 'No demo videos for "x" on page 1.');
   ext.ws.close();
   await s.close();
 });

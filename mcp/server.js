@@ -164,7 +164,7 @@ export function formatVideo(d) {
 
 // One line per result: what an agent needs to pick which ones to read with get_video.
 export function formatSearch(d) {
-  const site = d.site === "youtube" ? "YouTube" : "Bilibili";
+  const site = { bilibili: "Bilibili", youtube: "YouTube" }[d.site] || d.site;
   if (!d.items?.length) return `No ${site} videos for "${d.query}" on page ${d.page}.`;
   const lines = [`${site} search "${d.query}", page ${d.page}:`];
   d.items.forEach((v, i) => {
@@ -225,7 +225,7 @@ const TOOLS = [
       type: "object",
       properties: {
         query: { type: "string", description: "What to search for, as you would type it into the site's search box." },
-        site: { type: "string", enum: ["bilibili", "youtube"], description: "Default bilibili." },
+        site: { type: "string", description: "The site to search: \"bilibili\" (default) or \"youtube\"." },
         page: { type: "integer", minimum: 1, description: "Result page, default 1, about 20 videos per page. YouTube has page 1 only." },
         raw: { type: "boolean", description: "Return the extension's JSON (adds a short description per video) instead of the compact text." },
       },
@@ -325,7 +325,8 @@ export function createMcpServer(bridge) {
       if (params.name === "search_videos") {
         if (typeof args.query !== "string" || !args.query.trim()) throw new CodedError("", "query is required.");
         const site = args.site ?? "bilibili";
-        if (site !== "bilibili" && site !== "youtube") throw new CodedError("", 'site must be "bilibili" or "youtube".');
+        // Which sites search is the extension's to say (agent-sites/): it answers any other id with the list.
+        if (typeof site !== "string" || !site) throw new CodedError("", 'site must be a site id such as "bilibili".');
         const page = args.page ?? 1;
         if (!Number.isInteger(page) || page < 1) throw new CodedError("", "page must be an integer ≥ 1.");
         const data = await bridge.call("search", { site, query: args.query.trim(), page });
