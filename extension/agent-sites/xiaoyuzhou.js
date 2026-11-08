@@ -1,5 +1,5 @@
 // 小宇宙 (Xiaoyuzhou) podcast episodes for the agent interface (docs/AGENT.md §5), read from the page's __NEXT_DATA__.
-// The transcript is not in the page (the app serves it to logged-in users only), so get says so and gives the audio URL.
+// The transcript is not in the page (the app serves it to logged-in users only), so get says so and gives the audio URL (playUrl).
 MdgAgentSites.register({
   id: "xiaoyuzhou",
   origins: ["*://*.xiaoyuzhoufm.com/*"],
@@ -27,8 +27,9 @@ MdgAgentSites.register({
       chapters: [],
       subtitle: {
         segments: [], lang: "", warning: "",
-        missing: "Xiaoyuzhou shows transcripts only to logged-in app users." + (audio ? ` Audio to transcribe: ${audio}` : "")
+        missing: "Xiaoyuzhou shows transcripts only to logged-in app users." + (audio ? " Transcribe the audio (playUrl) instead." : "")
       },
+      playUrl: audio,
       comments: (p.comments || []).map((c) => ({ uname: c.author?.nickname, like: c.likeCount, message: c.text }))
     };
   }

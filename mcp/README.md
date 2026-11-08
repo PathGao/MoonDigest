@@ -6,7 +6,7 @@
 
 ### 这是什么
 
-一个可选的 MCP 服务器。装了它，Claude Code、Cursor、Codex 这类 MCP 客户端就能借你自己的浏览器搜索和读 B站、YouTube 视频：搜索结果、字幕、章节、热评，以及任意时刻的一帧画面。真正读视频的是浏览器里的 MoonDigest 扩展，这个服务器只负责转发。
+一个可选的 MCP 服务器。装了它，Claude Code、Cursor、Codex 这类 MCP 客户端就能借你自己的浏览器搜索和读视频：B站、YouTube 的搜索结果；B站、YouTube、TikTok、抖音视频，小宇宙单集，以及任何带 `<video>` 的网页的字幕、章节、热评（站点有的才有），和任意时刻的一帧画面。B站、YouTube 以外的站点要先在侧边栏允许读网页，否则返回 `NO_ACCESS`。真正读视频的是浏览器里的 MoonDigest 扩展，这个服务器只负责转发。
 
 ```
 MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> 扩展的 service worker ──> 视频标签页
@@ -15,8 +15,8 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 搜索和读视频的三个工具：
 
 - `search_videos({ query, site?, page?, raw? })`：在 B站（默认）或 YouTube 搜视频，每个视频一行：标题、作者、时长、播放量、日期、链接，链接可以直接交给 `get_video`。`page` 从 1 开始，每页约 20 个；YouTube 只有第 1 页。`raw: true` 返回 JSON，多一段简介。
-- `get_video({ url, raw? })`：标题、作者、日期、时长、章节、带时间戳的全文字幕、热评。
-- `get_frame({ url, at, maxWidth? })`：`at` 秒处的一帧 JPEG，外加一行实际时间。
+- `get_video({ url, raw? })`：标题、作者、日期、时长、章节、带时间戳的全文字幕、热评。没有字幕时（抖音、TikTok 多数视频，小宇宙）给一行可拿去转写的媒体地址。没有视频的网页给正文。
+- `get_frame({ url, at, maxWidth? })`：`at` 秒处的一帧 JPEG，外加一行实际时间。小宇宙这类只有音频的页面没有画面（`NO_VIDEO`）。
 
 读你自己 B站 数据的三个工具，都只读，默认关闭，要在「允许 MCP 连接」下面再打开「允许 AI 工具读我的收藏、关注和历史」，关着时返回 `PERSONAL_DATA_OFF`：
 
@@ -84,7 +84,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 只监听 `127.0.0.1`，局域网和外网连不上。
 - 只接受 `Origin` 以 `chrome-extension://` 开头的连接。网页也能向 localhost 开 WebSocket，这一条把它们挡在外面（握手直接被拒）。但任何已装的扩展都能通过这一条：你装的别的扩展可以抢先连上，给 agent 回假数据。服务器信任你自己装的扩展。
 - 同一时间只认一个扩展。第二个连上来会被关闭（关闭码 4001）。
-- 扩展只会打开 B站视频页（`/video/`、`/bangumi/play/`、`/list/`、`/festival/`）和 YouTube 观看页（`/watch?v=`），其他网址一律返回 `BAD_URL`。扩展最多开一个自己的后台标签页，之后的视频都在它里面打开。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
+- B站视频页（`/video/`、`/bangumi/play/`、`/list/`、`/festival/`）和 YouTube 观看页（`/watch?v=`）可以用你已开着的标签页；其他站点只在扩展自己的标签页里读，不碰你的标签页。不是 http(s) 的网址返回 `BAD_URL`。扩展最多开一个自己的后台标签页，之后的视频都在它里面打开。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 开关默认关闭。关着的时候扩展不建任何连接。
 - 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只读，不改 B站 和 YouTube，也不改插件存的数据；API Key 和 AI 对话不会给出去。
@@ -124,7 +124,7 @@ cd mcp && npm test
 
 ### What it is
 
-An optional MCP server. It lets MCP clients such as Claude Code, Cursor and Codex search and read Bilibili and YouTube videos through your own browser: search results, transcript, chapters, hot comments, and a frame at any time. The MoonDigest extension in your browser does the reading. This server only relays.
+An optional MCP server. It lets MCP clients such as Claude Code, Cursor and Codex search and read videos through your own browser: search results from Bilibili and YouTube; transcript, chapters and hot comments (as far as the site has them) of Bilibili, YouTube, TikTok and Douyin videos, Xiaoyuzhou (小宇宙) podcast episodes and any web page with a `<video>`; and a frame at any time. Sites other than Bilibili and YouTube need reading web pages allowed in the side panel first, else `NO_ACCESS`. The MoonDigest extension in your browser does the reading. This server only relays.
 
 ```
 MCP client ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> extension service worker ──> video tab
@@ -133,8 +133,8 @@ MCP client ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> e
 Three tools search and read videos:
 
 - `search_videos({ query, site?, page?, raw? })`: search Bilibili (default) or YouTube, one line per video: title, author, duration, views, date, URL. The URLs go straight to `get_video`. `page` starts at 1, about 20 videos a page; YouTube has page 1 only. `raw: true` returns JSON with a short description per video.
-- `get_video({ url, raw? })`: title, author, date, duration, chapters, the full timestamped transcript, hot comments.
-- `get_frame({ url, at, maxWidth? })`: a JPEG frame at `at` seconds, plus a line with the actual time.
+- `get_video({ url, raw? })`: title, author, date, duration, chapters, the full timestamped transcript, hot comments. With no transcript (most Douyin and TikTok videos, Xiaoyuzhou) a line gives the media URL to transcribe. A web page with no video gives its main text.
+- `get_frame({ url, at, maxWidth? })`: a JPEG frame at `at` seconds, plus a line with the actual time. Audio-only pages such as Xiaoyuzhou have no picture (`NO_VIDEO`).
 
 Three tools read your own Bilibili data. All are read-only and off by default: turn on 允许 AI 工具读我的收藏、关注和历史 under 允许 MCP 连接. While it is off they return `PERSONAL_DATA_OFF`.
 
@@ -202,7 +202,7 @@ Then turn on 允许 MCP 连接 in MoonDigest's settings (高级).
 - Listens on `127.0.0.1` only. Nothing on the network can reach it.
 - Accepts a connection only when its `Origin` starts with `chrome-extension://`. Web pages can open WebSockets to localhost too. This check rejects them at the handshake. Any installed extension passes it, though: another extension you installed could connect first and answer with made-up data. The server trusts the extensions you installed.
 - One extension at a time. A second one is closed with code 4001.
-- The extension opens only Bilibili video pages (`/video/`, `/bangumi/play/`, `/list/`, `/festival/`) and YouTube watch pages (`/watch?v=`). Any other URL gets `BAD_URL`. It keeps at most one background tab of its own and opens later videos in it. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
+- Bilibili video pages (`/video/`, `/bangumi/play/`, `/list/`, `/festival/`) and YouTube watch pages (`/watch?v=`) may be read in a tab you already have open; other sites only in the extension's own tab, never yours. A URL that is not http(s) gets `BAD_URL`. It keeps at most one background tab of its own and opens later videos in it. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - The switch is off by default. While off, the extension opens no socket.
 - Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only reads: it changes nothing on Bilibili, YouTube or in its own storage, and never gives out API keys or AI conversations.

@@ -31,7 +31,8 @@ assert.strictEqual(d.uploadDate, "2026-08-11");
 assert.strictEqual(d.duration, 3630);
 assert.match(d.description, /^嘉宾/);
 assert.deepStrictEqual(d.subtitle.segments, []);
-assert.match(d.subtitle.missing, /Audio to transcribe: https:\/\/media\.xyzcdn\.net\/.+\.m4a$/);
+assert.match(d.subtitle.missing, /Transcribe the audio \(playUrl\) instead\.$/);
+assert.match(d.playUrl, /^https:\/\/media\.xyzcdn\.net\/.+\.m4a$/);
 assert.deepStrictEqual(d.comments, [{ uname: "早起川", like: 9, message: "Palm WebOS 这个词居然还能被看到！" }]);
 // Not ready: no data yet, or another episode's.
 assert.strictEqual(readIn({})(url), null);

@@ -42,7 +42,7 @@ MdgAgentSites.register({
       subtitle.lang = track.LanguageCodeName || "";
       if (!subtitle.segments.length) subtitle.missing = `the ${subtitle.lang} subtitle file did not load`;
     } else {
-      subtitle.missing = "TikTok has no subtitle for this video; transcribe playUrl (raw JSON) instead";
+      subtitle.missing = "TikTok has no subtitle for this video; transcribe the media URL (playUrl) instead";
     }
 
     const t = new Date(Number(it.createTime) * 1000);

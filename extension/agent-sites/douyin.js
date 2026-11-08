@@ -67,7 +67,7 @@ MdgAgentSites.register({
       chapters: [],
       subtitle: {
         segments: [], lang: "", warning: "",
-        missing: playUrl ? "Douyin has no subtitle for this video; transcribe playUrl (raw JSON; send Referer https://www.douyin.com/, it expires)" : "Douyin has no subtitle for this video"
+        missing: playUrl ? "Douyin has no subtitle for this video; transcribe the media URL (playUrl; send Referer https://www.douyin.com/, it expires)" : "Douyin has no subtitle for this video"
       },
       // The detail's comment_list is null (logged out, 2026-11) and read makes no comment API call.
       comments: [],

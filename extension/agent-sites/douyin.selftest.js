@@ -65,7 +65,7 @@ const localDay = (sec) => { const t = new Date(sec * 1000); return `${t.getFullY
   assert.deepStrictEqual(await pg.read(), {
     url: URL1, videoId: "6961737553342991651", title: "#杨超越  小小水手带你去远航❤️", author: "杨超越", uploadDate: localDay(1620905839),
     description: "#杨超越  小小水手带你去远航❤️", duration: 20, part: { index: 1, count: 0, title: "" }, chapters: [],
-    subtitle: { segments: [], lang: "", warning: "", missing: "Douyin has no subtitle for this video; transcribe playUrl (raw JSON; send Referer https://www.douyin.com/, it expires)" },
+    subtitle: { segments: [], lang: "", warning: "", missing: "Douyin has no subtitle for this video; transcribe the media URL (playUrl; send Referer https://www.douyin.com/, it expires)" },
     comments: [], stats: { views: null, likes: 323266, comments: 14294, shares: 10089, saves: 3934 },
     playUrl: "https://v26-web.douyinvod.com/x/video_mp4"
   });

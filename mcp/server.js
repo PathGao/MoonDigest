@@ -140,6 +140,8 @@ export function formatVideo(d) {
   add("Date", d.uploadDate);
   if (d.duration) add("Duration", clock(d.duration));
   add("URL", d.url);
+  add("Media URL (to transcribe)", d.playUrl);
+  if (d.stats) add("Stats", Object.entries(d.stats).filter(([, v]) => v != null).map(([k, v]) => `${v} ${k}`).join(", "));
   if (d.part?.count > 0) add("Part", `${d.part.index}/${d.part.count} ${d.part.title || ""}`.trim());
   const sub = d.subtitle || {};
   if (sub.segments?.length) add("Subtitle", sub.lang || "unknown language");
@@ -243,7 +245,7 @@ export function formatCollectionWrite(d) {
 
 // --- MCP ----------------------------------------------------------------------
 
-const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…), a YouTube watch page (www.youtube.com/watch?v=…), a TikTok video (www.tiktok.com/@user/video/…) or a Douyin video (www.douyin.com/video/…, or a page with ?modal_id=). Any other web page is read too, once the user has allowed MoonDigest to read web pages (else NO_ACCESS): its main <video> with the <track> subtitles, or, with no video, the page's main text.";
+const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…), a YouTube watch page (www.youtube.com/watch?v=…), a TikTok video (www.tiktok.com/@user/video/…), a Douyin video (www.douyin.com/video/…, or a page with ?modal_id=) or a Xiaoyuzhou (小宇宙) podcast episode (www.xiaoyuzhoufm.com/episode/…). Any other web page is read too: its main <video> with the <track> subtitles, or, with no video, the page's main text. Sites other than Bilibili and YouTube fail with NO_ACCESS until the user allows MoonDigest to read web pages.";
 
 const TOOLS = [
   {
@@ -262,7 +264,7 @@ const TOOLS = [
   },
   {
     name: "get_video",
-    description: "Read a Bilibili, YouTube, TikTok or Douyin video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
+    description: "Read a video through the user's own browser (Bilibili, YouTube, TikTok, Douyin, a Xiaoyuzhou podcast episode, or any web page with a <video>): title, author, date, duration, chapters, the full timestamped transcript and hot comments, as far as the site has them. With no transcript, the result may give a media URL to transcribe. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
     inputSchema: {
       type: "object",
       properties: {
@@ -274,7 +276,7 @@ const TOOLS = [
   },
   {
     name: "get_frame",
-    description: "Grab one frame of the video as a JPEG, at a time in seconds. Call get_video first and only grab frames at times worth seeing (a chart, a slide, a demo the transcript mentions). One video at a time, one frame per call. If the result says THROTTLED, stop and tell the user.",
+    description: "Grab one frame of the video as a JPEG, at a time in seconds. Not for audio-only pages such as Xiaoyuzhou episodes (NO_VIDEO). Call get_video first and only grab frames at times worth seeing (a chart, a slide, a demo the transcript mentions). One video at a time, one frame per call. If the result says THROTTLED, stop and tell the user.",
     inputSchema: {
       type: "object",
       properties: {
@@ -365,7 +367,7 @@ const PERSONAL = {
 
 // What MCP clients put in the model's prompt about this server: when to reach for it, not how each tool works.
 export const INSTRUCTIONS = [
-  "MoonDigest searches and reads Bilibili and YouTube videos through the user's own browser and login: a video search on either site (search_videos), the full timestamped transcript, chapters, description and hot comments (get_video), and a frame at any second (get_frame).",
+  "MoonDigest searches and reads videos through the user's own browser and login: a video search on Bilibili or YouTube (search_videos); the full timestamped transcript, chapters, description and hot comments of a Bilibili, YouTube, TikTok or Douyin video, a Xiaoyuzhou podcast episode or any web page with a <video> (get_video); and a frame at any second (get_frame, not for audio-only podcasts). Sites other than Bilibili and YouTube need the user to allow MoonDigest to read web pages (NO_ACCESS).",
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
   "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
   "When the user asks about their own Bilibili (what they saved, who they follow, what they watched lately), use get_favorites, get_follows and get_history. They are read-only and off until the user allows them (PERSONAL_DATA_OFF: ask the user to turn it on). Read one page at a time and stop once you can answer.",
