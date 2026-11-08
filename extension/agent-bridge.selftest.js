@@ -558,6 +558,18 @@ check("a page-read site's answer over 1,000,000 JSON characters is TOO_LARGE, as
   assert.equal(env.injected.length, 1);
 });
 
+check("a page-read site's read that never settles is TIMEOUT by the deadline, and the own tab leaves the page", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => new Promise(() => {}) });
+  demoSite(env);
+  const s = await openSocket(env);
+  const r = await call(env, s, "1", DEMO);
+  assert.deepEqual([r.ok, r.code], [false, "TIMEOUT"]);
+  assert.deepEqual(env.updated.at(-1), { id: env.created[0].id, url: "about:blank" });
+  // The queue is free again: the next call runs.
+  env.tabs[0].url = DEMO;
+  assert.ok(await call(env, s, "2", DEMO), "the next call answers");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of cases) {

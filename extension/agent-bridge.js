@@ -111,11 +111,24 @@
       const up = await callPage(target, "", null, deadline, run(ready, []));
       if (!up.ok) return up;
       try {
-        return { ok: true, data: await run(func, args)(target.tabId) };
+        const data = await within(run(func, args)(target.tabId), deadline);
+        return data === LATE ? late(target.tabId) : { ok: true, data };
       } catch (e) {
         return { ok: false, error: `The ${site.id} tab did not run the call: ${e?.message || e}` };
       }
     });
+  }
+
+  // A page's script may never settle (a page can make any await hang, e.g. by setting Object.prototype.then): wait for
+  // it only until `until`, then LATE. On LATE in the own tab, that tab leaves the page so nothing of it keeps running.
+  const LATE = Symbol("late");
+  const within = (p, until) => new Promise((res, rej) => {
+    const t = setTimeout(() => res(LATE), Math.max(0, until - Date.now()));
+    p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
+  async function late(tabId) {
+    if ((await loadOwn())?.tabId === tabId) await chrome.tabs.update(tabId, { url: "about:blank" }).catch(() => {});
+    return { ok: false, code: "TIMEOUT", error: "The page did not answer in time." };
   }
 
   // Retries until the tab's content script (or ask) answers; get and frame are safe to repeat.
@@ -133,7 +146,8 @@
         else target.staleUrl = null;
       }
       if (ready) {
-        reply = await ask(target.tabId).catch(() => undefined);
+        reply = await within(Promise.resolve().then(() => ask(target.tabId)), until).catch(() => undefined);
+        if (reply === LATE) return late(target.tabId);
         if (reply && typeof reply.ok === "boolean") return reply;
       }
       if (Date.now() > until) {
