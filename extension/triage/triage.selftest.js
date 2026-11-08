@@ -4657,10 +4657,51 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     answer(false, "cancel");
     await t.reviewProposal();
     assert.deepStrictEqual([asked.at(-1)[2].reason, store[t.K.agentProposals]], ["「Z」没有勾选分拣", []]);
+    // Two 分拣台 tabs, one proposal: the other tab took it out of the queue while this one asked, so this one runs nothing.
+    openFake("P", [item(45)]);
+    propose([{ id: "p5", at: 5, action: "unfav", from: "P", bvids: ["BV45"] }]);
+    store[t.K.agentProposals] = [];
+    answer(true, "ok");
+    handlers["triage-unfav"] = () => ({ ok: true });
+    const sentBefore = sent.length;
+    await t.reviewProposal();
+    assert.deepStrictEqual([sent.slice(sentBefore).filter((m) => m.type === "triage-unfav").length, toasts.at(-1)], [0, "这条提议已在别的分拣台标签页处理"]);
+    // A batch that started while the dialog was open: the proposal goes back to the queue, nothing runs.
+    propose([{ id: "p6", at: 6, action: "move", from: "P", to: "Q", bvids: ["BV45"] }]);
+    let free = null;
+    handlers["triage-unfav"] = () => new Promise((r) => (free = () => r({ ok: true })));
+    let batch = null;
+    t.askConfirm = async () => ((batch = t.fav.unfavMany([item(46)], ["P"])), (t.el.confirmDialog.returnValue = "ok"), true);
+    const movesBefore = moves.length;
+    await t.reviewProposal();
+    assert.deepStrictEqual(plain([store[t.K.agentProposals].map((p) => p.id), t.S.agentProposals.map((p) => p.id), moves.length, toasts.at(-1)]), [["p6"], ["p6"], movesBefore, "批量取消收藏还在跑，等它完成"]);
+    await until(() => free);
+    free();
+    await batch;
     t.askConfirm = real;
     delete handlers["triage-unfav"];
     delete handlers["triage-transfer"];
     t.S.agentProposals = [];
+    delete store[t.K.agentProposals];
+  }
+
+  // U on an AI tool's step whose message got no answer: the entry is still in the journal, so its step comes back, once.
+  {
+    openFake("A", [item(1)]);
+    t.S.agentLog = [];
+    const e = { id: "a9", at: 90, n: 1, changes: {}, made: [] };
+    t.followAgentLog([e]);
+    store[t.K.agentLog] = [e];
+    // The background took the entry (its removal reached the page) and put it back before answering with the failure.
+    handlers["agent-undo"] = () => (t.followAgentLog([]), { ok: false, error: "后台无响应" });
+    await t.undo();
+    assert.deepStrictEqual([t.S.undo.map((s) => s.agentId), toasts.at(-1)], [["a9"], "后台无响应"]);
+    t.followAgentLog([e]); // the put-back's own event, after the answer
+    assert.strictEqual(t.S.undo.length, 1, "the journal's event does not add it twice");
+    t.S.agentLog = [];
+    t.S.undo = [];
+    delete store[t.K.agentLog];
+    delete handlers["agent-undo"];
   }
   console.log("triage selftest: all passed");
 })().catch((e) => {

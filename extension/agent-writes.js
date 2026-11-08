@@ -26,6 +26,9 @@
   };
   const given = (x, k) => x[k] !== undefined;
   const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  // The tool's verdict as written: the 分拣台 stamps a result without criteria with its folder's (loadResults) when it
+  // opens, which is not a change of the user's.
+  const asWritten = ({ criteria, ...a } = {}) => a;
   const tagNames = (v, name) =>
     listOf(v ?? [], 10, name).map((n, j) => {
       const clean = MdgTagCore.cleanTagName(text(n, 40, `${name}[${j}]`));
@@ -39,7 +42,7 @@
     if (!x || typeof x !== "object" || !BVID.test(x.bvid)) throw bad(`${at}.bvid must be a BV id (BV and 10 letters or digits).`);
     const it = { bvid: x.bvid };
     if (given(x, "verdict")) {
-      if (!MdgTagCore.VERDICTS[x.verdict]) throw bad(`${at}.verdict must be keep, drop or unsure.`);
+      if (!Object.hasOwn(MdgTagCore.VERDICTS, x.verdict ?? "")) throw bad(`${at}.verdict must be keep, drop or unsure.`);
       const summary = text(x.summary ?? "", 100, `${at}.summary`);
       if (!summary) throw bad(`${at}.summary is required with a verdict.`);
       const points = listOf(x.points ?? [], TRIAGE_POINTS, `${at}.points`).map((p, j) => text(p, 200, `${at}.points[${j}]`)).filter(Boolean);
@@ -80,21 +83,25 @@
     const note = (part, b, was, next) => ((changes[part] ||= {})[b] = [was ?? null, next ?? null]);
     const made = [];
     const notMade = [];
+    const changedIds = () => [...new Set(Object.values(changes).flatMap(Object.keys))];
     try {
       const keep = list.filter((it) => "kept" in it);
       if (keep.length) {
+        const kept = [];
         await MdgLimits.update(K.triageKept, (cur = {}) => {
           const next = { ...cur };
+          kept.length = 0;
           for (const it of keep) {
             const was = cur[it.bvid] || null;
             const v = it.kept ? was || { action: "keep", at: now } : null;
             if (same(was, v)) continue;
-            note("kept", it.bvid, was, v);
+            kept.push([it.bvid, was, v]);
             if (v) next[it.bvid] = v;
             else delete next[it.bvid];
           }
-          return changes.kept ? next : undefined;
+          return kept.length ? next : undefined;
         });
+        for (const [b, was, v] of kept) note("kept", b, was, v); // once stored, as every part
       }
       for (const it of list.filter((x) => "note" in x)) {
         const was = (await chrome.storage.local.get(K.triageNotes))[K.triageNotes]?.[it.bvid]?.text || "";
@@ -102,7 +109,9 @@
       }
       for (const it of list.filter((x) => x.analysis)) {
         const v = { ...it.analysis, analyzedAt: now };
-        await MdgLimits.update(K.triageAnalysis(it.bvid), (was) => (note("analysis", it.bvid, was, v), v));
+        let was;
+        await MdgLimits.update(K.triageAnalysis(it.bvid), (cur) => ((was = cur), v));
+        note("analysis", it.bvid, was, v); // once stored: a failed write is not journaled
       }
       if (tagged.length) {
         const cap = TriageUi.numSetting("tagLimit", (await chrome.storage.sync.get("triageTagLimit")).triageTagLimit);
@@ -140,15 +149,18 @@
           for (const [b, was] of Object.entries(before)) note("tags", b, was, map[b] || []);
         });
       }
+    } catch (e) {
+      // What landed stays (and is journaled below): the tool must not send it again blindly.
+      if (changedIds().length) e.message += ` Written before the failure, and kept (the user can undo it in the 分拣台): ${changedIds().join(", ")}.`;
+      throw e;
     } finally {
-      const n = new Set(Object.values(changes).flatMap(Object.keys)).size;
+      const n = changedIds().length;
       if (n || made.length) {
         const entry = { id: MdgTagCore.newTagId("a"), at: now, n, changes, made };
         await MdgLimits.update(K.triageAgentLog, (log = []) => [...log, entry].slice(-MdgLimits.TRIAGE_UNDO_STEPS));
       }
     }
-    const n = new Set(Object.values(changes).flatMap(Object.keys)).size;
-    return { changed: n, ...(notMade.length && { tagsNotMade: [...new Set(notMade)] }) };
+    return { changed: changedIds().length, ...(notMade.length && { tagsNotMade: [...new Set(notMade)] }) };
   }
 
   // U in the 分拣台 on one journaled triage: each value still as the tool left it goes back; one changed since stays
@@ -180,7 +192,8 @@
       for (const [b, [was, v]] of Object.entries(analysis)) {
         const key = K.triageAnalysis(b);
         await MdgLimits.locked(MdgLimits.keyLock(key), async () => {
-          if (!same((await chrome.storage.local.get(key))[key], v)) return skipped.add(b);
+          const cur = (await chrome.storage.local.get(key))[key];
+          if (!cur || !same(asWritten(cur), asWritten(v))) return skipped.add(b);
           if (was) await chrome.storage.local.set({ [key]: was });
           else await chrome.storage.local.remove(key);
         });

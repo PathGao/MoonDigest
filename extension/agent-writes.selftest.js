@@ -97,6 +97,9 @@ check("triage refuses bad input whole, before writing anything", async () => {
     { items: [{ bvid: A, kept: "yes" }] },
     { items: [{ bvid: A, verdict: "keep" }] },
     { items: [{ bvid: A, verdict: "maybe", summary: "x" }] },
+    { items: [{ bvid: A, verdict: "toString", summary: "x" }] },
+    { items: [{ bvid: A, verdict: "constructor", summary: "x" }] },
+    { items: [{ bvid: A, verdict: "__proto__", summary: "x" }] },
     { items: [{ bvid: A, summary: "只有总结" }] },
     { items: [{ bvid: A, verdict: "keep", summary: "x".repeat(101) }] },
     { items: [{ bvid: A, note: 5 }] },
@@ -140,6 +143,38 @@ check("triage writes verdict, 保留, note and tags, journals it, and U puts all
   const again = await undo("gone");
   assert.strictEqual((await undo("gone", "https://www.bilibili.com/")).error, "网页不能发送 agent-undo");
   assert.deepStrictEqual([again.ok, again.error], [false, "这一步已经撤销过了"], "a step undone (or unknown) is refused");
+});
+
+check("U puts back a verdict the 分拣台 stamped with its folder's criteria on open (not a change of the user's)", async () => {
+  await M.triage({ items: [{ bvid: A, verdict: "keep", summary: "好" }] });
+  // loadResults (fav-folders.js) stamps a result without criteria under the key's lock.
+  await ctx.MdgLimits.update(K.triageAnalysis(A), (a) => ({ ...a, criteria: "" }));
+  assert.deepStrictEqual(plain((await undo(log()[0].id)).data), { n: 1, skipped: 0 });
+  assert.strictEqual(local[K.triageAnalysis(A)], undefined);
+  // A 细看 run since is the user's: it stays.
+  await M.triage({ items: [{ bvid: A, verdict: "keep", summary: "好" }] });
+  await ctx.MdgLimits.update(K.triageAnalysis(A), (a) => ({ ...a, oneLiner: "重新细看", criteria: "" }));
+  assert.deepStrictEqual(plain((await undo(log()[0].id)).data), { n: 1, skipped: 1 });
+  assert.strictEqual(local[K.triageAnalysis(A)].oneLiner, "重新细看");
+});
+
+check("a write failing midway says what was written before it, which stays journaled", async () => {
+  const set = chrome.storage.local.set;
+  chrome.storage.local.set = async (o) => {
+    if (K.triageAnalysis(B) in o) throw new Error("QUOTA_BYTES quota exceeded");
+    return set(o);
+  };
+  const r = await M.triage({ items: [{ bvid: A, kept: true }, { bvid: B, verdict: "drop", summary: "坏" }] });
+  chrome.storage.local.set = set;
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /^QUOTA_BYTES quota exceeded Written before the failure, and kept \(the user can undo it in the 分拣台\): BV1aaaaaaaaa\.$/);
+  assert.deepStrictEqual(plain(Object.keys(log()[0].changes.kept)), [A]);
+  // A write that failed is not journaled: the first one failing leaves nothing to undo or report.
+  delete local[K.triageAgentLog];
+  chrome.storage.local.set = async (o) => { if (K.triageKept in o) throw new Error("QUOTA_BYTES quota exceeded"); return set(o); };
+  const none = await M.triage({ items: [{ bvid: C, kept: true }] });
+  chrome.storage.local.set = set;
+  assert.deepStrictEqual([none.error, log()], ["QUOTA_BYTES quota exceeded", []]);
 });
 
 check("U leaves what the user changed since and says how many", async () => {

@@ -487,7 +487,13 @@ function agentStep(e) {
     ask: e.n > 1 ? [`撤销 AI 工具的修改？`, `<p>AI 工具改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"] : null,
     undo: async () => {
       const r = await send({ type: "agent-undo", id: e.id });
-      if (!r.ok) return toast(MdgErrors.text(r), true), "";
+      if (!r.ok) {
+        toast(MdgErrors.text(r), true);
+        // No answer, or the background put the entry back: while it is in the journal, its step comes back.
+        const log = await storeGet(K.agentLog, []);
+        if (log.some((x) => x.id === e.id) && !S.undo.some((s) => s.agentId === e.id)) pushUndo(agentStep(e));
+        return "";
+      }
       const { n, skipped } = r.data;
       return redraw() || `已撤销：AI 工具的修改（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）`;
     }
@@ -502,7 +508,7 @@ function followAgentLog(log, tell = true) {
   const ids = new Set(log.map((e) => e.id));
   const known = new Set(S.agentLog.map((e) => e.id));
   S.undo = S.undo.filter((s) => s.kind !== "agent" || ids.has(s.agentId));
-  for (const e of log.filter((e) => !known.has(e.id))) pushUndo(agentStep(e));
+  for (const e of log.filter((e) => !known.has(e.id) && !S.undo.some((s) => s.agentId === e.id))) pushUndo(agentStep(e));
   S.agentLog = log;
   const n = log.filter((e) => e.at > agentSeenAt).reduce((sum, e) => sum + e.n, 0);
   agentSeenAt = Math.max(agentSeenAt, ...log.map((e) => e.at));
@@ -512,8 +518,20 @@ function followAgentLog(log, tell = true) {
 // Its B站 proposals, oldest first: 查看 opens the proposal's folder and asks. 执行 runs it as the page's own 取消收藏 /
 // 移动 / 复制 would (B站's limits, U), 拒绝 drops it, Esc leaves it waiting.
 const AGENT_VERB = { unfav: UNFAV, move: UI.transferVerb.move, copy: UI.transferVerb.copy };
+// Resolves whether this call took it out of the stored queue: false when another tab already did (or the write failed).
 function dropProposal(id) {
-  const edit = (list) => list.filter((p) => p.id !== id);
+  let took = false;
+  const edit = (list) => list.filter((p) => p.id !== id || !(took = true));
+  S.agentProposals = S.agentProposals.filter((p) => p.id !== id);
+  return storeEdit(K.agentProposals, [], edit).then((list) => {
+    if (list) S.agentProposals = list;
+    renderStatus();
+    return took;
+  });
+}
+// Back at the head of the queue, when it could not run after all.
+function restoreProposal(p) {
+  const edit = (list) => (list.some((x) => x.id === p.id) ? list : [p, ...list]);
   S.agentProposals = edit(S.agentProposals);
   return storeEdit(K.agentProposals, [], edit).then((list) => {
     if (list) S.agentProposals = list;
@@ -539,9 +557,10 @@ async function reviewProposal() {
   const title = `AI 工具提议：${verb} ${list.length || p.bvids.length} 个视频${p.to ? `到「${folderName(p.to)}」` : ""}`;
   const ok = await askConfirm(title, body, `${verb} ${list.length} 个`, { danger: p.action !== "copy", reason: why, cancelText: "拒绝" });
   if (!ok && el.confirmDialog.returnValue !== "cancel") return;
-  if (ok && W.busy()) return toast(UI.busyText(W.busy()), true);
-  await dropProposal(p.id);
+  // Taken out of the queue first, so another 分拣台 tab cannot run it too; a batch that started meanwhile puts it back.
+  if (!(await dropProposal(p.id))) return toast("这条提议已在别的分拣台标签页处理", true);
   if (!ok) return toast("已拒绝 AI 工具的提议");
+  if (W.busy()) return restoreProposal(p).then(() => toast(UI.busyText(W.busy()), true));
   if (p.action === "unfav") await fav.unfavMany(list, [p.from]);
   else await fav.transfer(list, { how: p.action, target: { id: p.to } });
 }
