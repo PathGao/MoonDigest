@@ -9,7 +9,22 @@ const keys = {
   "https://www.youtube.com/watch?v=abc": "youtube:abc:",
   "https://example.com/a/b?x=1#t=30": "web:https://example.com/a/b?x=1:",
   "http://example.com/": "web:http://example.com/:",
-  "ftp://example.com/": null
+  "ftp://example.com/": null,
+  // The user's own machine and network are never read.
+  "http://localhost:8080/": null,
+  "http://127.0.0.1/": null,
+  "http://0x7f.1/": null,
+  "http://10.0.0.5/": null,
+  "http://172.20.1.1/": null,
+  "http://192.168.1.1/admin": null,
+  "http://169.254.169.254/latest/meta-data/": null,
+  "http://100.100.1.1/": null,
+  "http://[::1]/": null,
+  "http://wiki/": null,
+  "http://printer.local/": null,
+  "https://jira.corp/": null,
+  "https://git.internal/": null,
+  "http://172.32.0.1/": "web:http://172.32.0.1/:"
 };
 for (const [href, key] of Object.entries(keys)) assert.strictEqual(S.keyOf(href), key, href);
 

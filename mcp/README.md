@@ -6,7 +6,7 @@
 
 ### 这是什么
 
-一个可选的 MCP 服务器。装了它，Claude Code、Cursor、Codex 这类 MCP 客户端就能借你自己的浏览器搜索和读视频：B站、YouTube 的搜索结果；B站、YouTube、TikTok、抖音视频，小宇宙单集，以及任何带 `<video>` 的网页的字幕、章节、热评（站点有的才有），和任意时刻的一帧画面。B站、YouTube 以外的站点要先在侧边栏允许读网页，否则返回 `NO_ACCESS`。真正读视频的是浏览器里的 MoonDigest 扩展，这个服务器只负责转发。
+一个可选的 MCP 服务器。装了它，Claude Code、Cursor、Codex 这类 MCP 客户端就能借你自己的浏览器搜索和读视频：B站、YouTube 的搜索结果；B站、YouTube、TikTok、抖音视频，小宇宙单集，以及任何带 `<video>` 的网页的字幕、章节、热评（站点有的才有），和任意时刻的一帧画面。B站、YouTube 以外的站点要先在侧边栏允许读网页，否则返回 `NO_ACCESS`；其他网页还要打开「允许 AI 工具读任意网页」，否则返回 `WEB_PAGES_OFF`。真正读视频的是浏览器里的 MoonDigest 扩展，这个服务器只负责转发。
 
 ```
 MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> 扩展的 service worker ──> 视频标签页
@@ -92,6 +92,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - B站视频页（`/video/`、`/bangumi/play/`、`/list/`、`/festival/`）和 YouTube 观看页（`/watch?v=`）可以用你已开着的标签页；其他站点只在扩展自己的标签页里读，不碰你的标签页。不是 http(s) 的网址返回 `BAD_URL`。扩展最多开一个自己的后台标签页，之后的视频都在它里面打开。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 开关默认关闭。关着的时候扩展不建任何连接。
+- 读任意网页另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。只管 B站、YouTube、TikTok、抖音、小宇宙以外的网页。网页里的文字可能诱导 AI 工具把读到的东西发出去，所以默认关。本机和内网地址（localhost、内网 IP、`.local` 这类名字）不读，返回 `BAD_URL`。
 - 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只读，不改 B站 和 YouTube，也不改插件存的数据；API Key 和 AI 对话不会给出去。
 - 改收藏再有一个开关，默认关闭，上面两个有一个关着它就变灰。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 - 改分拣台也另有一个开关，默认关闭，和改收藏一样，上面两个有一个关着它就变灰。打开后 AI 工具只能直接改本地的分拣结果，每次都能在分拣台撤销；B站 上的改动只能提议，由你在分拣台确认，不靠 MCP 客户端的权限弹框。
@@ -116,6 +117,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - `TIMEOUT`：60 秒内没有回答。常见原因是页面加载太慢，或后台标签页被浏览器冻结。切到那个标签页看一眼再试。
 - 字幕说要登录（`Subtitle note`）：在这个浏览器里登录 B站。
 - `AD_PLAYING`：YouTube 广告一直在播，等广告结束再取帧。
+- `WEB_PAGES_OFF`：「允许 AI 工具读任意网页」没开。
 - `PERSONAL_DATA_OFF`：「允许 AI 工具读我的收藏、关注和历史」没开。
 - `COLLECTION_WRITES_OFF`：「允许 AI 工具改我的收藏」没开。
 - `TRIAGE_WRITES_OFF`：「允许 AI 工具改分拣台」没开。
@@ -133,7 +135,7 @@ cd mcp && npm test
 
 ### What it is
 
-An optional MCP server. It lets MCP clients such as Claude Code, Cursor and Codex search and read videos through your own browser: search results from Bilibili and YouTube; transcript, chapters and hot comments (as far as the site has them) of Bilibili, YouTube, TikTok and Douyin videos, Xiaoyuzhou (小宇宙) podcast episodes and any web page with a `<video>`; and a frame at any time. Sites other than Bilibili and YouTube need reading web pages allowed in the side panel first, else `NO_ACCESS`. The MoonDigest extension in your browser does the reading. This server only relays.
+An optional MCP server. It lets MCP clients such as Claude Code, Cursor and Codex search and read videos through your own browser: search results from Bilibili and YouTube; transcript, chapters and hot comments (as far as the site has them) of Bilibili, YouTube, TikTok and Douyin videos, Xiaoyuzhou (小宇宙) podcast episodes and any web page with a `<video>`; and a frame at any time. Sites other than Bilibili and YouTube need reading web pages allowed in the side panel first, else `NO_ACCESS`. Any other web page also needs 允许 AI 工具读任意网页, else `WEB_PAGES_OFF`. The MoonDigest extension in your browser does the reading. This server only relays.
 
 ```
 MCP client ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> extension service worker ──> video tab
@@ -219,6 +221,7 @@ Then turn on 允许 MCP 连接 in MoonDigest's settings (高级).
 - Bilibili video pages (`/video/`, `/bangumi/play/`, `/list/`, `/festival/`) and YouTube watch pages (`/watch?v=`) may be read in a tab you already have open; other sites only in the extension's own tab, never yours. A URL that is not http(s) gets `BAD_URL`. It keeps at most one background tab of its own and opens later videos in it. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - The switch is off by default. While off, the extension opens no socket.
+- Reading any web page has its own switch, off by default and greyed out while 允许 MCP 连接 is off. It covers pages other than Bilibili, YouTube, TikTok, Douyin and Xiaoyuzhou. Text on a page can steer an AI tool into sending on what it read, so it starts off. Your own machine and network (localhost, private IPs, names such as `.local`) are never read: `BAD_URL`.
 - Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only reads: it changes nothing on Bilibili, YouTube or in its own storage, and never gives out API keys or AI conversations.
 - Changing collections has one more switch, off by default and greyed out while either of the two above is off. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 - Changing the 分拣台 has its own switch too, off by default and, like changing collections, greyed out while either of the two above is off. When on, an AI tool changes only local 分拣 results directly, each call undoable in the 分拣台; a change on Bilibili it can only propose, and you confirm it in the 分拣台, not through the MCP client's permission prompt.
@@ -243,6 +246,7 @@ With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 
 - `TIMEOUT`: no answer in 60 s. Usually the page loaded too slowly or the browser froze the background tab. Look at that tab and try again.
 - The subtitle says log in (`Subtitle note`): log in to Bilibili in that browser.
 - `AD_PLAYING`: a YouTube ad kept playing. Wait for it to end and grab the frame again.
+- `WEB_PAGES_OFF`: 允许 AI 工具读任意网页 is off.
 - `PERSONAL_DATA_OFF`: 允许 AI 工具读我的收藏、关注和历史 is off.
 - `COLLECTION_WRITES_OFF`: 允许 AI 工具改我的收藏 is off.
 - `TRIAGE_WRITES_OFF`: 允许 AI 工具改分拣台 is off.

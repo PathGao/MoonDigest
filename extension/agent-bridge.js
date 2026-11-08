@@ -15,6 +15,22 @@
   // subtitles with their timings. The page is untrusted, so anything larger is refused, not passed on to the agent.
   const MAX_READ_CHARS = 1_000_000;
 
+  // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
+  const MCP_SWITCHES = {
+    mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again."],
+    mcpWebPages: ["WEB_PAGES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读任意网页 (Settings → Advanced) in MoonDigest, then call again."],
+    mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改分拣台 (Settings → Advanced) in MoonDigest, then call again."],
+    mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again."]
+  };
+  // An Error carrying the code of the first of keys that is off, else null.
+  async function switchOff(...keys) {
+    const on = MdgSettings.normalizeSwitches(await chrome.storage.sync.get(keys));
+    const off = keys.find((k) => !on[k]);
+    if (!off) return null;
+    const [code, message] = MCP_SWITCHES[off];
+    return Object.assign(new Error(message), { code });
+  }
+
   // --- tabs --------------------------------------------------------------------
 
   // The one tab this bridge opened: { tabId, key, pageKey, staleUrl }. pageKey is the key the
@@ -184,7 +200,10 @@
       const user = await findUserTab(site, key);
       if (user) return callShown(user, method, rest, deadline);
     } else {
-      // Only in the own tab: nothing runs in the user's tabs.
+      // Only in the own tab: nothing runs in the user's tabs. Any page at all (the fallback) has a switch of its own:
+      // a page the agent was steered to may be the user's mail or intranet, and the agent may pass it on.
+      const off = site.fallback && (await switchOff("mcpWebPages"));
+      if (off) return { ok: false, code: off.code, error: off.message };
       if (!(await chrome.permissions.contains({ origins: site.origins }))) {
         return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
       }
@@ -286,5 +305,5 @@
     Promise.resolve(o.isEnabled()).then(apply, () => apply(false));
   }
 
-  globalThis.MdgAgentBridge = { start, addMethods, inSitePage };
+  globalThis.MdgAgentBridge = { start, addMethods, switchOff, inSitePage };
 })();

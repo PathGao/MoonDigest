@@ -8,13 +8,14 @@ const assert = process.getBuiltinModule("node:assert/strict");
 
 const here = path.dirname(fs.realpathSync(process.argv[1]));
 // The worker's order: sites.js (MdgSites.cleanComment) and what it needs, the registry, the sites, the bridge.
-const SOURCES = ["common.js", "errors.js", "limits.js", "sites.js", "agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
+const SOURCES = ["common.js", "errors.js", "limits.js", "settings.js", "sites.js", "agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
 
 const tick = () => new Promise((r) => setImmediate(r));
 const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
 
 // granted: the origins chrome.permissions.contains answers true for; inject(tab, details): executeScript's result.
-function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false, granted = [], inject = null }) {
+// sync: chrome.storage.sync (the MCP switches).
+function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false, granted = [], inject = null, sync = {} }) {
   const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], injected: [], enabledCb: null, alarmCb: null, pageReplies: [] };
   let nextTimer = 1;
   let nextTab = 100;
@@ -43,6 +44,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     },
     storage: {
       local: { set: (o) => Object.assign(env.storage, o) },
+      sync: { get: async (keys) => Object.fromEntries([keys].flat().filter((k) => k in sync).map((k) => [k, sync[k]])) },
       session: { // shared across makeEnv calls to simulate a service worker restart
         get: async (k) => (k in session ? { [k]: JSON.parse(session[k]) } : {}),
         set: async (o) => { for (const k in o) session[k] = JSON.stringify(o[k]); },
@@ -430,6 +432,21 @@ const demoSite = (env) => env.sites.register({
   origins: ["https://www.demo.test/*"],
   key: (u) => (u.hostname === "www.demo.test" && u.pathname.startsWith("/v/") ? `${u.pathname.slice(3)}:` : null),
   read: () => globalThis.__STATE__,
+});
+
+check("the fallback site (any web page) answers WEB_PAGES_OFF until its own switch is on, whatever the host access", async () => {
+  const any = (env) => env.sites.register({ id: "any", origins: ["https://*/*"], fallback: true, key: (u) => `${u.hostname}:`, read: () => ({ title: "t" }) });
+  let env = makeEnv({ enabled: true, commitNow: true, granted: ["https://*/*"], inject: () => ({ title: "t" }) });
+  any(env);
+  let s = await openSocket(env);
+  const r = await call(env, s, "1", "https://mail.example.com/");
+  assert.deepEqual([r.ok, r.code], [false, "WEB_PAGES_OFF"]);
+  assert.match(r.error, /允许 AI 工具读任意网页/);
+  assert.deepEqual([env.created.length, env.injected.length], [0, 0]);
+  env = makeEnv({ enabled: true, commitNow: true, granted: ["https://*/*"], inject: () => ({ title: "t" }), sync: { mcpWebPages: true } });
+  any(env);
+  s = await openSocket(env);
+  assert.equal((await call(env, s, "1", "https://example.com/")).ok, true);
 });
 
 check("a page-read site without access: NO_ACCESS for get and frame, no tab, nothing injected", async () => {

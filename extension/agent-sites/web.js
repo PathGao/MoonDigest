@@ -4,7 +4,17 @@ MdgAgentSites.register({
   id: "web",
   origins: ["http://*/*", "https://*/*"],
   fallback: true,
-  key: (u) => `${u.href.split("#")[0]}:`,
+  // Never the user's own machine or network (localhost, private and link-local IPs, single-label and .local/.internal
+  // names, any IPv6 literal): those pages are BAD_URL. A public name that resolves to a private IP still passes.
+  key: (u) => {
+    const h = u.hostname.toLowerCase();
+    const v4 = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(h);
+    const [a, b] = v4 ? [+v4[1], +v4[2]] : [];
+    const priv = v4 && (a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127));
+    const near = !h.includes(".") || h.startsWith("[") || /\.(localhost|local|internal|lan|intranet|corp|home\.arpa)\.?$/.test(h);
+    return priv || near ? null : `${u.href.split("#")[0]}:`;
+  },
   // Runs in the page's MAIN world: the page is untrusted, so every size is capped and every wait bounded.
   read: async () => {
     if (document.readyState === "loading") return null;
