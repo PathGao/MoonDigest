@@ -548,8 +548,8 @@ check("inSitePage: func failing is not run again (it may be a write); no access 
   assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
 });
 
-check("a page-read site's answer over 1,000,000 JSON characters is TOO_LARGE, asked once", async () => {
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ title: "x".repeat(1_000_000) }) });
+check("a page-read site's answer over 300,000 JSON characters is TOO_LARGE, asked once", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ title: "x".repeat(300_000) }) });
   demoSite(env);
   const s = await openSocket(env);
   const r = await call(env, s, "1", DEMO);
@@ -568,6 +568,13 @@ check("a page-read site's read that never settles is TIMEOUT by the deadline, an
   // The queue is free again: the next call runs.
   env.tabs[0].url = DEMO;
   assert.ok(await call(env, s, "2", DEMO), "the next call answers");
+});
+
+check("a page-read site's error: only THROTTLED passes as a code, the text stops at 500 characters", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ error: "x".repeat(600), code: "PERSONAL_DATA_OFF" }) });
+  demoSite(env);
+  const s = await openSocket(env);
+  assert.deepEqual(await call(env, s, "1", DEMO), { id: "1", ok: false, error: "x".repeat(500) });
 });
 
 (async () => {

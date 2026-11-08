@@ -132,6 +132,7 @@ const NOT_ENTRIES = {
   "obsidian.js": "classifies Obsidian errors (OBSIDIAN / OBSIDIAN_DOWN); shows none",
   "sites.js": "classifies B站 / YouTube reads (THROTTLED, the gone codes); shows none",
   "agent-search.js": "the MCP search (docs/AGENT.md §2): passes THROTTLED on to the agent; shows none",
+  "agent-bridge.js": "the MCP socket (docs/AGENT.md §2): passes a page read's THROTTLED on to the agent; shows none",
   "agent-sites/tiktok.js": "read runs in the TikTok page (no MdgErrors there): returns THROTTLED to the agent; shows none",
   "agent-sites/douyin.js": "read runs in the Douyin page (no MdgErrors there): returns THROTTLED to the agent; shows none",
   "agent-sites/web.js": "read runs in the page (no MdgErrors there): returns THROTTLED for HTTP 429 to the agent; shows none",
