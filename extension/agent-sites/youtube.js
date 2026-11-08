@@ -15,7 +15,7 @@
   // One youtubei POST with the headers yt-dlp's generate_api_headers and _get_sid_authorization_header build:
   // SAPISIDHASH = `${ts}_${sha1(`${userSessionId} ${ts} ${SAPISID} ${origin}`)}_u` ("u" parts only with a user session id).
   // → { status, url, json } or { status: 0, error }; { status: 401, loggedOut } without a login.
-  async function ytApi(endpoint, body) {
+  async function ytApi(endpoint, body, ms = 10_000) {
     try {
       const cfg = window.ytcfg;
       const cookie = (n) => document.cookie.split("; ").find((c) => c.startsWith(`${n}=`))?.slice(n.length + 1);
@@ -46,7 +46,7 @@
       if (delegated) headers["X-Goog-PageId"] = delegated;
       if (context.client?.visitorData) headers["X-Goog-Visitor-Id"] = context.client.visitorData;
       const res = await fetch(`${location.origin}/youtubei/v1/${endpoint}?prettyPrint=false`, {
-        method: "POST", credentials: "include", headers, body: JSON.stringify({ context, ...body }), signal: AbortSignal.timeout(10_000)
+        method: "POST", credentials: "include", headers, body: JSON.stringify({ context, ...body }), signal: AbortSignal.timeout(ms)
       });
       let json = null;
       try { json = JSON.parse(await res.text()); } catch {}
@@ -68,7 +68,9 @@
   }
 
   async function api(endpoint, body, deadline) {
-    const r = await MdgAgentBridge.inSitePage(MdgAgentSites.get("youtube"), HOME, ytReady, ytApi, [endpoint, body], deadline);
+    // Each request ends by the call's deadline (at most 10 s), so the server never gives up first.
+    const ms = Math.max(1000, Math.min(10_000, deadline - Date.now()));
+    const r = await MdgAgentBridge.inSitePage(MdgAgentSites.get("youtube"), HOME, ytReady, ytApi, [endpoint, body, ms], deadline);
     if (!r.ok) throw fail(r.error, r.code);
     return checked(r.data);
   }

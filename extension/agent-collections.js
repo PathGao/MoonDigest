@@ -8,7 +8,11 @@
   const ITEM_GAP = [1500, 3000];
   const CALL_GAP_MS = 1000;
   const SETTLE_MS = 1000; // between a write and the read that confirms it
-  const ITEM_RESERVE_MS = 12_000; // an item is not started with less left before the deadline: the rest are returned undone
+  // An item is not started with less left before the deadline, nor its write sent with less than WRITE_RESERVE_MS
+  // (write, settle and the read after, each request capped at 10 s by the adapter): the rest are returned undone, so a
+  // write is never sent without time to confirm it. Each request also ends by the deadline, before the server's.
+  const ITEM_RESERVE_MS = 12_000;
+  const WRITE_RESERVE_MS = 22_000;
   const STOP = [MdgErrors.CODE.THROTTLED, MdgErrors.CODE.NOT_LOGGED_IN];
   const ITEM = /^[\w-]{1,64}$/;
 
@@ -65,6 +69,7 @@
         before = await adapter.has({ ...at, item }, deadline);
         if (before === want) { results.push({ item, status: "unchanged", before }); continue; }
         if (dryRun) { results.push({ item, status: "would_change", before }); continue; }
+        if (Date.now() + WRITE_RESERVE_MS > deadline) { stopped = "TIMEOUT"; break; }
         sent.add(item);
         await adapter.write({ ...at, op, item }, deadline);
         await sleep(SETTLE_MS);

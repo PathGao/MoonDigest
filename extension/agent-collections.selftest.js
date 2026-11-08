@@ -217,6 +217,13 @@ check("a captcha page, 403 and a lost login stop the batch too; a plain HTTP err
   assert.strictEqual(r.data.stopped, undefined);
 });
 
+check("time for the read but not for write and confirm: the write is not sent, the item is returned; requests end by the deadline", async () => {
+  const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] }, Date.now() + 15_000);
+  assert.deepStrictEqual([r.data.stopped, plain(r.data.notDone), plain(r.data.results), r.data.undo], ["TIMEOUT", [ID(2)], [], null]);
+  assert.deepStrictEqual(sent("browse/edit_playlist"), []);
+  assert.ok(calls[0][2] <= 10_000 && calls[0][2] >= 1000, `per-request timeout ${calls[0][2]}`);
+});
+
 check("time runs out: the items not started are returned, none half done", async () => {
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2), ID(3)] }, Date.now() + 5_000);
   assert.deepStrictEqual([r.data.stopped, plain(r.data.notDone), calls.length], ["TIMEOUT", [ID(2), ID(3)], 0]);
