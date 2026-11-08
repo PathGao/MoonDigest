@@ -4571,6 +4571,97 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.render = () => {};
     delete store.triage_snapshot_D;
   }
+
+  // An AI tool's writes over MCP (agent-writes.js). Its journal is U steps: a new entry goes on top with a toast, U asks
+  // the background to put it back, a failed U leaves the entry (it comes back as a step, no new toast), a folder switch
+  // keeps them, an entry gone from the journal leaves the stack.
+  {
+    openFake("A", [item(1)]);
+    t.S.agentLog = [];
+    const entry = (id, at, n = 1) => ({ id, at, n, changes: {}, made: [] });
+    toasts.length = 0;
+    t.followAgentLog([entry("a1", 10)]);
+    assert.deepStrictEqual([t.S.undo.map((s) => s.agentId), toasts.at(-1)], [["a1"], `AI 工具改了 1 个视频的分拣结果${t.TriageUi.UNDO}`]);
+    handlers["agent-undo"] = (m) => ({ ok: true, data: { n: 1, skipped: m.id === "a1" ? 1 : 0 } });
+    await t.undo();
+    assert.deepStrictEqual([sent.at(-1).type, sent.at(-1).id, toasts.at(-1), t.S.undo.length], ["agent-undo", "a1", "已撤销：AI 工具的修改（1 个视频，1 个你之后改过，没动）", 0]);
+    t.followAgentLog([]);
+    t.followAgentLog([entry("a2", 20, 3)]);
+    t.S.undo.push({ kind: "keepMany", undo: async () => "" }); // a step of the user's own, after the tool's
+    handlers["agent-undo"] = () => ({ ok: false, error: "保存失败" });
+    t.S.undo.pop();
+    toasts.length = 0;
+    await t.undo();
+    assert.deepStrictEqual(toasts, ["保存失败"], "U on several asks (askConfirm says yes here), then says the failure");
+    // The background put the entry back: its step returns without a new toast.
+    t.followAgentLog([]);
+    t.followAgentLog([entry("a2", 20, 3)]);
+    assert.deepStrictEqual([t.S.undo.map((s) => s.agentId), toasts.length], [["a2"], 1]);
+    t.S.undo = vm.runInContext("agentSteps", ctx)();
+    assert.deepStrictEqual(t.S.undo.map((s) => s.agentId), ["a2"], "a folder switch starts from the journal");
+    t.followAgentLog([entry("a3", 30)]);
+    assert.deepStrictEqual(t.S.undo.map((s) => s.agentId), ["a3"], "an entry gone from the journal leaves the stack");
+    t.S.agentLog = [];
+    t.S.undo = [];
+    delete handlers["agent-undo"];
+  }
+
+  // Its B站 proposals: 查看 asks about the oldest. 执行 runs the page's own 取消收藏 / 移动 (no second dialog) and drops it,
+  // 拒绝 drops it with no B站 request, Esc leaves it, a running B站 batch refuses it, and a folder no longer ticked
+  // offers only 拒绝.
+  {
+    const vids = [item(41), item(42), item(43)];
+    t.S.allFolders = t.S.folders = [{ id: "P", title: "源" }, { id: "Q", title: "目标" }];
+    t.S.included = ["P", "Q"];
+    openFake("P", vids);
+    const real = t.askConfirm;
+    const asked = [];
+    const answer = (ok, value) => (t.askConfirm = async (title, body, okText, opts) => (asked.push([title, okText, opts]), (t.el.confirmDialog.returnValue = value), ok));
+    const propose = (list) => {
+      store[t.K.agentProposals] = list;
+      t.S.agentProposals = structuredClone(list);
+    };
+    const unfavs = [];
+    const moves = [];
+    handlers["triage-unfav"] = (m) => (unfavs.push(m), { ok: true });
+    handlers["triage-transfer"] = (m) => (moves.push(m), { ok: true });
+    propose([{ id: "p1", at: 1, action: "unfav", from: "P", bvids: ["BV41", "BV49"], reason: "<b>重复</b>" }, { id: "p2", at: 2, action: "move", from: "P", to: "Q", bvids: ["BV42", "BV43"] }]);
+    assert.strictEqual(t.activityState().text, "AI 工具的 2 条收藏夹提议等你确认");
+    answer(false, "");
+    await t.reviewProposal();
+    assert.deepStrictEqual([store[t.K.agentProposals].length, unfavs.length], [2, 0], "Esc leaves it waiting");
+    assert.deepStrictEqual(plain(asked.at(-1)), ["AI 工具提议：取消收藏 1 个视频", "取消收藏 1 个", { danger: true, reason: "", cancelText: "拒绝" }], "BV49 is not in the folder: skipped");
+    answer(true, "ok");
+    await t.reviewProposal();
+    assert.deepStrictEqual(plain([unfavs.map((m) => [m.mediaId, m.aids]), store[t.K.agentProposals].map((p) => p.id), asked.length]), [[["P", [1041]]], ["p2"], 2], "执行: one B站 request, no second dialog");
+    assert.strictEqual(t.S.decisions.BV41.action, "unfav");
+    await t.reviewProposal();
+    assert.deepStrictEqual(plain([moves.map((m) => [m.from, m.to, m.aids, m.move]), store[t.K.agentProposals], asked.at(-1)[0]]), [[["P", "Q", [1042, 1043], true]], [], "AI 工具提议：移动 2 个视频到「目标」"]);
+    // 拒绝, and a running batch refuses 查看 before asking.
+    propose([{ id: "p3", at: 3, action: "copy", from: "P", to: "Q", bvids: ["BV42"] }]);
+    let release = null;
+    handlers["triage-unfav"] = () => new Promise((r) => (release = () => r({ ok: true })));
+    const running = t.fav.unfavMany([item(44)], ["P"]);
+    await until(() => release);
+    const n = asked.length;
+    await t.reviewProposal();
+    assert.deepStrictEqual([asked.length, store[t.K.agentProposals].length, toasts.at(-1)], [n, 1, "批量取消收藏还在跑，等它完成"]);
+    release();
+    await running;
+    answer(false, "cancel");
+    const before = moves.length;
+    await t.reviewProposal();
+    assert.deepStrictEqual([store[t.K.agentProposals], moves.length, toasts.at(-1)], [[], before, "已拒绝 AI 工具的提议"]);
+    // From a folder no longer ticked: nothing to run, only 拒绝.
+    propose([{ id: "p4", at: 4, action: "unfav", from: "Z", bvids: ["BV41"] }]);
+    answer(false, "cancel");
+    await t.reviewProposal();
+    assert.deepStrictEqual([asked.at(-1)[2].reason, store[t.K.agentProposals]], ["「Z」没有勾选分拣", []]);
+    t.askConfirm = real;
+    delete handlers["triage-unfav"];
+    delete handlers["triage-transfer"];
+    t.S.agentProposals = [];
+  }
   console.log("triage selftest: all passed");
 })().catch((e) => {
   console.error(e);

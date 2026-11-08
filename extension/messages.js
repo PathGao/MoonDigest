@@ -63,6 +63,8 @@
     // The MCP bridge (agent-bridge.js, in the background) to the video page (agent-page.js), docs/AGENT.md §2. Not here:
     // the page's moondigest-get / moondigest-frame, window.postMessage from agents' JS (docs/AGENT.md §1).
     "agent-call": { from: ["agent-bridge.js"], to: "agent-page.js", request: ["method", "params"], response: ["data"] },
+    // U on an AI tool's 分拣台 writes (agent-writes.js's journal), from the 分拣台.
+    "agent-undo": { from: ["triage/fav-writes.js"], to: "agent-writes.js", request: ["id"], response: data },
     "sidepanel-seek-video-time": { from: ["sidepanel.js"], to: "content.js", request: ["seconds", "videoId"], response: ["currentTime"] },
 
     // The side panel's context, through the background

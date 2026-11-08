@@ -58,6 +58,12 @@
     triageNotes: "triage_notes",
     triageTags: "triage_tags",
     triageVideoTags: "triage_video_tags",
+    // B站's folder list as the 分拣台 last read it: { mid, folders: [{ id, title, count, … }] }.
+    triageFolderList: "triage_folder_list",
+    // An AI tool's changes over MCP (agent-writes.js): its local writes, newest last, each undoable from the 分拣台 (U),
+    // and its B站 proposals waiting for the user there.
+    triageAgentLog: "triage_agent_log",
+    triageAgentProposals: "triage_agent_proposals",
     triageBasket: "triage_basket",
     // 摘读记录's 星标 and tags: { tags: [{ id, name, color, rule }], items: { [record key]: { star, tags, ref, updatedAt } } }.
     // The record key is MdgNote.readingKey; ref keeps the title and address, so a record stays after its conversations go.
@@ -155,12 +161,13 @@
 
   // One 视频备注 saved by read-modify-write (the side panel, 摘读记录 and 分拣台): a fresh read, only this entry changed,
   // written back, so a note another page saved meanwhile is kept. Blank text deletes it; the stored text writes nothing.
-  // set writes the whole map (the 分拣台 passes its own, to know the echo). Resolves true when it wrote.
-  function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes })) {
+  // set writes the whole map (the 分拣台 passes its own, to know the echo). was: write only while the stored text is
+  // that ("" none). Resolves true when it wrote.
+  function saveVideoNote(id, text, set = (notes) => chrome.storage.local.set({ [KEYS.triageNotes]: notes }), was = null) {
     return locked(keyLock(KEYS.triageNotes), async () => {
       const notes = { ...(await chrome.storage.local.get(KEYS.triageNotes))[KEYS.triageNotes] };
       const next = String(text ?? "").trim() ? String(text) : "";
-      if ((notes[id]?.text || "") === next) return false;
+      if ((notes[id]?.text || "") === next || (was !== null && (notes[id]?.text || "") !== was)) return false;
       if (next) notes[id] = { text: next, updatedAt: Date.now() };
       else delete notes[id];
       await set(notes);

@@ -204,6 +204,16 @@ export function formatFollows(d) {
   return lines.join("\n");
 }
 
+// The 分拣台 writes (docs/AGENT.md §2 triage / propose).
+export function formatTriage(d) {
+  const notMade = d.tagsNotMade?.length ? ` Not made (the folder is at its tag limit): ${d.tagsNotMade.join(", ")}.` : "";
+  return `Saved in the 分拣台: ${d.changed} video(s) changed. The user can undo this call there.${notMade}`;
+}
+
+export function formatProposal(d) {
+  return `Proposed (${d.id}). Nothing has changed on Bilibili: the proposal waits in MoonDigest's 分拣台 until the user confirms or rejects it. Tell the user.`;
+}
+
 export function formatHistory(d) {
   const lines = [`History, newest first, ${d.items.length} items.${d.cursor ? ` More: cursor "${d.cursor}".` : " No more."}`];
   for (const h of d.items) {
@@ -293,13 +303,62 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "set_triage",
+    description: "Write the user's MoonDigest 分拣台 results for up to 50 Bilibili videos, as the 分拣台's own AI does: a verdict (keep / drop / unsure) with a one-line summary, 保留 (kept), a note, and tags of the folder. Judge a video only after reading it with get_video; take bvids and folder ids from get_favorites. Only the fields you give change, and the whole call is checked before anything is written. The user sees the results in the 分拣台 and can undo the call there. Nothing changes on Bilibili. Fails with WRITES_OFF until the user allows it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              bvid: { type: "string", pattern: "^BV[0-9A-Za-z]{10}$" },
+              verdict: { type: "string", enum: ["keep", "drop", "unsure"], description: "Keep it, can go, or unsure. Needs summary." },
+              summary: { type: "string", maxLength: 100, description: "One line: what the video is." },
+              reason: { type: "string", maxLength: 300, description: "Why the verdict." },
+              points: { type: "array", maxItems: 3, items: { type: "string", maxLength: 200 }, description: "Key points." },
+              kept: { type: "boolean", description: "The 保留 mark: true marks it, false removes it." },
+              note: { type: "string", maxLength: 2000, description: "The video's note; an empty string removes it." },
+              folderId: { type: "string", description: "The folder whose tags addTags and removeTags name; the video must be in it." },
+              addTags: { type: "array", maxItems: 10, items: { type: "string", maxLength: 12 }, description: "Tag names; a missing one is made while the folder has room." },
+              removeTags: { type: "array", maxItems: 10, items: { type: "string", maxLength: 12 } },
+            },
+            required: ["bvid"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "propose_fav_change",
+    description: "Propose a change to the user's Bilibili favorites: unfav (取消收藏) videos from a folder, or move or copy them to another folder. It changes nothing by itself: the proposal waits in MoonDigest's 分拣台 until the user confirms it there (MoonDigest then makes the change) or rejects it; tell the user so. from must be a folder ticked in the 分拣台 (get_favorites reads it with source local) holding every video, to another folder from get_favorites. At most 20 proposals wait at a time. Fails with WRITES_OFF until the user allows it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["unfav", "move", "copy"] },
+        from: { type: "string", description: "The folder id the videos are in, or \"toview\"." },
+        to: { type: "string", description: "The target folder id, for move and copy." },
+        bvids: { type: "array", minItems: 1, maxItems: 50, items: { type: "string", pattern: "^BV[0-9A-Za-z]{10}$" } },
+        reason: { type: "string", maxLength: 200, description: "One line for the user: why." },
+      },
+      required: ["action", "from", "bvids"],
+    },
+  },
 ];
 
-// The personal-data tools: socket method, the params it takes, the formatter.
-const PERSONAL = {
+// The tools answered by one socket method each: the method, the params it takes, the formatter.
+const METHODS = {
   get_favorites: ["favorites", ["folderId", "page", "query"], formatFavorites],
   get_follows: ["follows", ["page", "query"], formatFollows],
   get_history: ["history", ["cursor"], formatHistory],
+  set_triage: ["triage", ["items"], formatTriage],
+  propose_fav_change: ["propose", ["action", "from", "to", "bvids", "reason"], formatProposal],
 };
 
 // What MCP clients put in the model's prompt about this server: when to reach for it, not how each tool works.
@@ -308,6 +367,7 @@ export const INSTRUCTIONS = [
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
   "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
   "When the user asks about their own Bilibili (what they saved, who they follow, what they watched lately), use get_favorites, get_follows and get_history. They are read-only and off until the user allows them (PERSONAL_DATA_OFF: ask the user to turn it on). Read one page at a time and stop once you can answer.",
+  "When the user asks you to sort their favorites, set_triage writes MoonDigest's 分拣台 results (verdict, 保留, note, tags) and propose_fav_change proposes unfav, move or copy, which the user confirms in the 分拣台. Both are off until the user allows them (WRITES_OFF).",
 ].join("\n\n");
 
 function errorResult(err) {
@@ -331,7 +391,7 @@ export function createMcpServer(bridge) {
         const data = await bridge.call("search", { site, query: args.query.trim(), page });
         return { content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatSearch(data) }] };
       }
-      const mine = PERSONAL[params.name];
+      const mine = METHODS[params.name];
       if (mine) {
         const [method, keys, format] = mine;
         const data = await bridge.call(method, Object.fromEntries(keys.filter((k) => args[k] != null).map((k) => [k, args[k]])));

@@ -26,6 +26,11 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 
 这三个工具一次只读一页，同一时间只跑一个，不会一口气读完。
 
+改分拣台的两个工具，默认关闭，要在「允许 MCP 连接」下面再打开「允许 AI 工具改分拣台」，关着时返回 `WRITES_OFF`。参数整份先检查，有一处不对就什么都不写，返回 `BAD_PARAMS`：
+
+- `set_triage({ items })`：一次最多 50 个视频，每个 `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`，只改给了的字段。`verdict`（`keep` / `drop` / `unsure`）要带 `summary`，和分拣台细看的结论一样显示，卡片上标「AI 工具判断」；`kept` 是保留标记；`note` 是备注，空字符串删掉；`addTags` / `removeTags` 是 `folderId` 这个收藏夹的标签名，视频要在这个勾选过的收藏夹里，没有的标签在名额内新建，满了不建并在结果里列出。只改本地，不改 B站。每次调用在分拣台里是一步，按 U 撤销；撤销时你之后又改过的不动。
+- `propose_fav_change({ action, from, to?, bvids, reason? })`：提议在 B站 取消收藏（`unfav`）、移动（`move`）或复制（`copy`）。它自己不改 B站：提议在分拣台的进度胶囊里等你，点「查看」打开 `from` 收藏夹列出这些视频，确认后照分拣台自己的操作执行（限流、按 U 撤销都一样），也可以拒绝。`from` 要是分拣台勾选过的收藏夹（或 `toview`），视频都在它本地那份里；`to` 是收藏夹列表里的另一个收藏夹，不能是稍后再看。最多 20 条提议同时等待，满了返回 `PROPOSALS_FULL`。
+
 `get_video` 默认返回紧凑文本，每条字幕一行 `[mm:ss] 内容`（超过一小时用 `hh:mm:ss`）。扩展原始 JSON 每条字幕都带 `from`、`to`、`content` 三个键名和小数时间，实测体积约是文本的两倍，而模型几乎用不到结束时间。确实要精确时间时传 `raw: true`。
 
 ### 用 MCP 还是用 skill
@@ -83,6 +88,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 开关默认关闭。关着的时候扩展不建任何连接。
 - 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只发 B站 的读取请求（GET），不改 B站，也不改插件存的数据；API Key 和 AI 对话不会给出去。
+- 改分拣台也另有一个开关，默认关闭。打开后 AI 工具只能直接改本地的分拣结果，每次都能在分拣台撤销；B站 上的改动只能提议，由你在分拣台确认，不靠 MCP 客户端的权限弹框。
 
 ### 两个 MCP 客户端同时开着
 
@@ -105,6 +111,9 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 字幕说要登录（`Subtitle note`）：在这个浏览器里登录 B站。
 - `AD_PLAYING`：YouTube 广告一直在播，等广告结束再取帧。
 - `PERSONAL_DATA_OFF`：「允许 AI 工具读我的收藏、关注和历史」没开。
+- `WRITES_OFF`：「允许 AI 工具改分拣台」没开。
+- `BAD_PARAMS`：参数不对，错误里写着哪一项；这次什么都没写。
+- `PROPOSALS_FULL`：已经有 20 条提议在分拣台等你处理。
 - `NOT_LOGGED_IN`：这个浏览器没登录 B站。
 
 ### 测试
@@ -136,6 +145,11 @@ Three tools read your own Bilibili data. All are read-only and off by default: t
 - `get_history({ cursor?, raw? })`: watch history, newest first, 30 a call. Pass the returned `cursor` back for older items.
 
 These return one page per call and run one at a time, a second apart.
+
+Two tools change the 分拣台. Both are off by default: turn on 允许 AI 工具改分拣台 under 允许 MCP 连接. While it is off they return `WRITES_OFF`. Each call is checked whole first: one bad field writes nothing and returns `BAD_PARAMS`.
+
+- `set_triage({ items })`: up to 50 videos, each `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`; only the fields given change. `verdict` (`keep` / `drop` / `unsure`) needs `summary` and shows like a 细看's, marked AI 工具判断 on the card. `kept` is the 保留 mark. `note` is the note, `""` removes it. `addTags` / `removeTags` are tag names of folder `folderId`, which must be ticked and hold the video; a missing tag is made while the folder has room, else it is not made and the result lists it. Local only, nothing on Bilibili. Each call is one step in the 分拣台 that U undoes; what you changed since stays.
+- `propose_fav_change({ action, from, to?, bvids, reason? })`: proposes unfav, move or copy on Bilibili. It changes nothing itself: the proposal waits in the 分拣台's progress pill; 查看 opens folder `from` with the videos listed, and confirming runs it as the 分拣台's own action (same rate limits, U undoes it), or you reject it. `from` must be a folder ticked in the 分拣台 (or `toview`) whose local copy has every video; `to` another folder of the folder list, not 稍后再看. At most 20 proposals wait at once; past that `PROPOSALS_FULL`.
 
 `get_video` returns compact text by default, one transcript line per segment as `[mm:ss] text` (`hh:mm:ss` past an hour). The extension's raw JSON repeats the `from`, `to` and `content` keys and fractional times on every segment, which measures about twice the size, and models rarely need end times. Pass `raw: true` when you do need exact times.
 
@@ -194,6 +208,7 @@ Then turn on 允许 MCP 连接 in MoonDigest's settings (高级).
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - The switch is off by default. While off, the extension opens no socket.
 - Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only sends Bilibili read requests (GET): it changes nothing on Bilibili or in its own storage, and never gives out API keys or AI conversations.
+- Changing the 分拣台 has its own switch too, off by default. When on, an AI tool changes only local 分拣 results directly, each call undoable in the 分拣台; a change on Bilibili it can only propose, and you confirm it in the 分拣台, not through the MCP client's permission prompt.
 
 ### Two MCP clients at once
 
@@ -216,6 +231,9 @@ With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 
 - The subtitle says log in (`Subtitle note`): log in to Bilibili in that browser.
 - `AD_PLAYING`: a YouTube ad kept playing. Wait for it to end and grab the frame again.
 - `PERSONAL_DATA_OFF`: 允许 AI 工具读我的收藏、关注和历史 is off.
+- `WRITES_OFF`: 允许 AI 工具改分拣台 is off.
+- `BAD_PARAMS`: a parameter is wrong, the error says which; nothing was written.
+- `PROPOSALS_FULL`: 20 proposals already wait for you in the 分拣台.
 - `NOT_LOGGED_IN`: that browser is not logged in to Bilibili.
 
 ### Tests

@@ -226,7 +226,7 @@ async function openFolder(mediaId) {
   S.tagState = "";
   S.aiRecentFilter = false;
   S.kindFilter = "";
-  S.undo = [];
+  S.undo = agentSteps();
   S.focused = "";
   S.syncError = S.readError = "";
   hideSyncNotice();
