@@ -11,6 +11,9 @@
   const PAGE_WAIT_MS = 50_000;
   const CALL_BUDGET_MS = 55_000; // a call ends before the server's 60 s TIMEOUT, so the server gets its error
   const PAGE_RETRY_MS = 500;
+  // What a page-run read may return, as JSON characters: room for the web adapter's 100,000 characters of text and of
+  // subtitles with their timings. The page is untrusted, so anything larger is refused, not passed on to the agent.
+  const MAX_READ_CHARS = 1_000_000;
 
   // --- tabs --------------------------------------------------------------------
 
@@ -149,6 +152,7 @@
     const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
     const d = r?.result;
     if (!d) return undefined;
+    if (JSON.stringify(d).length > MAX_READ_CHARS) return { ok: false, code: "TOO_LARGE", error: `The page returned more than ${MAX_READ_CHARS} characters.` };
     if (typeof d.error === "string") return { ok: false, error: d.error, ...(typeof d.code === "string" ? { code: d.code } : {}) };
     const comments = Array.isArray(d.comments) ? d.comments.map(MdgSites.cleanComment).filter((c) => c.message) : [];
     return { ok: true, data: { ...d, comments, site: site.id } };

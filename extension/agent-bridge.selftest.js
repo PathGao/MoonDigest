@@ -531,6 +531,16 @@ check("inSitePage: func failing is not run again (it may be a write); no access 
   assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
 });
 
+check("a page-read site's answer over 1,000,000 JSON characters is TOO_LARGE, asked once", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ title: "x".repeat(1_000_000) }) });
+  demoSite(env);
+  const s = await openSocket(env);
+  const r = await call(env, s, "1", DEMO);
+  assert.equal(r.code, "TOO_LARGE");
+  assert.equal(r.ok, false);
+  assert.equal(env.injected.length, 1);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of cases) {
