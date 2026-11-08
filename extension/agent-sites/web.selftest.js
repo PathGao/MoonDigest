@@ -35,7 +35,7 @@ const SRT = "1\r\n00:00:01,000 --> 00:00:02,500\r\nOne\r\n\r\n2\r\n00:00:03,000 
 
 const enc = new TextEncoder();
 // A page: metas, videos ({ w, h, duration, tracks, textTracks }), the main text, the files fetch can get.
-function page({ readyState = "complete", videos = [], main = null, body = "", files = {}, metas = {}, title = "Doc title" }) {
+function page({ readyState = "complete", videos = [], main = null, body = "", files = {}, metas = {}, title = "Doc title", status = 200 }) {
   const fetched = [];
   const els = videos.map((v) => ({
     duration: v.duration ?? NaN,
@@ -62,6 +62,7 @@ function page({ readyState = "complete", videos = [], main = null, body = "", fi
     setTimeout: (fn, ms) => { if (ms < 1000) { clock += ms; setImmediate(fn); } return 0; },
     clearTimeout: () => {},
     Date: { now: () => clock },
+    performance: { getEntriesByType: (t) => (t === "navigation" ? [{ responseStatus: status }] : []) },
     AbortController,
     TextDecoder,
     Blob,
@@ -80,6 +81,9 @@ function page({ readyState = "complete", videos = [], main = null, body = "", fi
 
 (async () => {
   assert.strictEqual(await page({ readyState: "loading" }).read(), null, "not ready while the document loads");
+  // An error page is the call's error ({ error, code? }), never its text.
+  assert.deepStrictEqual(await page({ status: 404, body: "Not found" }).read(), { error: "The page answered HTTP 404." });
+  assert.deepStrictEqual(await page({ status: 429 }).read(), { error: "The site answered HTTP 429 (too many requests): stop, do not retry soon.", code: "THROTTLED" });
 
   // The largest video, its default track as WebVTT: cue settings, tags, entities, hour times; NOTE, STYLE and empty cues skipped.
   let p = page({

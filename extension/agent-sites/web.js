@@ -8,6 +8,10 @@ MdgAgentSites.register({
   // Runs in the page's MAIN world: the page is untrusted, so every size is capped and every wait bounded.
   read: async () => {
     if (document.readyState === "loading") return null;
+    // The page's own HTTP status (Chrome 109+): an error page is the call's error, not text to read; 429 is risk control.
+    const status = globalThis.performance?.getEntriesByType?.("navigation")?.[0]?.responseStatus || 0;
+    if (status === 429) return { error: "The site answered HTTP 429 (too many requests): stop, do not retry soon.", code: "THROTTLED" };
+    if (status >= 400) return { error: `The page answered HTTP ${status}.` };
     const MAX_TEXT = 100000; // characters of page text, and of all subtitle text together
     const MAX_TRACK_BYTES = 2000000;
     const FETCH_MS = 8000;

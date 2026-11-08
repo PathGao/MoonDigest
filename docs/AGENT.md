@@ -136,7 +136,7 @@ MdgAgentSites.register({
 });
 ```
 
-- `web` (`agent-sites/web.js`) is the fallback: any http(s) page no other site claims, keyed by its URL without the hash. Its `read` returns `kind: "video"` with the largest `<video>`'s duration and subtitles (cues the browser already loaded, else the default or first subtitles/captions `<track>` file, WebVTT or SRT, at most 2 MB, fetched within 8 s), or, when no `<video>` shows up within 3 s, `kind: "page"` with `text`, the main element's (`article`, `main`, else `body`) text. Title is `og:title`, else the document title; description the meta description. Subtitle text and page text stop at 100,000 characters.
+- `web` (`agent-sites/web.js`) is the fallback: any http(s) page no other site claims, keyed by its URL without the hash. Its `read` returns `kind: "video"` with the largest `<video>`'s duration and subtitles (cues the browser already loaded, else the default or first subtitles/captions `<track>` file, WebVTT or SRT, at most 2 MB, fetched within 8 s), or, when no `<video>` shows up within 3 s, `kind: "page"` with `text`, the main element's (`article`, `main`, else `body`) text. Title is `og:title`, else the document title; description the meta description. Subtitle text and page text stop at 100,000 characters. A page whose HTTP status is 400 or more is the call's error (429 `THROTTLED`), not its text.
 
 - `key`: the registry prefixes the id, so two URLs of one video must give the same `itemId:part`. Two keys equal means the same video for tab reuse.
 - `read: "content"`: a content script (`agent-page.js`) answers in the page; Bilibili and YouTube only, it needs a manifest entry.

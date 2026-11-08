@@ -8,6 +8,8 @@ MdgAgentSites.register({
     return u.hostname.replace(/^www\./, "") === "xiaoyuzhoufm.com" && m ? `${m[1]}:` : null;
   },
   read: (url) => {
+    // A removed episode or a wrong id is Next's 404 page (pageProps empty), not one still loading.
+    if (window.__NEXT_DATA__?.page === "/404") return { error: "Xiaoyuzhou has no such episode (removed, or a wrong link)." };
     const p = window.__NEXT_DATA__?.props?.pageProps;
     const e = p?.episode;
     // Another episode's data (a client-side navigation) counts as not ready.

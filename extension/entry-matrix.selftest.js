@@ -134,6 +134,7 @@ const NOT_ENTRIES = {
   "agent-search.js": "the MCP search (docs/AGENT.md §2): passes THROTTLED on to the agent; shows none",
   "agent-sites/tiktok.js": "read runs in the TikTok page (no MdgErrors there): returns THROTTLED to the agent; shows none",
   "agent-sites/douyin.js": "read runs in the Douyin page (no MdgErrors there): returns THROTTLED to the agent; shows none",
+  "agent-sites/web.js": "read runs in the page (no MdgErrors there): returns THROTTLED for HTTP 429 to the agent; shows none",
   "agent-collections.js": "the MCP collection tools (docs/AGENT.md §2): stops a write batch on THROTTLED / NOT_LOGGED_IN and tells the agent; shows none",
   "agent-sites/youtube.js": "classifies youtubei answers for the MCP collection tools (THROTTLED, NOT_LOGGED_IN); shows none",
   "triage/triage-bg.js": "classifies AI and B站 errors for 分拣台 and 关注; shows none",

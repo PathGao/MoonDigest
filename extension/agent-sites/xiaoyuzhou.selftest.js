@@ -36,4 +36,7 @@ assert.deepStrictEqual(d.comments, [{ uname: "早起川", like: 9, message: "Pal
 // Not ready: no data yet, or another episode's.
 assert.strictEqual(readIn({})(url), null);
 assert.strictEqual(readIn({ __NEXT_DATA__: NEXT })("https://www.xiaoyuzhoufm.com/episode/other"), null);
+// A removed episode: the 404 page's __NEXT_DATA__ (fetched 2026-11-09) is the call's error, not "not ready" for 50 s.
+assert.deepStrictEqual({ ...readIn({ __NEXT_DATA__: { props: { pageProps: {} }, page: "/404", query: {} } })(url) },
+  { error: "Xiaoyuzhou has no such episode (removed, or a wrong link)." });
 console.log("agent-sites xiaoyuzhou selftest ok");
