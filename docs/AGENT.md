@@ -2,7 +2,7 @@
 
 How AI agents read a video through MoonDigest: page messages for agents that drive the browser (the skill, `skills/moondigest/SKILL.md`), and a local MCP server (`mcp/`) for any MCP client, which can also search for videos (§2 `search`). The page messages cannot search. Read-only. Never API keys or AI conversations. The user's own Bilibili favorites, follows and watch history, with their 分拣 tags, notes and AI verdicts, only through the MCP server and only while the user allows it (§2, `favorites` / `follows` / `history`).
 
-Supported pages: Bilibili video pages (`www.bilibili.com/video/…`, `/bangumi/play/…`, `/list/…`, `/festival/…`) and YouTube watch pages (`www.youtube.com/watch?v=…`).
+Supported pages: Bilibili video pages (`www.bilibili.com/video/…`, `/bangumi/play/…`, `/list/…`, `/festival/…`) and YouTube watch pages (`www.youtube.com/watch?v=…`). The MCP server reads the sites registered in `extension/agent-sites/` (§5); the page messages only these two.
 
 ## 1. Page messages (what the skill uses)
 
@@ -64,12 +64,14 @@ Server → extension: `{ id, method, params }`. Extension → server: `{ id, ok:
 |---|---|---|
 | `get` | `{ url }` | Same `data` as `moondigest-get`, for the video at `url` |
 | `frame` | `{ url, at, maxWidth? }` | Same `data` as `moondigest-frame` |
-| `search` | `{ site, query, page? }` | A video search on `site` (`"bilibili"` \| `"youtube"`), `page` default 1; see below |
+| `search` | `{ site, query, page? }` | A video search on `site` (a §5 site id whose adapter has `search`: `"bilibili"`, `"youtube"`), `page` default 1; see below |
 | `favorites` | `{ folderId?, page?, query? }` | The user's Bilibili favorites, see below |
 | `follows` | `{ page?, query? }` | The UP 主 the user follows, see below |
 | `history` | `{ cursor? }` | The user's Bilibili watch history, see below |
 
 `get` and `frame` find a tab already showing that video (same site and video id; Bilibili `/video/` also the part `p`, default 1; `/list/` and `/festival/` match on the `bvid` query, else the path; `/bangumi/` on its ep/ss id). A discarded tab (no content script until shown) is never picked. Else they load `url` in the extension's own tab: at most one, opened muted with `active: false` on first need and navigated to the next video afterwards, so calls never pile up tabs. Calls that need it run one at a time, and a call still queued when the server has given up (55 s after it arrived) is dropped with `TIMEOUT` instead of loading anything. A tab that no call has answered in yet counts as the requested video only while it is still loading. The extension waits up to 50 s for that tab's content script to answer (a missing reply or one without `ok` means not loaded yet), then fails with `TIMEOUT`, before the server's own 60 s. The extension rejects any `url` that is not a supported page with code `BAD_URL`. Then they run the same handler the page messages run, in that tab's content script (`chrome.tabs.sendMessage`), so both paths return identical results. A `frame` that comes back `TAB_HIDDEN` (Chrome loads no media in a tab never shown) is asked again with that tab in front, and the tab that was in front of its window is brought back afterwards, unless the user switched tabs meanwhile; `get` never switches tabs. Timeout: 60 s per call, code `TIMEOUT`.
+
+A site whose adapter reads the page itself (§5, `read` a function) answers `get` only, and only in the extension's own tab: the user's tabs are never used. It fails with `NO_ACCESS` until the user has allowed the site's origins. Its `data` is what `read` returned, with `site` set to the site's id.
 
 `search` opens no tab: the service worker fetches with the user's cookies. Bilibili: the WBI-signed `api.bilibili.com/x/web-interface/wbi/search/type?search_type=video` through the same channel as 分拣台 (`triageBiliGet`). YouTube: the `www.youtube.com/results?search_query=…` page, read from its `ytInitialData`; only the result list's own videos, no shorts, ads, channels, playlists or shelves. YouTube has page 1 only (about 20 videos); a `page` above 1 is an error. Searches run one at a time, at least 2 s apart; one still queued at the call's deadline is dropped with `TIMEOUT`. HTTP 412, B站's risk-control codes and YouTube's 429 are `THROTTLED`. No results is `items: []`, not an error.
 
@@ -87,12 +89,40 @@ Keepalive: the server sends `{ type: "ping" }` every 20 s and the extension answ
 
 - `extension/agent-page.js` (content script): `MdgAgentPage.bind({ read, signal })`. `read()` is content.js's `agentRead`, the side panel's read of the page's video, resolving to §1's `get` data or rejecting with an `Error` carrying `code`. It answers the page messages and the bridge's `chrome.runtime` messages `{ type: "agent-call", method, params }` (`params` without `url`) with `{ ok, data }` or `{ ok: false, error, code }`, and runs `frame` itself.
 - `extension/agent-bridge.js` (service worker): `MdgAgentBridge.start({ extensionVersion, isEnabled, onEnabledChange })`, §2's socket and tab handling. `MdgAgentBridge.addMethods({ name: (params) => reply })` adds methods answered without a tab.
-- `extension/agent-search.js` (service worker): `MdgAgentSearch.search(params, deadline)`, §2's `search`.
+- `extension/agent-search.js` (service worker): `MdgAgentSearch.search(params, deadline)`, §2's `search`: checks, the queue, then the site's adapter.
+- `extension/agent-sites/` (service worker): the site registry and one adapter per site, §5.
 - `extension/agent-mydata.js` (service worker, loaded after the 分拣台's `triage-bg.js` and `follow-core.js`): §2's `favorites`, `follows`, `history`.
 - `mcp/server.js`: the MCP server, `npm test` in `mcp/`.
 
 ## 4. Codes
 
-`NOT_VIDEO_PAGE`, `TAB_HIDDEN`, `THROTTLED` (Bilibili 412 / YouTube 429: stop, do not retry soon), `NO_VIDEO`, `SEEK_TIMEOUT`, `AD_PLAYING`, `FRAME_BLOCKED`, `BAD_URL`, `TIMEOUT`, `NOT_CONNECTED` (MCP server: no extension connected), `PERSONAL_DATA_OFF` (the user has not allowed `favorites` / `follows` / `history`: ask them to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史), `NOT_LOGGED_IN` (not logged in to Bilibili in that browser), `NETWORK` (Bilibili did not answer), `PORT_IN_USE` (MCP server: another moondigest-mcp holds the port; it takes over when that one exits).
+`NOT_VIDEO_PAGE`, `TAB_HIDDEN`, `THROTTLED` (Bilibili 412 / YouTube 429: stop, do not retry soon), `NO_VIDEO`, `SEEK_TIMEOUT`, `AD_PLAYING`, `FRAME_BLOCKED`, `BAD_URL`, `NO_ACCESS` (the user has not allowed MoonDigest on that site, §5), `TIMEOUT`, `NOT_CONNECTED` (MCP server: no extension connected), `PERSONAL_DATA_OFF` (the user has not allowed `favorites` / `follows` / `history`: ask them to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史), `NOT_LOGGED_IN` (not logged in to Bilibili in that browser), `NETWORK` (Bilibili did not answer), `PORT_IN_USE` (MCP server: another moondigest-mcp holds the port; it takes over when that one exits).
 
 The port is fixed at 47823 on both sides. The server's `MOONDIGEST_MCP_PORT` is for tests only.
+
+## 5. Sites
+
+Each site the MCP server reads is one adapter, `extension/agent-sites/<id>.js`, registered with `extension/agent-sites/registry.js`. `agent-bridge.js` and `agent-search.js` ask the registry and name no site. Sites beyond Bilibili and YouTube get MCP tools only, no pages of their own.
+
+```js
+MdgAgentSites.register({
+  id: "demo",                         // [a-z0-9-]+, the MCP `site` value
+  origins: ["https://www.demo.com/*"], // match patterns: the user's tabs to look in, the host access to check
+  key(u) {                            // u: a URL; "itemId:part" for a page this site reads, else null
+    const m = /^\/v\/(\w+)$/.exec(u.pathname);
+    return u.hostname === "www.demo.com" && m ? `${m[1]}:` : null;
+  },
+  read(url) {                         // "content", or a function run in the page's MAIN world (see below)
+    const s = window.__INITIAL_STATE__;
+    return s ? { url, title: s.title, author: s.author, duration: s.duration, description: s.desc,
+      chapters: [], subtitle: { segments: [], lang: "", warning: "", missing: "no subtitle" }, comments: [] } : null;
+  },
+  search: async (query, page) => [],  // optional: §2's search items, throw an Error with code THROTTLED when rate-limited
+});
+```
+
+- `key`: the registry prefixes the id, so two URLs of one video must give the same `itemId:part`. Two keys equal means the same video for tab reuse.
+- `read: "content"`: a content script (`agent-page.js`) answers in the page; Bilibili and YouTube only, it needs a manifest entry.
+- `read` a function: `chrome.scripting.executeScript({ world: "MAIN", func: read, args: [url] })` in the bridge's own tab. It is serialized: no closures, no extension globals. It returns §1's `get` data (missing fields read as unknown), or a falsy value while the page is not ready, and is asked again every 0.5 s for up to 50 s. A throw counts as not ready.
+- Host access: the manifest grants only Bilibili and YouTube; other sites are in `optional_host_permissions` (every http(s) site), so a new site needs no manifest change. Until the user allows its origins the site answers `NO_ACCESS`. Today the only way to allow them is the side panel's grant for reading web pages, which allows every site at once; a per-site 允许 in 设置 is not built yet.
+- A new site adds: `agent-sites/<id>.js`, `agent-sites/<id>.selftest.js` (`require("./registry.selftest.js").load("<id>.js")` gives a registry with only that site loaded), one `importScripts("agent-sites/<id>.js")` line in `background.js`, and its name in the MCP tools' descriptions (`mcp/server.js`). A `search` that reads `MdgErrors.CODE` also needs a line in `entry-matrix.selftest.js`'s `NOT_ENTRIES`.
