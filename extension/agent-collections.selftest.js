@@ -176,6 +176,17 @@ check("a write the read after does not see is unconfirmed, and undo still takes 
   assert.deepStrictEqual(plain(r.data.undo.items), [ID(2)]);
 });
 
+check("a write that fails after it went out (HTTP 500, a timeout) is failed, and undo still takes it", async () => {
+  yt = (e, b) => {
+    const r = fakeYt(e, b);
+    return e === "browse/edit_playlist" ? { status: 500, url: "", json: null } : r; // applied, then the answer failed
+  };
+  const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] });
+  assert.deepStrictEqual(plain(r.data.results.map((x) => x.status)), ["failed"]);
+  assert.deepStrictEqual(plain(r.data.undo), { site: "youtube", op: "remove", kind: "watch_later", items: [ID(2)] });
+  assert.ok(lists.WL.has(ID(2)), "it had landed");
+});
+
 check("429 mid-batch stops it: THROTTLED, done and not-done lists, no request after", async () => {
   throttleAt = 4; // ID(2) takes 3 requests (read, write, read); the 4th is ID(3)'s read before
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2), ID(3), ID(4)] });

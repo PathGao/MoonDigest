@@ -55,6 +55,7 @@
     const at = { kind, id: p.id };
     const want = op === "add";
     const results = [];
+    const sent = new Set(); // written, whatever the answer: a write that timed out or failed may still have landed
     let stopped = "";
     for (const [n, item] of items.entries()) {
       if (n) await sleep(ITEM_GAP[0] + Math.random() * (ITEM_GAP[1] - ITEM_GAP[0]));
@@ -64,6 +65,7 @@
         before = await adapter.has({ ...at, item }, deadline);
         if (before === want) { results.push({ item, status: "unchanged", before }); continue; }
         if (dryRun) { results.push({ item, status: "would_change", before }); continue; }
+        sent.add(item);
         await adapter.write({ ...at, op, item }, deadline);
         await sleep(SETTLE_MS);
         const after = await adapter.has({ ...at, item }, deadline);
@@ -74,8 +76,9 @@
       }
     }
     const done = results.filter((r) => r.status === "done").map((r) => r.item);
-    // unconfirmed may have landed: undo takes it too, and skips it if it had not.
-    const undoItems = results.filter((r) => r.status === "done" || r.status === "unconfirmed").map((r) => r.item);
+    // Every item sent may have landed (unconfirmed, or failed after the write went out): undo takes it too, and skips it
+    // if it had not, since undo reads each item first.
+    const undoItems = items.filter((i) => sent.has(i));
     return {
       site: adapter.id, op, kind, ...(p.id != null && { id: String(p.id) }), dryRun, results, done,
       notDone: items.slice(results.length),
