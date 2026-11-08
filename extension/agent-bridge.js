@@ -143,21 +143,35 @@
 
   // Chrome loads no media in a tab that has never been shown, so a frame there fails with TAB_HIDDEN. Show the tab for
   // that one frame, then give its window back the tab that was in front. Once loaded, later frames need no switch.
-  async function callShown(target, method, params, deadline) {
-    const reply = await callPage(target, method, params, deadline);
+  async function callShown(target, method, params, deadline, ask) {
+    const reply = await callPage(target, method, params, deadline, ask);
     if (method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return reply;
     const [front] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     await chrome.tabs.update(tab.id, { active: true });
     try {
-      return await callPage(target, method, params, deadline);
+      return await callPage(target, method, params, deadline, ask);
     } finally {
       // Give the front back only if ours is still in front: the user may have switched tabs meanwhile.
       const now = await chrome.tabs.get(tab.id).catch(() => null);
       if (front && front.id !== tab.id && now?.active) await chrome.tabs.update(front.id, { active: true }).catch(() => {});
     }
   }
+
+  // A site whose adapter reads the page itself: read(url) runs in the page's own world (its globals in reach) and returns
+  // §1's get data, or a falsy value while the page is not ready (callPage asks again).
+  const readInPage = (site, url) => async (tabId) => {
+    const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
+    return r?.result ? { ok: true, data: { ...r.result, site: site.id } } : undefined;
+  };
+
+  // A frame there: agent-page.js's frame, injected into the page's isolated world (it stays loaded for the next frame).
+  const frameInPage = (params) => async (tabId) => {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["agent-page.js"] });
+    const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: (p) => MdgAgentPage.frame(p), args: [params] });
+    return r?.result;
+  };
 
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so
   // nothing loads a video or asks the site for a call nobody waits for any more.
@@ -167,9 +181,9 @@
 
   // A get the page answered for another video than the one asked (the tab's URL changed before its page did) is asked
   // again until the deadline. want: the requested video id, null when the URL names none (frame, 番剧 ep…, a path).
-  async function callVideo(target, method, params, deadline, want) {
+  async function callVideo(target, method, params, deadline, want, ask) {
     for (;;) {
-      const reply = await callShown(target, method, params, deadline);
+      const reply = await callShown(target, method, params, deadline, ask);
       if (!want || !reply.ok || !reply.data?.videoId || reply.data.videoId === want) return reply;
       if (Date.now() + PAGE_RETRY_MS > deadline) return { ok: false, code: "TIMEOUT", error: "The tab still showed another video than the one asked for." };
       await new Promise((r) => setTimeout(r, PAGE_RETRY_MS));
@@ -195,12 +209,18 @@
     // Only where the path names the video: a 活动页 or list keeps its ?bvid= after the player moves on to another.
     const named = site.id === "youtube" || /^\/video\//.test(new URL(url).pathname);
     const want = method === "get" && named && (/^BV[0-9A-Za-z]{10}$/.test(id) || site.id === "youtube") ? id : null;
-    const user = await findUserTab(site, key);
+    // A site that reads the page itself (§5, read a function): only in the own tab, nothing runs in the user's tabs.
+    const self = site.read !== "content";
+    if (self && !(await chrome.permissions.contains({ origins: site.origins }))) {
+      return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
+    }
+    const ask = !self ? undefined : method === "get" ? readInPage(site, url) : frameInPage(rest);
+    const user = self ? null : await findUserTab(site, key);
     if (user) return callVideo(user, method, rest, deadline, want);
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
-      const reply = await callVideo(own, method, rest, deadline, want);
+      const reply = await callVideo(own, method, rest, deadline, want, ask);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;
