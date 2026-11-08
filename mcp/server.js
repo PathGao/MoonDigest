@@ -216,7 +216,7 @@ export function formatHistory(d) {
 
 // --- MCP ----------------------------------------------------------------------
 
-const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…) or a YouTube watch page (www.youtube.com/watch?v=…). Any other web page is read too, once the user has allowed MoonDigest to read web pages (else NO_ACCESS): its main <video> with the <track> subtitles, or, with no video, the page's main text.";
+const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…), a YouTube watch page (www.youtube.com/watch?v=…), a TikTok video (www.tiktok.com/@user/video/…) or a Douyin video (www.douyin.com/video/…, or a page with ?modal_id=). Any other web page is read too, once the user has allowed MoonDigest to read web pages (else NO_ACCESS): its main <video> with the <track> subtitles, or, with no video, the page's main text.";
 
 const TOOLS = [
   {
@@ -235,7 +235,7 @@ const TOOLS = [
   },
   {
     name: "get_video",
-    description: "Read a Bilibili or YouTube video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
+    description: "Read a Bilibili, YouTube, TikTok or Douyin video through the user's own browser: title, author, date, duration, chapters, the full timestamped transcript and hot comments. Call this first for any video: one the user links, and one that turns up in your search results or recommendations, to check what it actually says before you cite or recommend it. Work on one video at a time. If the result says THROTTLED, stop calling MoonDigest and tell the user; do not retry soon.",
     inputSchema: {
       type: "object",
       properties: {

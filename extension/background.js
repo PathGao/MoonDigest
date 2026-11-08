@@ -4,6 +4,8 @@ importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", 
 // The sites the agent interface reads (docs/AGENT.md §5), one line each.
 importScripts("agent-sites/bilibili.js");
 importScripts("agent-sites/youtube.js");
+importScripts("agent-sites/tiktok.js");
+importScripts("agent-sites/douyin.js");
 importScripts("agent-sites/xiaoyuzhou.js");
 importScripts("agent-sites/web.js");
 
