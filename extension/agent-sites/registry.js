@@ -2,14 +2,17 @@
 // agent-bridge.js and agent-search.js ask the registry; they name no site.
 (() => {
   const sites = new Map();
+  // The one site that reads any page the others do not (fallback: true): asked last, whatever the load order.
+  let fallback = null;
 
   function register(adapter) {
     const { id, origins, key, read } = adapter || {};
     // The id prefixes every key, so a ":" in it would split keys wrongly.
     const bad = !/^[a-z0-9-]+$/.test(id) || sites.has(id) || !Array.isArray(origins) || !origins.length || typeof key !== "function" ||
       (read !== "content" && typeof read !== "function");
-    if (bad) throw new Error(`MdgAgentSites: bad adapter ${id}`);
+    if (bad || (adapter.fallback && fallback)) throw new Error(`MdgAgentSites: bad adapter ${id}`);
     sites.set(id, adapter);
+    if (adapter.fallback) fallback = adapter;
   }
 
   // "id:itemId:part" for a page some site reads, else null. The adapter's key(URL) returns "itemId:part".
@@ -17,7 +20,7 @@
     let u;
     try { u = new URL(href); } catch { return null; }
     if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-    for (const s of sites.values()) {
+    for (const s of [...sites.values()].filter((x) => x !== fallback).concat(fallback || [])) {
       const k = s.key(u);
       if (k) return `${s.id}:${k}`;
     }

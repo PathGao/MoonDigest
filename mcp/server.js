@@ -147,6 +147,7 @@ export function formatVideo(d) {
   if (sub.needLogin) add("Subtitle note", "Bilibili hides subtitles from logged-out users; the user should log in to Bilibili in that browser.");
   add("Subtitle warning", sub.warning);
   if (d.description) lines.push("", "Description:", d.description);
+  if (d.text) lines.push("", "Page text:", d.text);
   if (d.chapters?.length) {
     lines.push("", "Chapters:");
     for (const c of d.chapters) lines.push(`[${clock(c.from)}] ${c.title}`);
@@ -215,7 +216,7 @@ export function formatHistory(d) {
 
 // --- MCP ----------------------------------------------------------------------
 
-const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…) or a YouTube watch page (www.youtube.com/watch?v=…).";
+const URL_DOC = "A Bilibili video page (www.bilibili.com/video/…, /bangumi/play/…, /list/…, /festival/…) or a YouTube watch page (www.youtube.com/watch?v=…). Any other web page is read too, once the user has allowed MoonDigest to read web pages (else NO_ACCESS): its main <video> with the <track> subtitles, or, with no video, the page's main text.";
 
 const TOOLS = [
   {
