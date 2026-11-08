@@ -208,8 +208,8 @@
     if (method === "search") return MdgAgentSearch.search(params, deadline); // agent-search.js, no tab
     if (Object.hasOwn(added, method)) return added[method](params, deadline);
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
-    const url = params && params.url;
-    const key = typeof url === "string" ? MdgAgentSites.keyOf(url) : null;
+    const url = params && typeof params.url === "string" ? MdgAgentSites.canonical(params.url) : null;
+    const key = url ? MdgAgentSites.keyOf(url) : null;
     if (!key) return { ok: false, code: "BAD_URL", error: `Not a page MoonDigest reads. Sites: ${MdgAgentSites.list().map((s) => s.id).join(", ")}.` };
     const site = MdgAgentSites.get(key.split(":")[0]);
     const { url: _drop, ...rest } = params;

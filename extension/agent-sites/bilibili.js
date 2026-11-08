@@ -14,6 +14,9 @@ MdgAgentSites.register({
     if (/^\/(list|festival)\/[^/]+/.test(u.pathname)) return `${q.get("bvid") || u.pathname}:${q.get("p") || "1"}`;
     return null;
   },
+  // m.bilibili.com and bilibili.com: the same path on www, where the content script runs. b23.tv short links are not
+  // followed (the id is behind a redirect).
+  canonical: (u) => (/^(m\.)?bilibili\.com$/.test(u.hostname) ? `https://www.bilibili.com${u.pathname}${u.search}` : null),
   read: "content",
   search: (query, page) => MdgAgentSearch.searchBili(query, page)
 });

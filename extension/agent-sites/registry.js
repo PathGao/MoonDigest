@@ -27,8 +27,20 @@
     return null;
   }
 
+  // The page to load for href: a site's own form of it (adapter canonical(URL): youtu.be → its watch page), else href.
+  // Only for a requested URL: tabs keep their own URLs, since the content script runs on the canonical pages only.
+  function canonical(href) {
+    let u;
+    try { u = new URL(href); } catch { return href; }
+    for (const s of sites.values()) {
+      const c = s.canonical?.(u);
+      if (c) return c;
+    }
+    return href;
+  }
+
   const get = (id) => sites.get(id) || null;
   const list = () => [...sites.values()];
 
-  globalThis.MdgAgentSites = { register, keyOf, get, list };
+  globalThis.MdgAgentSites = { register, keyOf, canonical, get, list };
 })();

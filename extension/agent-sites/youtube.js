@@ -176,6 +176,15 @@
       const v = u.searchParams.get("v");
       return u.hostname.replace(/^www\./, "") === "youtube.com" && u.pathname === "/watch" && v ? `${v}:` : null;
     },
+    // youtu.be, /shorts/, /live/, m. and music.youtube.com: the watch page, where the content script runs.
+    canonical(u) {
+      const h = u.hostname.replace(/^(www|m|music)\./, "");
+      const v = h === "youtu.be" ? u.pathname.split("/")[1]
+        : h !== "youtube.com" ? null
+        : u.pathname === "/watch" ? (u.hostname === "www.youtube.com" ? null : u.searchParams.get("v"))
+        : /^\/(?:shorts|live)\/([\w-]{11})\/?$/.exec(u.pathname)?.[1];
+      return v ? `https://www.youtube.com/watch?v=${encodeURIComponent(v)}` : null;
+    },
     read: "content",
     search: (query, page) => MdgAgentSearch.searchYt(query, page),
     // Likes and subscriptions are read only: like/removelike and subscribe are other endpoints, not built.

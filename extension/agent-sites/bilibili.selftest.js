@@ -17,5 +17,9 @@ const keys = {
   "https://www.bilibili.com.evil.test/video/BV1xx411c7mD": null
 };
 for (const [href, key] of Object.entries(keys)) assert.strictEqual(S.keyOf(href), key, href);
+// m.bilibili.com and the bare domain load as www (the content script runs there); b23.tv is left alone.
+assert.strictEqual(S.canonical("https://m.bilibili.com/video/BV1xx411c7mD?p=2"), "https://www.bilibili.com/video/BV1xx411c7mD?p=2");
+assert.strictEqual(S.canonical("https://bilibili.com/video/av170001"), "https://www.bilibili.com/video/av170001");
+assert.strictEqual(S.canonical("https://b23.tv/abc"), "https://b23.tv/abc");
 assert.strictEqual(S.get("bilibili").read, "content");
 console.log("agent-sites bilibili selftest ok");

@@ -13,6 +13,20 @@ const keys = {
   "https://m.youtube.com/watch?v=abc": null
 };
 for (const [href, key] of Object.entries(keys)) assert.strictEqual(S.keyOf(href), key, href);
+// Other forms of a watch page are read as the watch page; the content script runs there only.
+const canon = {
+  "https://youtu.be/dQw4w9WgXcQ?t=5": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://www.youtube.com/shorts/dQw4w9WgXcQ": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://m.youtube.com/watch?v=dQw4w9WgXcQ&feature=share": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=x": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://www.youtube.com/live/dQw4w9WgXcQ": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30",
+  "https://www.youtube.com/@chan": "https://www.youtube.com/@chan"
+};
+for (const [href, to] of Object.entries(canon)) {
+  assert.strictEqual(S.canonical(href), to, href);
+  if (to.includes("watch")) assert.strictEqual(S.keyOf(S.canonical(href)), "youtube:dQw4w9WgXcQ:", href);
+}
 const yt = S.get("youtube");
 assert.strictEqual(yt.read, "content");
 
