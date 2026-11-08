@@ -528,7 +528,6 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
   assert.deepStrictEqual([els.mcpPersonalData.disabled, els.mcpPersonalData.title], [true, "先打开「允许 MCP 连接」"]);
-  assert.deepStrictEqual([els.mcpWrites.disabled, els.mcpWrites.title], [true, "先打开「允许 MCP 连接」"], "允许 AI 工具改分拣台 hangs on it too");
   assert.deepStrictEqual([page.readFormPayload().mcpEnabled, page.readFormPayload().mcpPersonalData], [false, true], "turning MCP off keeps the stored value");
   els.mcpEnabled.checked = true;
   page.syncMcpRows();
@@ -537,15 +536,16 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
   assert.deepStrictEqual([els.mcpPersonalData.disabled, page.readFormPayload().mcpPersonalData], [true, false], "an off one stays off");
-  // 允许 AI 工具改我的收藏 hangs on both: greyed out while either is off, with the first one to turn on as the reason.
-  assert.deepStrictEqual([els.mcpCollectionWrite.disabled, els.mcpCollectionWrite.title], [true, "先打开「允许 MCP 连接」"]);
+  // Both write switches (改分拣台, 改我的收藏) hang on both: greyed out while either is off, with the first one to turn on as the reason.
+  const writes = () => ["mcpWrites", "mcpCollectionWrite"].map((k) => [els[k].disabled, els[k].title]);
+  assert.deepStrictEqual(writes(), [[true, "先打开「允许 MCP 连接」"], [true, "先打开「允许 MCP 连接」"]]);
   els.mcpEnabled.checked = true;
   page.syncMcpRows();
-  assert.deepStrictEqual([els.mcpCollectionWrite.disabled, els.mcpCollectionWrite.title], [true, "先打开「允许 AI 工具读我的收藏、关注和历史」"]);
-  assert.strictEqual(page.readFormPayload().mcpCollectionWrite, true, "greyed out, it keeps its own value");
+  assert.deepStrictEqual(writes(), [[true, "先打开「允许 AI 工具读我的收藏、关注和历史」"], [true, "先打开「允许 AI 工具读我的收藏、关注和历史」"]]);
+  assert.deepStrictEqual([page.readFormPayload().mcpWrites, page.readFormPayload().mcpCollectionWrite], [true, true], "greyed out, they keep their own values");
   els.mcpPersonalData.checked = true;
   page.syncMcpRows();
-  assert.deepStrictEqual([els.mcpCollectionWrite.disabled, page.readFormPayload().mcpCollectionWrite], [false, true]);
+  assert.deepStrictEqual(writes().map(([d]) => d), [false, false]);
 })().catch((e) => (console.error(e), process.exit(1)));
 function plainOf(v) {
   return JSON.parse(JSON.stringify(v));

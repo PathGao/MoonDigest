@@ -16,7 +16,7 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const on = async (key) => MdgSettings.normalizeSwitches({ [key]: (await chrome.storage.sync.get(key))[key] })[key];
   const READ_OFF = "The user has not allowed AI tools to read their collections. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
-  const WRITE_OFF = "The user has not allowed AI tools to change their collections. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again. dryRun works without it.";
+  const COLLECTION_WRITES_OFF = "The user has not allowed AI tools to change their collections. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again. dryRun works without it.";
 
   // The site and kind, checked: { adapter, kind, ops } (ops: the writes the kind takes).
   function target(params) {
@@ -51,7 +51,7 @@
     if (!items.every((i) => typeof i === "string" && ITEM.test(i)) || new Set(items).size !== items.length) throw fail("items must be distinct ids.");
     const dryRun = p.dryRun === true;
     if (!(await on("mcpPersonalData"))) throw fail(READ_OFF, "PERSONAL_DATA_OFF");
-    if (!dryRun && !(await on("mcpCollectionWrite"))) throw fail(WRITE_OFF, "WRITE_OFF");
+    if (!dryRun && !(await on("mcpCollectionWrite"))) throw fail(COLLECTION_WRITES_OFF, "COLLECTION_WRITES_OFF");
     const at = { kind, id: p.id };
     const want = op === "add";
     const results = [];

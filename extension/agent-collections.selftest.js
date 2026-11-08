@@ -79,16 +79,16 @@ const far = () => Date.now() + 600_000;
 const write = (params, deadline = far()) => M.collectionWrite({ site: "youtube", ...params }, deadline);
 const sent = (endpoint) => calls.filter(([e]) => e === endpoint);
 
-check("off: list is PERSONAL_DATA_OFF, a write WRITE_OFF, a dryRun runs on the read switch alone; nothing asked of YouTube", async () => {
+check("off: list is PERSONAL_DATA_OFF, a write COLLECTION_WRITES_OFF, a dryRun runs on the read switch alone; nothing asked of YouTube", async () => {
   sync = { mcpCollectionWrite: true };
   assert.strictEqual((await M.collection({ site: "youtube", kind: "watch_later" }, far())).code, "PERSONAL_DATA_OFF");
   assert.strictEqual((await write({ op: "add", kind: "watch_later", items: [ID(2)] })).code, "PERSONAL_DATA_OFF", "the write switch alone does not open writes");
   sync = { mcpPersonalData: true };
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] });
-  assert.deepStrictEqual([r.ok, r.code], [false, "WRITE_OFF"]);
+  assert.deepStrictEqual([r.ok, r.code], [false, "COLLECTION_WRITES_OFF"]);
   assert.match(r.error, /允许 AI 工具改我的收藏/);
   sync = { mcpPersonalData: true, mcpCollectionWrite: "true" }; // not a boolean: stays off
-  assert.strictEqual((await write({ op: "add", kind: "watch_later", items: [ID(2)] })).code, "WRITE_OFF");
+  assert.strictEqual((await write({ op: "add", kind: "watch_later", items: [ID(2)] })).code, "COLLECTION_WRITES_OFF");
   assert.strictEqual(calls.length, 0);
   const dry = await write({ op: "add", kind: "watch_later", items: [ID(2)], dryRun: true });
   assert.strictEqual(dry.ok, true);

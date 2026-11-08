@@ -70,17 +70,19 @@ const reset = () => {
     [K.triageTags]: [{ id: "t1", name: "入门", color: "#111", folder: "11" }],
     [K.triageVideoTags]: { [B]: ["t1"] }
   };
-  sync = { mcpWrites: true };
+  sync = { mcpPersonalData: true, mcpWrites: true };
 };
 const log = () => local[K.triageAgentLog] || [];
 
-check("switch off: WRITES_OFF for both methods, nothing written", async () => {
-  sync = {};
+check("switch off: TRIAGE_WRITES_OFF for both methods; on but the read switch off: PERSONAL_DATA_OFF; nothing written", async () => {
   const before = plain(local);
-  for (const [name, p] of [["triage", { items: [{ bvid: A, kept: true }] }], ["propose", { action: "unfav", from: "11", bvids: [A] }]]) {
-    const r = await M[name](p);
-    assert.deepStrictEqual([r.ok, r.code], [false, "WRITES_OFF"], name);
-    assert.match(r.error, /允许 AI 工具改分拣台/);
+  for (const [s, code, words] of [[{ mcpPersonalData: true }, "TRIAGE_WRITES_OFF", /允许 AI 工具改分拣台/], [{ mcpWrites: true }, "PERSONAL_DATA_OFF", /允许 AI 工具读我的收藏/]]) {
+    sync = s;
+    for (const [name, p] of [["triage", { items: [{ bvid: A, kept: true }] }], ["propose", { action: "unfav", from: "11", bvids: [A] }]]) {
+      const r = await M[name](p);
+      assert.deepStrictEqual([r.ok, r.code], [false, code], name);
+      assert.match(r.error, words);
+    }
   }
   assert.deepStrictEqual(local, before);
 });

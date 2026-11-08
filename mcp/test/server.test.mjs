@@ -335,7 +335,7 @@ test("collection formatting: videos, playlists, channels; a write's items, lists
   assert.equal(dry, "Dry run, nothing changed: remove on youtube watch_later.\n- a: would change (was in)");
 });
 
-test("collection tools: params pass through; a stopped batch is an error with its lists, a timed-out one is not; WRITE_OFF passes through", async () => {
+test("collection tools: params pass through; a stopped batch is an error with its lists, a timed-out one is not; COLLECTION_WRITES_OFF passes through", async () => {
   const s = await setup();
   let reply = null;
   const ext = fakeExtension(s.bridge.port, { onCall: () => reply });
@@ -353,9 +353,9 @@ test("collection tools: params pass through; a stopped batch is an error with it
   r = await s.client.callTool({ name: "collection_write", arguments: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"] } });
   assert.equal(r.isError, undefined);
   assert.match(r.content[0].text, /Call again with the items not tried\./);
-  reply = { ok: false, code: "WRITE_OFF", error: "Not allowed." };
+  reply = { ok: false, code: "COLLECTION_WRITES_OFF", error: "Not allowed." };
   r = await s.client.callTool({ name: "collection_write", arguments: { site: "youtube", op: "remove", kind: "watch_later", items: ["v1"] } });
-  assert.deepEqual([r.isError, r.content[0].text], [true, "WRITE_OFF: Not allowed."]);
+  assert.deepEqual([r.isError, r.content[0].text], [true, "COLLECTION_WRITES_OFF: Not allowed."]);
   const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
   assert.deepEqual(calls[0], { method: "collection", params: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C" } });
   assert.deepEqual(calls[1], { method: "collectionWrite", params: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"], dryRun: false } });
@@ -363,11 +363,11 @@ test("collection tools: params pass through; a stopped batch is an error with it
   await s.close();
 });
 
-test("分拣台 writes: params pass through, the answers say what happened, WRITES_OFF passes through", async () => {
+test("分拣台 writes: params pass through, the answers say what happened, TRIAGE_WRITES_OFF passes through", async () => {
   const s = await setup();
   let off = false;
   const ext = fakeExtension(s.bridge.port, { onCall: (m) => (off
-    ? { ok: false, code: "WRITES_OFF", error: "Ask the user to turn it on." }
+    ? { ok: false, code: "TRIAGE_WRITES_OFF", error: "Ask the user to turn it on." }
     : { ok: true, data: m.method === "triage" ? { changed: 2, tagsNotMade: ["新"] } : { id: "p1", status: "proposed" } }) });
   await ext.opened;
   await until(() => s.bridge.connected);
@@ -381,7 +381,7 @@ test("分拣台 writes: params pass through, the answers say what happened, WRIT
   off = true;
   r = await s.client.callTool({ name: "set_triage", arguments: { items } });
   assert.equal(r.isError, true);
-  assert.equal(r.content[0].text, "WRITES_OFF: Ask the user to turn it on.");
+  assert.equal(r.content[0].text, "TRIAGE_WRITES_OFF: Ask the user to turn it on.");
   ext.ws.close();
   await s.close();
 });

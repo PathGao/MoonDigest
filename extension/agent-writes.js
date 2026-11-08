@@ -250,11 +250,14 @@
     return { id: p.id, status: "proposed" };
   }
 
-  const on = async () => MdgSettings.normalizeSwitches({ mcpWrites: (await chrome.storage.sync.get("mcpWrites")).mcpWrites }).mcpWrites;
+  const on = async (key) => MdgSettings.normalizeSwitches({ [key]: (await chrome.storage.sync.get(key))[key] })[key];
+  const READ_OFF = "The user has not allowed AI tools to read their favorites. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
   const OFF = "The user has not allowed AI tools to change the 分拣台. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改分拣台 (Settings → Advanced) in MoonDigest, then call again.";
+  // Like collectionWrite (agent-collections.js), a write needs the read switch too: the 设置 row is greyed out under it.
   const method = (fn) => async (params) => {
     try {
-      if (!(await on())) throw fail("WRITES_OFF", OFF);
+      if (!(await on("mcpPersonalData"))) throw fail("PERSONAL_DATA_OFF", READ_OFF);
+      if (!(await on("mcpWrites"))) throw fail("TRIAGE_WRITES_OFF", OFF);
       return { ok: true, data: await fn(params && typeof params === "object" ? params : {}) };
     } catch (e) {
       return { ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) };

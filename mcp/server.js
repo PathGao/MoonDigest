@@ -350,7 +350,7 @@ const TOOLS = [
   },
   {
     name: "collection_write",
-    description: "Changes the user's own collection: adds videos to or removes them from YouTube watch_later or one of the user's own playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user. Fails with WRITE_OFF until the user allows changes (dryRun needs only PERSONAL_DATA_OFF lifted).",
+    description: "Changes the user's own collection: adds videos to or removes them from YouTube watch_later or one of the user's own playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user. Fails with COLLECTION_WRITES_OFF until the user allows changes (dryRun needs only PERSONAL_DATA_OFF lifted).",
     inputSchema: {
       type: "object",
       properties: {
@@ -367,7 +367,7 @@ const TOOLS = [
   },
   {
     name: "set_triage",
-    description: "Write the user's MoonDigest 分拣台 results for up to 50 Bilibili videos, as the 分拣台's own AI does: a verdict (keep / drop / unsure) with a one-line summary, 保留 (kept), a note, and tags of the folder. Judge a video only after reading it with get_video; take bvids and folder ids from get_favorites. Only the fields you give change, and the whole call is checked before anything is written. The user sees the results in the 分拣台 and can undo the call there. Nothing changes on Bilibili. Fails with WRITES_OFF until the user allows it.",
+    description: "Write the user's MoonDigest 分拣台 results for up to 50 Bilibili videos, as the 分拣台's own AI does: a verdict (keep / drop / unsure) with a one-line summary, 保留 (kept), a note, and tags of the folder. Judge a video only after reading it with get_video; take bvids and folder ids from get_favorites. Only the fields you give change, and the whole call is checked before anything is written. The user sees the results in the 分拣台 and can undo the call there. Nothing changes on Bilibili. Fails with PERSONAL_DATA_OFF or TRIAGE_WRITES_OFF until the user allows it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -399,7 +399,7 @@ const TOOLS = [
   },
   {
     name: "propose_fav_change",
-    description: "Propose a change to the user's Bilibili favorites: unfav (取消收藏) videos from a folder, or move or copy them to another folder. It changes nothing by itself: the proposal waits in MoonDigest's 分拣台 until the user confirms it there (MoonDigest then makes the change) or rejects it; tell the user so. from must be a folder ticked in the 分拣台 (get_favorites reads it with source local) holding every video, to another folder from get_favorites. At most 20 proposals wait at a time. Fails with WRITES_OFF until the user allows it.",
+    description: "Propose a change to the user's Bilibili favorites: unfav (取消收藏) videos from a folder, or move or copy them to another folder. It changes nothing by itself: the proposal waits in MoonDigest's 分拣台 until the user confirms it there (MoonDigest then makes the change) or rejects it; tell the user so. from must be a folder ticked in the 分拣台 (get_favorites reads it with source local) holding every video, to another folder from get_favorites. At most 20 proposals wait at a time. Fails with PERSONAL_DATA_OFF or TRIAGE_WRITES_OFF until the user allows it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -430,8 +430,8 @@ export const INSTRUCTIONS = [
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
   "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
   "When the user asks about their own Bilibili (what they saved, who they follow, what they watched lately), use get_favorites, get_follows and get_history. They are read-only and off until the user allows them (PERSONAL_DATA_OFF: ask the user to turn it on). Read one page at a time and stop once you can answer.",
-  "For the user's own YouTube (watch later, playlists, likes, subscriptions, history) use list_collection; to add videos to or remove them from watch later or a playlist, collection_write, off until the user allows changes (WRITE_OFF). Dry-run first unless the user named exactly the change, and keep the undo the result gives.",
-  "When the user asks you to sort their favorites, set_triage writes MoonDigest's 分拣台 results (verdict, 保留, note, tags) and propose_fav_change proposes unfav, move or copy, which the user confirms in the 分拣台. Both are off until the user allows them (WRITES_OFF).",
+  "For the user's own YouTube (watch later, playlists, likes, subscriptions, history) use list_collection; to add videos to or remove them from watch later or a playlist, collection_write, off until the user allows changes (COLLECTION_WRITES_OFF). Dry-run first unless the user named exactly the change, and keep the undo the result gives.",
+  "When the user asks you to sort their favorites, set_triage writes MoonDigest's 分拣台 results (verdict, 保留, note, tags) and propose_fav_change proposes unfav, move or copy, which the user confirms in the 分拣台. Both are off until the user allows them (TRIAGE_WRITES_OFF).",
 ].join("\n\n");
 
 function errorResult(err) {
