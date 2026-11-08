@@ -22,6 +22,7 @@ let maxInFlight = 0;
 for (const file of order) {
   if (file === "agent-collections.js") {
     ctx.MdgAgentBridge = {
+      switchOff: ctx.MdgAgentBridge.switchOff,
       addMethods: (m) => (M = m),
       inSitePage: async (site, url, ready, func, args) => {
         assert.strictEqual(site.id, "youtube");
@@ -41,7 +42,7 @@ assert.deepStrictEqual(Object.keys(M), ["collection", "collectionWrite"]);
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
 let sync = {};
-ctx.chrome = { storage: { sync: { get: async (k) => (k in sync ? { [k]: sync[k] } : {}) } } };
+ctx.chrome = { storage: { sync: { get: async (k) => Object.fromEntries([k].flat().filter((x) => x in sync).map((x) => [x, sync[x]])) } } };
 
 // ---- fake YouTube state and answers ----
 const ID = (n) => `vid${String(n).padStart(8, "0")}`; // 11 characters
@@ -97,17 +98,17 @@ check("off: list is PERSONAL_DATA_OFF, a write COLLECTION_WRITES_OFF, a dryRun r
 
 check("refused before any request: unknown site and kind, writes to a read-only kind, bad and too many items", async () => {
   const bad = [
-    [{ site: "nope", op: "add", kind: "watch_later", items: [ID(2)] }, ""],
+    [{ site: "nope", op: "add", kind: "watch_later", items: [ID(2)] }, "BAD_PARAMS"],
     [{ op: "add", kind: "tags", items: [ID(2)] }, "UNSUPPORTED_KIND"],
     [{ op: "remove", kind: "likes", items: [ID(2)] }, "UNSUPPORTED_KIND"],
     [{ op: "remove", kind: "subscriptions", items: ["UC123"] }, "UNSUPPORTED_KIND"],
     [{ op: "delete", kind: "watch_later", items: [ID(2)] }, "UNSUPPORTED_KIND"],
     [{ op: "add", kind: "__proto__", items: [ID(2)] }, "UNSUPPORTED_KIND"],
-    [{ op: "add", kind: "watch_later", items: [] }, ""],
-    [{ op: "add", kind: "watch_later", items: Array.from({ length: 21 }, (_, i) => ID(i)) }, ""],
-    [{ op: "add", kind: "watch_later", items: [ID(2), ID(2)] }, ""],
-    [{ op: "add", kind: "watch_later", items: ["a b"] }, ""],
-    [{ op: "add", kind: "watch_later", items: "x" }, ""]
+    [{ op: "add", kind: "watch_later", items: [] }, "BAD_PARAMS"],
+    [{ op: "add", kind: "watch_later", items: Array.from({ length: 21 }, (_, i) => ID(i)) }, "BAD_PARAMS"],
+    [{ op: "add", kind: "watch_later", items: [ID(2), ID(2)] }, "BAD_PARAMS"],
+    [{ op: "add", kind: "watch_later", items: ["a b"] }, "BAD_PARAMS"],
+    [{ op: "add", kind: "watch_later", items: "x" }, "BAD_PARAMS"]
   ];
   for (const [p, code] of bad) {
     const r = await M.collectionWrite({ site: "youtube", ...p }, far());
@@ -202,7 +203,7 @@ check("429 mid-batch stops it: THROTTLED, done and not-done lists, no request af
 check("a captcha page, 403 and a lost login stop the batch too; a plain HTTP error fails only its item", async () => {
   for (const [answer, code] of [
     [{ status: 200, url: "https://www.google.com/sorry/index?continue=x", json: null }, "THROTTLED"],
-    [{ status: 403, url: "", json: null }, "THROTTLED"],
+    [{ status: 403, url: "", json: null }, "NOT_LOGGED_IN"],
     [{ status: 401, loggedOut: true }, "NOT_LOGGED_IN"]
   ]) {
     reset();

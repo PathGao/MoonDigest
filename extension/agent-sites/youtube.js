@@ -58,11 +58,13 @@
 
   // --- in the worker -------------------------------------------------------------------------------------------------
 
-  // ytApi's answer → its JSON, or a coded error: 429, Google's /sorry/ captcha page and 403 are THROTTLED (stop).
+  // ytApi's answer → its JSON, or a coded error: 429 and Google's /sorry/ captcha page are THROTTLED; 401 and 403 (the
+  // login or the SAPISIDHASH signature not accepted) NOT_LOGGED_IN. Both stop a batch.
   function checked(d) {
     if (!d || d.status === 0) throw fail(`YouTube did not answer${d?.error ? `: ${d.error}` : ""}.`, "NETWORK");
-    if (d.status === 429 || d.status === 403 || /\/sorry\//.test(d.url || "")) throw fail(`${MdgErrors.TEXT.ytThrottled} (HTTP ${d.status}).`, MdgErrors.CODE.THROTTLED);
+    if (d.status === 429 || /\/sorry\//.test(d.url || "")) throw fail(`${MdgErrors.TEXT.ytThrottled} (HTTP ${d.status}).`, MdgErrors.CODE.THROTTLED);
     if (d.status === 401 || d.loggedOut) throw fail("Not logged in to YouTube in that browser.", MdgErrors.CODE.NOT_LOGGED_IN);
+    if (d.status === 403) throw fail("YouTube refused the call (HTTP 403): the login in that browser was not accepted. Ask the user to reload YouTube or log in again.", MdgErrors.CODE.NOT_LOGGED_IN);
     if (d.status < 200 || d.status >= 300 || !d.json) throw fail(`YouTube answered HTTP ${d.status}.`);
     return d.json;
   }

@@ -18,16 +18,13 @@
 
   const fail = (message, code) => Object.assign(new Error(message), code ? { code } : {});
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const on = async (key) => MdgSettings.normalizeSwitches({ [key]: (await chrome.storage.sync.get(key))[key] })[key];
-  const READ_OFF = "The user has not allowed AI tools to read their collections. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
-  const COLLECTION_WRITES_OFF = "The user has not allowed AI tools to change their collections. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again. dryRun works without it.";
 
   // The site and kind, checked: { adapter, kind, ops } (ops: the writes the kind takes).
   function target(params) {
     const p = params && typeof params === "object" ? params : {};
     const adapter = typeof p.site === "string" ? MdgAgentSites.get(p.site) : null;
     if (!adapter?.collections) {
-      throw fail(`site must be one of ${MdgAgentSites.list().filter((s) => s.collections).map((s) => `"${s.id}"`).join(", ")}.`);
+      throw fail(`site must be one of ${MdgAgentSites.list().filter((s) => s.collections).map((s) => `"${s.id}"`).join(", ")}.`, "BAD_PARAMS");
     }
     const ops = Object.hasOwn(adapter.collections, p.kind) ? adapter.collections[p.kind] : null;
     if (!ops) throw fail(`${adapter.id} has no kind ${p.kind}. Kinds: ${Object.keys(adapter.collections).join(", ")}.`, "UNSUPPORTED_KIND");
@@ -36,8 +33,9 @@
 
   async function list(params, deadline) {
     const { p, adapter, kind } = target(params);
-    if (p.cursor != null && (typeof p.cursor !== "string" || p.cursor.length > 4096)) throw fail("cursor must be the cursor a previous list_collection returned.");
-    if (!(await on("mcpPersonalData"))) throw fail(READ_OFF, "PERSONAL_DATA_OFF");
+    if (p.cursor != null && (typeof p.cursor !== "string" || p.cursor.length > 4096)) throw fail("cursor must be the cursor a previous list_collection returned.", "BAD_PARAMS");
+    const off = await MdgAgentBridge.switchOff("mcpPersonalData");
+    if (off) throw off;
     const { items, cursor } = await adapter.list({ kind, id: p.id, cursor: p.cursor || "" }, deadline);
     return { site: adapter.id, kind, ...(p.id != null && { id: String(p.id) }), items, cursor };
   }
@@ -51,11 +49,12 @@
     const op = p.op;
     if (!ops.includes(op)) throw fail(ops.length ? `op must be ${ops.map((o) => `"${o}"`).join(" or ")} for ${kind}.` : `${adapter.id} ${kind} is read only.`, "UNSUPPORTED_KIND");
     const items = p.items;
-    if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) throw fail(`items must be 1 to ${MAX_ITEMS} ids.`);
-    if (!items.every((i) => typeof i === "string" && ITEM.test(i)) || new Set(items).size !== items.length) throw fail("items must be distinct ids.");
+    if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) throw fail(`items must be 1 to ${MAX_ITEMS} ids.`, "BAD_PARAMS");
+    if (!items.every((i) => typeof i === "string" && ITEM.test(i)) || new Set(items).size !== items.length) throw fail("items must be distinct ids.", "BAD_PARAMS");
     const dryRun = p.dryRun === true;
-    if (!(await on("mcpPersonalData"))) throw fail(READ_OFF, "PERSONAL_DATA_OFF");
-    if (!dryRun && !(await on("mcpCollectionWrite"))) throw fail(COLLECTION_WRITES_OFF, "COLLECTION_WRITES_OFF");
+    // dryRun only reads: the read switch alone.
+    const off = await MdgAgentBridge.switchOff("mcpPersonalData", ...(dryRun ? [] : ["mcpCollectionWrite"]));
+    if (off) throw off;
     const at = { kind, id: p.id };
     const want = op === "add";
     const results = [];

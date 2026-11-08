@@ -37,11 +37,15 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 assert.ok(order.indexOf("agent-writes.js") > order.indexOf("triage/triage-bg.js"), "agent-writes.js loads after triage-bg.js");
 let M = null;
+let switchOff = null; // the real bridge's, loaded earlier in the order
 for (const file of order) {
   if (file === "agent-writes.js") {
-    ctx.MdgAgentBridge = { addMethods: (m) => (M = { ...M, ...m }) };
+    ctx.MdgAgentBridge = { switchOff, addMethods: (m) => (M = { ...M, ...m }) };
     chrome.runtime = { onMessage: { addListener: (l) => listeners.push(l) }, getURL: (p) => `chrome-extension://x/${p}` };
-  } else if (file === "agent-mydata.js") ctx.MdgAgentBridge = { addMethods() {} };
+  } else if (file === "agent-mydata.js") {
+    switchOff = ctx.MdgAgentBridge.switchOff;
+    ctx.MdgAgentBridge = { switchOff, addMethods() {} };
+  }
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 }
 assert.deepStrictEqual(Object.keys(M), ["triage", "propose"]);

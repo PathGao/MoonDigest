@@ -14,8 +14,8 @@ const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8")
 assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js"), "agent-mydata.js loads after the triage helpers it uses");
 let M = null;
 for (const file of order) {
-  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { addMethods: (m) => (M ??= m) };
-  if (file === "agent-writes.js") ctx.MdgAgentBridge = { addMethods() {} }; // agent-writes.selftest.js's
+  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods: (m) => (M ??= m) };
+  if (file === "agent-writes.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods() {} }; // agent-writes.selftest.js's
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 }
 assert.deepStrictEqual(Object.keys(M), ["favorites", "follows", "history"]);

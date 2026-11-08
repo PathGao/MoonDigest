@@ -10,7 +10,7 @@
   const HISTORY_PAGE = 30;
   const MAX_PAGE = 1000;
 
-  const fail = (code, message) => Object.assign(new Error(message), code ? { code } : {});
+  const fail = (message, code) => Object.assign(new Error(message), code ? { code } : {});
   const pageOf = (page) => (Number.isInteger(page) && page >= 1 ? Math.min(page, MAX_PAGE) : 1);
   const slice = (list, page, size) => ({ total: list.length, page, hasMore: page * size < list.length, items: list.slice((page - 1) * size, page * size) });
   // Every word of the query in one of the fields (case-insensitive).
@@ -55,7 +55,7 @@
       return { folders: folders.map((f) => ({ id: String(f.id), title: f.title || "", count: Number(f.count) || 0 })) };
     }
     const id = String(folderId);
-    if (!triageFolderId(id)) throw fail("", "folderId must be a folder id from the folder list, or toview.");
+    if (!triageFolderId(id)) throw fail("folderId must be a folder id from the folder list, or toview.", "BAD_PARAMS");
     const pn = pageOf(page);
     const q = typeof query === "string" ? query.trim() : "";
     let all = null;
@@ -132,7 +132,7 @@
     let at = "";
     if (cursor) {
       const m = /^(\d+):(\d+):([a-z-]*)$/.exec(String(cursor));
-      if (!m) throw fail("", "cursor must be the cursor a previous get_history returned.");
+      if (!m) throw fail("cursor must be the cursor a previous get_history returned.", "BAD_PARAMS");
       at = `&max=${m[1]}&view_at=${m[2]}&business=${m[3]}`;
     }
     const data = await triageBiliGet(`${API}/x/web-interface/history/cursor?ps=${HISTORY_PAGE}${at}`);
@@ -157,9 +157,6 @@
   }
 
   const METHODS = { favorites, follows, history };
-  const on = async () => MdgSettings.normalizeSwitches({ mcpPersonalData: (await chrome.storage.sync.get("mcpPersonalData")).mcpPersonalData }).mcpPersonalData;
-  const OFF =
-    "The user has not allowed AI tools to read their Bilibili favorites, follows and history. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
   // One call at a time, GAP_MS apart: B站 rate-limits bursts. deadline: as agent-bridge.js handle.
   const GAP_MS = 1000;
   let queue = Promise.resolve();
@@ -168,8 +165,9 @@
     const call = queue.then(async () => {
       const wait = lastAt + GAP_MS - Date.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      if (Date.now() > deadline) throw fail("TIMEOUT", "The call waited too long behind earlier ones.");
-      if (!(await on())) throw fail("PERSONAL_DATA_OFF", OFF);
+      if (Date.now() > deadline) throw fail("The call waited too long behind earlier ones.", "TIMEOUT");
+      const off = await MdgAgentBridge.switchOff("mcpPersonalData");
+      if (off) throw off;
       try {
         return await fn(params && typeof params === "object" ? params : {});
       } finally {

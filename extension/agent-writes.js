@@ -14,8 +14,8 @@
   const BVID = /^BV[0-9A-Za-z]{10}$/;
   const ACTIONS = ["unfav", "move", "copy"];
 
-  const fail = (code, message) => Object.assign(new Error(message), code ? { code } : {});
-  const bad = (message) => fail("BAD_PARAMS", message);
+  const fail = (message, code) => Object.assign(new Error(message), code ? { code } : {});
+  const bad = (message) => fail(message, "BAD_PARAMS");
   const text = (v, max, name) => {
     if (typeof v !== "string" || v.length > max) throw bad(`${name} must be a string of at most ${max} characters.`);
     return v.trim();
@@ -171,7 +171,7 @@
       entry = log.find((e) => e.id === id) || null;
       return entry ? log.filter((e) => e !== entry) : undefined;
     });
-    if (!entry) throw fail("", "这一步已经撤销过了");
+    if (!entry) throw fail("这一步已经撤销过了");
     const { kept = {}, note = {}, analysis = {}, tags = {} } = entry.changes;
     const skipped = new Set();
     try {
@@ -244,20 +244,17 @@
       p.to = dest;
     } else if (to != null) throw bad("to goes with move and copy only.");
     await MdgLimits.update(K.triageAgentProposals, (cur = []) => {
-      if (cur.length >= PROPOSALS_MAX) throw fail("PROPOSALS_FULL", `${PROPOSALS_MAX} proposals already wait for the user in the 分拣台. Ask the user to go through them first.`);
+      if (cur.length >= PROPOSALS_MAX) throw fail(`${PROPOSALS_MAX} proposals already wait for the user in the 分拣台. Ask the user to go through them first.`, "PROPOSALS_FULL");
       return [...cur, p];
     });
     return { id: p.id, status: "proposed" };
   }
 
-  const on = async (key) => MdgSettings.normalizeSwitches({ [key]: (await chrome.storage.sync.get(key))[key] })[key];
-  const READ_OFF = "The user has not allowed AI tools to read their favorites. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again.";
-  const OFF = "The user has not allowed AI tools to change the 分拣台. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改分拣台 (Settings → Advanced) in MoonDigest, then call again.";
   // Like collectionWrite (agent-collections.js), a write needs the read switch too: the 设置 row is greyed out under it.
   const method = (fn) => async (params) => {
     try {
-      if (!(await on("mcpPersonalData"))) throw fail("PERSONAL_DATA_OFF", READ_OFF);
-      if (!(await on("mcpWrites"))) throw fail("TRIAGE_WRITES_OFF", OFF);
+      const off = await MdgAgentBridge.switchOff("mcpPersonalData", "mcpWrites");
+      if (off) throw off;
       return { ok: true, data: await fn(params && typeof params === "object" ? params : {}) };
     } catch (e) {
       return { ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) };
