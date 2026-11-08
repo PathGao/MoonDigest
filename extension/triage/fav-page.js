@@ -138,6 +138,14 @@ function followShared(changes) {
     if (name === "tags") for (const id of [...S.tagFilter]) if (!tagById(id)) tagGone(id);
     changed = true;
   }
+  // 细看 results the background wrote (a 细看 here or in another tab, an AI tool's verdict) or 清理 removed.
+  for (const [key, c] of Object.entries(changes)) {
+    if (!key.startsWith(KEYS.triageAnalysisPrefix)) continue;
+    const b = key.slice(KEYS.triageAnalysisPrefix.length);
+    if (c.newValue) S.analyses[b] = c.newValue;
+    else delete S.analyses[b];
+    changed = true;
+  }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
   for (const [key, c] of Object.entries(changes)) {
     const id = /^triage_decisions_(.+)$/.exec(key)?.[1];

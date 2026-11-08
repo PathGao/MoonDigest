@@ -102,6 +102,11 @@ const flush = () => new Promise((r) => setImmediate(r));
 const row3 = () => (t.renderListHeader(t.visibleItems()), t.el.classFilter.innerHTML);
 const realSync = t.syncFolder;
 const toasts = [];
+// The tag store writes from what storage holds (tag-store.js local): here the page's copy of the tags and the map is the
+// stored keys, so a test that sets S.tags or S.videoTags sets what is stored, as an earlier write would have.
+for (const [name, key, empty] of [["tags", t.K.tags, []], ["videoTags", t.K.videoTags, {}]]) {
+  Object.defineProperty(t.S, name, { get: () => store[key] ?? empty, set: (v) => (store[key] = v), enumerable: true });
+}
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
 
 // The picker as 收藏夹 opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
@@ -1409,7 +1414,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(long.name, "入门进阶一二三四五六七八");
   assert.strictEqual((await createTag(" 入门进阶一二三四五六七八 ")).id, long.id);
   assert.strictEqual((await createTag("、")), null, "a name that cleans to nothing is refused");
-  t.S.tags = t.S.tags.filter((x) => x !== long);
+  t.S.tags = t.S.tags.filter((x) => x.id !== long.id);
   assert.ok(aiTags.roomHint().includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
   // repeating; 管理's color button moves to the next color.

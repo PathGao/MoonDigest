@@ -36,7 +36,16 @@ const { MdgTagStore: TS, TriageUi: UI } = ctx;
 
 // A page: the adapter with its words, data in memory behind the local backend (收藏夹's), or any backend given.
 function page(o = {}) {
-  const p = { tags: [], map: {}, said: [], asked: [], changed: 0, proposal: null, recent: null, saveOk: true, gone: [] };
+  // The local backend writes from what storage holds: p.tags and p.map are the stored keys, each page starts empty.
+  delete store.tags;
+  delete store.map;
+  const p = {
+    get tags() { return store.tags || []; },
+    set tags(v) { store.tags = v; },
+    get map() { return store.map || {}; },
+    set map(v) { store.map = v; },
+    said: [], asked: [], changed: 0, proposal: null, recent: null, saveOk: true, gone: []
+  };
   const db = TS.local({
     keys: { tags: "tags", map: "map" },
     get: () => ({ tags: p.tags, map: p.map }),
@@ -71,7 +80,7 @@ const proposal = (newTags, rows) => ({ newTags: newTags.map((name) => ({ key: na
     const p = page();
     const a = await p.store.createTag(" 科普, ");
     assert.deepStrictEqual([a.name, a.id.startsWith("t"), p.tags.length, plain(store.tags).length], ["科普", true, 1, 1]);
-    assert.strictEqual(await p.store.createTag("科普"), a, "the same name is the same tag");
+    assert.strictEqual((await p.store.createTag("科普")).id, a.id, "the same name is the same tag");
     await p.store.createTag("二");
     await p.store.createTag("三");
     assert.strictEqual(await p.store.createTag("四"), null);
@@ -213,6 +222,28 @@ const proposal = (newTags, rows) => ({ newTags: newTags.map((name) => ({ key: na
     assert.deepStrictEqual([p.proposal, store.follow_tags.length, p.said.at(-1)], [prop, 1, [UI.AI_APPLY_FAILED, true]]);
     assert.ok(await p.store.apply(prop));
     assert.deepStrictEqual(plain([p.proposal, store.follow_tags.map((t) => t.name), store.follow_tags[1].id.startsWith("ft")]), [null, ["旧", "新"], true]);
+  }
+
+  // 收藏夹's backend writes from storage under the key's lock, not from the page's copy: a write another context made
+  // (another tab, an AI tool through agent-writes.js) that the copy has not heard of yet stays, and overlapping writes
+  // all land.
+  {
+    delete store.tags;
+    delete store.map;
+    const mem = { tags: [], map: {} };
+    const db = TS.local({ keys: { tags: "tags", map: "map" }, get: () => mem, put: (part) => Object.assign(mem, part), save: async (patch) => (await chrome.storage.local.set(patch), true) });
+    const bg = load(["../common.js", "../errors.js", "../limits.js"]).MdgLimits;
+    const other = (key) => bg.locked(bg.keyLock("tags"), async () => {
+      const { map = {} } = await chrome.storage.local.get("map");
+      await chrome.storage.local.set({ map: { ...map, [key]: ["t1"] } });
+    });
+    const mine = (key) => db.write((cur) => ({ ...cur, map: { ...cur.map, [key]: ["t1"] } }));
+    await other("z");
+    assert.ok(await mine("a"));
+    assert.deepStrictEqual(plain(store.map), { z: ["t1"], a: ["t1"] }, "the write the page's copy had not seen stays");
+    assert.deepStrictEqual(plain(mem.map), plain(store.map), "and the copy takes what is stored");
+    await Promise.all([mine("b"), other("y"), mine("c")]);
+    assert.deepStrictEqual(Object.keys(store.map).sort(), ["a", "b", "c", "y", "z"], "overlapping writes all land");
   }
 
   // 摘读记录's backend: the marks record, through the page's edit of records; a failed write is said by fail.

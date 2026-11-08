@@ -140,6 +140,7 @@
     lockQueues.set(name, done.catch(() => {}));
     return done;
   }
+  // The lock of one key's read-modify-writes (update); 收藏夹's tag list and map share KEYS.triageTags's.
   const keyLock = (key) => `mdg-key:${key}`;
   // A chrome.storage.local key changed by read-modify-write under its lock: edit(the stored value) returns the value to
   // write, or undefined to write nothing. Resolves what edit returned. 关注's keys go through updateFollow, whose one
@@ -378,6 +379,7 @@
     storageKeys,
     migrateRenamedLocalStorage,
     locked,
+    keyLock,
     update,
     saveVideoNote,
     updateConversations,
