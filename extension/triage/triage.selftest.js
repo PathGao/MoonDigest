@@ -1548,7 +1548,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   await t.undo();
   vm.runInContext("askConfirm = __realAsk", ctx);
   assert.ok(!t.S.aiRecent.K && !t.S.aiRecentFilter, "U ends the batch");
-  assert.deepStrictEqual(plain([t.S.videoTags.BV700, t.S.videoTags.BV701, t.S.videoTags.BV702]), [null, null, ["ga"]], "U puts every video of the batch back, later edits included");
+  assert.deepStrictEqual(plain([t.S.videoTags.BV700, t.S.videoTags.BV701, t.S.videoTags.BV702]), [null, ["gb"], ["ga"]], "D4: U puts the batch back, but not a video edited since");
+  assert.strictEqual(toasts.at(-1), "已撤销：AI 打标签（3 个视频，1 个你之后改过，没动）");
   assert.ok(!t.S.tags.some((x) => x.name === "C"), "a tag the batch created and nothing uses any more goes");
   t.S.aiRecent.K = { at: 1, bvids: ["BV701"] };
   t.S.aiRecentFilter = true;
