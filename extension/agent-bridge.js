@@ -11,15 +11,13 @@
   const PAGE_WAIT_MS = 50_000;
   const CALL_BUDGET_MS = 55_000; // a call ends before the server's 60 s TIMEOUT, so the server gets its error
   const PAGE_RETRY_MS = 500;
-  // What a page-run read may return, as JSON characters: room for the web adapter's 100,000 characters of text or of
-  // subtitles with their timings. The page is untrusted, so anything larger is refused, not passed on to the agent.
+  // What a page-run read may return, as JSON characters: room for long subtitles with their timings. The page is untrusted, so anything larger is refused, not passed on to the agent.
   const MAX_READ_CHARS = 300_000;
   const MAX_ERROR_CHARS = 500; // a page read's error sentence
 
   // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
   const MCP_SWITCHES = {
     mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again."],
-    mcpWebPages: ["WEB_PAGES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读任意网页 (Settings → Advanced) in MoonDigest, then call again."],
     mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改分拣台 (Settings → Advanced) in MoonDigest, then call again."],
     mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again."]
   };
@@ -160,10 +158,9 @@
 
   // Chrome loads no media in a tab that has never been shown, so a frame there fails with TAB_HIDDEN. Show the tab for
   // that one frame, then give its window back the tab that was in front. Once loaded, later frames need no switch.
-  // show false: never take the front (any web page, which the user did not pick): TAB_HIDDEN goes back to the agent.
-  async function callShown(target, method, params, deadline, ask, show = true) {
+  async function callShown(target, method, params, deadline, ask) {
     const reply = await callPage(target, method, params, deadline, ask);
-    if (!show || method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
+    if (method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return reply;
     const [front] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
@@ -217,10 +214,7 @@
       const user = await findUserTab(site, key);
       if (user) return callShown(user, method, rest, deadline);
     } else {
-      // Only in the own tab: nothing runs in the user's tabs. Any page at all (the fallback) has a switch of its own:
-      // a page the agent was steered to may be the user's mail or intranet, and the agent may pass it on.
-      const off = site.fallback && (await switchOff("mcpWebPages"));
-      if (off) return { ok: false, code: off.code, error: off.message };
+      // Only in the own tab: nothing runs in the user's tabs.
       if (!(await chrome.permissions.contains({ origins: site.origins }))) {
         return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
       }
@@ -229,7 +223,7 @@
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
       const ask = site.read === "content" ? undefined : method === "get" ? readInPage(site, url) : frameInPage(rest);
-      const reply = await callShown(own, method, rest, deadline, ask, !site.fallback);
+      const reply = await callShown(own, method, rest, deadline, ask);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;
