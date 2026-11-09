@@ -96,12 +96,15 @@
     const run = (f, a) => async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: f, args: a }))[0]?.result;
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
-      if (!(await chrome.permissions.contains({ origins: site.origins }))) {
-        return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
+      // The page it runs in is url's origin, not every origin of the site (the manifest grants www.youtube.com, not
+      // *.youtube.com): that origin is the one to have access to, and the one the own tab must already show.
+      const origin = new URL(url).origin;
+      if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+        return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${origin}: ask the user to allow it.` };
       }
       let own = await loadOwn();
       const tab = own && (await chrome.tabs.get(own.tabId).catch(() => null));
-      const onSite = tab && (await chrome.tabs.query({ url: site.origins })).some((t) => t.id === tab.id);
+      const onSite = tab && (tab.url || "").startsWith(`${origin}/`);
       if (!onSite) own = await openOwn(tab, null, url);
       const target = { tabId: own.tabId, staleUrl: onSite ? null : own.staleUrl };
       const up = await callPage(target, "", null, deadline, run(ready, []));

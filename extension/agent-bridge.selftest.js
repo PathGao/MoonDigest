@@ -482,6 +482,17 @@ check("inSitePage: func failing is not run again (it may be a write); no access 
   assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
 });
 
+check("inSitePage: access is checked for the page it loads, not every origin of the site (YouTube: www only is granted)", async () => {
+  const env = sitePage({ tabs: [] });
+  env.sites.register({ id: "wide", origins: ["*://*.demo.test/*"], key: () => null, read: "content" });
+  const r = JSON.parse(JSON.stringify(await (async () => {
+    const p = env.inSitePage(env.sites.get("wide"), DEMO_HOME, ready, func, ["x"], Date.now() + 60_000);
+    for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+    return p;
+  })()));
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
 check("inSitePage: a func that never settles is TIMEOUT by the deadline, and the own tab leaves the page", async () => {
   const env = sitePage({ inject: () => new Promise(() => {}) });
   const p = env.inSitePage(env.sites.get("demo"), DEMO_HOME, ready, func, ["x"], Date.now() + 1000);
