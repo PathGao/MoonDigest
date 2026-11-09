@@ -168,7 +168,10 @@
 
   async function write({ op, kind, id, item }, deadline) {
     const action = op === "add" ? { action: "ACTION_ADD_VIDEO", addedVideoId: item } : { action: "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", removedVideoId: item };
-    await api("browse/edit_playlist", { playlistId: playlistOf(kind, id), actions: [action] }, deadline);
+    // Its answer says whether YouTube made the change: the state read (get_add_to_playlist) lags it by about 12 s.
+    const json = await api("browse/edit_playlist", { playlistId: playlistOf(kind, id), actions: [action] }, deadline);
+    if (json.status !== "STATUS_SUCCEEDED") throw fail(`YouTube did not make the change (${json.status || "no status"}).`);
+    return true;
   }
 
   MdgAgentSites.register({

@@ -48,7 +48,7 @@ ctx.chrome = { storage: { sync: { get: async (k) => Object.fromEntries([k].flat(
 const ID = (n) => `vid${String(n).padStart(8, "0")}`; // 11 characters
 let lists; // playlistId → Set of video ids
 let throttleAt; // the request number (1-based) answered 429, 0 for none
-let ignoreWrites; // edit_playlist answers 200 but changes nothing
+let ignoreWrites; // edit_playlist answers STATUS_FAILED and changes nothing
 const ok = (json) => ({ status: 200, url: "https://www.youtube.com/youtubei/v1/x", json });
 const pvr = (id, title) => ({ playlistVideoRenderer: { videoId: id, setVideoId: `s${id}`, title: { runs: [{ text: title }] }, shortBylineText: { runs: [{ text: "Chan" }] }, lengthSeconds: "125", isPlayable: true } });
 function fakeYt(endpoint, body) {
@@ -59,7 +59,8 @@ function fakeYt(endpoint, body) {
   }
   if (endpoint === "browse/edit_playlist") {
     const [a] = body.actions;
-    if (!ignoreWrites) a.action === "ACTION_ADD_VIDEO" ? lists[body.playlistId].add(a.addedVideoId) : lists[body.playlistId].delete(a.removedVideoId);
+    if (ignoreWrites) return ok({ status: "STATUS_FAILED" });
+    a.action === "ACTION_ADD_VIDEO" ? lists[body.playlistId].add(a.addedVideoId) : lists[body.playlistId].delete(a.removedVideoId);
     return ok({ status: "STATUS_SUCCEEDED" });
   }
   throw new Error(`no fake for ${endpoint}`);
@@ -75,6 +76,7 @@ const reset = () => {
   calls.length = 0;
   gaps.length = 0;
   yt = fakeYt;
+  ctx.MdgAgentCollections.forget();
 };
 const far = () => Date.now() + 600_000;
 const write = (params, deadline = far()) => M.collectionWrite({ site: "youtube", ...params }, deadline);
@@ -133,7 +135,7 @@ check("dryRun: each item's state and what would change; nothing written", async 
   assert.deepStrictEqual([...lists.WL], [ID(1)]);
 });
 
-check("a write: no-op skipped, the rest written one at a time 1.5–3 s apart, confirmed by a read after, undo given", async () => {
+check("a write: no-op skipped, the rest written one at a time 1.5–3 s apart, confirmed by YouTube's answer (no read after), undo given", async () => {
   const r = await write({ op: "add", kind: "watch_later", items: [ID(1), ID(2), ID(3)] });
   assert.deepStrictEqual(plain(r.data.results), [
     { item: ID(1), status: "unchanged", before: true },
@@ -143,7 +145,7 @@ check("a write: no-op skipped, the rest written one at a time 1.5–3 s apart, c
   assert.deepStrictEqual(plain(r.data.done), [ID(2), ID(3)]);
   assert.deepStrictEqual(plain(r.data.undo), { site: "youtube", op: "remove", kind: "watch_later", items: [ID(2), ID(3)] });
   assert.deepStrictEqual(sent("browse/edit_playlist").map(([, b]) => plain(b)), [ID(2), ID(3)].map((v) => ({ playlistId: "WL", actions: [{ action: "ACTION_ADD_VIDEO", addedVideoId: v }] })), "ID(1) was already there: not sent");
-  assert.deepStrictEqual(calls.map(([e]) => e), ["playlist/get_add_to_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist", "playlist/get_add_to_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist", "playlist/get_add_to_playlist"]);
+  assert.deepStrictEqual(calls.map(([e]) => e), ["playlist/get_add_to_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist", "playlist/get_add_to_playlist", "browse/edit_playlist"]);
   // A call gap is what is left of CALL_GAP_MS (at most 1000, less under load); an item gap is at least 1500.
   const itemGaps = gaps.filter((g) => g > 1000);
   assert.strictEqual(itemGaps.length, 2, "a gap before each item after the first");
@@ -169,12 +171,25 @@ check("a playlist by id: remove; a playlist that is not the user's fails the ite
   assert.strictEqual((await write({ op: "add", kind: "playlist", items: [ID(5)] })).data.results[0].status, "failed", "playlist needs an id");
 });
 
-check("a write the read after does not see is unconfirmed, and undo still takes it", async () => {
+check("a write YouTube answers as not made is failed, and undo still takes it", async () => {
   ignoreWrites = true;
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] });
-  assert.deepStrictEqual(plain(r.data.results), [{ item: ID(2), status: "unconfirmed", before: false, after: false }]);
+  assert.deepStrictEqual(plain(r.data.results.map((x) => [x.status, x.before])), [["failed", false]]);
+  assert.match(r.data.results[0].error, /did not make the change \(STATUS_FAILED\)/);
   assert.deepStrictEqual(plain(r.data.done), []);
   assert.deepStrictEqual(plain(r.data.undo.items), [ID(2)]);
+});
+
+check("YouTube's state read lags its writes (about 12 s): an undo right after goes by what was written, not skipped", async () => {
+  const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] });
+  assert.deepStrictEqual(plain(r.data.done), [ID(2)]);
+  const lagging = (e, b) => (e === "playlist/get_add_to_playlist" ? ok({ contents: [{ addToPlaylistRenderer: { playlists: [{ playlistAddToOptionRenderer: { playlistId: "WL", containsSelectedVideos: "NONE" } }] } }] }) : fakeYt(e, b));
+  yt = lagging;
+  calls.length = 0;
+  const u = await M.collectionWrite(plain(r.data.undo), far());
+  assert.deepStrictEqual(plain(u.data.results), [{ item: ID(2), status: "done", before: true, after: false }]);
+  assert.deepStrictEqual(calls.map(([e]) => e), ["browse/edit_playlist"], "no read: it was written moments ago");
+  assert.ok(!lists.WL.has(ID(2)));
 });
 
 check("a write that fails after it went out (HTTP 500, a timeout) is failed, and undo still takes it", async () => {
@@ -189,14 +204,14 @@ check("a write that fails after it went out (HTTP 500, a timeout) is failed, and
 });
 
 check("429 mid-batch stops it: THROTTLED, done and not-done lists, no request after", async () => {
-  throttleAt = 4; // ID(2) takes 3 requests (read, write, read); the 4th is ID(3)'s read before
+  throttleAt = 3; // ID(2) takes 2 requests (read, write); the 3rd is ID(3)'s read before
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2), ID(3), ID(4)] });
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.data.stopped, "THROTTLED");
   assert.deepStrictEqual(plain(r.data.done), [ID(2)]);
   assert.deepStrictEqual(plain(r.data.notDone), [ID(4)]);
   assert.deepStrictEqual(plain(r.data.results.map((x) => x.status)), ["done", "failed"]);
-  assert.strictEqual(calls.length, 4, "nothing asked after the 429");
+  assert.strictEqual(calls.length, 3, "nothing asked after the 429");
   assert.deepStrictEqual(plain(r.data.undo.items), [ID(2)]);
 });
 

@@ -14,6 +14,10 @@
   const ITEM_RESERVE_MS = 12_000;
   const WRITE_RESERVE_MS = 22_000;
   const STOP = [MdgErrors.CODE.THROTTLED, MdgErrors.CODE.NOT_LOGGED_IN];
+  // A site's state read can lag its writes (YouTube: about 12 s): an item written here counts as written for this long,
+  // so an undo right after is not skipped as already done. In memory: a restarted worker forgets, and reads again.
+  const WRITTEN_MS = 30_000;
+  const written = new Map(); // "site|kind|id|item" → { state, at }
   const ITEM = /^[\w-]{1,64}$/;
 
   const fail = (message, code) => Object.assign(new Error(message), code ? { code } : {});
@@ -57,6 +61,11 @@
     if (off) throw off;
     const at = { kind, id: p.id };
     const want = op === "add";
+    const slot = (item) => [adapter.id, kind, p.id ?? "", item].join("|");
+    const has = async (item) => {
+      const w = written.get(slot(item));
+      return w && Date.now() - w.at < WRITTEN_MS ? w.state : adapter.has({ ...at, item }, deadline);
+    };
     const results = [];
     const sent = new Set(); // written, whatever the answer: a write that timed out or failed may still have landed
     let stopped = "";
@@ -65,14 +74,16 @@
       if (Date.now() + ITEM_RESERVE_MS > deadline) { stopped = "TIMEOUT"; break; }
       let before;
       try {
-        before = await adapter.has({ ...at, item }, deadline);
+        before = await has(item);
         if (before === want) { results.push({ item, status: "unchanged", before }); continue; }
         if (dryRun) { results.push({ item, status: "would_change", before }); continue; }
         if (Date.now() + WRITE_RESERVE_MS > deadline) { stopped = "TIMEOUT"; break; }
         sent.add(item);
-        await adapter.write({ ...at, op, item }, deadline);
-        await sleep(SETTLE_MS);
-        const after = await adapter.has({ ...at, item }, deadline);
+        // true: the site's own answer confirms the change, so no read after (it may lag); else read after to confirm.
+        const confirmed = (await adapter.write({ ...at, op, item }, deadline)) === true;
+        if (!confirmed) await sleep(SETTLE_MS);
+        const after = confirmed ? want : await adapter.has({ ...at, item }, deadline);
+        if (after === want) written.set(slot(item), { state: want, at: Date.now() });
         results.push({ item, status: after === want ? "done" : "unconfirmed", before, after });
       } catch (e) {
         results.push({ item, status: "failed", ...(before != null && { before }), error: String(e?.message || e) });
@@ -116,4 +127,5 @@
     collection: (params, deadline) => run(list, params, deadline),
     collectionWrite: (params, deadline) => run(write, params, deadline)
   });
+  globalThis.MdgAgentCollections = { forget: () => written.clear() }; // for the selftest: each case starts with none
 })();
