@@ -128,7 +128,11 @@
     find(json, ["channelRenderer"]).flatMap(([, v]) => (v.channelId ? [{ channelId: v.channelId, url: `https://www.youtube.com/channel/${v.channelId}`, title: text(v.title) }] : []));
 
   // The next page's token: the continuationItemRenderer's continuationCommand, "" at the end.
-  const cursorOf = (json) => find(find(json, ["continuationItemRenderer"]), ["continuationCommand"])[0]?.[1].token || "";
+  // The next page's token. Old lists: continuationItemRenderer → … → continuationCommand.token. Lists of lockups (Liked
+  // videos): continuationItemViewModel → continuationCommand → innertubeCommand → continuationCommand.token, so a
+  // continuationCommand without a token is looked inside.
+  const tokenIn = (node) => (typeof node?.token === "string" ? node.token : find(node, ["continuationCommand"]).map(([, v]) => tokenIn(v)).find(Boolean));
+  const cursorOf = (json) => find(json, ["continuationItemRenderer", "continuationItemViewModel"]).map(([, v]) => tokenIn(v)).find(Boolean) || "";
 
   // The Save dialog's list (playlist/get_add_to_playlist): the user's own playlists, Watch later (WL) included, and
   // whether each holds the video.

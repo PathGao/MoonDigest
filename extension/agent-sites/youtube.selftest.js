@@ -88,5 +88,12 @@ const sha1 = (s) => crypto.createHash("sha1").update(s).digest("hex");
   const bad = inPage(yt.test.ytApi, { cfg, cookie: "SAPISID=s", answer: () => ({ status: 200, url: "", text: async () => "<html>" }) });
   assert.strictEqual((await bad.run("browse", {})).json, null);
 
-  console.log("agent-sites youtube selftest ok");
+  // The next page's token in both list shapes (Liked videos is lockups since 2026: the token is one command deeper).
+{
+  const { cursorOf } = S.get("youtube").test;
+  const renderer = { contents: [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: "OLD" } } } }] };
+  const viewModel = { contents: [{ lockupViewModel: { contentId: "x" } }, { continuationItemViewModel: { continuationCommand: { innertubeCommand: { continuationCommand: { token: "NEW", request: "CONTINUATION_REQUEST_TYPE_BROWSE" } } } } }] };
+  assert.deepStrictEqual([cursorOf(renderer), cursorOf(viewModel), cursorOf({ contents: [] })], ["OLD", "NEW", ""]);
+}
+console.log("agent-sites youtube selftest ok");
 })().catch((e) => (console.error(e), process.exit(1)));
