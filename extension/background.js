@@ -7,7 +7,7 @@ importScripts("agent-sites/youtube.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
-// 设置 → 高级 → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
+// 设置 → MCP → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
 const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpEnabled: value }).mcpEnabled;
 MdgAgentBridge.start({
   extensionVersion: chrome.runtime.getManifest().version,

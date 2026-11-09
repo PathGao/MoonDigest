@@ -80,7 +80,7 @@
     seenThreshold: SEEN_THRESHOLD.def,
     seenStyle: "badge", // one of SEEN_STYLES
     enableDebugLogs: false,
-    // The agent interface's MCP socket (agent-bridge.js in the background, docs/AGENT.md): off until 设置 → 高级 → 允许 MCP 连接.
+    // The agent interface's MCP socket (agent-bridge.js in the background, docs/AGENT.md): off until 设置 → MCP → 允许 MCP 连接.
     mcpEnabled: false,
     // The MCP server may also read the user's B站 favorites, follows and history (agent-mydata.js): off until 允许 AI 工具读我的收藏、关注和历史.
     mcpPersonalData: false,

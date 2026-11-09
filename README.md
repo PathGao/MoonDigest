@@ -61,7 +61,7 @@ Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能
   mkdir -p ~/.claude/skills && cp -r MoonDigest/skills/moondigest ~/.claude/skills/
   ```
 
-- **MCP**（Claude Code、Cursor、Codex 等）：在设置 → 高级打开「允许 MCP 连接」（用时再开，不用时关掉），再装服务（要 Node 20+）：
+- **MCP**（Claude Code、Cursor、Codex 等）：在设置 → MCP 打开「允许 MCP 连接」（用时再开，不用时关掉），再装服务（要 Node 20+）：
 
   ```sh
   git clone https://github.com/PathGao/MoonDigest.git

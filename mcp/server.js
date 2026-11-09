@@ -92,7 +92,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 MCP 连接 (Settings → MCP → Allow MCP connection). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;

@@ -17,9 +17,9 @@
 
   // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
   const MCP_SWITCHES = {
-    mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史 (Settings → Advanced) in MoonDigest, then call again."],
-    mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改分拣台 (Settings → Advanced) in MoonDigest, then call again."],
-    mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → 高级 → 允许 AI 工具改我的收藏 (Settings → Advanced) in MoonDigest, then call again."]
+    mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 AI 工具读我的收藏、关注和历史 (Settings → MCP) in MoonDigest, then call again."],
+    mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 AI 工具改分拣台 (Settings → MCP) in MoonDigest, then call again."],
+    mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 AI 工具改我的收藏 (Settings → MCP) in MoonDigest, then call again."]
   };
   // An Error carrying the code of the first of keys that is off, else null.
   async function switchOff(...keys) {

@@ -41,7 +41,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 ### 用 MCP 还是用 skill
 
 - **skill**（`skills/moondigest/`）：agent 本来就在操控浏览器（能在页面里跑 JS）时用。不用开开关，不用装服务器。
-- **MCP**：任何 MCP 客户端都能用，agent 不需要会操控浏览器。代价是要装这个服务器，并在 MoonDigest 的「设置 → 高级 → 允许 MCP 连接」打开开关。
+- **MCP**：任何 MCP 客户端都能用，agent 不需要会操控浏览器。代价是要装这个服务器，并在 MoonDigest 的「设置 → MCP → 允许 MCP 连接」打开开关。
 
 ### 安装
 
@@ -82,7 +82,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 
 发布后把 `node` 和路径换成 `npx` 和 `["-y", "moondigest-mcp"]`。
 
-最后在 MoonDigest 的「设置 → 高级」打开「允许 MCP 连接」。
+最后在 MoonDigest 的「设置 → MCP」打开「允许 MCP 连接」。
 
 ### 安全模型
 
@@ -168,7 +168,7 @@ Two tools change the 分拣台. Both are off by default: turn on 允许 AI 工�
 ### MCP or the skill
 
 - **Skill** (`skills/moondigest/`): use it when the agent already drives a browser and can run JS in the page. No switch, no server.
-- **MCP**: works from any MCP client, and the agent needs no browser automation. It needs this server installed and MoonDigest's 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection) turned on.
+- **MCP**: works from any MCP client, and the agent needs no browser automation. It needs this server installed and MoonDigest's 设置 → MCP → 允许 MCP 连接 (Settings → MCP → Allow MCP connection) turned on.
 
 ### Install
 
@@ -209,7 +209,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 
 Once published, replace `node` and the path with `npx` and `["-y", "moondigest-mcp"]`.
 
-Then turn on 允许 MCP 连接 in MoonDigest's settings (高级).
+Then turn on 允许 MCP 连接 in MoonDigest's settings (MCP).
 
 ### Security model
 
