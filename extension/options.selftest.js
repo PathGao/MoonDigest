@@ -523,7 +523,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "mcpCollectionWrite", "mcpWrites", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
   assert.deepStrictEqual(Object.keys(payload).sort(), [...keys].sort(), "the page sends exactly its own settings");
   assert.deepStrictEqual(plainOf(payload), plainOf(Object.fromEntries(keys.map((k) => [k, settings[k]]))));
-  // 允许 AI 工具读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
+  // 允许 Agent 读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
   assert.deepStrictEqual([els.mcpEnabled.checked, els.mcpPersonalData.checked, els.mcpPersonalData.disabled], [true, true, false]);
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
@@ -541,7 +541,7 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.deepStrictEqual(writes(), [[true, "先打开「允许 MCP 连接」"], [true, "先打开「允许 MCP 连接」"]]);
   els.mcpEnabled.checked = true;
   page.syncMcpRows();
-  assert.deepStrictEqual(writes(), [[true, "先打开「允许 AI 工具读我的收藏、关注和历史」"], [true, "先打开「允许 AI 工具读我的收藏、关注和历史」"]]);
+  assert.deepStrictEqual(writes(), [[true, "先打开「允许 Agent 读我的收藏、关注和历史」"], [true, "先打开「允许 Agent 读我的收藏、关注和历史」"]]);
   assert.deepStrictEqual([page.readFormPayload().mcpWrites, page.readFormPayload().mcpCollectionWrite], [true, true], "greyed out, they keep their own values");
   els.mcpPersonalData.checked = true;
   page.syncMcpRows();

@@ -87,7 +87,7 @@ check("off: list is PERSONAL_DATA_OFF, a write COLLECTION_WRITES_OFF, a dryRun r
   sync = { mcpPersonalData: true };
   const r = await write({ op: "add", kind: "watch_later", items: [ID(2)] });
   assert.deepStrictEqual([r.ok, r.code], [false, "COLLECTION_WRITES_OFF"]);
-  assert.match(r.error, /允许 AI 工具改我的收藏/);
+  assert.match(r.error, /允许 Agent 改我的收藏/);
   sync = { mcpPersonalData: true, mcpCollectionWrite: "true" }; // not a boolean: stays off
   assert.strictEqual((await write({ op: "add", kind: "watch_later", items: [ID(2)] })).code, "COLLECTION_WRITES_OFF");
   assert.strictEqual(calls.length, 0);

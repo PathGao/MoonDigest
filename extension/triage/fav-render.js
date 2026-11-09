@@ -447,7 +447,7 @@ const KEEP_TIP = `保留标记${MdgErrors.TEXT.localOnly}`;
 const DONE_TIP = `已保留：${KEEP_TIP}。\n已取消收藏：已从 B站收藏夹移走，最近的操作可按 U 撤销。`;
 
 // A verdict an AI tool wrote over MCP (agent-writes.js), on the card's meta line in place of the basis.
-const AGENT_VERDICT = "AI 工具判断";
+const AGENT_VERDICT = "Agent 判断";
 // What a 细看 judged from, on the card's meta line, in the video page's words: no subtitle (and why), or a subtitle
 // whose time range may not match the video. Nothing for a matching subtitle.
 function basisText(a) {

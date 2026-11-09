@@ -18,7 +18,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 - `get_video({ url, raw? })`：标题、作者、日期、时长、章节、带时间戳的全文字幕、热评。
 - `get_frame({ url, at, maxWidth? })`：`at` 秒处的一帧 JPEG，外加一行实际时间。
 
-读你自己 B站 数据的三个工具，都只读，默认关闭，要在「允许 MCP 连接」下面再打开「允许 AI 工具读我的收藏、关注和历史」，关着时返回 `PERSONAL_DATA_OFF`：
+读你自己 B站 数据的三个工具，都只读，默认关闭，要在「允许 MCP 连接」下面再打开「允许 Agent 读我的收藏、关注和历史」，关着时返回 `PERSONAL_DATA_OFF`：
 
 - `get_favorites({ folderId?, page?, query?, raw? })`：不给 `folderId` 时列出收藏夹（稍后再看在最前，id 是 `toview`）；给了就列这个收藏夹的视频，每页 40 个，带分拣台的标签、备注、AI 判断和一句话总结。分拣台勾选过的收藏夹读本地那份，`query` 搜标题、UP、标签、备注和总结；没勾选的每次从 B站 读一页，`query` 交给 B站 的收藏夹搜索（只搜标题）。
 - `get_follows({ page?, query?, raw? })`：关注的 UP 主，每页 50 个，带关注分组和你的 UP 标签。分拣台的「关注」同步过就读本地那份，`query` 能用；没同步过就从 B站 读一页，`query` 不生效，结果里会写明。
@@ -26,14 +26,14 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 
 这三个工具一次只读一页，同一时间只跑一个，不会一口气读完。
 
-你自己 YouTube 的收藏有两个工具。MoonDigest 不为它们做页面，AI 工具就是界面：
+你自己 YouTube 的收藏有两个工具。MoonDigest 不为它们做页面，Agent 就是界面：
 
 - `list_collection({ site, kind, id?, cursor?, raw? })`：`site` 写 `youtube`，`kind` 是 `watch_later`（稍后观看）、`playlists`（你的播放列表）、`playlist`（`id` 那个播放列表里的视频）、`likes`（赞过的视频）、`subscriptions`（订阅）、`history`（历史记录）。一次一页，把返回的 `cursor` 传回去读下一页。和上面三个用同一个开关，关着时返回 `PERSONAL_DATA_OFF`。
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频（`items` 是视频 id）加进或移出稍后观看（`kind: "watch_later"`）或你自己的播放列表（`kind: "playlist"`, `id`）。赞和订阅只能读。默认关闭，要在「允许 AI 工具读我的收藏、关注和历史」下面再打开「允许 AI 工具改我的收藏」，关着时返回 `COLLECTION_WRITES_OFF`；`dryRun: true` 只读、不改，只要读的开关。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频（`items` 是视频 id）加进或移出稍后观看（`kind: "watch_later"`）或你自己的播放列表（`kind: "playlist"`, `id`）。赞和订阅只能读。默认关闭，要在「允许 Agent 读我的收藏、关注和历史」下面再打开「允许 Agent 改我的收藏」，关着时返回 `COLLECTION_WRITES_OFF`；`dryRun: true` 只读、不改，只要读的开关。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
 
-改分拣台的两个工具，默认关闭，要在「允许 AI 工具读我的收藏、关注和历史」下面再打开「允许 AI 工具改分拣台」，关着时返回 `TRIAGE_WRITES_OFF`。参数整份先检查，有一处不对就什么都不写，返回 `BAD_PARAMS`：
+改分拣台的两个工具，默认关闭，要在「允许 Agent 读我的收藏、关注和历史」下面再打开「允许 Agent 改分拣台」，关着时返回 `TRIAGE_WRITES_OFF`。参数整份先检查，有一处不对就什么都不写，返回 `BAD_PARAMS`：
 
-- `set_triage({ items })`：一次最多 50 个视频，每个 `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`，只改给了的字段。`verdict`（`keep` / `drop` / `unsure`）要带 `summary`，和分拣台细看的结论一样显示，卡片上标「AI 工具判断」；`kept` 是保留标记；`note` 是备注，空字符串删掉；`addTags` / `removeTags` 是 `folderId` 这个收藏夹的标签名，视频要在这个勾选过的收藏夹里，没有的标签在名额内新建，满了不建并在结果里列出。只改本地，不改 B站。每次调用在分拣台里是一步，按 U 撤销；撤销时你之后又改过的不动。
+- `set_triage({ items })`：一次最多 50 个视频，每个 `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`，只改给了的字段。`verdict`（`keep` / `drop` / `unsure`）要带 `summary`，和分拣台细看的结论一样显示，卡片上标「 Agent 判断」；`kept` 是保留标记；`note` 是备注，空字符串删掉；`addTags` / `removeTags` 是 `folderId` 这个收藏夹的标签名，视频要在这个勾选过的收藏夹里，没有的标签在名额内新建，满了不建并在结果里列出。只改本地，不改 B站。每次调用在分拣台里是一步，按 U 撤销；撤销时你之后又改过的不动。
 - `propose_fav_change({ action, from, to?, bvids, reason? })`：提议在 B站 取消收藏（`unfav`）、移动（`move`）或复制（`copy`）。它自己不改 B站：提议在分拣台的进度胶囊里等你，点「查看」打开 `from` 收藏夹列出这些视频，确认后照分拣台自己的操作执行（限流、按 U 撤销都一样），也可以拒绝。`from` 要是分拣台勾选过的收藏夹（或 `toview`），视频都在它本地那份里；`to` 是收藏夹列表里的另一个收藏夹，不能是稍后再看。最多 20 条提议同时等待，满了返回 `PROPOSALS_FULL`。
 
 `get_video` 默认返回紧凑文本，每条字幕一行 `[mm:ss] 内容`（超过一小时用 `hh:mm:ss`）。扩展原始 JSON 每条字幕都带 `from`、`to`、`content` 三个键名和小数时间，实测体积约是文本的两倍，而模型几乎用不到结束时间。确实要精确时间时传 `raw: true`。
@@ -94,7 +94,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 开关默认关闭。关着的时候扩展不建任何连接。
 - 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只读，不改 B站 和 YouTube，也不改插件存的数据；API Key 和 AI 对话不会给出去。
 - 改收藏再有一个开关，默认关闭，上面两个有一个关着它就变灰。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
-- 改分拣台也另有一个开关，默认关闭，和改收藏一样，上面两个有一个关着它就变灰。打开后 AI 工具只能直接改本地的分拣结果，每次都能在分拣台撤销；B站 上的改动只能提议，由你在分拣台确认，不靠 MCP 客户端的权限弹框。
+- 改分拣台也另有一个开关，默认关闭，和改收藏一样，上面两个有一个关着它就变灰。打开后 Agent 只能直接改本地的分拣结果，每次都能在分拣台撤销；B站 上的改动只能提议，由你在分拣台确认，不靠 MCP 客户端的权限弹框。
 
 ### 两个 MCP 客户端同时开着
 
@@ -116,9 +116,9 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - `TIMEOUT`：60 秒内没有回答。常见原因是页面加载太慢，或后台标签页被浏览器冻结。切到那个标签页看一眼再试。
 - 字幕说要登录（`Subtitle note`）：在这个浏览器里登录 B站。
 - `AD_PLAYING`：YouTube 广告一直在播，等广告结束再取帧。
-- `PERSONAL_DATA_OFF`：「允许 AI 工具读我的收藏、关注和历史」没开。
-- `COLLECTION_WRITES_OFF`：「允许 AI 工具改我的收藏」没开。
-- `TRIAGE_WRITES_OFF`：「允许 AI 工具改分拣台」没开。
+- `PERSONAL_DATA_OFF`：「允许 Agent 读我的收藏、关注和历史」没开。
+- `COLLECTION_WRITES_OFF`：「允许 Agent 改我的收藏」没开。
+- `TRIAGE_WRITES_OFF`：「允许 Agent 改分拣台」没开。
 - `BAD_PARAMS`：参数不对，错误里写着哪一项；这次什么都没写。
 - `PROPOSALS_FULL`：已经有 20 条提议在分拣台等你处理。
 - `NOT_LOGGED_IN`：这个浏览器没登录 B站（收藏工具：没登录 YouTube）。
@@ -145,7 +145,7 @@ Three tools search and read videos:
 - `get_video({ url, raw? })`: title, author, date, duration, chapters, the full timestamped transcript, hot comments.
 - `get_frame({ url, at, maxWidth? })`: a JPEG frame at `at` seconds, plus a line with the actual time.
 
-Three tools read your own Bilibili data. All are read-only and off by default: turn on 允许 AI 工具读我的收藏、关注和历史 under 允许 MCP 连接. While it is off they return `PERSONAL_DATA_OFF`.
+Three tools read your own Bilibili data. All are read-only and off by default: turn on 允许 Agent 读我的收藏、关注和历史 under 允许 MCP 连接. While it is off they return `PERSONAL_DATA_OFF`.
 
 - `get_favorites({ folderId?, page?, query?, raw? })`: without `folderId`, the folders (稍后再看 first, id `toview`); with it, that folder's videos, 40 a page, with your 分拣 tags, note, AI verdict and one-line summary. A folder ticked in the 分拣台 is read from its local copy and `query` searches title, UP, tags, note and summary; any other folder is read from Bilibili a page at a time and `query` goes to Bilibili's favorites search (titles only).
 - `get_follows({ page?, query?, raw? })`: the UP 主 you follow, 50 a page, with follow groups and your UP tags. Read from the 分拣台's synced follow list when there is one (then `query` works); otherwise one page from Bilibili, where `query` is not applied and the result says so.
@@ -156,11 +156,11 @@ These return one page per call and run one at a time, a second apart.
 Two tools work on your own YouTube collections. MoonDigest has no pages for them: the AI tool is the UI.
 
 - `list_collection({ site, kind, id?, cursor?, raw? })`: `site` is `youtube`; `kind` is `watch_later`, `playlists` (your playlists), `playlist` (the videos of playlist `id`), `likes`, `subscriptions` or `history`. One page a call; pass the returned `cursor` back for the next. Same switch as the three above: `PERSONAL_DATA_OFF` while it is off.
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos (`items`, video ids) to or removes them from Watch later (`kind: "watch_later"`) or one of your own playlists (`kind: "playlist"`, `id`). Likes and subscriptions are read-only. Off by default: turn on 允许 AI 工具改我的收藏 under 允许 AI 工具读我的收藏、关注和历史; while it is off a write returns `COLLECTION_WRITES_OFF`, and `dryRun: true` (reads only) needs only the read switch. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos (`items`, video ids) to or removes them from Watch later (`kind: "watch_later"`) or one of your own playlists (`kind: "playlist"`, `id`). Likes and subscriptions are read-only. Off by default: turn on 允许 Agent 改我的收藏 under 允许 Agent 读我的收藏、关注和历史; while it is off a write returns `COLLECTION_WRITES_OFF`, and `dryRun: true` (reads only) needs only the read switch. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
 
-Two tools change the 分拣台. Both are off by default: turn on 允许 AI 工具改分拣台 under 允许 AI 工具读我的收藏、关注和历史. While it is off they return `TRIAGE_WRITES_OFF`. Each call is checked whole first: one bad field writes nothing and returns `BAD_PARAMS`.
+Two tools change the 分拣台. Both are off by default: turn on 允许 Agent 改分拣台 under 允许 Agent 读我的收藏、关注和历史. While it is off they return `TRIAGE_WRITES_OFF`. Each call is checked whole first: one bad field writes nothing and returns `BAD_PARAMS`.
 
-- `set_triage({ items })`: up to 50 videos, each `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`; only the fields given change. `verdict` (`keep` / `drop` / `unsure`) needs `summary` and shows like a 细看's, marked AI 工具判断 on the card. `kept` is the 保留 mark. `note` is the note, `""` removes it. `addTags` / `removeTags` are tag names of folder `folderId`, which must be ticked and hold the video; a missing tag is made while the folder has room, else it is not made and the result lists it. Local only, nothing on Bilibili. Each call is one step in the 分拣台 that U undoes; what you changed since stays.
+- `set_triage({ items })`: up to 50 videos, each `{ bvid, verdict?, summary?, reason?, points?, kept?, note?, folderId?, addTags?, removeTags? }`; only the fields given change. `verdict` (`keep` / `drop` / `unsure`) needs `summary` and shows like a 细看's, marked Agent 判断 on the card. `kept` is the 保留 mark. `note` is the note, `""` removes it. `addTags` / `removeTags` are tag names of folder `folderId`, which must be ticked and hold the video; a missing tag is made while the folder has room, else it is not made and the result lists it. Local only, nothing on Bilibili. Each call is one step in the 分拣台 that U undoes; what you changed since stays.
 - `propose_fav_change({ action, from, to?, bvids, reason? })`: proposes unfav, move or copy on Bilibili. It changes nothing itself: the proposal waits in the 分拣台's progress pill; 查看 opens folder `from` with the videos listed, and confirming runs it as the 分拣台's own action (same rate limits, U undoes it), or you reject it. `from` must be a folder ticked in the 分拣台 (or `toview`) whose local copy has every video; `to` another folder of the folder list, not 稍后再看. At most 20 proposals wait at once; past that `PROPOSALS_FULL`.
 
 `get_video` returns compact text by default, one transcript line per segment as `[mm:ss] text` (`hh:mm:ss` past an hour). The extension's raw JSON repeats the `from`, `to` and `content` keys and fractional times on every segment, which measures about twice the size, and models rarely need end times. Pass `raw: true` when you do need exact times.
@@ -243,9 +243,9 @@ With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 
 - `TIMEOUT`: no answer in 60 s. Usually the page loaded too slowly or the browser froze the background tab. Look at that tab and try again.
 - The subtitle says log in (`Subtitle note`): log in to Bilibili in that browser.
 - `AD_PLAYING`: a YouTube ad kept playing. Wait for it to end and grab the frame again.
-- `PERSONAL_DATA_OFF`: 允许 AI 工具读我的收藏、关注和历史 is off.
-- `COLLECTION_WRITES_OFF`: 允许 AI 工具改我的收藏 is off.
-- `TRIAGE_WRITES_OFF`: 允许 AI 工具改分拣台 is off.
+- `PERSONAL_DATA_OFF`: 允许 Agent 读我的收藏、关注和历史 is off.
+- `COLLECTION_WRITES_OFF`: 允许 Agent 改我的收藏 is off.
+- `TRIAGE_WRITES_OFF`: 允许 Agent 改分拣台 is off.
 - `BAD_PARAMS`: a parameter is wrong, the error says which; nothing was written.
 - `PROPOSALS_FULL`: 20 proposals already wait for you in the 分拣台.
 - `NOT_LOGGED_IN`: that browser is not logged in to Bilibili (for the collection tools: YouTube).

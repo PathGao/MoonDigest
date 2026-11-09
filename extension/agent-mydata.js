@@ -1,6 +1,6 @@
 // MoonDigest's agent interface, docs/AGENT.md §2: the user's own Bilibili data (favorites, 稍后再看, follows, watch
 // history) for the MCP server, read only. Only GETs, through triage-bg.js's B站 channel (triageBiliGet), one call at a
-// time, one page per call (稍后再看 and the 分拣台's local copies are read whole, then paged). Off until 设置 → MCP → 允许 AI 工具读我的收藏、关注和历史 (mcpPersonalData).
+// time, one page per call (稍后再看 and the 分拣台's local copies are read whole, then paged). Off until 设置 → MCP → 允许 Agent 读我的收藏、关注和历史 (mcpPersonalData).
 // The worker loads it after triage-bg.js and follow-core.js, whose helpers it uses.
 (() => {
   const K = MdgLimits.KEYS;

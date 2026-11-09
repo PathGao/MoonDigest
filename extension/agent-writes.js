@@ -1,5 +1,5 @@
 // MoonDigest's agent interface, docs/AGENT.md §2: what an AI tool may change in the 分拣台, off until 设置 → MCP → 允许
-// AI 工具改分拣台 (mcpWrites).
+// Agent 改分拣台 (mcpWrites).
 // - triage writes local results at once (AI 判断, 保留, 备注, 视频标签), each key read-modify-written under the lock the
 //   分拣台 takes for it, and journals the change (KEYS.triageAgentLog): the 分拣台 offers it to U, and agent-undo puts back
 //   what is still as the tool left it.

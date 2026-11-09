@@ -98,7 +98,7 @@ check("switch off: PERSONAL_DATA_OFF for every method, nothing fetched", async (
     const r = await M[name]({});
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.code, "PERSONAL_DATA_OFF");
-    assert.match(r.error, /Ask the user to turn on 设置 → MCP → 允许 AI 工具读我的收藏、关注和历史/);
+    assert.match(r.error, /Ask the user to turn on 设置 → MCP → 允许 Agent 读我的收藏、关注和历史/);
   }
   sync = { mcpPersonalData: false };
   assert.strictEqual((await M.favorites({})).code, "PERSONAL_DATA_OFF");

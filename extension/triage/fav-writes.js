@@ -484,7 +484,7 @@ function agentStep(e) {
   return {
     kind: "agent",
     agentId: e.id,
-    ask: e.n > 1 ? [`撤销 AI 工具的修改？`, `<p>AI 工具改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"] : null,
+    ask: e.n > 1 ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"] : null,
     undo: async () => {
       const r = await send({ type: "agent-undo", id: e.id });
       if (!r.ok) {
@@ -495,7 +495,7 @@ function agentStep(e) {
         return "";
       }
       const { n, skipped } = r.data;
-      return redraw() || `已撤销：AI 工具的修改（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）`;
+      return redraw() || `已撤销：Agent 的修改（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）`;
     }
   };
 }
@@ -512,7 +512,7 @@ function followAgentLog(log, tell = true) {
   S.agentLog = log;
   const n = log.filter((e) => e.at > agentSeenAt).reduce((sum, e) => sum + e.n, 0);
   agentSeenAt = Math.max(agentSeenAt, ...log.map((e) => e.at));
-  if (tell && n) toast(`AI 工具改了 ${n} 个视频的分拣结果${UNDO}`);
+  if (tell && n) toast(`Agent 改了 ${n} 个视频的分拣结果${UNDO}`);
 }
 
 // Its B站 proposals, oldest first: 查看 opens the proposal's folder and asks. 执行 runs it as the page's own 取消收藏 /
@@ -554,12 +554,12 @@ async function reviewProposal() {
     gone && list.length && `<p class="dialog-hint">另有 ${gone} 个已经不在「${esc(folderName(p.from))}」里，跳过。</p>`,
     `<p class="dialog-hint">拒绝会删掉这条提议，B站不变。</p>`
   ].filter(Boolean).join("");
-  const title = `AI 工具提议：${verb} ${list.length || p.bvids.length} 个视频${p.to ? `到「${folderName(p.to)}」` : ""}`;
+  const title = `Agent 提议：${verb} ${list.length || p.bvids.length} 个视频${p.to ? `到「${folderName(p.to)}」` : ""}`;
   const ok = await askConfirm(title, body, `${verb} ${list.length} 个`, { danger: p.action !== "copy", reason: why, cancelText: "拒绝" });
   if (!ok && el.confirmDialog.returnValue !== "cancel") return;
   // Taken out of the queue first, so another 分拣台 tab cannot run it too; a batch that started meanwhile puts it back.
   if (!(await dropProposal(p.id))) return toast("这条提议已在别的分拣台标签页处理", true);
-  if (!ok) return toast("已拒绝 AI 工具的提议");
+  if (!ok) return toast("已拒绝 Agent 的提议");
   if (W.busy()) return restoreProposal(p).then(() => toast(UI.busyText(W.busy()), true));
   if (p.action === "unfav") await fav.unfavMany(list, [p.from]);
   else await fav.transfer(list, { how: p.action, target: { id: p.to } });

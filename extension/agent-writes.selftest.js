@@ -80,7 +80,7 @@ const log = () => local[K.triageAgentLog] || [];
 
 check("switch off: TRIAGE_WRITES_OFF for both methods; on but the read switch off: PERSONAL_DATA_OFF; nothing written", async () => {
   const before = plain(local);
-  for (const [s, code, words] of [[{ mcpPersonalData: true }, "TRIAGE_WRITES_OFF", /允许 AI 工具改分拣台/], [{ mcpWrites: true }, "PERSONAL_DATA_OFF", /允许 AI 工具读我的收藏/]]) {
+  for (const [s, code, words] of [[{ mcpPersonalData: true }, "TRIAGE_WRITES_OFF", /允许 Agent 改分拣台/], [{ mcpWrites: true }, "PERSONAL_DATA_OFF", /允许 Agent 读我的收藏/]]) {
     sync = s;
     for (const [name, p] of [["triage", { items: [{ bvid: A, kept: true }] }], ["propose", { action: "unfav", from: "11", bvids: [A] }]]) {
       const r = await M[name](p);

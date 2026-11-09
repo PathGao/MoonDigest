@@ -183,7 +183,7 @@ const ownSync = () => Boolean(S.syncing?.alive);
 runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
-runs.put("agent", () => S.agentProposals.length > 0 && { text: `AI 工具的 ${S.agentProposals.length} 条收藏夹提议等你确认` });
+runs.put("agent", () => S.agentProposals.length > 0 && { text: `Agent 的 ${S.agentProposals.length} 条收藏夹提议等你确认` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: MdgErrors.LABEL.seen, wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
