@@ -32,12 +32,5 @@ if (require.main === module) {
   assert.strictEqual(S.keyOf("https://demo.test/abc"), "demo:abc:");
   assert.strictEqual(S.keyOf("https://other.test/abc"), null);
 
-  // Every site's function read compiles the way chrome.scripting.executeScript builds it: "(" + its source + ")".
-  // Method shorthand (read(url) {}) does not, and fails only in Chrome.
-  const { runtimes } = require("../page-sources.selftest.js");
-  const worker = runtimes.find((r) => r.where === "background.js").files;
-  const all = load(...worker.filter((f) => f.startsWith("agent-sites/") && f !== "agent-sites/registry.js").map((f) => f.slice("agent-sites/".length)));
-  const reads = all.list().filter((s) => typeof s.read === "function");
-  for (const s of reads) assert.doesNotThrow(() => new vm.Script(`(${s.read.toString()})`), `${s.id}'s read`);
   console.log("agent-sites registry selftest ok");
 }

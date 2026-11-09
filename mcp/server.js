@@ -207,7 +207,8 @@ export function formatFollows(d) {
 // The 分拣台 writes (docs/AGENT.md §2 triage / propose).
 export function formatTriage(d) {
   const notMade = d.tagsNotMade?.length ? ` Not made (the folder is at its tag limit): ${d.tagsNotMade.join(", ")}.` : "";
-  return `Saved in the 分拣台: ${d.changed} video(s) changed. The user can undo this call there.${notMade}`;
+  const undo = d.noUndo ? " It could not be recorded for undo: tell the user." : " The user can undo this call there.";
+  return `Saved in the 分拣台: ${d.changed} video(s) changed.${undo}${notMade}`;
 }
 
 export function formatProposal(d) {

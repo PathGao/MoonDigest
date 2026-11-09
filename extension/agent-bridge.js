@@ -2,7 +2,7 @@
 // Call MdgAgentBridge.start(...) synchronously at the top level of the service worker so the
 // chrome.alarms listener is registered before Chrome delivers a wake-up alarm.
 // Needs the "alarms", "storage", "tabs" and "scripting" permissions (storage.session: Chrome 102+) plus host access to
-// each site's origins (agent-sites/): the manifest grants bilibili.com and youtube.com, the user allows the others.
+// each site's origins (agent-sites/): the manifest grants bilibili.com and youtube.com.
 (() => {
   const SERVER_URL = "ws://127.0.0.1:47823/";
   const ALARM = "agent-bridge";
@@ -11,9 +11,6 @@
   const PAGE_WAIT_MS = 50_000;
   const CALL_BUDGET_MS = 55_000; // a call ends before the server's 60 s TIMEOUT, so the server gets its error
   const PAGE_RETRY_MS = 500;
-  // What a page-run read may return, as JSON characters: room for long subtitles with their timings. The page is untrusted, so anything larger is refused, not passed on to the agent.
-  const MAX_READ_CHARS = 300_000;
-  const MAX_ERROR_CHARS = 500; // a page read's error sentence
 
   // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
   const MCP_SWITCHES = {
@@ -158,42 +155,21 @@
 
   // Chrome loads no media in a tab that has never been shown, so a frame there fails with TAB_HIDDEN. Show the tab for
   // that one frame, then give its window back the tab that was in front. Once loaded, later frames need no switch.
-  async function callShown(target, method, params, deadline, ask) {
-    const reply = await callPage(target, method, params, deadline, ask);
+  async function callShown(target, method, params, deadline) {
+    const reply = await callPage(target, method, params, deadline);
     if (method !== "frame" || reply.code !== "TAB_HIDDEN") return reply;
     const tab = await chrome.tabs.get(target.tabId).catch(() => null);
     if (!tab) return reply;
     const [front] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     await chrome.tabs.update(tab.id, { active: true });
     try {
-      return await callPage(target, method, params, deadline, ask);
+      return await callPage(target, method, params, deadline);
     } finally {
       // Give the front back only if ours is still in front: the user may have switched tabs meanwhile.
       const now = await chrome.tabs.get(tab.id).catch(() => null);
       if (front && front.id !== tab.id && now?.active) await chrome.tabs.update(front.id, { active: true }).catch(() => {});
     }
   }
-
-  // A site whose adapter reads the page itself: read(url) runs in the page's own world (its globals in reach) and returns
-  // §1's get data, { error, code? } when the site refuses (asked no more), or a falsy value while the page is not ready
-  // (callPage asks again). Its comments go through MdgSites.cleanComment here, like every other reader's.
-  const readInPage = (site, url) => async (tabId) => {
-    const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
-    const d = r?.result;
-    if (!d) return undefined;
-    if (JSON.stringify(d).length > MAX_READ_CHARS) return { ok: false, code: "TOO_LARGE", error: `The page returned more than ${MAX_READ_CHARS} characters.` };
-    // The page could claim any code (PERSONAL_DATA_OFF, NOT_CONNECTED…) to steer the agent: only THROTTLED passes.
-    if (typeof d.error === "string") return { ok: false, error: d.error.slice(0, MAX_ERROR_CHARS), ...(d.code === "THROTTLED" ? { code: d.code } : {}) };
-    const comments = Array.isArray(d.comments) ? d.comments.map(MdgSites.cleanComment).filter((c) => c.message) : [];
-    return { ok: true, data: { ...d, comments, site: site.id } };
-  };
-
-  // A frame there: agent-page.js's frame, injected into the page's isolated world (it stays loaded for the next frame).
-  const frameInPage = (params) => async (tabId) => {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["agent-page.js"] });
-    const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: (p) => MdgAgentPage.frame(p), args: [params] });
-    return r?.result;
-  };
 
   // deadline: when the server stops waiting for this call (its 60 s TIMEOUT). A call still queued then is dropped, so
   // nothing loads a video or asks the site for a call nobody waits for any more.
@@ -210,20 +186,12 @@
     if (!key) return { ok: false, code: "BAD_URL", error: `Not a page MoonDigest reads. Sites: ${MdgAgentSites.list().map((s) => s.id).join(", ")}.` };
     const site = MdgAgentSites.get(key.split(":")[0]);
     const { url: _drop, ...rest } = params;
-    if (site.read === "content") {
-      const user = await findUserTab(site, key);
-      if (user) return callShown(user, method, rest, deadline);
-    } else {
-      // Only in the own tab: nothing runs in the user's tabs.
-      if (!(await chrome.permissions.contains({ origins: site.origins }))) {
-        return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${site.origins.join(", ")}: ask the user to allow it.` };
-      }
-    }
+    const user = await findUserTab(site, key);
+    if (user) return callShown(user, method, rest, deadline);
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
-      const ask = site.read === "content" ? undefined : method === "get" ? readInPage(site, url) : frameInPage(rest);
-      const reply = await callShown(own, method, rest, deadline, ask);
+      const reply = await callShown(own, method, rest, deadline);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;

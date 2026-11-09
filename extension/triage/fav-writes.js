@@ -526,7 +526,7 @@ function dropProposal(id) {
   return storeEdit(K.agentProposals, [], edit).then((list) => {
     if (list) S.agentProposals = list;
     renderStatus();
-    return took;
+    return Boolean(list) && took; // a failed write took nothing: still stored, it must not run
   });
 }
 // Back at the head of the queue, when it could not run after all.

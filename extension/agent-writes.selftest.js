@@ -113,6 +113,7 @@ check("triage refuses bad input whole, before writing anything", async () => {
     { items: [{ bvid: A, addTags: ["新"], folderId: "22" }] }, // not ticked
     { items: [{ bvid: C, addTags: ["新"], folderId: "11" }] }, // not in that folder
     { items: [{ bvid: A, addTags: ["、"], folderId: "11" }] },
+    { items: [{ bvid: A, addTags: ["一二三四五六七八九十一二三"], folderId: "11" }] }, // past the 12 a tag name holds
     // A good item does not get through beside a bad one.
     { items: [{ bvid: A, kept: true }, { bvid: B, verdict: "keep" }] }
   ];
@@ -121,6 +122,21 @@ check("triage refuses bad input whole, before writing anything", async () => {
     assert.deepStrictEqual([r.ok, r.code], [false, "BAD_PARAMS"], JSON.stringify(p).slice(0, 80));
   }
   assert.deepStrictEqual(local, before);
+});
+
+check("a journal that cannot be written leaves the call ok, with noUndo: the writes landed, so no error to retry on", async () => {
+  const set = chrome.storage.local.set;
+  chrome.storage.local.set = async (o) => {
+    if (K.triageAgentLog in o) throw new Error("quota");
+    return set(o);
+  };
+  try {
+    const r = await M.triage({ items: [{ bvid: A, kept: true }] });
+    assert.deepStrictEqual(plain(r), { ok: true, data: { changed: 1, noUndo: true } });
+    assert.deepStrictEqual(log(), []);
+  } finally {
+    chrome.storage.local.set = set;
+  }
 });
 
 check("triage writes verdict, 保留, note and tags, journals it, and U puts all of it back", async () => {

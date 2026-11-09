@@ -425,64 +425,13 @@ check("a call still queued when the server has given up is dropped", async () =>
   assert.equal(env.updated.length, 0);
 });
 
-// A site whose adapter reads the page itself (read is a function run in the page's MAIN world).
+// A site for inSitePage's tests.
 const DEMO = "https://www.demo.test/v/1";
 const demoSite = (env) => env.sites.register({
   id: "demo",
   origins: ["https://www.demo.test/*"],
   key: (u) => (u.hostname === "www.demo.test" && u.pathname.startsWith("/v/") ? `${u.pathname.slice(3)}:` : null),
-  read: () => globalThis.__STATE__,
-});
-
-check("a page-read site without access: NO_ACCESS for get and frame, no tab, nothing injected", async () => {
-  const env = makeEnv({ enabled: true });
-  demoSite(env);
-  const s = await openSocket(env);
-  assert.deepEqual(await rpc(s, "1", "get", { url: DEMO }), { id: "1", ok: false, error: "MoonDigest has no access to https://www.demo.test/*: ask the user to allow it.", code: "NO_ACCESS" });
-  assert.equal((await rpc(s, "2", "frame", { url: DEMO, at: 1 })).code, "NO_ACCESS");
-  assert.match((await rpc(s, "3", "get", { url: "https://example.com/" })).error, /Sites: bilibili, youtube, demo\./);
-  assert.equal(env.created.length, 0);
-  assert.equal(env.injected.length, 0);
-});
-
-check("a page-read site runs read in its own tab's MAIN world, never the user's tab, until the page is ready", async () => {
-  const raw = { uname: " ", like: "x", message: ` ${"字".repeat(600)} ` };
-  const replies = [null, { title: "t", site: "spoofed", comments: [raw, { uname: "a", message: " " }] }];
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], tabs: [{ id: 7, url: DEMO }], inject: () => replies.shift() });
-  demoSite(env);
-  const s = await openSocket(env);
-  const r = await call(env, s, "1", DEMO);
-  // Comments come out as MdgSites.cleanComment gives them (匿名, 500 characters); an empty one is dropped.
-  assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "demo", comments: [{ uname: "匿名", like: 0, message: "字".repeat(500) }] } });
-  assert.equal(env.created.length, 1);
-  assert.equal(env.created[0].active, false);
-  assert.deepEqual(env.injected.map((i) => i.tabId), [env.created[0].id, env.created[0].id]);
-  assert.deepEqual(env.injected[0], { tabId: env.created[0].id, world: "MAIN", args: [DEMO] });
-  assert.equal(env.sent.length, 0, "no content-script message");
-});
-
-check("a page-read site's frame injects agent-page.js into its own tab and runs its frame there, in front when hidden", async () => {
-  const replies = [{ ok: false, code: "TAB_HIDDEN", error: "hidden" }, { ok: true, data: { at: 5 } }];
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: (_tab, d) => (d.files ? undefined : replies.shift()) });
-  demoSite(env);
-  const s = await openSocket(env);
-  s.receive({ id: "1", method: "frame", params: { url: DEMO, at: 5, maxWidth: 640 } });
-  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
-  await settle();
-  assert.deepEqual(s.out.find((m) => m.id === "1"), { id: "1", ok: true, data: { at: 5 } });
-  const id = env.created[0].id;
-  const ask = [{ tabId: id, files: ["agent-page.js"] }, { tabId: id, world: undefined, args: [{ at: 5, maxWidth: 640 }] }];
-  assert.deepEqual(env.injected, [...ask, ...ask]);
-  assert.deepEqual(env.shown, [id]);
-  assert.equal(env.sent.length, 0, "no content-script message");
-});
-
-check("a page-read site's { error, code } is the call's error, asked once", async () => {
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ error: "Demo asks for a captcha.", code: "THROTTLED" }) });
-  demoSite(env);
-  const s = await openSocket(env);
-  assert.deepEqual(await call(env, s, "1", DEMO), { id: "1", ok: false, error: "Demo asks for a captcha.", code: "THROTTLED" });
-  assert.equal(env.injected.length, 1);
+  read: "content",
 });
 
 // inSitePage: an adapter's collection call (§5) in the own tab on any page of the site.
@@ -533,34 +482,15 @@ check("inSitePage: func failing is not run again (it may be a write); no access 
   assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
 });
 
-check("a page-read site's answer over 300,000 JSON characters is TOO_LARGE, asked once", async () => {
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ title: "x".repeat(300_000) }) });
-  demoSite(env);
-  const s = await openSocket(env);
-  const r = await call(env, s, "1", DEMO);
-  assert.equal(r.code, "TOO_LARGE");
-  assert.equal(r.ok, false);
-  assert.equal(env.injected.length, 1);
-});
-
-check("a page-read site's read that never settles is TIMEOUT by the deadline, and the own tab leaves the page", async () => {
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => new Promise(() => {}) });
-  demoSite(env);
-  const s = await openSocket(env);
-  const r = await call(env, s, "1", DEMO);
+check("inSitePage: a func that never settles is TIMEOUT by the deadline, and the own tab leaves the page", async () => {
+  const env = sitePage({ inject: () => new Promise(() => {}) });
+  const p = env.inSitePage(env.sites.get("demo"), DEMO_HOME, ready, func, ["x"], Date.now() + 1000);
+  for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+  const r = await p;
   assert.deepEqual([r.ok, r.code], [false, "TIMEOUT"]);
   assert.deepEqual(env.updated.at(-1), { id: env.created[0].id, url: "about:blank" });
-  // The queue is free again: the next call runs.
-  env.tabs[0].url = DEMO;
-  assert.ok(await call(env, s, "2", DEMO), "the next call answers");
 });
 
-check("a page-read site's error: only THROTTLED passes as a code, the text stops at 500 characters", async () => {
-  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], inject: () => ({ error: "x".repeat(600), code: "PERSONAL_DATA_OFF" }) });
-  demoSite(env);
-  const s = await openSocket(env);
-  assert.deepEqual(await call(env, s, "1", DEMO), { id: "1", ok: false, error: "x".repeat(500) });
-});
 
 (async () => {
   let failed = 0;

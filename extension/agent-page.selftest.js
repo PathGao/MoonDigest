@@ -200,9 +200,6 @@ const DATA = { url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", site: "youtub
     let t = setup();
     t.ctx.MdgAgentPage.bind({ read: async () => DATA });
     assert.strictEqual((await t.call("frame", { at: 1 })).code, "NO_VIDEO");
-    // The bridge's frame for a page with no content script (agent-sites/web.js) gets the same reply, without bind.
-    const reply = await setup().ctx.MdgAgentPage.frame({ at: 1 });
-    assert.deepStrictEqual([reply.ok, reply.code], [false, "NO_VIDEO"]);
 
     t = setup();
     const stuck = fakeVideo({ seeks: false }, t.clock);

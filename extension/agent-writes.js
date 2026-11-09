@@ -31,7 +31,7 @@
   const asWritten = ({ criteria, ...a } = {}) => a;
   const tagNames = (v, name) =>
     listOf(v ?? [], 10, name).map((n, j) => {
-      const clean = MdgTagCore.cleanTagName(text(n, 40, `${name}[${j}]`));
+      const clean = MdgTagCore.cleanTagName(text(n, MdgTagCore.TAG_NAME_MAX, `${name}[${j}]`));
       if (!clean) throw bad(`${name}[${j}] is not a tag name.`);
       return clean;
     });
@@ -84,6 +84,7 @@
     const made = [];
     const notMade = [];
     const changedIds = () => [...new Set(Object.values(changes).flatMap(Object.keys))];
+    let noUndo = false;
     try {
       const keep = list.filter((it) => "kept" in it);
       if (keep.length) {
@@ -157,10 +158,11 @@
       const n = changedIds().length;
       if (n || made.length) {
         const entry = { id: MdgTagCore.newTagId("a"), at: now, n, changes, made };
-        await MdgLimits.update(K.triageAgentLog, (log = []) => [...log, entry].slice(-MdgLimits.TRIAGE_UNDO_STEPS));
+        // A failed journal must not turn landed writes into an error the tool would retry: the reply says no undo.
+        await MdgLimits.update(K.triageAgentLog, (log = []) => [...log, entry].slice(-MdgLimits.TRIAGE_UNDO_STEPS)).catch(() => (noUndo = true));
       }
     }
-    return { changed: changedIds().length, ...(notMade.length && { tagsNotMade: [...new Set(notMade)] }) };
+    return { changed: changedIds().length, ...(notMade.length && { tagsNotMade: [...new Set(notMade)] }), ...(noUndo && { noUndo }) };
   }
 
   // U in the 分拣台 on one journaled triage: each value still as the tool left it goes back; one changed since stays

@@ -7,7 +7,7 @@
     const { id, origins, key, read } = adapter || {};
     // The id prefixes every key, so a ":" in it would split keys wrongly.
     const bad = !/^[a-z0-9-]+$/.test(id) || sites.has(id) || !Array.isArray(origins) || !origins.length || typeof key !== "function" ||
-      (read !== "content" && typeof read !== "function");
+      read !== "content";
     if (bad) throw new Error(`MdgAgentSites: bad adapter ${id}`);
     sites.set(id, adapter);
   }
