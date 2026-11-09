@@ -52,7 +52,7 @@
 
 ## 给 AI agent 用
 
-Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。用 MCP 时，agent 还能借你的登录搜 B站和 YouTube 视频。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。你的收藏夹、关注、观看历史和分拣台里的标签、备注，只有打开「允许 Agent 读我的收藏、关注和历史」后才能通过 MCP 读；YouTube 稍后观看和 YouTube 播放列表，再打开「允许 Agent 改我的收藏」后 agent 才能改。两种接法：
+Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。用 MCP 时，agent 还能借你的登录搜 B站和 YouTube 视频。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。你的收藏夹、关注、观看历史和分拣台里的标签、备注，只有打开「允许 Agent 读我的收藏、关注和历史」后才能通过 MCP 读；B站稍后再看、YouTube 稍后观看和 YouTube 播放列表，再打开「允许 Agent 改我的收藏」后 agent 才能改。两种接法：
 
 - **skill**（agent 能操控浏览器，如 ego、Claude in Chrome、Playwright）：
 

@@ -28,8 +28,8 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 
 你自己 YouTube 的收藏有两个工具。MoonDigest 不为它们做页面，Agent 就是界面：
 
-- `list_collection({ site, kind, id?, cursor?, raw? })`：`site` 写 `youtube`，`kind` 是 `watch_later`（稍后观看）、`playlists`（你的播放列表）、`playlist`（`id` 那个播放列表里的视频）、`likes`（赞过的视频）、`subscriptions`（订阅）、`history`（历史记录）。一次一页，把返回的 `cursor` 传回去读下一页。和上面三个用同一个开关，关着时返回 `PERSONAL_DATA_OFF`。
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频（`items` 是视频 id）加进或移出稍后观看（`kind: "watch_later"`）或你自己的播放列表（`kind: "playlist"`, `id`）。赞和订阅只能读。默认关闭，要在「允许 Agent 读我的收藏、关注和历史」下面再打开「允许 Agent 改我的收藏」，关着时返回 `COLLECTION_WRITES_OFF`；`dryRun: true` 只读、不改，只要读的开关。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
+- `list_collection({ site, kind, id?, cursor?, raw? })`：`site` 写 `bilibili` 时 `kind` 只有 `watch_later`（稍后再看）；B站 的收藏夹、关注和历史仍用上面三个工具。`site` 写 `youtube` 时 `kind` 是 `watch_later`（稍后观看）、`playlists`（你的播放列表）、`playlist`（`id` 那个播放列表里的视频）、`likes`（赞过的视频）、`subscriptions`（订阅）、`history`（历史记录）。一次一页，把返回的 `cursor` 传回去读下一页。和上面三个用同一个开关，关着时返回 `PERSONAL_DATA_OFF`。
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频加进或移出 B站稍后再看、YouTube 稍后观看（都是 `kind: "watch_later"`）或你自己的 YouTube 播放列表（`kind: "playlist"`, `id`）。`items` 是 BV 号或 YouTube 视频 id。赞和订阅只能读。默认关闭，要在「允许 Agent 读我的收藏、关注和历史」下面再打开「允许 Agent 改我的收藏」，关着时返回 `COLLECTION_WRITES_OFF`；`dryRun: true` 只读、不改，只要读的开关。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
 
 改分拣台的两个工具，默认关闭，要在「允许 Agent 读我的收藏、关注和历史」下面再打开「允许 Agent 改分拣台」，关着时返回 `TRIAGE_WRITES_OFF`。参数整份先检查，有一处不对就什么都不写，返回 `BAD_PARAMS`：
 
@@ -93,7 +93,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 开关默认关闭。关着的时候扩展不建任何连接。
 - 收藏、关注和历史另有一个开关，默认关闭，「允许 MCP 连接」关着时它变灰。打开后只读，不改 B站 和 YouTube，也不改插件存的数据；API Key 和 AI 对话不会给出去。
-- 改收藏再有一个开关，默认关闭，上面两个有一个关着它就变灰。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
+- 改收藏再有一个开关，默认关闭，上面两个有一个关着它就变灰。B站稍后再看由扩展后台直接改，和分拣台改稍后再看是同一组请求。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 - 改分拣台也另有一个开关，默认关闭，和改收藏一样，上面两个有一个关着它就变灰。打开后 Agent 只能直接改本地的分拣结果，每次都能在分拣台撤销；B站 上的改动只能提议，由你在分拣台确认，不靠 MCP 客户端的权限弹框。
 
 ### 两个 MCP 客户端同时开着
@@ -155,8 +155,8 @@ These return one page per call and run one at a time, a second apart.
 
 Two tools work on your own YouTube collections. MoonDigest has no pages for them: the AI tool is the UI.
 
-- `list_collection({ site, kind, id?, cursor?, raw? })`: `site` is `youtube`; `kind` is `watch_later`, `playlists` (your playlists), `playlist` (the videos of playlist `id`), `likes`, `subscriptions` or `history`. One page a call; pass the returned `cursor` back for the next. Same switch as the three above: `PERSONAL_DATA_OFF` while it is off.
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos (`items`, video ids) to or removes them from Watch later (`kind: "watch_later"`) or one of your own playlists (`kind: "playlist"`, `id`). Likes and subscriptions are read-only. Off by default: turn on 允许 Agent 改我的收藏 under 允许 Agent 读我的收藏、关注和历史; while it is off a write returns `COLLECTION_WRITES_OFF`, and `dryRun: true` (reads only) needs only the read switch. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
+- `list_collection({ site, kind, id?, cursor?, raw? })`: `site` `bilibili` has only `kind` `watch_later` (稍后再看); Bilibili favorites, follows and history stay in the three tools above. `site` `youtube` has `kind` `watch_later`, `playlists` (your playlists), `playlist` (the videos of playlist `id`), `likes`, `subscriptions` or `history`. One page a call; pass the returned `cursor` back for the next. Same switch as the three above: `PERSONAL_DATA_OFF` while it is off.
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos to or removes them from Bilibili 稍后再看 or YouTube Watch later (both `kind: "watch_later"`) or one of your own YouTube playlists (`kind: "playlist"`, `id`). `items` are BV ids or YouTube video ids. Likes and subscriptions are read-only. Off by default: turn on 允许 Agent 改我的收藏 under 允许 Agent 读我的收藏、关注和历史; while it is off a write returns `COLLECTION_WRITES_OFF`, and `dryRun: true` (reads only) needs only the read switch. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
 
 Two tools change the 分拣台. Both are off by default: turn on 允许 Agent 改分拣台 under 允许 Agent 读我的收藏、关注和历史. While it is off they return `TRIAGE_WRITES_OFF`. Each call is checked whole first: one bad field writes nothing and returns `BAD_PARAMS`.
 
@@ -220,7 +220,7 @@ Then turn on 允许 MCP 连接 in MoonDigest's settings (MCP).
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - The switch is off by default. While off, the extension opens no socket.
 - Favorites, follows and history have their own switch, off by default and greyed out while 允许 MCP 连接 is off. When on, the extension only reads: it changes nothing on Bilibili, YouTube or in its own storage, and never gives out API keys or AI conversations.
-- Changing collections has one more switch, off by default and greyed out while either of the two above is off. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
+- Changing collections has one more switch, off by default and greyed out while either of the two above is off. Bilibili 稍后再看 is changed by the extension's background directly, with the same requests the 分拣台 uses for it. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 - Changing the 分拣台 has its own switch too, off by default and, like changing collections, greyed out while either of the two above is off. When on, an AI tool changes only local 分拣 results directly, each call undoable in the 分拣台; a change on Bilibili it can only propose, and you confirm it in the 分拣台, not through the MCP client's permission prompt.
 
 ### Two MCP clients at once

@@ -332,11 +332,11 @@ const TOOLS = [
   },
   {
     name: "list_collection",
-    description: "Read-only: one page of the user's own collection on a site, through their browser and login. YouTube kinds: watch_later, playlists (the user's playlists: id, title), playlist (the videos of the playlist id), likes, subscriptions (channels), history. Bilibili favorites, follows and history stay in get_favorites, get_follows and get_history. Pass the returned cursor for the next page; read one page, then decide whether you need more. Fails with PERSONAL_DATA_OFF until the user allows it, UNSUPPORTED_KIND for a kind the site does not have.",
+    description: "Read-only: one page of the user's own collection on a site, through their browser and login. Bilibili kind: watch_later (稍后再看). YouTube kinds: watch_later, playlists (the user's playlists: id, title), playlist (the videos of the playlist id), likes, subscriptions (channels), history. Bilibili favorites, follows and history stay in get_favorites, get_follows and get_history. Pass the returned cursor for the next page; read one page, then decide whether you need more. Fails with PERSONAL_DATA_OFF until the user allows it, UNSUPPORTED_KIND for a kind the site does not have.",
     inputSchema: {
       type: "object",
       properties: {
-        site: { type: "string", description: "\"youtube\"." },
+        site: { type: "string", description: "\"bilibili\" or \"youtube\"." },
         kind: { type: "string", enum: ["watch_later", "playlists", "playlist", "likes", "subscriptions", "history"] },
         id: { type: "string", description: "The playlist id, for kind playlist." },
         cursor: { type: "string", description: "The cursor the previous call returned. Omit for the first page." },
@@ -347,15 +347,15 @@ const TOOLS = [
   },
   {
     name: "collection_write",
-    description: "Changes the user's own collection: adds videos to or removes them from YouTube watch_later or one of the user's own playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user. Fails with COLLECTION_WRITES_OFF until the user allows changes (dryRun needs only PERSONAL_DATA_OFF lifted).",
+    description: "Changes the user's own collection: adds videos to or removes them from Bilibili watch_later (稍后再看), YouTube watch_later or one of the user's own YouTube playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user. Fails with COLLECTION_WRITES_OFF until the user allows changes (dryRun needs only PERSONAL_DATA_OFF lifted).",
     inputSchema: {
       type: "object",
       properties: {
-        site: { type: "string", description: "\"youtube\"." },
+        site: { type: "string", description: "\"bilibili\" or \"youtube\"." },
         op: { type: "string", enum: ["add", "remove"] },
         kind: { type: "string", enum: ["watch_later", "playlist"] },
         id: { type: "string", description: "The playlist id, for kind playlist (from list_collection kind playlists)." },
-        items: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 20, description: "Video ids (the v= of a watch URL)." },
+        items: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 20, description: "Video ids: Bilibili BV ids, YouTube the v= of a watch URL." },
         dryRun: { type: "boolean", description: "Only read: each item's current state and whether it would change." },
         raw: { type: "boolean", description: "Return the extension's JSON instead of the compact text." },
       },
@@ -427,7 +427,7 @@ export const INSTRUCTIONS = [
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
   "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
   "When the user asks about their own Bilibili (what they saved, who they follow, what they watched lately), use get_favorites, get_follows and get_history. They are read-only and off until the user allows them (PERSONAL_DATA_OFF: ask the user to turn it on). Read one page at a time and stop once you can answer.",
-  "For the user's own YouTube (watch later, playlists, likes, subscriptions, history) use list_collection; to add videos to or remove them from watch later or a playlist, collection_write, off until the user allows changes (COLLECTION_WRITES_OFF). Dry-run first unless the user named exactly the change, and keep the undo the result gives.",
+  "For the user's own YouTube (watch later, playlists, likes, subscriptions, history) use list_collection; to add videos to or remove them from Bilibili 稍后再看, YouTube watch later or a YouTube playlist, collection_write, off until the user allows changes (COLLECTION_WRITES_OFF). Dry-run first unless the user named exactly the change, and keep the undo the result gives.",
   "When the user asks you to sort their favorites, set_triage writes MoonDigest's 分拣台 results (verdict, 保留, note, tags) and propose_fav_change proposes unfav, move or copy, which the user confirms in the 分拣台. Both are off until the user allows them (TRIAGE_WRITES_OFF).",
 ].join("\n\n");
 
