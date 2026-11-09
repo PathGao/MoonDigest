@@ -41,7 +41,7 @@ async function start() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, agentProposals] = await Promise.all([
     loadTagsAndCriteria(),
     storeGet(K.kept, {}),
     storeGet(K.basket, []),
@@ -51,9 +51,12 @@ async function start() {
     storeGet(K.aiRecent, {}),
     storeGet(K.sort, {}),
     storeGet(K.readAt, {}),
-    storeGet(K.aiProposals, {})
+    storeGet(K.aiProposals, {}),
+    storeGet(K.agentLog, []),
+    storeGet(K.agentProposals, [])
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, agentProposals });
+  followAgentLog(agentLog, false);
   S.ai.proposals = aiProposals;
   pruneAiProposals();
   S.basket = basket.map(({ bvid, title, cover, upper, duration, opened }) => ({ bvid, title, cover, upper, duration, ...(opened ? { opened: true } : {}) }));
@@ -124,7 +127,7 @@ function followIncluded(changes) {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {}, agentProposals: [] };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -136,6 +139,18 @@ function followShared(changes) {
     if (name === "kept") followKept(value);
     else S[name] = value;
     if (name === "tags") for (const id of [...S.tagFilter]) if (!tagById(id)) tagGone(id);
+    changed = true;
+  }
+  if (changes[K.agentLog]) {
+    followAgentLog(changes[K.agentLog].newValue || []);
+    changed = true;
+  }
+  // 细看 results the background wrote (a 细看 here or in another tab, an AI tool's verdict) or 清理 removed.
+  for (const [key, c] of Object.entries(changes)) {
+    if (!key.startsWith(KEYS.triageAnalysisPrefix)) continue;
+    const b = key.slice(KEYS.triageAnalysisPrefix.length);
+    if (c.newValue) S.analyses[b] = c.newValue;
+    else delete S.analyses[b];
     changed = true;
   }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
@@ -386,6 +401,7 @@ function bindEvents() {
     const act = btn.dataset.head;
     if (act === "tags") openAi();
     else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
+    else if (act === "agent") reviewProposal();
     else if (act === "stage1") {
       if (!runs.get("stage1")) {
         const list = stage1Pending();

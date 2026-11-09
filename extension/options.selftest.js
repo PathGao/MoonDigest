@@ -520,10 +520,10 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   vm.runInContext([constant("DEFAULT_SETTINGS"), constant("elements"), "elements.frontmatterFields = document.querySelectorAll(\"input[name=frontmatterField]\");", constant("formKeys"), constant("SWITCH_KEYS"), constant("VALUE_KEYS"), `async ${fn("loadSettings")}`, fn("readFormPayload"), fn("syncMcpRows")].join("\n"), page);
   await page.loadSettings();
   const payload = page.readFormPayload();
-  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
+  const keys = ["obsidianEnabled", "noteFolder", "obsidianApiBaseUrl", "obsidianApiKey", "tags", "downloadFormat", "youtubeSubtitleLang", "includeDateInFilename", "includeHotCommentsInNote", "includeCoverInNote", "includeAiChatInNote", "enablePlayerAiQuickAction", "playerAiQuickPrompt", "includeTimestampInBody", "showBiliTriageBadges", "showBiliUpTags", "showBiliVerdicts", "biliMarksOff", "seenShow", "seenThreshold", "seenStyle", "enableDebugLogs", "mcpEnabled", "mcpPersonalData", "mcpCollectionWrite", "mcpWrites", "frontmatterFields", "fixedFrontmatterProperties", "notePlaceholderSections", "aiSystemPrompt", "aiPresetPrompts", "webAiSystemPrompt", "webAiSummaryPrompt", "webAiPresetPrompts"];
   assert.deepStrictEqual(Object.keys(payload).sort(), [...keys].sort(), "the page sends exactly its own settings");
   assert.deepStrictEqual(plainOf(payload), plainOf(Object.fromEntries(keys.map((k) => [k, settings[k]]))));
-  // 允许 AI 工具读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
+  // 允许 Agent 读我的收藏… hangs on 允许 MCP 连接: greyed out while it is off, its own value kept either way.
   assert.deepStrictEqual([els.mcpEnabled.checked, els.mcpPersonalData.checked, els.mcpPersonalData.disabled], [true, true, false]);
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
@@ -536,6 +536,16 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   els.mcpEnabled.checked = false;
   page.syncMcpRows();
   assert.deepStrictEqual([els.mcpPersonalData.disabled, page.readFormPayload().mcpPersonalData], [true, false], "an off one stays off");
+  // Both write switches (改分拣台, 改我的收藏) hang on both: greyed out while either is off, with the first one to turn on as the reason.
+  const writes = () => ["mcpWrites", "mcpCollectionWrite"].map((k) => [els[k].disabled, els[k].title]);
+  assert.deepStrictEqual(writes(), [[true, "先打开「允许 MCP 连接」"], [true, "先打开「允许 MCP 连接」"]]);
+  els.mcpEnabled.checked = true;
+  page.syncMcpRows();
+  assert.deepStrictEqual(writes(), [[true, "先打开「允许 Agent 读我的收藏、关注和历史」"], [true, "先打开「允许 Agent 读我的收藏、关注和历史」"]]);
+  assert.deepStrictEqual([page.readFormPayload().mcpWrites, page.readFormPayload().mcpCollectionWrite], [true, true], "greyed out, they keep their own values");
+  els.mcpPersonalData.checked = true;
+  page.syncMcpRows();
+  assert.deepStrictEqual(writes().map(([d]) => d), [false, false]);
 })().catch((e) => (console.error(e), process.exit(1)));
 function plainOf(v) {
   return JSON.parse(JSON.stringify(v));

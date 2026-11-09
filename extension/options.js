@@ -133,6 +133,7 @@ function init() {
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
   elements.mcpEnabled.addEventListener("change", syncMcpRows);
+  elements.mcpPersonalData.addEventListener("change", syncMcpRows);
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -689,9 +690,13 @@ function validateNoteExtras() {
 }
 
 // Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
-// 允许 AI 工具读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
+// 允许 Agent 读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
+// The two write switches (改分拣台, 改我的收藏) hang on both the same way: a write reads first.
 function syncMcpRows() {
-  MdgErrors.setReason(elements.mcpPersonalData, elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」");
+  const mcp = elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」";
+  MdgErrors.setReason(elements.mcpPersonalData, mcp);
+  const read = mcp || (elements.mcpPersonalData.checked ? "" : "先打开「允许 Agent 读我的收藏、关注和历史」");
+  for (const box of [elements.mcpWrites, elements.mcpCollectionWrite]) MdgErrors.setReason(box, read);
 }
 
 function syncObsidianBody() {

@@ -910,6 +910,13 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     await p.settle();
     assert.deepStrictEqual(plain(p.store.follow_unfollowed.u3.tagIds), ["t1"], "U puts it back");
     assert.ok(p.toasts.includes("已撤销：去掉「科普」"), p.toasts.join("|"));
+    // D4: tags changed on the record since (another tab) are left be, and U says so.
+    for (const f of p.$("followMain").L.click) await f({ button: 0, preventDefault() {}, target: { closest: (sel) => (sel === "[data-untag]" ? chip : null) } });
+    await p.settle();
+    p.store.follow_unfollowed = { u3: { ...p.store.follow_unfollowed.u3, tagIds: ["t1"] } };
+    p.key("u");
+    await p.settle();
+    assert.deepStrictEqual([plain(p.store.follow_unfollowed.u3.tagIds), p.toasts.at(-1)], [["t1"], "已撤销：去掉「科普」（你之后改过，没动）"]);
     // R23: a failed write is said in red and pushes no U step.
     const set = p.ctx.chrome.storage.local.set;
     p.ctx.chrome.storage.local.set = async () => { throw new Error("QUOTA_BYTES quota exceeded"); };

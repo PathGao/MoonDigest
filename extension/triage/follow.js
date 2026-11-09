@@ -231,18 +231,23 @@ async function setGoneTags(mid, change) {
   derive();
   return prev;
 }
-// A chip click on one: the tag comes off its record, one U step puts it back (unless 重新关注 or 清理 took the record).
+// A chip click on one: the tag comes off its record, one U step puts it back (unless 重新关注 or 清理 took the record, or
+// its tags were changed since: then it is left be, as tag-store.js's steps do).
 async function untagGone(mid, id, name) {
   const prev = await setGoneTags(mid, (ids) => ids.filter((x) => x !== id));
   if (!prev) return;
+  const after = prev.filter((x) => x !== id);
   T.pushUndo({
     kind: "mode",
     tags: true,
     undo: async () => {
-      const live = new Set(D.tags.map((t) => t.id));
-      if ((await setGoneTags(mid, () => prev.filter((x) => live.has(x)))) === false) return false;
+      const isLive = (x) => D.tags.some((t) => t.id === x);
+      let moved = false;
+      const put = (ids) => (moved = MdgTagStore.sameIds(ids.filter(isLive), after.filter(isLive))) ? prev.filter(isLive) : ids;
+      const was = await setGoneTags(mid, put);
+      if (was === false) return false;
       render();
-      return `已撤销：${UI.untagStep(name)}`;
+      return `已撤销：${UI.untagStep(name)}${was && !moved ? "（你之后改过，没动）" : ""}`;
     }
   });
   toast(UI.untagged(name));

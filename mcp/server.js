@@ -92,7 +92,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → 高级 → 允许 MCP 连接 (Settings → Advanced → Allow MCP connection). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 MCP 连接 (Settings → MCP → Allow MCP connection). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;
@@ -164,7 +164,7 @@ export function formatVideo(d) {
 
 // One line per result: what an agent needs to pick which ones to read with get_video.
 export function formatSearch(d) {
-  const site = d.site === "youtube" ? "YouTube" : "Bilibili";
+  const site = { bilibili: "Bilibili", youtube: "YouTube" }[d.site] || d.site;
   if (!d.items?.length) return `No ${site} videos for "${d.query}" on page ${d.page}.`;
   const lines = [`${site} search "${d.query}", page ${d.page}:`];
   d.items.forEach((v, i) => {
@@ -204,12 +204,50 @@ export function formatFollows(d) {
   return lines.join("\n");
 }
 
+// The 分拣台 writes (docs/AGENT.md §2 triage / propose).
+export function formatTriage(d) {
+  const notMade = d.tagsNotMade?.length ? ` Not made (the folder is at its tag limit): ${d.tagsNotMade.join(", ")}.` : "";
+  const undo = d.noUndo ? " It could not be recorded for undo: tell the user." : " The user can undo this call there.";
+  return `Saved in the 分拣台: ${d.changed} video(s) changed.${undo}${notMade}`;
+}
+
+export function formatProposal(d) {
+  return `Proposed (${d.id}). Nothing has changed on Bilibili: the proposal waits in MoonDigest's 分拣台 until the user confirms or rejects it. Tell the user.`;
+}
+
 export function formatHistory(d) {
   const lines = [`History, newest first, ${d.items.length} items.${d.cursor ? ` More: cursor "${d.cursor}".` : " No more."}`];
   for (const h of d.items) {
     const seen = h.progress < 0 ? "finished" : h.duration ? `${clock(h.progress)}/${clock(h.duration)}` : "";
     lines.push("- " + joinParts([when(h.viewAt), h.title, h.author, seen && `watched ${seen}`, h.kind !== "archive" && h.kind, h.url]));
   }
+  return lines.join("\n");
+}
+
+// The user's collections on a site (docs/AGENT.md §2 collection / collectionWrite): one line per item.
+export function formatCollection(d) {
+  const lines = [`${d.site} ${d.kind}${d.id ? ` ${d.id}` : ""}, ${d.items.length} items.${d.cursor ? ` More: cursor "${d.cursor}".` : " No more."}`];
+  for (const v of d.items) {
+    if (v.videoId) lines.push("- " + joinParts([`${v.duration ? `[${clock(v.duration)}] ` : ""}${v.title}`, v.author, v.url, v.unavailable && "unavailable"]));
+    else if (v.channelId) lines.push("- " + joinParts([v.title, v.channelId, v.url]));
+    else lines.push("- " + joinParts([v.id, v.title, v.count != null && `${v.count} videos`]));
+  }
+  return lines.join("\n");
+}
+
+const STATUS = { unchanged: "already so, skipped", would_change: "would change", done: "done", unconfirmed: "sent, but the read after still shows the old state", failed: "failed" };
+
+export function formatCollectionWrite(d) {
+  const lines = [`${d.dryRun ? "Dry run, nothing changed: " : ""}${d.op} on ${d.site} ${d.kind}${d.id ? ` ${d.id}` : ""}.`];
+  for (const r of d.results) {
+    const state = r.before == null ? "" : ` (was ${r.before ? "in" : "not in"}${r.after == null ? "" : `, now ${r.after ? "in" : "not in"}`})`;
+    lines.push(`- ${r.item}: ${STATUS[r.status] || r.status}${state}${r.error ? `: ${r.error}` : ""}`);
+  }
+  if (!d.dryRun) lines.push(`Done: ${d.done.join(", ") || "none"}.`);
+  if (d.notDone.length) lines.push(`Not tried: ${d.notDone.join(", ")}.`);
+  if (d.stopped === "TIMEOUT") lines.push("Stopped: the call's time ran out. Call again with the items not tried.");
+  else if (d.stopped) lines.push(`Stopped: ${d.stopped}.${d.stopped === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon." : " Ask the user to log in to the site in that browser."}`);
+  if (d.undo) lines.push(`Undo: collection_write ${JSON.stringify(d.undo)}`);
   return lines.join("\n");
 }
 
@@ -225,7 +263,7 @@ const TOOLS = [
       type: "object",
       properties: {
         query: { type: "string", description: "What to search for, as you would type it into the site's search box." },
-        site: { type: "string", enum: ["bilibili", "youtube"], description: "Default bilibili." },
+        site: { type: "string", description: "The site to search: \"bilibili\" (default) or \"youtube\"." },
         page: { type: "integer", minimum: 1, description: "Result page, default 1, about 20 videos per page. YouTube has page 1 only." },
         raw: { type: "boolean", description: "Return the extension's JSON (adds a short description per video) instead of the compact text." },
       },
@@ -293,13 +331,95 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "list_collection",
+    description: "Read-only: one page of the user's own collection on a site, through their browser and login. Bilibili kind: watch_later (稍后再看). YouTube kinds: watch_later, playlists (the user's playlists: id, title), playlist (the videos of the playlist id), likes, subscriptions (channels), history. Bilibili favorites, follows and history stay in get_favorites, get_follows and get_history. Pass the returned cursor for the next page; read one page, then decide whether you need more. Fails with PERSONAL_DATA_OFF until the user allows it, UNSUPPORTED_KIND for a kind the site does not have.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        site: { type: "string", description: "\"bilibili\" or \"youtube\"." },
+        kind: { type: "string", enum: ["watch_later", "playlists", "playlist", "likes", "subscriptions", "history"] },
+        id: { type: "string", description: "The playlist id, for kind playlist." },
+        cursor: { type: "string", description: "The cursor the previous call returned. Omit for the first page." },
+        raw: { type: "boolean", description: "Return the extension's JSON instead of the compact text." },
+      },
+      required: ["site", "kind"],
+    },
+  },
+  {
+    name: "collection_write",
+    description: "Changes the user's own collection: adds videos to or removes them from Bilibili watch_later (稍后再看), YouTube watch_later or one of the user's own YouTube playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user. Fails with COLLECTION_WRITES_OFF until the user allows changes (dryRun needs only PERSONAL_DATA_OFF lifted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        site: { type: "string", description: "\"bilibili\" or \"youtube\"." },
+        op: { type: "string", enum: ["add", "remove"] },
+        kind: { type: "string", enum: ["watch_later", "playlist"] },
+        id: { type: "string", description: "The playlist id, for kind playlist (from list_collection kind playlists)." },
+        items: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 20, description: "Video ids: Bilibili BV ids, YouTube the v= of a watch URL." },
+        dryRun: { type: "boolean", description: "Only read: each item's current state and whether it would change." },
+        raw: { type: "boolean", description: "Return the extension's JSON instead of the compact text." },
+      },
+      required: ["site", "op", "kind", "items"],
+    },
+  },
+  {
+    name: "set_triage",
+    description: "Write the user's MoonDigest 分拣台 results for up to 50 Bilibili videos, as the 分拣台's own AI does: a verdict (keep / drop / unsure) with a one-line summary, 保留 (kept), a note, and tags of the folder. Judge a video only after reading it with get_video; take bvids and folder ids from get_favorites. Only the fields you give change, and the whole call is checked before anything is written. The user sees the results in the 分拣台 and can undo the call there. Nothing changes on Bilibili. Fails with PERSONAL_DATA_OFF or TRIAGE_WRITES_OFF until the user allows it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: "object",
+            properties: {
+              bvid: { type: "string", pattern: "^BV[0-9A-Za-z]{10}$" },
+              verdict: { type: "string", enum: ["keep", "drop", "unsure"], description: "Keep it, can go, or unsure. Needs summary." },
+              summary: { type: "string", maxLength: 100, description: "One line: what the video is." },
+              reason: { type: "string", maxLength: 300, description: "Why the verdict." },
+              points: { type: "array", maxItems: 3, items: { type: "string", maxLength: 200 }, description: "Key points." },
+              kept: { type: "boolean", description: "The 保留 mark: true marks it, false removes it." },
+              note: { type: "string", maxLength: 2000, description: "The video's note; an empty string removes it." },
+              folderId: { type: "string", description: "The folder whose tags addTags and removeTags name; the video must be in it." },
+              addTags: { type: "array", maxItems: 10, items: { type: "string", maxLength: 12 }, description: "Tag names; a missing one is made while the folder has room." },
+              removeTags: { type: "array", maxItems: 10, items: { type: "string", maxLength: 12 } },
+            },
+            required: ["bvid"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["items"],
+    },
+  },
+  {
+    name: "propose_fav_change",
+    description: "Propose a change to the user's Bilibili favorites: unfav (取消收藏) videos from a folder, or move or copy them to another folder. It changes nothing by itself: the proposal waits in MoonDigest's 分拣台 until the user confirms it there (MoonDigest then makes the change) or rejects it; tell the user so. from must be a folder ticked in the 分拣台 (get_favorites reads it with source local) holding every video, to another folder from get_favorites. At most 20 proposals wait at a time. Fails with PERSONAL_DATA_OFF or TRIAGE_WRITES_OFF until the user allows it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["unfav", "move", "copy"] },
+        from: { type: "string", description: "The folder id the videos are in, or \"toview\"." },
+        to: { type: "string", description: "The target folder id, for move and copy." },
+        bvids: { type: "array", minItems: 1, maxItems: 50, items: { type: "string", pattern: "^BV[0-9A-Za-z]{10}$" } },
+        reason: { type: "string", maxLength: 200, description: "One line for the user: why." },
+      },
+      required: ["action", "from", "bvids"],
+    },
+  },
 ];
 
-// The personal-data tools: socket method, the params it takes, the formatter.
-const PERSONAL = {
+// The tools answered by one socket method each: the method, the params it takes, the formatter.
+const METHODS = {
   get_favorites: ["favorites", ["folderId", "page", "query"], formatFavorites],
   get_follows: ["follows", ["page", "query"], formatFollows],
   get_history: ["history", ["cursor"], formatHistory],
+  list_collection: ["collection", ["site", "kind", "id", "cursor"], formatCollection],
+  set_triage: ["triage", ["items"], formatTriage],
+  propose_fav_change: ["propose", ["action", "from", "to", "bvids", "reason"], formatProposal],
 };
 
 // What MCP clients put in the model's prompt about this server: when to reach for it, not how each tool works.
@@ -308,6 +428,8 @@ export const INSTRUCTIONS = [
   "Use it whenever a video matters to the answer, not only when the user links one. When you research a topic, look for tutorials or compare sources and your search turns up Bilibili or YouTube videos, do not judge them by title, thumbnail or view count: read the most promising ones with get_video, check that they really cover what the user asked, and say what each one says, citing mm:ss timestamps and links that open at that moment. Drop the ones that do not match.",
   "Read a few candidates, one at a time, not dozens: Bilibili and YouTube rate-limit bursts. If a result says THROTTLED, stop and tell the user. To find videos on Bilibili or YouTube, search with search_videos, then read the best few with get_video.",
   "When the user asks about their own Bilibili (what they saved, who they follow, what they watched lately), use get_favorites, get_follows and get_history. They are read-only and off until the user allows them (PERSONAL_DATA_OFF: ask the user to turn it on). Read one page at a time and stop once you can answer.",
+  "For the user's own YouTube (watch later, playlists, likes, subscriptions, history) use list_collection; to add videos to or remove them from Bilibili 稍后再看, YouTube watch later or a YouTube playlist, collection_write, off until the user allows changes (COLLECTION_WRITES_OFF). Dry-run first unless the user named exactly the change, and keep the undo the result gives.",
+  "When the user asks you to sort their favorites, set_triage writes MoonDigest's 分拣台 results (verdict, 保留, note, tags) and propose_fav_change proposes unfav, move or copy, which the user confirms in the 分拣台. Both are off until the user allows them (TRIAGE_WRITES_OFF).",
 ].join("\n\n");
 
 function errorResult(err) {
@@ -325,17 +447,24 @@ export function createMcpServer(bridge) {
       if (params.name === "search_videos") {
         if (typeof args.query !== "string" || !args.query.trim()) throw new CodedError("", "query is required.");
         const site = args.site ?? "bilibili";
-        if (site !== "bilibili" && site !== "youtube") throw new CodedError("", 'site must be "bilibili" or "youtube".');
+        // Which sites search is the extension's to say (agent-sites/): it answers any other id with the list.
+        if (typeof site !== "string" || !site) throw new CodedError("", 'site must be a site id such as "bilibili".');
         const page = args.page ?? 1;
         if (!Number.isInteger(page) || page < 1) throw new CodedError("", "page must be an integer ≥ 1.");
         const data = await bridge.call("search", { site, query: args.query.trim(), page });
         return { content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatSearch(data) }] };
       }
-      const mine = PERSONAL[params.name];
+      const mine = METHODS[params.name];
       if (mine) {
         const [method, keys, format] = mine;
         const data = await bridge.call(method, Object.fromEntries(keys.filter((k) => args[k] != null).map((k) => [k, args[k]])));
         return { content: [{ type: "text", text: args.raw ? JSON.stringify(data) : format(data) }] };
+      }
+      if (params.name === "collection_write") {
+        const data = await bridge.call("collectionWrite", Object.fromEntries(["site", "op", "kind", "id", "items", "dryRun"].filter((k) => args[k] != null).map((k) => [k, args[k]])));
+        // A batch stopped by THROTTLED or a lost login is an error the agent must act on; the lists still come along.
+        const stopped = data.stopped && data.stopped !== "TIMEOUT";
+        return { ...(stopped && { isError: true }), content: [{ type: "text", text: `${stopped ? `${data.stopped}: ` : ""}${args.raw ? JSON.stringify(data) : formatCollectionWrite(data)}` }] };
       }
       if (typeof args.url !== "string" || !args.url) throw new CodedError("BAD_URL", "url is required.");
       if (params.name === "get_video") {

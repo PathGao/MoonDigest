@@ -14,7 +14,8 @@ const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8")
 assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js"), "agent-mydata.js loads after the triage helpers it uses");
 let M = null;
 for (const file of order) {
-  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { addMethods: (m) => (M = m) };
+  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods: (m) => (M ??= m) };
+  if (file === "agent-writes.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods() {} }; // agent-writes.selftest.js's
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 }
 assert.deepStrictEqual(Object.keys(M), ["favorites", "follows", "history"]);
@@ -97,7 +98,7 @@ check("switch off: PERSONAL_DATA_OFF for every method, nothing fetched", async (
     const r = await M[name]({});
     assert.strictEqual(r.ok, false);
     assert.strictEqual(r.code, "PERSONAL_DATA_OFF");
-    assert.match(r.error, /Ask the user to turn on 设置 → 高级 → 允许 AI 工具读我的收藏、关注和历史/);
+    assert.match(r.error, /Ask the user to turn on 设置 → MCP → 允许 Agent 读我的收藏、关注和历史/);
   }
   sync = { mcpPersonalData: false };
   assert.strictEqual((await M.favorites({})).code, "PERSONAL_DATA_OFF");

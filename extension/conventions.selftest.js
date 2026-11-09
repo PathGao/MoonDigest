@@ -66,6 +66,7 @@ const ALLOW = [
   ["content.js", 'new Error("Unknown retry error")', "例外：到不了，retryAsync 的循环每条路都 return 或 throw"],
   ["obsidian.js", "new Error(`cover HTTP ${image.status}`)", "例外：同一函数 catch 住，只 console.warn，笔记保留远程封面地址"],
   ["sidepanel-state.js", "new Error(`unknown event ${event.type}`)", "例外：未知事件类型是代码错，不是用户能遇到的"],
+  ["agent-sites/registry.js", "new Error(`MdgAgentSites: bad adapter ${id}`)", "例外：站点文件写错是代码错，worker 加载时就失败，用户遇不到"],
   ["sites.js", 'new Error("no wbi_img")', "例外：biliWbiQuery 吞掉它，follow-bg.js 的 followWbiData 换成「拿不到 WBI 签名密钥」"],
   // 5a
   ["triage/triage-bg.js", "[triageNotes]: notes, triage_notes_migrated: true", "例外：一次性迁移（triage_notes_migrated），扩展更新时跑一次，只补还没有的条目"],

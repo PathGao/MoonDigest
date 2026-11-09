@@ -1,7 +1,8 @@
 // MoonDigest's agent interface, docs/AGENT.md §2: the service worker's socket to the local MCP server (mcp/).
 // Call MdgAgentBridge.start(...) synchronously at the top level of the service worker so the
 // chrome.alarms listener is registered before Chrome delivers a wake-up alarm.
-// Needs the "alarms", "storage" and "tabs" permissions (storage.session: Chrome 102+) plus host access to bilibili.com and youtube.com.
+// Needs the "alarms", "storage", "tabs" and "scripting" permissions (storage.session: Chrome 102+) plus host access to
+// each site's origins (agent-sites/): the manifest grants bilibili.com and youtube.com.
 (() => {
   const SERVER_URL = "ws://127.0.0.1:47823/";
   const ALARM = "agent-bridge";
@@ -11,30 +12,19 @@
   const CALL_BUDGET_MS = 55_000; // a call ends before the server's 60 s TIMEOUT, so the server gets its error
   const PAGE_RETRY_MS = 500;
 
-  // --- URLs --------------------------------------------------------------------
-
-  // Returns "site:videoId:part" for a supported video page, else null.
-  function videoKey(href) {
-    let u;
-    try { u = new URL(href); } catch { return null; }
-    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-    const host = u.hostname.replace(/^www\./, "");
-    const q = u.searchParams;
-    if (host === "youtube.com") {
-      const v = q.get("v");
-      return u.pathname === "/watch" && v ? `youtube:${v}:` : null;
-    }
-    if (host === "bilibili.com") {
-      let m = /^\/video\/((?:BV|bv)[0-9A-Za-z]+|av\d+)\/?$/.exec(u.pathname);
-      if (m) return `bilibili:${m[1]}:${q.get("p") || "1"}`;
-      m = /^\/bangumi\/play\/((?:ep|ss)\d+)\/?$/.exec(u.pathname);
-      if (m) return `bilibili:${m[1]}:`;
-      if (/^\/(list|festival)\/[^/]+/.test(u.pathname)) {
-        // These pages play q.bvid; without it the page itself is the only identity.
-        return `bilibili:${q.get("bvid") || u.pathname}:${q.get("p") || "1"}`;
-      }
-    }
-    return null;
+  // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
+  const MCP_SWITCHES = {
+    mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 读我的收藏、关注和历史 (Settings → MCP) in MoonDigest, then call again."],
+    mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 改分拣台 (Settings → MCP) in MoonDigest, then call again."],
+    mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 改我的收藏 (Settings → MCP) in MoonDigest, then call again."]
+  };
+  // An Error carrying the code of the first of keys that is off, else null.
+  async function switchOff(...keys) {
+    const on = MdgSettings.normalizeSwitches(await chrome.storage.sync.get(keys));
+    const off = keys.find((k) => !on[k]);
+    if (!off) return null;
+    const [code, message] = MCP_SWITCHES[off];
+    return Object.assign(new Error(message), { code });
   }
 
   // --- tabs --------------------------------------------------------------------
@@ -63,11 +53,11 @@
   }
 
   // A tab other than ours already showing the video: use it as is, never navigate it.
-  async function findUserTab(key) {
+  async function findUserTab(site, key) {
     const own = await loadOwn();
-    const tabs = await chrome.tabs.query({ url: ["*://*.bilibili.com/*", "*://*.youtube.com/*"] });
+    const tabs = await chrome.tabs.query({ url: site.origins });
     // A discarded tab has no content script until it is shown again: never pick one.
-    const hit = tabs.find((t) => (!own || t.id !== own.tabId) && !t.discarded && videoKey(t.url || "") === key);
+    const hit = tabs.find((t) => (!own || t.id !== own.tabId) && !t.discarded && MdgAgentSites.keyOf(t.url || "") === key);
     return hit ? { tabId: hit.id, staleUrl: null } : null;
   }
 
@@ -76,13 +66,19 @@
     let own = await loadOwn();
     const tab = own && (await chrome.tabs.get(own.tabId).catch(() => null));
     if (!tab) own = null; // never opened, or the user closed it
-    const k = tab ? videoKey(tab.url || "") : null;
+    const k = tab ? MdgAgentSites.keyOf(tab.url || "") : null;
     // Without a pageKey (no call answered there yet) the tab counts as this video's only while it is still loading it
     // (a redirect, such as /video/av… to /video/BV…): once loaded it may show anything the user went to.
     if (own && (k === key || (own.key === key && (own.pageKey ? k === own.pageKey : tab.status === "loading")))) return own;
-    if (own) {
-      own = { tabId: own.tabId, key, pageKey: null, staleUrl: tab.url || "" };
-      await chrome.tabs.update(own.tabId, { url });
+    return openOwn(own && tab, key, url);
+  }
+
+  // Loads url in the own tab (tab, or a new one when null) and saves it.
+  async function openOwn(tab, key, url) {
+    let own;
+    if (tab) {
+      own = { tabId: tab.id, key, pageKey: null, staleUrl: tab.url || "" };
+      await chrome.tabs.update(tab.id, { url });
     } else {
       const created = await chrome.tabs.create({ url, active: false });
       // Once shown for a frame its video may play on in the background: keep it silent.
@@ -93,10 +89,51 @@
     return own;
   }
 
-  // Retries until the tab's content script answers; get and frame are safe to repeat.
+  // For adapters' collection calls (§5): runs func(...args) in the MAIN world of the own tab on any page of site, loading
+  // url there when it shows another site, once ready() there returns { ok: true }. func runs once, never again on a
+  // failure: it may be a write. Resolves to { ok, data: func's result } or { ok: false, error, code? }.
+  function inSitePage(site, url, ready, func, args, deadline) {
+    const run = (f, a) => async (tabId) => (await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: f, args: a }))[0]?.result;
+    return inOwnTab(async () => {
+      if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
+      // The page it runs in is url's origin, not every origin of the site (the manifest grants www.youtube.com, not
+      // *.youtube.com): that origin is the one to have access to, and the one the own tab must already show.
+      const origin = new URL(url).origin;
+      if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
+        return { ok: false, code: "NO_ACCESS", error: `MoonDigest has no access to ${origin}: ask the user to allow it.` };
+      }
+      let own = await loadOwn();
+      const tab = own && (await chrome.tabs.get(own.tabId).catch(() => null));
+      const onSite = tab && (tab.url || "").startsWith(`${origin}/`);
+      if (!onSite) own = await openOwn(tab, null, url);
+      const target = { tabId: own.tabId, staleUrl: onSite ? null : own.staleUrl };
+      const up = await callPage(target, "", null, deadline, run(ready, []));
+      if (!up.ok) return up;
+      try {
+        const data = await within(run(func, args)(target.tabId), deadline);
+        return data === LATE ? late(target.tabId) : { ok: true, data };
+      } catch (e) {
+        return { ok: false, error: `The ${site.id} tab did not run the call: ${e?.message || e}` };
+      }
+    });
+  }
+
+  // A page's script may never settle (a page can make any await hang, e.g. by setting Object.prototype.then): wait for
+  // it only until `until`, then LATE. On LATE in the own tab, that tab leaves the page so nothing of it keeps running.
+  const LATE = Symbol("late");
+  const within = (p, until) => new Promise((res, rej) => {
+    const t = setTimeout(() => res(LATE), Math.max(0, until - Date.now()));
+    p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
+  async function late(tabId) {
+    if ((await loadOwn())?.tabId === tabId) await chrome.tabs.update(tabId, { url: "about:blank" }).catch(() => {});
+    return { ok: false, code: "TIMEOUT", error: "The page did not answer in time." };
+  }
+
+  // Retries until the tab's content script (or ask) answers; get and frame are safe to repeat.
   // After a navigation it does not ask until the tab's URL has left the previous page,
   // so the previous video's content script never answers.
-  async function callPage(target, method, params, deadline) {
+  async function callPage(target, method, params, deadline, ask = (tabId) => chrome.tabs.sendMessage(tabId, { type: "agent-call", method, params })) {
     const until = Math.min(Date.now() + PAGE_WAIT_MS, deadline);
     for (;;) {
       let reply;
@@ -108,7 +145,8 @@
         else target.staleUrl = null;
       }
       if (ready) {
-        reply = await chrome.tabs.sendMessage(target.tabId, { type: "agent-call", method, params }).catch(() => undefined);
+        reply = await within(Promise.resolve().then(() => ask(target.tabId)), until).catch(() => undefined);
+        if (reply === LATE) return late(target.tabId);
         if (reply && typeof reply.ok === "boolean") return reply;
       }
       if (Date.now() > until) {
@@ -146,11 +184,12 @@
     if (method === "search") return MdgAgentSearch.search(params, deadline); // agent-search.js, no tab
     if (Object.hasOwn(added, method)) return added[method](params, deadline);
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
-    const url = params && params.url;
-    const key = typeof url === "string" ? videoKey(url) : null;
-    if (!key) return { ok: false, code: "BAD_URL", error: "Not a supported page: use a Bilibili video page or a YouTube watch page." };
+    const url = params && typeof params.url === "string" ? MdgAgentSites.canonical(params.url) : null;
+    const key = url ? MdgAgentSites.keyOf(url) : null;
+    if (!key) return { ok: false, code: "BAD_URL", error: `Not a page MoonDigest reads. Sites: ${MdgAgentSites.list().map((s) => s.id).join(", ")}.` };
+    const site = MdgAgentSites.get(key.split(":")[0]);
     const { url: _drop, ...rest } = params;
-    const user = await findUserTab(key);
+    const user = await findUserTab(site, key);
     if (user) return callShown(user, method, rest, deadline);
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
@@ -158,7 +197,7 @@
       const reply = await callShown(own, method, rest, deadline);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
-        own.pageKey = tab ? videoKey(tab.url || "") : null;
+        own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;
       }
       await saveOwn(own);
       return reply;
@@ -248,5 +287,5 @@
     Promise.resolve(o.isEnabled()).then(apply, () => apply(false));
   }
 
-  globalThis.MdgAgentBridge = { start, addMethods };
+  globalThis.MdgAgentBridge = { start, addMethods, switchOff, inSitePage };
 })();

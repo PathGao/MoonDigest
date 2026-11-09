@@ -37,27 +37,21 @@
   // page's writer has said why). put(part) gets only the changed parts ({ tags?, map? }) after they are stored.
   const changedParts = (cur, next) => Object.fromEntries(["tags", "map"].filter((k) => next[k] !== cur[k]).map((k) => [k, next[k]]));
 
-  // 收藏夹: the page holds them (get()); save(patch) is its storage write (echo bookkeeping, failure toast) → stored?
-  // One write at a time across the pages that hold these keys (MdgLimits.locked).
+  // 收藏夹: the page holds a copy (get()); save(patch) is its storage write (echo bookkeeping, failure toast) → stored?
+  // A write starts from what storage holds, under the lock the other tabs and the background (agent-writes.js, an AI
+  // tool's tags) take for these keys: the page's copy may not have their last write yet. put gets both parts.
   function local({ keys, get, put, save }) {
     function write(fn) {
-      return MdgLimits.locked(`mdg-key:${keys.tags}`, async () => {
-        const cur = get();
+      return MdgLimits.locked(MdgLimits.keyLock(keys.tags), async () => {
+        const got = await chrome.storage.local.get([keys.tags, keys.map]);
+        const cur = { tags: got[keys.tags] || [], map: got[keys.map] || {} };
         const part = changedParts(cur, fn(cur));
-        if (!Object.keys(part).length) return true;
-        if (!(await save(Object.fromEntries(Object.entries(part).map(([k, v]) => [keys[k], v]))))) return false;
-        put(part);
+        if (Object.keys(part).length && !(await save(Object.fromEntries(Object.entries(part).map(([k, v]) => [keys[k], v]))))) return false;
+        put({ ...cur, ...part });
         return true;
       });
     }
-    // 清理 forgets videos in one write of several keys: the map without them, as a patch for that write (put now).
-    function without(itemKeys) {
-      const map = { ...get().map };
-      for (const k of itemKeys) delete map[k];
-      put({ map });
-      return { [keys.map]: map };
-    }
-    return { tags: () => get().tags, map: () => get().map, write, without };
+    return { tags: () => get().tags, map: () => get().map, write };
   }
 
   // 关注: follow_tags / follow_tag_map, under the lock the background takes for its own follow_* writes (a sync, B站
@@ -150,23 +144,31 @@
     const fits = (p) => UI.aiProposalOk(p, (id) => Boolean(tagOf(id)));
 
     // A tag step: U puts the items of before back (tags deleted since stay off) and deletes the tags it created that
-    // nothing carries any more, in one write.
-    function tagStep({ before, created = [], label, ask = null, recentAt = 0 }) {
+    // nothing carries any more, in one write. after is what the step wrote: an item whose tags differ from it now (changed
+    // since, in another tab, on a B站 page or by the Agent) is left be and counted, as the Agent's own undo does.
+    function tagStep({ before, after, created = [], label, ask = null, recentAt = 0 }) {
       return {
         tags: true, // dropped when a tag is deleted: it could not bring that one back
         ask,
         async undo() {
           let skipped = 0;
+          let changed = 0;
           let gone = [];
           const ok = await a.write((cur) => {
+            skipped = changed = 0;
             const live = new Set(cur.tags.map((t) => t.id));
+            const isLive = (id) => live.has(id);
             const map = { ...cur.map };
             for (const [key, ids] of Object.entries(before)) {
               if (a.restorable && !a.restorable(key)) {
                 skipped++;
                 continue;
               }
-              setIds(map, key, ids.filter((id) => live.has(id)));
+              if (!sameIds((cur.map[key] || []).filter(isLive), after[key].filter(isLive))) {
+                changed++;
+                continue;
+              }
+              setIds(map, key, ids.filter(isLive));
             }
             // Still used: by an item, or by a carrier the map leaves out (关注's 已取消关注).
             const used = new Set(Object.values(map).flat());
@@ -177,7 +179,10 @@
           for (const id of gone) a.tagGone?.(id);
           if (recentAt) await a.endRecent(recentAt);
           (a.undone || a.changed)(Object.keys(before));
-          return `已撤销：${label}${skipped ? `（${skipped} 个${a.goneWord}，标签没改）` : ""}`;
+          const why = [skipped && `${skipped} 个${a.goneWord}，标签没改`, changed && `${changed} 个你之后改过，没动`].filter(Boolean);
+          // Into the label's own brackets when it has them: 「AI 打标签（2 个视频，1 个你之后改过，没动）」.
+          if (!why.length) return `已撤销：${label}`;
+          return label.endsWith("）") ? `已撤销：${label.slice(0, -1)}，${why.join("；")}）` : `已撤销：${label}（${why.join("；")}）`;
         }
       };
     }
@@ -230,6 +235,7 @@
     async function change(list, label = MdgErrors.LABEL.tagEdit) {
       if (!list.length) return 0;
       const before = {};
+      const after = {};
       const ok = await a.write((cur) => {
         const live = new Set(cur.tags.map((t) => t.id));
         const map = { ...cur.map };
@@ -238,13 +244,14 @@
           const now = TagPicker.applyChange(was.filter((id) => live.has(id)), c);
           if (sameIds(was, now)) continue;
           before[c.key] = [...was];
+          after[c.key] = now;
           setIds(map, c.key, now);
         }
         return Object.keys(before).length ? { ...cur, map } : cur;
       });
       const n = Object.keys(before).length;
       if (!ok || !n) return 0;
-      steps.push(tagStep({ before, label: n > 1 ? `${n} 个${sp(who)}的标签修改` : label, ask: n > 1 ? UI.undoAsk("tags", n, who) : null }));
+      steps.push(tagStep({ before, after, label: n > 1 ? `${n} 个${sp(who)}的标签修改` : label, ask: n > 1 ? UI.undoAsk("tags", n, who) : null }));
       a.changed();
       return n;
     }
@@ -329,6 +336,7 @@
       let changes = [];
       let made = { created: [], skipped: [] };
       const before = {};
+      const wrote = {};
       const ok = await a.write((cur) => {
         made = plan(p.newTags, cur.tags, scope);
         const ids = new Set(made.tags.map((t) => t.id));
@@ -336,7 +344,8 @@
         const map = { ...cur.map };
         for (const [key, was, after] of changes) {
           before[key] = [...was];
-          setIds(map, key, after.filter((id) => ids.has(id)));
+          wrote[key] = after.filter((id) => ids.has(id));
+          setIds(map, key, wrote[key]);
         }
         return { tags: made.created.length ? made.tags : cur.tags, map: changes.length ? map : cur.map };
       });
@@ -345,7 +354,7 @@
       const n = changes.length;
       const at = n ? Date.now() : 0;
       if (n) await a.markRecent(Object.keys(before), at);
-      if (n || made.created.length) steps.push(tagStep({ before, created: made.created, label: `AI 打标签（${n} 个${sp(who)}）`, ask: n > 1 ? UI.undoAsk("ai", n, who) : null, recentAt: at }));
+      if (n || made.created.length) steps.push(tagStep({ before, after: wrote, created: made.created, label: `AI 打标签（${n} 个${sp(who)}）`, ask: n > 1 ? UI.undoAsk("ai", n, who) : null, recentAt: at }));
       a.changed();
       const skipped = made.skipped.length ? `；${made.skipped.length} 个新标签没有建：${a.full(tagsIn(a.tags(), scope).length, scope)}` : "";
       a.say(`${UI.aiApplied(n, who, made.created.length)}${skipped}`);
@@ -403,5 +412,5 @@
     };
   }
 
-  globalThis.MdgTagStore = { create, local, follow, marks, pushStep, undoLast };
+  globalThis.MdgTagStore = { create, local, follow, marks, pushStep, undoLast, sameIds };
 })();

@@ -7,13 +7,16 @@ const path = process.getBuiltinModule("node:path");
 const assert = process.getBuiltinModule("node:assert/strict");
 
 const here = path.dirname(fs.realpathSync(process.argv[1]));
-const SOURCE = fs.readFileSync(path.join(here, "agent-bridge.js"), "utf8");
+// The worker's order: sites.js (MdgSites.cleanComment) and what it needs, the registry, the sites, the bridge.
+const SOURCES = ["common.js", "errors.js", "limits.js", "settings.js", "sites.js", "agent-sites/registry.js", "agent-sites/bilibili.js", "agent-sites/youtube.js", "agent-bridge.js"].map((f) => [f, fs.readFileSync(path.join(here, f), "utf8")]);
 
 const tick = () => new Promise((r) => setImmediate(r));
 const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
 
-function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false }) {
-  const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], enabledCb: null, alarmCb: null, pageReplies: [] };
+// granted: the origins chrome.permissions.contains answers true for; inject(tab, details): executeScript's result.
+// sync: chrome.storage.sync (the MCP switches).
+function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = false, granted = [], inject = null, sync = {} }) {
+  const env = { sockets: [], timers: [], storage: {}, alarms: new Set(), created: [], updated: [], shown: [], sent: [], injected: [], enabledCb: null, alarmCb: null, pageReplies: [] };
   let nextTimer = 1;
   let nextTab = 100;
   class FakeWebSocket {
@@ -26,6 +29,14 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     receive(msg) { this.onmessage({ data: JSON.stringify(msg) }); }
   }
   const chrome = {
+    permissions: { contains: async ({ origins }) => origins.every((o) => granted.includes(o)) },
+    scripting: {
+      executeScript: async (d) => {
+        // out of the vm realm
+        env.injected.push(d.files ? { tabId: d.target.tabId, files: [...d.files] } : { tabId: d.target.tabId, world: d.world, args: JSON.parse(JSON.stringify(d.args)) });
+        return [{ result: await inject(tabs.find((t) => t.id === d.target.tabId), d) }];
+      },
+    },
     alarms: {
       create: (name) => env.alarms.add(name),
       clear: (name) => env.alarms.delete(name),
@@ -33,6 +44,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
     },
     storage: {
       local: { set: (o) => Object.assign(env.storage, o) },
+      sync: { get: async (keys) => Object.fromEntries([keys].flat().filter((k) => k in sync).map((k) => [k, sync[k]])) },
       session: { // shared across makeEnv calls to simulate a service worker restart
         get: async (k) => (k in session ? { [k]: JSON.parse(session[k]) } : {}),
         set: async (o) => { for (const k in o) session[k] = JSON.stringify(o[k]); },
@@ -40,8 +52,9 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
       },
     },
     tabs: {
-      // url filters are ignored (every test tab is a video site's); active and windowId filter.
-      query: async (q = {}) => tabs.filter((t) => (q.active === undefined || !!t.active === q.active) && (q.windowId === undefined || t.windowId === q.windowId)),
+      // url, active and windowId filter; a url pattern's host is matched, "*." as any subdomain.
+      query: async (q = {}) => tabs.filter((t) => (q.active === undefined || !!t.active === q.active) && (q.windowId === undefined || t.windowId === q.windowId) &&
+        (q.url === undefined || q.url.some((p) => { const h = p.split("/")[2]; const host = new URL(t.url).hostname; return h.startsWith("*.") ? host === h.slice(2) || host.endsWith(h.slice(1)) : host === h; }))),
       get: async (id) => { const t = tabs.find((x) => x.id === id); if (!t) throw new Error("no tab"); return t; },
       create: async ({ url, active }) => { const t = { id: nextTab++, url, active, windowId: 1 }; tabs.push(t); env.created.push(t); return t; },
       update: async (id, { url, active }) => { // the URL commits when the test says so, or at once with commitNow
@@ -72,7 +85,8 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(SOURCE, ctx, { filename: "agent-bridge.js" });
+  for (const [filename, source] of SOURCES) vm.runInContext(source, ctx, { filename });
+  env.sites = ctx.MdgAgentSites;
   env.runTimers = () => { const ts = env.timers; env.timers = []; for (const t of ts) t.fn(); };
   env.start = () => ctx.MdgAgentBridge.start({
     extensionVersion: "1.2.3",
@@ -81,6 +95,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
   });
   env.tabs = tabs;
   env.addMethods = (m) => ctx.MdgAgentBridge.addMethods(m);
+  env.inSitePage = (...a) => ctx.MdgAgentBridge.inSitePage(...a);
   return env;
 }
 
@@ -409,6 +424,84 @@ check("a call still queued when the server has given up is dropped", async () =>
   assert.equal(env.created.length, 1, "B was never loaded");
   assert.equal(env.updated.length, 0);
 });
+
+// A site for inSitePage's tests.
+const DEMO = "https://www.demo.test/v/1";
+const demoSite = (env) => env.sites.register({
+  id: "demo",
+  origins: ["https://www.demo.test/*"],
+  key: (u) => (u.hostname === "www.demo.test" && u.pathname.startsWith("/v/") ? `${u.pathname.slice(3)}:` : null),
+  read: "content",
+});
+
+// inSitePage: an adapter's collection call (§5) in the own tab on any page of the site.
+const DEMO_HOME = "https://www.demo.test/";
+const ready = () => "ready";
+const func = () => "func";
+const sitePage = (o) => {
+  let readyAsks = 0; // the first ask: not ready yet
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.demo.test/*"], ...o,
+    inject: (tab, d) => (d.func === ready ? (readyAsks++ ? { ok: true } : undefined) : o.inject ? o.inject() : { status: 200 }) });
+  demoSite(env);
+  env.run = async () => {
+    const p = env.inSitePage(env.sites.get("demo"), DEMO_HOME, ready, func, ["x"], Date.now() + 60_000);
+    for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+    return JSON.parse(JSON.stringify(await p));
+  };
+  env.funcRuns = () => env.injected.filter((i) => i.args.length).length;
+  return env;
+};
+
+check("inSitePage: no own tab opens the site muted in the background, waits until ready, runs func once; the user's tab untouched", async () => {
+  const env = sitePage({ tabs: [{ id: 7, url: DEMO, active: true }] });
+  assert.deepEqual(await env.run(), { ok: true, data: { status: 200 } });
+  assert.deepEqual(env.created.map((t) => [t.url, t.active]), [[DEMO_HOME, false]]);
+  assert.ok(env.injected.every((i) => i.tabId === env.created[0].id && i.world === "MAIN"));
+  assert.equal(env.funcRuns(), 1);
+  assert.equal(env.injected.length, 3, "ready asked again until the page answers");
+});
+
+check("inSitePage: an own tab on another site is navigated; one already on the site is used as it is", async () => {
+  const own = (url) => ({ session: { agentBridgeTab: JSON.stringify({ tabId: 50, key: "bilibili:BV1:1", pageKey: null, staleUrl: null }) }, tabs: [{ id: 50, url }] });
+  let env = sitePage(own("https://www.bilibili.com/video/BV1/"));
+  assert.equal((await env.run()).ok, true);
+  assert.deepEqual([env.created.length, env.updated], [0, [{ id: 50, url: DEMO_HOME }]]);
+  env = sitePage(own("https://www.demo.test/v/9"));
+  assert.equal((await env.run()).ok, true);
+  assert.deepEqual([env.created.length, env.updated.length], [0, 0]);
+});
+
+check("inSitePage: func failing is not run again (it may be a write); no access is NO_ACCESS with nothing injected", async () => {
+  const env = sitePage({ tabs: [], inject: () => { throw new Error("frame gone"); } });
+  const r = await env.run();
+  assert.equal(r.ok, false);
+  assert.match(r.error, /frame gone/);
+  assert.equal(env.funcRuns(), 1);
+  const denied = sitePage({ granted: [] });
+  assert.equal((await denied.run()).code, "NO_ACCESS");
+  assert.deepEqual([denied.injected.length, denied.created.length], [0, 0]);
+});
+
+check("inSitePage: access is checked for the page it loads, not every origin of the site (YouTube: www only is granted)", async () => {
+  const env = sitePage({ tabs: [] });
+  env.sites.register({ id: "wide", origins: ["*://*.demo.test/*"], key: () => null, read: "content" });
+  const r = JSON.parse(JSON.stringify(await (async () => {
+    const p = env.inSitePage(env.sites.get("wide"), DEMO_HOME, ready, func, ["x"], Date.now() + 60_000);
+    for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+    return p;
+  })()));
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+check("inSitePage: a func that never settles is TIMEOUT by the deadline, and the own tab leaves the page", async () => {
+  const env = sitePage({ inject: () => new Promise(() => {}) });
+  const p = env.inSitePage(env.sites.get("demo"), DEMO_HOME, ready, func, ["x"], Date.now() + 1000);
+  for (let i = 0; i < 5; i++) { await settle(); env.runTimers(); }
+  const r = await p;
+  assert.deepEqual([r.ok, r.code], [false, "TIMEOUT"]);
+  assert.deepEqual(env.updated.at(-1), { id: env.created[0].id, url: "about:blank" });
+});
+
 
 (async () => {
   let failed = 0;

@@ -297,12 +297,14 @@ const fav = {
 
   // The selection bar's and 「按 AI 判断」's batch 取消收藏. It runs to the end even after another folder opens;
   // 所有收藏夹 goes folder by folder.
-  async unfavMany(list) {
+  // picked: the folders, already confirmed (an AI tool's proposal), instead of asking.
+  async unfavMany(list, picked = null) {
     if (!list.length || W.busy()) return;
     const all = S.mediaId === ALL;
-    const folders = all
-      ? await pickBatchUnfavFolders(list)
-      : (await askConfirm(unfavManyTitle(list.length), UI.confirmList(list.map((it) => it.title)), unfavManyOk(list.length), { danger: true })) ? [String(S.mediaId)] : [];
+    const folders = picked
+      || (all
+        ? await pickBatchUnfavFolders(list)
+        : (await askConfirm(unfavManyTitle(list.length), UI.confirmList(list.map((it) => it.title)), unfavManyOk(list.length), { danger: true })) ? [String(S.mediaId)] : []);
     if (!folders.length) return;
     const mediaId = String(S.mediaId);
     const view = S.view.current;
@@ -364,11 +366,12 @@ const fav = {
   },
 
   // 移动 / 复制 (收藏到 from 已出分拣范围) of the selection. It runs to the end even after another folder opens. A new
-  // target folder is made only once this run has the slot.
-  async transfer(list) {
+  // target folder is made only once this run has the slot. picked: askTransfer's answer, already confirmed (an AI tool's
+  // proposal), instead of asking.
+  async transfer(list, picked = null) {
     if (!list.length || W.busy()) return;
     const from = String(S.mediaId);
-    const ask = await askTransfer(list);
+    const ask = picked || (await askTransfer(list));
     if (!ask) return;
     const { how, target } = ask;
     const add = how === "add"; // from 已出分拣范围: no source folder on Bilibili
@@ -473,6 +476,94 @@ const fav = {
   }
 
 };
+
+// ---------- an AI tool's writes over MCP (agent-writes.js) ----------
+// Each journaled triage is a U step here: the background puts back what is still as the tool left it. A failed undo
+// leaves the entry in the journal (or it is gone), and followAgentLog puts its step back from there.
+function agentStep(e) {
+  return {
+    kind: "agent",
+    agentId: e.id,
+    ask: e.n > 1 ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"] : null,
+    undo: async () => {
+      const r = await send({ type: "agent-undo", id: e.id });
+      if (!r.ok) {
+        toast(MdgErrors.text(r), true);
+        // No answer, or the background put the entry back: while it is in the journal, its step comes back.
+        const log = await storeGet(K.agentLog, []);
+        if (log.some((x) => x.id === e.id) && !S.undo.some((s) => s.agentId === e.id)) pushUndo(agentStep(e));
+        return "";
+      }
+      const { n, skipped } = r.data;
+      return redraw() || `已撤销：Agent 的修改（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）`;
+    }
+  };
+}
+// The steps of the journal, oldest first: a folder switch starts from them.
+const agentSteps = () => S.agentLog.map(agentStep);
+// The journal changed: entries it did not have go on top as steps, gone ones leave. Entries newer than any seen are
+// the tool's new writes, said in a toast once the page is open (one put back after a failed undo is not).
+let agentSeenAt = 0;
+function followAgentLog(log, tell = true) {
+  const ids = new Set(log.map((e) => e.id));
+  const known = new Set(S.agentLog.map((e) => e.id));
+  S.undo = S.undo.filter((s) => s.kind !== "agent" || ids.has(s.agentId));
+  for (const e of log.filter((e) => !known.has(e.id) && !S.undo.some((s) => s.agentId === e.id))) pushUndo(agentStep(e));
+  S.agentLog = log;
+  const n = log.filter((e) => e.at > agentSeenAt).reduce((sum, e) => sum + e.n, 0);
+  agentSeenAt = Math.max(agentSeenAt, ...log.map((e) => e.at));
+  if (tell && n) toast(`Agent 改了 ${n} 个视频的分拣结果${UNDO}`);
+}
+
+// Its B站 proposals, oldest first: 查看 opens the proposal's folder and asks. 执行 runs it as the page's own 取消收藏 /
+// 移动 / 复制 would (B站's limits, U), 拒绝 drops it, Esc leaves it waiting.
+const AGENT_VERB = { unfav: UNFAV, move: UI.transferVerb.move, copy: UI.transferVerb.copy };
+// Resolves whether this call took it out of the stored queue: false when another tab already did (or the write failed).
+function dropProposal(id) {
+  let took = false;
+  const edit = (list) => list.filter((p) => p.id !== id || !(took = true));
+  S.agentProposals = S.agentProposals.filter((p) => p.id !== id);
+  return storeEdit(K.agentProposals, [], edit).then((list) => {
+    if (list) S.agentProposals = list;
+    renderStatus();
+    return Boolean(list) && took; // a failed write took nothing: still stored, it must not run
+  });
+}
+// Back at the head of the queue, when it could not run after all.
+function restoreProposal(p) {
+  const edit = (list) => (list.some((x) => x.id === p.id) ? list : [p, ...list]);
+  S.agentProposals = edit(S.agentProposals);
+  return storeEdit(K.agentProposals, [], edit).then((list) => {
+    if (list) S.agentProposals = list;
+    renderStatus();
+  });
+}
+async function reviewProposal() {
+  const p = S.agentProposals[0];
+  if (!p) return;
+  if (W.busy()) return toast(UI.busyText(W.busy()), true);
+  const ticked = S.folders.some((f) => String(f.id) === p.from);
+  if (ticked && String(S.mediaId) !== p.from) await openFolder(p.from);
+  const list = ticked ? p.bvids.map((b) => S.itemMap.get(b)).filter((it) => it?.aid && S.decisions[it.bvid]?.action !== "unfav") : [];
+  const verb = AGENT_VERB[p.action];
+  const gone = p.bvids.length - list.length;
+  const why = !ticked ? `「${folderName(p.from)}」没有勾选分拣` : list.length ? "" : "这些视频已经不在这个收藏夹里了";
+  const body = [
+    p.reason && `<p>理由：${esc(p.reason)}</p>`,
+    UI.confirmList(list.map((it) => it.title)),
+    gone && list.length && `<p class="dialog-hint">另有 ${gone} 个已经不在「${esc(folderName(p.from))}」里，跳过。</p>`,
+    `<p class="dialog-hint">拒绝会删掉这条提议，B站不变。</p>`
+  ].filter(Boolean).join("");
+  const title = `Agent 提议：${verb} ${list.length || p.bvids.length} 个视频${p.to ? `到「${folderName(p.to)}」` : ""}`;
+  const ok = await askConfirm(title, body, `${verb} ${list.length} 个`, { danger: p.action !== "copy", reason: why, cancelText: "拒绝" });
+  if (!ok && el.confirmDialog.returnValue !== "cancel") return;
+  // Taken out of the queue first, so another 分拣台 tab cannot run it too; a batch that started meanwhile puts it back.
+  if (!(await dropProposal(p.id))) return toast("这条提议已在别的分拣台标签页处理", true);
+  if (!ok) return toast("已拒绝 Agent 的提议");
+  if (W.busy()) return restoreProposal(p).then(() => toast(UI.busyText(W.busy()), true));
+  if (p.action === "unfav") await fav.unfavMany(list, [p.from]);
+  else await fav.transfer(list, { how: p.action, target: { id: p.to } });
+}
 
 // U undoes the last step of the mode it is pressed in.
 function undo() {

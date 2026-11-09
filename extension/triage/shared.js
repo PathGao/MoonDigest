@@ -336,12 +336,16 @@
     `<div class="selbar" role="toolbar" aria-label="${esc(label)}"><strong class="sel-count">已选中 ${n || hidden} 个</strong>${hidden ? `<span class="muted">${n ? `另有 ${hidden} 个被筛选隐藏` : "都被筛选隐藏"}</span>` : ""}<button type="button" class="quiet" ${clearAttrs} aria-label="清空选中">清空选中</button><span class="sel-actions">${acts(n ? "" : HIDDEN_ALL)}</span></div>`;
   // ----- 确认 (#confirmDialog): the 分拣台's and 摘读记录's questions, a red 删除 or a 撤销 instead of the browser's 确定 -----
   // alone: only the one button (a notice, not a question). reason: the OK button is disabled with why (only 取消 is left).
+  // cancelText: the other button's words (拒绝); the dialog's returnValue then tells it ("cancel") from Esc ("").
   // Resolves true when OK was pressed.
-  function askConfirm(title, bodyHtml, okText, { danger = false, alone = false, reason = "" } = {}) {
+  function askConfirm(title, bodyHtml, okText, { danger = false, alone = false, reason = "", cancelText = "取消" } = {}) {
     const $ = (id) => document.getElementById(id);
     const dlg = $("confirmDialog");
     const ok = $("confirmOk");
-    dlg.querySelector("button[value=cancel]").hidden = alone;
+    const cancel = dlg.querySelector("button[value=cancel]");
+    cancel.hidden = alone;
+    cancel.textContent = cancelText;
+    cancel.setAttribute("aria-label", cancelText);
     $("confirmTitle").textContent = title;
     $("confirmBody").innerHTML = bodyHtml;
     ok.className = danger ? "danger solid" : "primary";

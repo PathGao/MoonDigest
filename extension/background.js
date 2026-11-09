@@ -1,10 +1,13 @@
 // Shared modules must load before the top-level code below reads them (e.g. MdgLimits). sidepanel-state.js only for
 // SidepanelState.patchReply (a reply finished after the panel closed).
-importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js", "agent-search.js", "agent-bridge.js");
+importScripts("common.js", "errors.js", "limits.js", "settings.js", "sites.js", "tag-core.js", "note.js", "triage/shared.js", "sidepanel-state.js", "agent-sites/registry.js", "agent-search.js", "agent-bridge.js");
+// The sites the agent interface reads (docs/AGENT.md §5), one line each.
+importScripts("agent-sites/bilibili.js");
+importScripts("agent-sites/youtube.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
-// 设置 → 高级 → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
+// 设置 → MCP → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
 const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpEnabled: value }).mcpEnabled;
 MdgAgentBridge.start({
   extensionVersion: chrome.runtime.getManifest().version,
@@ -1297,6 +1300,10 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
 // The agent interface's personal-data methods (docs/AGENT.md §2) read through triage-bg.js and follow-core.js.
 importScripts("agent-mydata.js");
+// The user's collections on the sites whose adapter has them (docs/AGENT.md §2 collection, collectionWrite).
+importScripts("agent-collections.js");
+// Its 分拣台 writes go through triage-bg.js's helpers too.
+importScripts("agent-writes.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
 triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json", "fetch-json-cancel"], (r) => r);
