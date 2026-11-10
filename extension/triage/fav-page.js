@@ -427,7 +427,7 @@ function bindEvents() {
       const batch = nextBatch();
       const items = batch.map((b) => S.itemMap.get(b));
       startJudging(groupLabel(items), "细看", items, () => startGroup(batch));
-    } else if (act === "batch-unfav") fav.unfavMany(batchList(btn.dataset.verdict || null));
+    } else if (act === "batch-unfav") fav.unfavMany(batchList(btn.dataset.verdict || null, "unfav"));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
     else if (act === "write") stopWrite();

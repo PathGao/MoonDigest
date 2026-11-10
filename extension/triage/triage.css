@@ -269,13 +269,17 @@ select { height: 28px; max-width: 240px; }
 
 /* ---------- row 3: state pills in groups | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签 ----------
    Both rows: filters on the left, their buttons top-right, so the two right ends line up. */
-.stagebar, .tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+.tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+/* Row 3 keeps its pills on one line: when pills and buttons do not fit side by side, the buttons drop to their own line
+   at the right instead of squeezing the pills into a column. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 16px; row-gap: 8px; }
+.stagebar .class-filter { flex: 0 1 auto; }
 /* Each row reads as one line left to right: more room between rows 2, 3 and 4, and a thin rule under row 3 as under
    row 2 (the tabs). */
 .stagebar, .tagbar { padding-top: 8px; padding-bottom: 8px; }
 /* 关注's row 3 with nothing in it (视频投稿 outside a refresh): no empty band. */
 .fw-bar:has(#fwBar:empty):has(#fwRunSlot:empty) { display: none; }
-.stagebar .list-header { grid-column: 2; margin-left: 0; }
+.stagebar .list-header { flex: none; max-width: 100%; margin-left: auto; }
 .stagebar .step-actions { flex-wrap: nowrap; }
 .stagebar .class-filter, .tagbar .tagfilter { min-height: 28px; }
 .tagbar > :last-child { grid-column: 2; }
@@ -300,10 +304,8 @@ select { height: 28px; max-width: 240px; }
 .state-row .ai-recent { gap: 0; }
 .state-row .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
 .state-row .ai-recent > .ai-recent-x { height: 26px; padding: 0 9px 0 6px; border: 0; border-left: 1px solid var(--surface); border-radius: 0 var(--radius-pill) var(--radius-pill) 0; background: var(--field-bg); color: var(--muted); }
-/* No sidebar: row 3's pills take the whole line; its buttons go under them at the right, just above row 4's. */
+/* Too narrow even for the buttons alone: they wrap among themselves. */
 @media (max-width: 760px) {
-  .stagebar { grid-template-columns: minmax(0, 1fr); }
-  .stagebar .list-header { grid-column: 1; justify-self: end; }
   .stagebar .step-actions { flex-wrap: wrap; }
 }
 /* 全选 (shared.js selectAllBox): a checkbox drawn in a button. Empty box, blue bar = some, blue ✓ = all listed. */

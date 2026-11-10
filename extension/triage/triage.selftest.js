@@ -649,7 +649,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "阅览 still lists them: 保留 keeps them selected");
     // K1: none of the selection left to keep: the count is still the selection's, off with why.
     t.renderListHeader(t.visibleItems());
-    assert.ok(/aria-label="保留选中的 2 个"[^>]*disabled title="选中的都已经处理过了"/.test(t.el.favSel.innerHTML), t.el.favSel.innerHTML);
+    assert.ok(/aria-label="保留选中的 2 个"[^>]*disabled title="选中的都已保留"/.test(t.el.favSel.innerHTML), t.el.favSel.innerHTML);
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
     // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
@@ -993,7 +993,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.stageOf(pool[0]), "fine", "batch 保留 leaves it in 细看完成");
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"], "kept, it still falls under the AI's 拿不准");
   t.S.selected.clear();
-  assert.deepStrictEqual([t.batchList("keep").length, t.batchList("unsure").length], [0, 0], "verdict batches take only undecided videos");
+  assert.deepStrictEqual([t.batchList("keep").length, t.batchList("unsure").length], [0, 0], "verdict 保留 batches take only undecided videos");
+  assert.strictEqual(t.batchList("unsure", "unfav").length, 0, "a verdict-wide 取消收藏 leaves kept videos alone");
+  t.S.selected.add("BV200");
+  assert.deepStrictEqual(plain(t.batchList("unsure", "unfav").map((it) => it.bvid)), ["BV200"], "a selected kept video can be 取消收藏'd in a batch");
+  t.S.selected.clear();
   // P2: 未决定 / 已保留 and the AI verdict are separate groups, AND-ed: 已保留 + 可清理 finds kept videos the AI said to drop.
   t.S.analyses.BV201 = { status: "done", verdict: "drop" };
   t.S.analyses.BV202 = { status: "done", verdict: "drop" };
@@ -2642,8 +2646,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.el.folderSelect = { value: "", querySelector: () => null };
   store.triage_snapshot_2 = { bvids: ["BV2"], ids: ["BV2"], items: [item(2)], intro: "简介" };
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV2"] } });
+  t.S.noSubFilter = true;
   await t.openFolder("2");
   await new Promise((r) => setImmediate(r));
+  assert.strictEqual(t.S.noSubFilter, false, "another folder starts without the 无字幕 filter");
   assert.deepStrictEqual([synced, plain(t.S.items.map((it) => it.bvid)), t.S.folderIntro["2"]], [0, ["BV2"], "简介"]);
   handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: ["BV2", "BV8"] } });
   await t.openFolder("2");

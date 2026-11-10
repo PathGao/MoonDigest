@@ -247,11 +247,12 @@ function renderListHeader(list) {
     const run = favRun?.job === "unfav" ? favRun : null;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", runLine(run), "danger", "正在取消收藏", "", "", true);
     // A selection none of which this can take still counts the selection (as 粗看's), disabled with the reason.
-    const can = none ? S.selected.size : batchList(verdict || null).length;
+    const can = none ? S.selected.size : batchList(verdict || null, route).length;
     const n = can || (verdict ? 0 : selectedIn(visibleItems()).length);
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const reason = none || (!can ? (verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、还没处理的视频` : "选中的都已经处理过了")
+    const empty = verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、未决定的视频` : route === "unfav" ? "选中的都已取消收藏" : "选中的都已保留";
+    const reason = none || (!can ? empty
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的${UNFAV_MANY}`)
       : route === "unfav" ? UI.busyText(favBusy) : "");
     return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");

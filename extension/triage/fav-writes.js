@@ -572,9 +572,11 @@ function undo() {
 
 // Batch buttons act on the selected cards listed (none when filters hide them all), otherwise on every card with this
 // verdict (none without one).
-// Not processed, nor waiting in a running B站 write (a batch 取消收藏 or 移动 will decide it).
-function batchList(verdict) {
-  const list = visibleItems().filter((it) => !isProcessed(it.bvid) && !W.pending(it.bvid));
+// Undecided videos only, except that a selected 保留 one can still be 取消收藏'd: a verdict-wide 取消收藏 never takes what
+// you kept. Neither takes one waiting in a running B站 write.
+function batchList(verdict, route = "keep") {
+  const open = (b) => (route === "unfav" && S.selected.size ? S.decisions[b]?.action !== "unfav" : !isProcessed(b));
+  const list = visibleItems().filter((it) => open(it.bvid) && !W.pending(it.bvid));
   return S.selected.size ? selectedIn(list) : verdict == null ? [] : list.filter((it) => verdictOf(it).verdict === verdict);
 }
 
