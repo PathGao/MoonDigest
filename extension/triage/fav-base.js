@@ -114,7 +114,7 @@ const S = {
   finishedFilter: false, // 看完了
   noSubFilter: false, // 无字幕
   dupFilter: false, // 所有收藏夹 only: 重复收藏
-  tagState: "", // row 3: "" | "untagged" | "tagged"
+  tagState: "", // row 4: "" | "untagged" | "tagged"
   decisionFilter: "", // row 3: "" | "undecided" | "kept"
   aiRecent: {},
   sortBy: {}, // triage_sort
@@ -560,9 +560,11 @@ const noSubtitle = (it) => S.analyses[it.bvid]?.status === "done" && S.analyses[
 const isDup = (it) => it.folders?.length > 1;
 
 // skip leaves one filter group out, so that group's own counts never hide its siblings: a row-3 group ("seen", "recent",
-// "kind", "tagged"), "states" (all of row 3) or "tags" (row 4). 已出分拣范围's kind is its tab, never skipped.
+// "kind"), "states" (all of row 3), a row-4 group ("tagged", "tags") or "tagrow" (all of row 4). 已出分拣范围's kind is
+// its tab, never skipped.
+const ROW4 = new Set(["tagged", "tags"]);
 function passFilter(it, skip = "") {
-  const on = (g) => skip !== g && (skip !== "states" || g === "tags");
+  const on = (g) => skip !== g && !(skip === (ROW4.has(g) ? "tagrow" : "states"));
   if (on("dup") && S.dupFilter && !isDup(it)) return false;
   if (on("decision") && S.decisionFilter && (isKept(it) ? "kept" : "undecided") !== S.decisionFilter) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;

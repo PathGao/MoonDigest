@@ -372,7 +372,7 @@ function bindEvents() {
     if (!f || !passFilter(f)) S.focused = "";
     fromTop();
   });
-  // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).
+  // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4).
   el.classFilter.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
@@ -384,13 +384,18 @@ function bindEvents() {
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.matches("[data-nosubfilter]")) pickState("nosub");
     else if (b.matches("[data-dupfilter]")) pickState("dup");
-    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
     else return;
     fromTop();
   });
+  // Row 4: its 全部 clears row 4 only (not row 3); 未打标签 / 已打标签 one pick; the tags AND together.
   el.tagFilter.addEventListener("click", (e) => {
+    const state = e.target.closest("[data-tagstate], [data-tagrow-all]");
+    if (state) {
+      pickState(state.dataset.tagstate ? "tagged" : "tagrow", state.dataset.tagstate);
+      return fromTop();
+    }
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const ids = btn.dataset.tagfilter.split(",");

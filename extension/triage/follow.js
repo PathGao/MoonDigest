@@ -72,7 +72,7 @@ const F = {
   anchor: "", // the UP a Shift+click picks from: the last one picked
 
   recentFilter: false,
-  tagState: "", // row 3: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
+  tagState: "", // row 4: "" | "untagged" | "tagged" (in 视频投稿 the video's UP)
   tags: new Set(), // row 4: tag ids, AND; both tabs
   loaded: false,
   order: null, // the UP 主 cards' order (mids) kept while a refresh runs (renderUps), null otherwise
@@ -412,23 +412,21 @@ const sideSelect = () =>
   `<select class="fw-side-select" name="followScope" data-fw="side" aria-label="UP 主范围">${sideIds(D)
     .map((id) => `<option value="${esc(id)}"${F.side === id ? " selected" : ""}>${id === `g:${SPECIAL}` ? "★ " : ""}${esc(sideLabel(id))} (${sideCount(id)})</option>`).join("")}</select>`;
 
-// Row 3's 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP).
-const tagStateGroup = (counts, prefix = "") =>
-  UI.tagStateGroup((k) => `data-fw-tagstate="${k}"`, (k) => counts[k], F.tagState, prefix);
-// Row 3 of UP 主: 全部 | 更新状态 | 未打标签 已打标签 | ✦ AI 刚打的 (only while there is one). 待查 always shows.
+// Row 3 of UP 主: 全部 | 更新状态 | ✦ AI 刚打的 (only while there is one). 待查 always shows.
 function stateRowUps(counts) {
-  const anyOn = F.status || F.tagState || F.recentFilter;
+  const anyOn = F.status || F.recentFilter;
   const out = [
     UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, counts[""], !anyOn)),
-    UI.stateGroup("更新状态", STATUS.slice(1).map(([id, label]) => UI.filterBtn(`data-status="${id}"${id === "stale" ? ` title="慢更或断更 · 待查：${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才知道是哪种"` : ""}`, label, counts[id] || 0, F.status === id)).join("")),
-    tagStateGroup(counts)
+    UI.stateGroup("更新状态", STATUS.slice(1).map(([id, label]) => UI.filterBtn(`data-status="${id}"${id === "stale" ? ` title="慢更或断更 · 待查：${cfg.slowDays} 天里没在视频投稿里出现，查完投稿才知道是哪种"` : ""}`, label, counts[id] || 0, F.status === id)).join(""))
   ];
   out.push(UI.aiRecentChip({ attrs: 'data-fw="recent"', xAttrs: 'data-fw="recent-done"', n: counts.recent, on: F.recentFilter, who: WHO }));
   return out.join("");
 }
-// Row 4: the tags UP 主 (or videos) on this tab have, or that are on, as 收藏夹's; each counts the listed ones
-// (0, dimmed, when row 3 or search leave none); several = AND.
-const tagRowHtml = ({ tags: counts, have }) =>
+// Row 4, as 收藏夹's: its own 全部 and 未打标签 / 已打标签 (prefix 「UP 」 in 视频投稿, where it goes by the video's UP),
+// then the tags UP 主 (or videos) on this tab have, or that are on; each counts the listed ones (0, dimmed, when row 3 or
+// search leave none); several = AND.
+const tagRowHtml = ({ tags: counts, have, tagAll, tagged, untagged }) =>
+  UI.tagRowHead({ allAttrs: "data-fw-tagall", allN: tagAll, on: F.tagState || F.tags.size, attrs: (k) => `data-fw-tagstate="${k}"`, n: (k) => ({ tagged, untagged })[k], cur: F.tagState, prefix: F.tab === "feed" ? "UP " : "" }) +
   D.tags
     .filter((t) => have.includes(t.id) || F.tags.has(t.id))
     .map((t) => UI.tagFilterChip(`data-fw-tag="${esc(t.id)}"`, { name: t.name, color: t.color, on: F.tags.has(t.id), n: counts[t.id] || 0, what: F.tab === "feed" ? `${WHO}的视频` : WHO }))
@@ -448,11 +446,10 @@ function renderUps() {
   shown = list;
   // Switching between groups keeps the selection (into or out of 已出分拣范围 clears it); the ones not listed count as 被筛选隐藏.
   for (const m of [...F.sel]) if (!rows.has(m)) F.sel.delete(m);
-  // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注) | 未打标签 已打标签.
+  // 已出分拣范围's row 3: 全部 | 在哪取消关注 (on 全部 and 已取消关注).
   const seg = out
-    ? [UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, counts[""], !F.source && !F.tagState)),
-      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", Object.entries(SOURCE).map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, counts.source[id], F.source === id)).join("")),
-      tagStateGroup(counts)].filter(Boolean).join("")
+    ? [UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, counts[""], !F.source)),
+      (F.kind === "" || F.kind === "gone") && UI.stateGroup("在哪取消关注", Object.entries(SOURCE).map(([id, label]) => UI.filterBtn(`data-source="${id}"`, label, counts.source[id], F.source === id)).join(""))].filter(Boolean).join("")
     : stateRowUps(counts);
   // 全选 heads the right-hand buttons, as in 收藏夹: it acts on the UP 主 listed now. 已出分拣范围 adds 清理, as 收藏夹's.
   const shows = Boolean(D.list || out);
@@ -630,12 +627,13 @@ function renderFeed() {
   E.sort.innerHTML = UI.sortControl({ sorts: FEED_SORTS, sort: F.fsort, selectAttr: 'data-fw="fsort"', btn: F.fsort === "random" && { attrs: 'data-fw="reshuffle"', label: "再随机一次", icon: "↻" } });
   E.tools.hidden = false;
   renderAiButton();
-  // Row 3: 全部 | UP 未打标签 UP 已打标签; no count before the first page arrives. Row 4 counts videos. No 全选 here.
+  // No row 3 here: its only group, UP 未打标签 / UP 已打标签, is row 4's. Row 4 counts videos, none before the first page
+  // arrives. No 全选 here.
   const c = feedCounts(items, D, feedF());
   const n = (k) => (items.length ? c[k] : null);
-  E.bar.innerHTML = UI.labeledRow("状态", UI.stateGroup(ALL, UI.filterBtn("data-fw-all", ALL, n(""), !F.tagState)) + tagStateGroup({ tagged: n("tagged"), untagged: n("untagged") }, "UP "));
+  E.bar.innerHTML = "";
   E.barR.innerHTML = runSlot();
-  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml(c));
+  E.tagRow.innerHTML = UI.labeledRow("标签", tagRowHtml({ ...c, tagAll: n("tagAll"), tagged: n("tagged"), untagged: n("untagged") }));
   const list = feedList(items, D, feedF(), pick.keep);
   E.qCount.textContent = UI.resultCount(F.fq.trim() || filtersOn(), list.length);
   const restore = UI.keepScroll(E.list, ".fw-video[data-bvid]");
@@ -1430,19 +1428,21 @@ main.addEventListener("click", async (e) => {
   }
   const s = t.closest("[data-side]");
   if (s) return pickSide(s.dataset.side);
-  // Row 3: one pick per group, a second click clears it; 全部 clears the row (not row 4's tags). Row 4: AND.
+  // Row 3: one pick per group, a second click clears it; 全部 clears the row (not row 4). Row 4: its own 全部 clears it
+  // (not row 3); 未打标签 / 已打标签 one pick; the tags AND.
   const st = t.closest("[data-status]");
   if (st) {
     F.status = F.status === st.dataset.status ? "" : st.dataset.status;
     return fromTop();
   }
   if (t.closest("[data-fw-all]")) {
-    // 视频投稿's row 3 is only 未打标签 / 已打标签: UP 主's 更新状态 and AI 刚打的 stay.
+    F.status = F.source = "";
+    F.recentFilter = false;
+    return fromTop();
+  }
+  if (t.closest("[data-fw-tagall]")) {
     F.tagState = "";
-    if (F.tab !== "feed") {
-      F.status = F.source = "";
-      F.recentFilter = false;
-    }
+    F.tags.clear();
     return fromTop();
   }
   const ts = t.closest("[data-fw-tagstate]");

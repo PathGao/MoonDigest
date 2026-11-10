@@ -3382,23 +3382,35 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.clear();
     const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
     const has = (...parts) => parts.forEach((p) => assert.ok(row3().includes(p), p));
-    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "按有没有标签", "已失效"], "fixed groups, then 已失效 (conditional) last");
+    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "已失效"], "fixed groups, then 已失效 (conditional) last");
     has(">全部 5<", ">值得留 2<", ">可清理 2<", ">拿不准 1<", ">已失效 1<");
     assert.ok(row3().startsWith('<span class="row-label">状态</span>'), "row 3 starts with its name");
     t.renderTabs();
     assert.ok(t.el.tagFilter.innerHTML.startsWith('<span class="row-label">标签</span>'), "row 4 starts with its name");
     assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).startsWith('<div class="step-actions"><button type="button" role="checkbox"'), "全选 heads the right-hand buttons");
     assert.strictEqual(t.el.searchCount.textContent, "", "no 「N 个结果」 with nothing on");
-    // 未打标签 / 已打标签, as in 关注: by the tags the card shows, counted without its own pick, cleared by 全部.
-    has(">未打标签 3<", ">已打标签 2<");
+    // Row 4 (2026-11-10): its own 全部, then 未打标签 / 已打标签, as in 关注: by the tags the card shows, counted without
+    // its own pick, then the tags. Row 4's 全部 clears row 4 only, row 3's 全部 row 3 only.
+    const row4 = () => (t.renderTabs(), t.el.tagFilter.innerHTML);
+    const has4 = (...parts) => parts.forEach((p) => assert.ok(row4().includes(p), p));
+    assert.ok(!row3().includes("未打标签"), "not in row 3");
+    assert.ok(/^<span class="row-label">标签<\/span><span class="seg" role="group" aria-label="全部"><button type="button" data-tagrow-all aria-pressed="true">全部 5<\/button><\/span><span class="seg" role="group" aria-label="按有没有标签">.*未打标签 3.*已打标签 2.*甲/.test(row4()), row4());
     t.pickState("tagged", "untagged");
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV92", "BV94", "BV95"], "untagged only");
-    has('aria-pressed="true">未打标签 3<', ">已打标签 2<");
+    has4('aria-pressed="true">未打标签 3<', ">已打标签 2<", 'data-tagrow-all aria-pressed="false">全部 5<');
     t.pickState("tagged", "untagged");
     assert.strictEqual(t.S.tagState, "", "a second click clears it");
     t.pickState("tagged", "tagged");
+    t.pickState("class", "drop");
     t.pickState("all");
-    assert.strictEqual(t.S.tagState, "", "全部 clears it");
+    assert.deepStrictEqual([t.S.tagState, t.S.classFilter.coarse], ["tagged", "all"], "row 3's 全部 leaves row 4");
+    t.S.tagFilter.add("ra");
+    t.pickState("class", "drop");
+    has(">全部 2<", ">可清理 1<");
+    has4(">全部 2<", "data-tagrow-all aria-pressed=\"false\"");
+    t.pickState("tagrow");
+    assert.deepStrictEqual([t.S.tagState, t.S.tagFilter.size, t.S.classFilter.coarse], ["", 0, "drop"], "row 4's 全部 clears row 4 only");
+    t.pickState("all");
     t.pickState("class", "drop");
     has('aria-pressed="true">可清理 2<', '<button type="button" data-states-all aria-pressed="false">');
     t.pickState("kind", "invalid");
@@ -3416,7 +3428,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.seenCfg = { on: true, bar: false, mark: true, threshold: 80, style: "badge" };
     t.S.seenPct = { BV93: [100, 1] };
     t.S.aiRecent = { R: { bvids: ["BV94"] } };
-    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "按有没有标签", "看完了", "已失效", "AI 刚打的"]);
+    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "看完了", "已失效", "AI 刚打的"]);
     t.pickState("class", "unsure");
     assert.ok(!row3().includes("data-finishedfilter"), "看完了 at 0 (BV93 is 可清理) is not shown");
     t.S.tagFilter.add("rb");
@@ -3431,7 +3443,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.ok(t.el.tagFilter.innerHTML.includes('甲<span class="chip-n">1</span>') && t.el.tagFilter.innerHTML.includes('乙<span class="chip-n">1</span>'));
     t.pickState("all");
     t.S.tab = "none";
-    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "按决定筛选", "按有没有标签"], "未分析: no AI verdict group");
+    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "按决定筛选"], "未分析: no AI verdict group");
     t.S.decisions = { BV92: { action: "keep", at: 1 } };
     t.S.tab = "read";
     has(">已保留 1<", ">未决定 5<");

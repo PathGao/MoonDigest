@@ -111,13 +111,16 @@ function renderTabs() {
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
     steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", READ_TAB, "read-tab", c.read);
 
-  // Row 4: only the tags the tab on screen has (or a filter that is on, so it can be turned off), each with how many
-  // videos listed here carry it (row 3 and search applied, row 4's own picks left out).
+  // Row 4: its own 全部 and 未打标签 / 已打标签, then only the tags the tab on screen has (or a filter that is on, so it
+  // can be turned off), each with how many videos listed here carry it (row 3 and search applied, the group's own pick
+  // left out).
   const here = S.items.filter((it) => inStage(it, S.tab));
   const hereTags = new Set(here.flatMap((it) => tagIdsOf(it.bvid)));
   const chips = tagChips().filter((c) => c.ids.some((id) => hereTags.has(id) || S.tagFilter.has(id)));
-  const counted = here.filter((it) => inTab(it, S.tab) && passFilter(it, "tags")).map((it) => tagIdsOf(it.bvid));
-  el.tagFilter.innerHTML = UI.labeledRow("标签", chips
+  const cnt = (skip) => here.filter((it) => inTab(it, S.tab) && passFilter(it, skip));
+  const counted = cnt("tags").map((it) => tagIdsOf(it.bvid));
+  const head = UI.tagRowHead({ allAttrs: "data-tagrow-all", allN: cnt("tagrow").length, on: tagRowOn(), attrs: (k) => `data-tagstate="${k}"`, n: (k) => cnt("tagged").filter((it) => (tagIdsOf(it.bvid).length > 0) === (k === "tagged")).length, cur: S.tagState });
+  el.tagFilter.innerHTML = UI.labeledRow("标签", head + chips
     .map((c) => UI.tagFilterChip(`data-tagfilter="${esc(c.ids.join(","))}"`, { name: c.name, color: c.color, on: c.ids.some((id) => S.tagFilter.has(id)), n: counted.filter((ids) => c.ids.some((id) => ids.includes(id))).length, what: "视频" }))
     .join(""));
   renderTagButtons();
@@ -167,7 +170,9 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.decisionFilter || S.finishedFilter || S.noSubFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.decisionFilter || S.finishedFilter || S.noSubFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+// Whether row 4 narrows the list (its 全部 is pressed when not).
+const tagRowOn = () => Boolean(S.tagState || S.tagFilter.size);
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
 // clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
 // groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
@@ -190,7 +195,6 @@ function stateRowHtml(t = S.tab) {
   if (t !== "none") {
     groups.push(group("按 AI 判断筛选", Object.entries(VERDICTS).map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
   }
-  groups.push(UI.tagStateGroup((k) => `data-tagstate="${k}"`, (k) => cnt("tagged", (it) => (tagIdsOf(it.bvid).length > 0) === (k === "tagged")), S.tagState));
   const seenN = cnt("seen", isFinished);
   if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
   // 已出分拣范围 has 已失效 as a tab instead.
@@ -210,8 +214,11 @@ function pickState(group, value = "") {
   if (group === "all") {
     S.classFilter[t] = "all";
     S.finishedFilter = S.dupFilter = S.aiRecentFilter = S.noSubFilter = false;
-    S.tagState = S.decisionFilter = "";
+    S.decisionFilter = "";
     if (S.mediaId !== REMOVED) S.kindFilter = "";
+  } else if (group === "tagrow") {
+    S.tagState = "";
+    S.tagFilter.clear();
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
   else if (group === "decision") S.decisionFilter = S.decisionFilter === value ? "" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
@@ -232,7 +239,7 @@ function renderListHeader(list) {
   }
   const all = S.mediaId === ALL;
   // Search, row 3 or row 4 on: how many the tab lists.
-  el.searchCount.textContent = UI.resultCount(S.query.trim() || statesOn(t) || S.tagFilter.size, list.length);
+  el.searchCount.textContent = UI.resultCount(S.query.trim() || statesOn(t) || tagRowOn(), list.length);
   const { run: favRun, busy: favBusy } = fav.state();
   // none: why the selection's buttons are off (UI.selbar: filters hide the whole selection); they count all of it then.
   const batchBtn = (route, verdict = "", none = "") => {
@@ -404,7 +411,7 @@ function renderList() {
     const empty = { none: "没有未分析的视频", coarse: "没有粗看完成的视频", fine: "没有细看完成的视频" };
     // 已出分拣范围's kind is its tab (statesOn leaves it out), not a filter.
     const kind = S.mediaId === REMOVED && KINDS.find(([k]) => k === S.kindFilter)?.[1];
-    const text = UI.noMatch(S.query, statesOn() || S.tagFilter.size, "视频") || (kind ? `没有${kind}的视频` : empty[S.tab]) || "这里没有视频";
+    const text = UI.noMatch(S.query, statesOn() || tagRowOn(), "视频") || (kind ? `没有${kind}的视频` : empty[S.tab]) || "这里没有视频";
     el.list.innerHTML = `<p class="empty">${text}</p>${recent}`;
     return;
   }

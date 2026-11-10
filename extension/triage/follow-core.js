@@ -114,10 +114,10 @@
   // only for a move. [[id, name]].
   const groupTargets = (D, from, how) =>
     [...(how === "move" ? [0] : []), SPECIAL, ...(D.groups || []).map((g) => g.id)].filter((id) => id !== from).map((id) => [id, groupName(id, D)]);
-  // Row 3's 未打标签 / 已打标签 (f.tagState) and row 4's tags (f.tags, AND) on an UP's tag ids. skip leaves one out
-  // ("tagged" or "tags"), for that group's own counts.
+  // Row 4: 未打标签 / 已打标签 (f.tagState) and the tags (f.tags, AND) on an UP's tag ids. skip leaves one out ("tagged"
+  // or "tags"), for that group's own counts, or both ("tagrow"), for row 4's 全部.
   const tagPass = (ids, f, skip = "") =>
-    (skip === "tagged" || !f.tagState || (ids.length > 0) === (f.tagState === "tagged")) && (skip === "tags" || [...(f.tags || [])].every((id) => ids.includes(id)));
+    (skip === "tagged" || skip === "tagrow" || !f.tagState || (ids.length > 0) === (f.tagState === "tagged")) && (skip === "tags" || skip === "tagrow" || [...(f.tags || [])].every((id) => ids.includes(id)));
 
   // The UPs of a left-column item, before 更新状态 / search: the follow list without 已出分拣范围; that item is the
   // unfollowed (newest first), then the followed that are closed or cleared.
@@ -137,9 +137,9 @@
   };
 
   // What the list shows: f = { side, q, sort, dir, kind (已出分拣范围's tab), source: "" | "bili" | "app" (已取消关注), and row 3: status,
-  // tagState, recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tags }.
-  // Row 3's groups AND together and each counts with its own pick left out: counts[status], tagged / untagged, recent,
-  // source[bili | app] (已取消关注's row 3 group), "" (row 3 cleared) and tags[id] (row 4's picks left out). Search and the
+  // recent (Set while 「AI 刚打的」 is on), recentAll (the whole batch, for its count); row 4: tagState, tags }.
+  // Each group ANDs with the rest and counts with its own pick left out: counts[status], recent, source[bili | app]
+  // (已取消关注's row 3 group), "" (row 3 cleared), tagged / untagged, tags[id] and tagAll (row 4 cleared). Search and the
   // sidebar apply to all. have = the tags the item (and 已出分拣范围's tab) carries before search and row 3: row 4 lists them.
   function visibleUps(D, rows, f) {
     const words = searchWords(f.q);
@@ -152,7 +152,7 @@
       const u = rows.get(m);
       return (skip === "status" || !f.status || u.status === f.status) && (skip === "source" || !f.source || u.gone?.source === f.source) && (skip === "recent" || !f.recent || f.recent.has(m)) && tagPass(u.tagIds, f, skip);
     };
-    const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, { tags: f.tags })).length, tagged: 0, untagged: 0, recent: 0, source: { bili: 0, app: 0 }, tags: {}, have: [...new Set(here.flatMap((m) => rows.get(m).tagIds))] };
+    const counts = { "": base.filter((m) => tagPass(rows.get(m).tagIds, f)).length, tagAll: base.filter((m) => pass(m, "tagrow")).length, tagged: 0, untagged: 0, recent: 0, source: { bili: 0, app: 0 }, tags: {}, have: [...new Set(here.flatMap((m) => rows.get(m).tagIds))] };
     for (const m of base) {
       const u = rows.get(m);
       if (pass(m, "status")) counts[u.status] = (counts[u.status] || 0) + 1;
@@ -218,12 +218,12 @@
   }
   // A feed video under f = { side, q, tagState, tags } (rows 3 and 4 go by the video's UP); skip as in tagPass.
   const feedPass = (it, D, f, skip = "") => feedMatch(it, D, f.side) && hasWords(`${it.title}\n${it.name}`, searchWords(f.q)) && tagPass(liveTags(it.mid, D), f, skip);
-  // Row 3's counts for 视频投稿, as visibleUps's: "" (row 3 cleared), tagged / untagged (by the UP), tags[id], have.
+  // Row 4's counts for 视频投稿, as visibleUps's: tagAll (row 4 cleared), tagged / untagged (by the UP), tags[id], have.
   function feedCounts(items, D, f) {
-    const c = { "": 0, tagged: 0, untagged: 0, tags: {}, have: [...new Set(items.filter((it) => feedMatch(it, D, f.side)).flatMap((it) => liveTags(it.mid, D)))] };
+    const c = { tagAll: 0, tagged: 0, untagged: 0, tags: {}, have: [...new Set(items.filter((it) => feedMatch(it, D, f.side)).flatMap((it) => liveTags(it.mid, D)))] };
     for (const it of items) {
       const ids = liveTags(it.mid, D);
-      if (feedPass(it, D, { ...f, tagState: "" })) c[""]++;
+      if (feedPass(it, D, f, "tagrow")) c.tagAll++;
       if (feedPass(it, D, f, "tagged")) c[ids.length ? "tagged" : "untagged"]++;
       if (feedPass(it, D, f, "tags")) for (const id of ids) c.tags[id] = (c.tags[id] || 0) + 1;
     }
