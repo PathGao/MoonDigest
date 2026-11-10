@@ -251,22 +251,21 @@ select { height: 28px; max-width: 240px; }
 .step-actions button { height: 28px; padding: 0 12px; }
 .step-actions .primary { border: 0; }
 
-/* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
+/* ---------- steps: pills like row 3's (2026-11-10 用户定), 全部 first and ruled off, the AI steps joined by → (the AI
+   only moves forward) ---------- */
 .tabs:empty { display: none; }
-/* Row 2: the tabs keep their underline; search and the mode's buttons sit on the right of the same line. */
+/* Row 2: the tabs; search and the mode's buttons sit on the right of the same line. */
 .tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; }
 .row-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; padding: 6px 0; }
 /* While it reads, 刷新 gives its place to the progress pill: one thing on screen, not two. */
 .row-tools:has(.activity:not([hidden])) .act-btn[aria-busy="true"] { display: none; }
-.tabs { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 20px; }
-.tabs button { position: relative; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text-2); font-size: var(--fs-sm); }
-.tabs button:hover { background: none; color: var(--text); }
-.tabs button[aria-selected="true"] { color: var(--text); font-weight: 600; }
-.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
-.tabs .count { color: var(--faint); font: 11px var(--font-mono); }
-.tabs .step.zero:not([aria-selected="true"]) { color: var(--faint); }
-.tabs .arrow { margin: 0 -12px; color: var(--border-strong); font-size: var(--fs-xs); }
-.tabs .tab-sep { flex: 0 0 4px; height: 16px; border-left: 1px solid var(--border-strong); }
+.tabs { display: flex; flex: 0 1 auto; min-width: 0; min-height: 40px; align-items: center; gap: 2px; }
+.tabs button { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tabs button:hover { background: var(--field-bg); }
+.tabs button[aria-selected="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
+.tabs .step.zero:not([aria-selected="true"]) { opacity: 0.5; }
+.tabs .arrow { margin: 0 2px; color: var(--faint); font-size: var(--fs-xs); }
+.tabs .tab-sep { flex: 0 0 1px; height: 16px; margin: 0 6px; border-left: 1px solid var(--border-strong); }
 
 /* ---------- row 3: state pills in groups | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签 ----------
    Both rows: filters on the left, their buttons top-right, so the two right ends line up. */
@@ -666,10 +665,9 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .tabs button, .tabs .arrow { flex: none; }
   /* The fold toggle and the tabs share a line; search and the buttons go under it, the search takes what is left. The
      rule under that line spans the whole row, under the toggle too: the row draws it (top: the tabs' 40px), and the tabs
-     keep a clear 1px border so the line stays as tall. z-index -1 keeps it under the selected tab's underline. */
+     keep a clear 1px border so the line stays as tall. */
   .tabrow .tabs { flex: 1 1 0; border-bottom: 1px solid transparent; }
   .tabrow::after { content: ""; position: absolute; left: 0; right: 0; top: 40px; z-index: -1; height: 1px; background: var(--border); }
-  .tabs button[aria-selected="true"]::after { bottom: -1px; }
   .row-tools { width: 100%; padding: 8px 0; }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */
   .stagebar { border-top: 1px solid var(--border); }
