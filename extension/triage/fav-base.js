@@ -17,7 +17,7 @@ const STAGES = [
   ["coarse", "粗看完成"],
   ["fine", "细看完成"]
 ];
-const READ_TAB = "阅览全部";
+const READ_TAB = "全部";
 const NEXT_BATCH = "下一批"; // a step's button and the cards it will send
 // The two AI steps' names, and a run's name: the step, or its redo under a changed 判断标准 (按新标准重新粗看).
 const STEP_NAME = { coarse: MdgErrors.LABEL.coarseRead, fine: MdgErrors.LABEL.fineRead };

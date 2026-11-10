@@ -108,8 +108,9 @@ function renderTabs() {
   UI.setSearchScope(el.searchInput, folderName(S.mediaId), tabName);
   // 已出分拣范围 has no steps; its tabs are why the videos left (kindOf), 全部 first for the ones not checked yet.
   const kindTabs = () => UI.kindTabs("data-kindtab", [["", "全部"], ...KINDS].map(([kind, label]) => [kind, label, kind ? S.items.filter((it) => kindOf(it) === kind).length : S.items.length]), S.kindFilter);
+  // 全部 leads, right above row 3's and row 4's 全部 (2026-11-10 用户定).
   el.tabs.innerHTML = S.mediaId === REMOVED ? kindTabs() :
-    steps.join(`<span class="arrow" aria-hidden="true">→</span>`) + `<span class="tab-sep" aria-hidden="true"></span>` + tab("read", READ_TAB, "read-tab", c.read);
+    tab("read", READ_TAB, "read-tab", c.read) + `<span class="tab-sep" aria-hidden="true"></span>` + steps.join(`<span class="arrow" aria-hidden="true">→</span>`);
 
   // Row 4: its own 全部 and 未打标签 / 已打标签, then only the tags the tab on screen has (or a filter that is on, so it
   // can be turned off), each with how many videos listed here carry it (row 3 and search applied, the group's own pick

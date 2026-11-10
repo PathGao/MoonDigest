@@ -291,7 +291,11 @@ select { height: 28px; max-width: 240px; }
 .state-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: 8px; min-width: 0; }
 .state-row > .seg { position: relative; flex: none; flex-wrap: wrap; row-gap: 8px; max-width: 100%; }
 .state-row > .seg:not(:last-child) { margin-right: 17px; }
-.state-row > .seg:not(:last-child)::after { content: ""; position: absolute; top: 5px; right: -9px; height: 16px; border-left: 1px solid var(--border-strong); }
+.state-row > .seg:not(:last-child)::after, .tagfilter > .seg::after { content: ""; position: absolute; top: 5px; right: -9px; height: 16px; border-left: 1px solid var(--border-strong); }
+/* The tag row's head (全部, 未打标签 / 已打标签) is state, not tags: row 3's unfilled pills, each group ruled off from
+   what follows (the tags, 4px apart, so 13px + 4px = row 3's 17px). */
+.tagfilter > .seg { position: relative; flex: none; margin-right: 13px; }
+.tagfilter > .seg:last-child::after { display: none; }
 .seg button.st-danger:not([aria-pressed="true"]) { color: var(--danger); }
 /* 「AI 刚打的」 and its × (不再标出，标签不变) read as one pill. */
 .state-row .ai-recent { gap: 0; }
@@ -315,9 +319,9 @@ select { height: 28px; max-width: 240px; }
 .seg button:hover { background: var(--border); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
 /* Row 3's pills sit on the white card with no fill; only the picked one is solid. */
-.state-row .seg { gap: 2px; }
-.state-row .seg button:not([aria-pressed="true"]), .state-row .ai-recent > .ai-recent-x { background: none; }
-.state-row .seg button:not([aria-pressed="true"]):hover, .state-row .ai-recent > .ai-recent-x:hover { background: var(--field-bg); }
+:is(.state-row, .tagfilter) .seg { gap: 2px; }
+:is(.state-row, .tagfilter) .seg button:not([aria-pressed="true"]), .state-row .ai-recent > .ai-recent-x { background: none; }
+:is(.state-row, .tagfilter) .seg button:not([aria-pressed="true"]):hover, .state-row .ai-recent > .ai-recent-x:hover { background: var(--field-bg); }
 /* A count of 0 stays, dimmed; only chips that exist for a condition (看完了, 已失效, AI 刚打的) leave at 0. */
 .seg button.zero:not([aria-pressed="true"]), .side-item.zero:not(.on) { opacity: 0.5; }
 .tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 1px; }

@@ -917,12 +917,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗看 stays in 未分析");
   assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "coarse", "tagged 待定 stays in 粗看完成");
   assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "keep" } } }), "fine", "tagged after 细看 stays in 细看完成");
-  // An unfavorited video is in no tab (已出分拣范围 has it); 阅览全部 leaves it out too.
+  // An unfavorited video is in no tab (已出分拣范围 has it); 全部 leaves it out too.
   t.S.decisions = { BVv: { action: "unfav" } };
   assert.strictEqual(t.stageOf(v), "fine");
   assert.ok(["none", "coarse", "fine", "read"].every((tab) => !t.inTab(v, tab)), "unfavorited: in no tab");
   t.S.decisions = { BVv: { action: "keep" } };
-  assert.ok(t.inTab(v, "fine") && t.inTab(v, "read"), "kept: in the tab of its AI depth and in 阅览全部");
+  assert.ok(t.inTab(v, "fine") && t.inTab(v, "read"), "kept: in the tab of its AI depth and in 全部");
   Object.assign(t.S, { videoTags: {}, tags: [], notes: {}, decisions: {} });
 
   // 细看 batch: first fineBatchSize() open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
