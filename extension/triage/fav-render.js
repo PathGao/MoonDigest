@@ -196,14 +196,15 @@ function stateRowHtml(t = S.tab) {
   if (t !== "none") {
     groups.push(group("按 AI 判断筛选", Object.entries(VERDICTS).map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
   }
+  // Right after the verdict it qualifies: judged from the intro and comments only.
+  const noSubN = cnt("nosub", noSubtitle);
+  if (noSubN || S.noSubFilter) groups.push(group(NO_SUB, UI.filterBtn(`data-nosubfilter title="只看字幕细看时没有字幕、按简介和评论判断的视频"`, NO_SUB, noSubN, S.noSubFilter)));
   const seenN = cnt("seen", isFinished);
   if ((S.seenCfg.mark && seenN) || S.finishedFilter) groups.push(group("看完了", UI.filterBtn('data-finishedfilter title="只看 B站历史记录里看完了的视频"', "看完了", seenN, S.finishedFilter)));
   // 已出分拣范围 has 已失效 as a tab instead.
   const invalidN = cnt("kind", (it) => kindOf(it) === "invalid");
   const invalidOn = S.kindFilter === "invalid";
   if (!removed && (invalidN || invalidOn)) groups.push(group(KIND_NAME.invalid, UI.filterBtn(`data-kindfilter="invalid" class="st-danger" title="只看${KIND_NAME.invalid}的视频"`, KIND_NAME.invalid, invalidN, invalidOn)));
-  const noSubN = cnt("nosub", noSubtitle);
-  if (noSubN || S.noSubFilter) groups.push(group(NO_SUB, UI.filterBtn(`data-nosubfilter title="只看字幕细看时没有字幕、按简介和评论判断的视频"`, NO_SUB, noSubN, S.noSubFilter)));
   const recentN = cnt("recent", (it) => aiRecentSet().has(it.bvid));
   groups.push(UI.aiRecentChip({ attrs: "data-airecent", xAttrs: "data-airecent-done", n: recentN, on: S.aiRecentFilter, who: "视频" }));
   return groups.join("");

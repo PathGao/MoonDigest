@@ -3455,7 +3455,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("N", [item(1), item(2), item(3)]);
     Object.assign(t.S, { titleRes: {}, analyses: { BV1: { status: "done", source: "meta", verdict: "keep" }, BV2: { status: "done", source: "subtitle", verdict: "keep" } }, tab: "fine", classFilter: { coarse: "all", fine: "all", read: "all" } });
     const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(row3().includes(">无字幕 1<") && groups().at(-1) === "无字幕", groups().join());
+    assert.ok(row3().includes(">无字幕 1<") && groups()[groups().indexOf("按 AI 判断筛选") + 1] === "无字幕", groups().join());
     t.pickState("nosub");
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
     t.pickState("all");
