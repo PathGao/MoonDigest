@@ -691,15 +691,17 @@ const skipKept = (open, tab) => (picking(tab) ? open : open.filter((it) => !isKe
 // What 按新标准重新粗看 / 细看 can send: the stale ones its tab lists now (search and filters applied), from any tab
 // (the 判断标准 dialog offers 重新粗看 too); redoState takes one run's batch of them.
 const redoCoarseOpen = () => staleCoarse().filter((it) => inTab(it, "coarse") && passFilter(it));
-const redoFineOpen = () => skipKept(staleFine().filter((it) => inTab(it, "fine") && passFilter(it)), "fine");
+const redoFineListed = () => staleFine().filter((it) => inTab(it, "fine") && passFilter(it));
+const redoFineOpen = () => skipKept(redoFineListed(), "fine");
 // 按新标准重新粗看 / 细看's batch, label and why it is disabled: row 3's button and the 「判断标准改了」 dialog's.
-const redoState = (verb, open, cap, tab) => {
+// onlyKept: the stale ones listed are all 已保留, which a next batch leaves out.
+const redoState = (verb, open, cap, tab, onlyKept = false) => {
   const batch = pickBatch(open, cap, tab);
-  const why = aiBusyReason() || pickReason(`选中的都不用按新标准重新${verb}`, batch, tab) || (batch.length ? "" : `当前筛选下没有要重新${verb}的视频`);
+  const why = aiBusyReason() || pickReason(`选中的都不用按新标准重新${verb}`, batch, tab) || (batch.length ? "" : onlyKept ? KEPT_NOT_NEXT : `当前筛选下没有要重新${verb}的视频`);
   return { batch, label: batchLabel(`按新标准重新${verb}`, batch, open, tab), why, verb };
 };
 // One step's redo, as row 3's button, the 「判断标准改了」 dialog and their click all take it.
-const redoOf = (step) => (step === "coarse" ? redoState("粗看", redoCoarseOpen(), coarseBatchSize(), "coarse") : redoState("细看", redoFineOpen(), fineBatchSize(), "fine"));
+const redoOf = (step) => (step === "coarse" ? redoState("粗看", redoCoarseOpen(), coarseBatchSize(), "coarse") : redoState("细看", redoFineOpen(), fineBatchSize(), "fine", redoFineListed().length > 0));
 // The selection belongs to the open tab (switching tabs clears it). A filter may hide part of it: every action and count
 // takes only what is listed, and the selection bar says how many are hidden.
 const visibleSelected = () => selectedIn(visibleItems());

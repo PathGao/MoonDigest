@@ -69,7 +69,7 @@ function renderFolderHead() {
   const explain = S.mediaId === REMOVED && `离开了你勾选的所有收藏夹，AI 判断、AI 总结、备注和标签都还留着，${UI.CLEAN_BACKUP.meta}`;
   const meta = UI.headMeta([inFolderView() && UI.syncedText(S.readAt[S.mediaId]), invalid && `${invalid} 个已失效`, explain], S.syncError);
   const thumb = inFolderView() && S.mediaId !== TOVIEW ? folderThumb(S.mediaId, el.folderSelect.querySelector?.(`option[value="${S.mediaId}"]`)?.dataset.cover) : "";
-  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderName(S.mediaId), S.items.length)}</h1><div class="folder-meta">${meta}</div></div>`;
+  el.folderHead.innerHTML = `${thumb}<div class="folder-text"><h1 class="folder-title">${UI.titleHtml(folderName(S.mediaId), S.items.filter((it) => !isUnfaved(it)).length)}</h1><div class="folder-meta">${meta}</div></div>`;
 }
 
 // What is running, in one place on every tab: runs' pill (PILL's order). done/total draws a bar, act puts a button on
@@ -248,7 +248,9 @@ function renderListHeader(list) {
     const n = can || (verdict ? 0 : selectedIn(visibleItems()).length);
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const empty = verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、待决定的视频` : route === "unfav" ? "选中的都已取消收藏" : "选中的都已保留";
+    // Nothing left because a running B站 write still has them: say so, not that they are decided.
+    const waiting = can ? "" : (S.selected.size ? selectedIn(visibleItems()) : visibleItems()).map((it) => W.pending(it.bvid)).find(Boolean);
+    const empty = waiting ? UI.busyText(waiting) : verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、待决定的视频` : route === "unfav" ? "选中的都已取消收藏" : "选中的都已保留";
     const reason = none || (!can ? empty
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的${UNFAV_MANY}`)
       : route === "unfav" ? UI.busyText(favBusy) : "");

@@ -1223,6 +1223,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   // P3: its next batch leaves 已保留 out too; selected, a kept one is redone.
   t.S.decisions = { BV203: { action: "keep", at: 1 } };
   assert.deepStrictEqual(plain(vm.runInContext('redoOf("fine")', ctx).batch), [], "下一批 skips the kept stale one");
+  assert.strictEqual(vm.runInContext('redoOf("fine")', ctx).why, vm.runInContext("KEPT_NOT_NEXT", ctx), "only kept ones left: it says so, not that the filter hides them");
   t.S.selected = new Set(["BV203"]);
   assert.deepStrictEqual(plain(vm.runInContext('redoOf("fine")', ctx).batch.map((it) => it.bvid)), ["BV203"]);
   t.S.selected.clear();
