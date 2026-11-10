@@ -31,7 +31,7 @@ const unmarked = new Map();
 // has no U). A tag edit leaves the tag filters at once, as on the 分拣台; U brings the record back.
 const starEdited = new Set();
 let starFilter = false;
-let tagState = ""; // 第 2 行 "" | "untagged" | "tagged", on the record's own tags (the tag row's), as the 分拣台's
+let tagState = ""; // 标签行 "" | "untagged" | "tagged", on the record's own tags (the tag row's), as the 分拣台's
 const tagFilter = new Set();
 const selected = new Set();
 let pickAnchor = null; // the last picked key: Shift picks the run from it
@@ -416,10 +416,11 @@ function renderHead(all, groups) {
   const recent = UI.aiRecentChip({ attrs: 'data-f="recent"', xAttrs: 'data-f="recent-done"', n: visibleGroups({ recent: false }, all).filter((g) => recentKeys.has(readingKey(g))).length, on: recentFilter, who: "记录", check: RECENT_CHECK });
   const anyTag = visibleGroups({ tags: [] }, all);
   const tagN = visibleGroups({ tagged: "" }, all);
-  els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false, tagged: "" }, all).length, !starFilter && !recentFilter && !tagState)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + UI.tagStateGroup((k) => `data-f="tagstate:${k}"`, (k) => tagN.filter((g) => (g.mark?.tags?.length > 0) === (k === "tagged")).length, tagState) + recent);
+  els.stateRow.innerHTML = UI.labeledRow("状态", UI.stateGroup("全部", UI.filterBtn('data-f="all"', "全部", visibleGroups({ star: false, recent: false }, all).length, !starFilter && !recentFilter)) + UI.stateGroup("星标", UI.filterBtn('data-f="star"', "★ 星标", stars, starFilter)) + recent);
   // As the 分拣台's row 4: only the tags the listed records carry, and the ones turned on (so they can be turned off).
   const carrying = (id) => anyTag.filter((g) => g.mark?.tags?.includes(id)).length;
-  els.tagRow.innerHTML = UI.labeledRow("标签", marks.tags.filter((t) => carrying(t.id) || tagFilter.has(t.id)).map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: carrying(t.id), on: tagFilter.has(t.id), what: "记录" })).join(""));
+  const tagHead = UI.tagRowHead({ allAttrs: 'data-f="tagall"', allN: visibleGroups({ tagged: "", tags: [] }, all).length, on: Boolean(tagState || tagFilter.size), attrs: (k) => `data-f="tagstate:${k}"`, n: (k) => tagN.filter((g) => (g.mark?.tags?.length > 0) === (k === "tagged")).length, cur: tagState });
+  els.tagRow.innerHTML = UI.labeledRow("标签", tagHead + marks.tags.filter((t) => carrying(t.id) || tagFilter.has(t.id)).map((t) => UI.tagFilterChip(`data-f="tag:${esc(t.id)}"`, { name: t.name, color: t.color, n: carrying(t.id), on: tagFilter.has(t.id), what: "记录" })).join(""));
   // 「选中的 N 个」 counts records, as the dialog's 选中 does.
   const picked = aiRecords("selected").size || recordsOf(all.filter((g) => selected.has(g.key))).size;
   els.tagActs.innerHTML = UI.tagButtons({ manageAttrs: 'data-f="manage"', aiAttrs: 'data-f="ai"', who: "记录", running: aiRunning(), pending: Boolean(AI.proposal), picked, aiReason: aiReason(all) }) + SETTINGS_BTN;
@@ -902,9 +903,10 @@ els.filters.addEventListener("click", (event) => {
   if (f === "settings") return void openSettings();
   if (f === "recent-done") return void clearRecent();
   if (f === "select-all") UI.toggleAll(visibleGroups().map((g) => g.key), selected);
-  else if (f === "all") {
-    starFilter = recentFilter = false;
+  else if (f === "all") starFilter = recentFilter = false;
+  else if (f === "tagall") {
     tagState = "";
+    tagFilter.clear();
   } else if (f?.startsWith("tagstate:")) tagState = tagState === f.slice(9) ? "" : f.slice(9);
   else if (f === "recent") recentFilter = !recentFilter;
   else if (f === "star") starFilter = !starFilter;

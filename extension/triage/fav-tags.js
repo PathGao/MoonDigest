@@ -164,7 +164,7 @@ async function saveCriteria() {
   const shown = open.length < stale ? `（当前筛选下列出 ${open.length} 个）` : "";
   const ok = await askConfirm(
     "判断标准改了",
-    `<p>「粗看完成」里有 ${stale} 个视频是按旧标准粗看的${shown}，要按新标准重新粗看吗？</p><p>已细看和已处理的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
+    `<p>「粗看完成」里有 ${stale} 个视频是按旧标准粗看的${shown}，要按新标准重新粗看吗？</p><p>已细看的视频不动；细看完成页可以另外按新标准重新细看。</p>`,
     label,
     { reason: why }
   );

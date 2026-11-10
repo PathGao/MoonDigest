@@ -153,12 +153,14 @@ function followShared(changes) {
     else delete S.analyses[b];
     changed = true;
   }
-  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
+  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders; in
+  // 已出分拣范围 every chosen folder's (最近取消收藏).
   for (const [key, c] of Object.entries(changes)) {
     const id = /^triage_decisions_(.+)$/.exec(key)?.[1];
     if (!id || ownEcho(key, c)) continue;
     const d = c.newValue || {};
     if (id === String(S.mediaId)) S.decisions = { ...S.kept, ...d };
+    else if (S.mediaId === REMOVED && S.folders.some((f) => String(f.id) === id)) S.folderDecisions[id] = d;
     else if (S.loadAll && S.folderDecisions[id]) {
       S.folderDecisions[id] = d;
       rebuildAll();
@@ -370,7 +372,7 @@ function bindEvents() {
     if (!f || !passFilter(f)) S.focused = "";
     fromTop();
   });
-  // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4's tags).
+  // Row 3: one pick per group, a second click clears it; 全部 clears the whole row (not row 4).
   el.classFilter.addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
@@ -379,14 +381,20 @@ function bindEvents() {
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
+    else if (b.matches("[data-nosubfilter]")) pickState("nosub");
     else if (b.matches("[data-dupfilter]")) pickState("dup");
-    else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
     else if (b.dataset.kindfilter) pickState("kind", b.dataset.kindfilter);
     else if (b.matches("[data-airecent]")) pickState("recent");
     else return;
     fromTop();
   });
+  // Row 4: its 全部 clears row 4 only (not row 3); 未打标签 / 已打标签 one pick; the tags AND together.
   el.tagFilter.addEventListener("click", (e) => {
+    const state = e.target.closest("[data-tagstate], [data-tagrow-all]");
+    if (state) {
+      pickState(state.dataset.tagstate ? "tagged" : "tagrow", state.dataset.tagstate);
+      return fromTop();
+    }
     const btn = e.target.closest("[data-tagfilter]");
     if (!btn) return;
     const ids = btn.dataset.tagfilter.split(",");
@@ -418,7 +426,7 @@ function bindEvents() {
       const batch = nextBatch();
       const items = batch.map((b) => S.itemMap.get(b));
       startJudging(groupLabel(items), "细看", items, () => startGroup(batch));
-    } else if (act === "batch-unfav") fav.unfavMany(batchList(btn.dataset.verdict || null));
+    } else if (act === "batch-unfav") fav.unfavMany(batchList(btn.dataset.verdict || null, "unfav"));
     else if (act === "batch-keep") batchKeep(batchList(btn.dataset.verdict || null));
     else if (act === "criteria") openCriteria();
     else if (act === "write") stopWrite();
@@ -455,9 +463,9 @@ function bindEvents() {
     if (e.target.closest("[data-pick-folders]")) return openSettings(false, true);
     if (e.target.closest("[data-refresh]")) return el.refreshBtn.click();
     const refav = e.target.closest("[data-refav]");
-    if (refav) return fav.refav(refav.dataset.refav);
+    if (refav) return fav.refav(refav.dataset.refav, refav.dataset.folder);
     const refavAll = e.target.closest("[data-refav-batch]");
-    if (refavAll) return fav.refavBatch(Number(refavAll.dataset.refavBatch));
+    if (refavAll) return fav.refavBatch(Number(refavAll.dataset.refavBatch), refavAll.dataset.folder);
     const picked = e.target.closest(".card[data-bvid]");
     if (picked && UI.cardPickClick(e)) {
       e.preventDefault();
@@ -789,6 +797,7 @@ function cardAction(act, bvid) {
   else if (act === "tag") openPicker(bvid, `.card[data-bvid="${CSS.escape(bvid)}"] [data-act="tag"]`);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
+  else if (act === "ai-step") runCardStep(bvid);
   else if (act === "note") {
     S.noteOpen.add(bvid);
     renderList();

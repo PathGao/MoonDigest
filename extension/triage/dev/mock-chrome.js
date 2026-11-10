@@ -104,6 +104,17 @@
       [gone[4].bvid]: { item: gone[4], at: now - day, from: [f("1001", "稍后-AI", now - 6 * day), f("1002", "学习", now - day)] },
       [gone[5].bvid]: { item: gone[5], at: now - 3600000, from: [f("1001", "稍后-AI", now - 8 * day), f("1002", "学习", now - 4 * day), f("1003", "默认收藏夹", now - 3600000)] }
     };
+    // 稍后-AI: a 保留'd video with only 粗看 (粗看完成, 「✦ 字幕细看」 on its card), 细看 without a subtitle (no subtitle at
+    // all, and hidden from a logged-out user).
+    const coarse = (it, verdict, reason) => (store[`triage_title_${it.bvid}`] = { verdict, reason, confidence: "high" });
+    const fine = (it, verdict, reason, extra = {}) => {
+      coarse(it, verdict, reason);
+      store[`triage_analysis_${it.bvid}`] = { bvid: it.bvid, status: "done", source: "subtitle", oneLiner: `${it.title.slice(0, 12)}：先讲原理再给示例。`, points: ["讲清了基本概念", "给出可运行的示例", "总结了常见误区"], verdict, reason, model: "mock-model", analyzedAt: now - day, ...extra };
+    };
+    coarse(ai[0], "keep", "标题显示为系统教程");
+    store.triage_kept = { [ai[0].bvid]: { action: "keep", at: now - day } };
+    fine(ai[3], "unsure", "只有简介和评论，拿不准", { source: "meta" });
+    fine(ai[4], "keep", "原理讲得清楚", { source: "meta", needLogin: true });
   }
 
   // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 待播, notes and

@@ -97,7 +97,11 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
   assert.deepStrictEqual(v({ q: "原理" }).list, ["2"], "search reads the sign too");
   const c = v({ status: "active" });
   assert.deepStrictEqual(c.list, ["1", "3"]);
-  assert.deepStrictEqual(c.counts, { "": 4, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, source: { bili: 0, app: 0 }, tags: { t1: 1 }, have: ["t1"] }, "status counts ignore the status pick; the other groups apply it");
+  assert.deepStrictEqual(c.counts, { "": 4, tagAll: 2, active: 2, slow: 1, stale: 1, tagged: 1, untagged: 1, recent: 0, source: { bili: 0, app: 0 }, tags: { t1: 1 }, have: ["t1"] }, "status counts ignore the status pick; the other groups apply it");
+  // 2026-11-10: 未打标签 / 已打标签 is row 4's. Row 3's 全部 ("") counts with row 4 applied; row 4's (tagAll) with row 3
+  // applied and row 4 cleared.
+  const r4 = v({ status: "active", tagState: "tagged", tags: new Set(["t1"]) }).counts;
+  assert.deepStrictEqual([r4[""], r4.tagAll], [2, 2]);
   // 已出分拣范围: 在哪取消关注 is a row 3 group. 全部 counts with it cleared; its chips count with search and row 4 applied.
   const out = v({ side: "out", source: "app" });
   assert.deepStrictEqual([out.list, out.counts[""], out.counts.source], [["8"], 2, { bili: 1, app: 1 }]);
@@ -474,7 +478,8 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
   assert.deepStrictEqual(r.list.sort(), ["1", "2"], "活跃 AND 已打标签");
   assert.deepStrictEqual([r.counts.active, r.counts.slow, r.counts.stale || 0], [2, 1, 0], "更新状态 counts keep 已打标签, drop their own pick");
   assert.deepStrictEqual([r.counts.tagged, r.counts.untagged], [2, 0], "未打标签 / 已打标签 keep 活跃, drop their own pick");
-  assert.deepStrictEqual([r.counts[""], r.counts.recent], [5, 1], "全部 = row 3 cleared; AI 刚打的 counted under the other picks");
+  assert.deepStrictEqual([r.counts[""], r.counts.recent], [3, 1], "row 3's 全部 = row 3 cleared, row 4's 已打标签 applied; AI 刚打的 counted under the other picks");
+  assert.strictEqual(r.counts.tagAll, 2, "row 4's 全部 = row 4 cleared, 活跃 applied");
   assert.deepStrictEqual(r.counts.tags, { a: 2, b: 1 }, "row 4 counts the listed UP 主");
   r = v({ tags: new Set(["a", "b"]), recentAll: all });
   assert.deepStrictEqual(r.list, ["2"], "row 4: AND");
@@ -490,7 +495,7 @@ assert.ok(source.includes("for (const m of [...F.sel]) if (!rows.has(m)) F.sel.d
   // 视频投稿: row 3 by the video's UP; counts as above.
   const items = [{ bvid: "x", mid: "1", title: "甲" }, { bvid: "y", mid: "2", title: "乙" }, { bvid: "z", mid: "4", title: "丙" }];
   const c = plain(t.feedCounts(items, D, { side: "all", q: "", tagState: "tagged", tags: new Set(["b"]) }));
-  assert.deepStrictEqual(c, { "": 1, tagged: 1, untagged: 0, tags: { a: 2, b: 1 }, have: ["a", "b"] });
+  assert.deepStrictEqual(c, { tagAll: 3, tagged: 1, untagged: 0, tags: { a: 2, b: 1 }, have: ["a", "b"] }, "视频投稿 has no row 3: row 4's 全部 counts with row 4 cleared");
 }
 
 // B12: the sidebar item is remembered with the rest of the view and checked against the data on load.
@@ -662,7 +667,7 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
   }
 
   // P1 (DESIGN 分拣台): row 4 lists the tags the tab's UP 主 / videos carry, row 3 aside (0 when it leaves none of them),
-  // as 收藏夹's; into or out of 已出分拣范围 clears 更新状态 and AI 刚打的 too; 视频投稿's 全部 clears only its own row 3; a
+  // as 收藏夹's; into or out of 已出分拣范围 clears 更新状态 and AI 刚打的 too; row 4's 全部 clears row 4 only and row 3's row 3 only; a
   // card click makes the card current.
   {
     const p = await followPage({ store: page({ follow_tags: [{ id: "t1", name: "科普", color: "#111" }], follow_tag_map: { u1: ["t1"] } }), handlers: { "follow-feed": () => feed } });
@@ -683,9 +688,19 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     F.tagState = "untagged";
     p.FW.render();
     assert.ok(E.tagRow.innerHTML.includes(chip), `视频投稿: ${E.tagRow.innerHTML}`);
+    assert.ok(E.bar.innerHTML === "" && /^<span class="row-label">标签<\/span><span class="seg" role="group" aria-label="全部"><button type="button" data-fw-tagall aria-pressed="false">全部[^<]*<\/button><\/span><span class="seg" role="group" aria-label="按有没有标签">.*UP 未打标签/.test(E.tagRow.innerHTML), `视频投稿: no row 3, row 4 leads with 全部 and UP 未打标签: ${E.bar.innerHTML} | ${E.tagRow.innerHTML}`);
     F.status = "active";
+    F.tags.add("t1");
+    p.click("followMain", "[data-fw-tagall]", {});
+    assert.deepStrictEqual([F.tagState, F.tags.size, F.status], ["", 0, "active"], "row 4's 全部 clears row 4 only, not UP 主's 更新状态");
+    // UP 主: row 3's 全部 leaves row 4.
+    p.click("followMain", "[data-fwtab]", { fwtab: "ups" });
+    F.tagState = "tagged";
     p.click("followMain", "[data-fw-all]", {});
-    assert.deepStrictEqual([F.tagState, F.status], ["", "active"], "视频投稿's 全部 leaves UP 主's 更新状态");
+    assert.deepStrictEqual([F.tagState, F.status], ["tagged", ""], "row 3's 全部 leaves row 4");
+    F.tagState = "";
+    p.click("followMain", "[data-fwtab]", { fwtab: "feed" });
+    await p.settle();
     // Esc with the 导出 popover open closes only the popover (the browser's), as in 收藏夹.
     p.click("followMain", "[data-play]", { play: "BVb" });
     const q = p.ctx.document.querySelector;

@@ -703,7 +703,10 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   const count = (files, re) => (PS.text(files).match(re) || []).length;
   assert.strictEqual(count(PS.favorites, /UI\.labeledRow\("状态", /g), 1, "收藏夹 row 3");
   assert.strictEqual(count(PS.favorites, /UI\.labeledRow\("标签", /g), 1, "收藏夹 row 4");
-  assert.strictEqual(count(PS.follow, /UI\.labeledRow\("状态", /g), 2, "关注 row 3, UP 主 and 视频投稿");
+  assert.strictEqual(count(PS.follow, /UI\.labeledRow\("状态", /g), 1, "关注 row 3, UP 主 only: 视频投稿's one group went to row 4");
+  // Row 4 starts with its own 全部 and 未打标签 / 已打标签 in both modes (2026-11-10).
+  assert.strictEqual(count([...PS.favorites, ...PS.follow], /UI\.tagRowHead\(/g), 2, "收藏夹 and 关注 draw row 4's head alike");
+  assert.ok(UI.tagRowHead({ allAttrs: "data-x", allN: 3, on: false, attrs: (k) => `data-s="${k}"`, n: () => 1, cur: "" }).startsWith('<span class="seg" role="group" aria-label="全部"><button type="button" data-x aria-pressed="true">全部 3</button></span><span class="seg" role="group" aria-label="按有没有标签">'));
   assert.strictEqual(count(PS.follow, /UI\.labeledRow\("标签", /g), 2, "关注 row 4, UP 主 and 视频投稿");
   assert.strictEqual(count(PS.triage, /row-label/g), 0, "分拣台 draws no label of its own");
 }

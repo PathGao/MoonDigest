@@ -251,30 +251,38 @@ select { height: 28px; max-width: 240px; }
 .step-actions button { height: 28px; padding: 0 12px; }
 .step-actions .primary { border: 0; }
 
-/* ---------- steps: text tabs, a pink underline on the open one, counts faint; 阅览 sits apart on the right ---------- */
+/* ---------- steps: pills like row 3's (2026-11-10 用户定), 全部 first and ruled off, the AI steps joined by → (the AI
+   only moves forward) ---------- */
 .tabs:empty { display: none; }
-/* Row 2: the tabs keep their underline; search and the mode's buttons sit on the right of the same line. */
+/* Row 2: the tabs; search and the mode's buttons sit on the right of the same line. */
 .tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; }
 .row-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; padding: 6px 0; }
 /* While it reads, 刷新 gives its place to the progress pill: one thing on screen, not two. */
 .row-tools:has(.activity:not([hidden])) .act-btn[aria-busy="true"] { display: none; }
-.tabs { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 20px; }
-.tabs button { position: relative; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text-2); font-size: var(--fs-sm); }
-.tabs button:hover { background: none; color: var(--text); }
-.tabs button[aria-selected="true"] { color: var(--text); font-weight: 600; }
-.tabs button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
-.tabs .count { color: var(--faint); font: 11px var(--font-mono); }
-.tabs .step.zero:not([aria-selected="true"]) { color: var(--faint); }
-.tabs .arrow { margin: 0 -12px; color: var(--border-strong); font-size: var(--fs-xs); }
-.tabs .tab-sep { flex: 0 0 4px; height: 16px; border-left: 1px solid var(--border-strong); }
+.tabs { display: flex; flex: 0 1 auto; min-width: 0; min-height: 40px; align-items: center; gap: 2px; }
+.tabs button { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tabs button:hover { background: var(--field-bg); }
+.tabs button[aria-selected="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
+/* The three rows' 全部 count different things (the folder, the tab), so their pills differ in width: one min width, text
+   left, keeps the rules after them in a column up to three digits. */
+#tabs [data-tab="read"], :is(.state-row, .tagfilter) > .seg[aria-label="全部"] > button { min-width: 78px; justify-content: flex-start; text-align: left; }
+.tabs .step.zero:not([aria-selected="true"]) { opacity: 0.5; }
+.tabs .arrow { margin: 0 2px; color: var(--faint); font-size: var(--fs-xs); }
+.tabs .tab-sep { flex: 0 0 1px; height: 16px; margin: 0 6px; border-left: 1px solid var(--border-strong); }
 
 /* ---------- row 3: state pills in groups | 全选 and the step's buttons. Row 4: my tags | 标签管理 ✦ AI 打标签 ----------
    Both rows: filters on the left, their buttons top-right, so the two right ends line up. */
-.stagebar, .tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+.tagbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: 16px; row-gap: 8px; }
+/* Row 3 keeps its pills on one line: when pills and buttons do not fit side by side, the buttons drop to their own line
+   at the right instead of squeezing the pills into a column. */
+.stagebar { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 16px; row-gap: 8px; }
+.stagebar .class-filter { flex: 0 1 auto; }
 /* Each row reads as one line left to right: more room between rows 2, 3 and 4, and a thin rule under row 3 as under
    row 2 (the tabs). */
 .stagebar, .tagbar { padding-top: 8px; padding-bottom: 8px; }
-.stagebar .list-header { grid-column: 2; margin-left: 0; }
+/* 关注's row 3 with nothing in it (视频投稿 outside a refresh): no empty band. */
+.fw-bar:has(#fwBar:empty):has(#fwRunSlot:empty) { display: none; }
+.stagebar .list-header { flex: none; max-width: 100%; margin-left: auto; }
 .stagebar .step-actions { flex-wrap: nowrap; }
 .stagebar .class-filter, .tagbar .tagfilter { min-height: 28px; }
 .tagbar > :last-child { grid-column: 2; }
@@ -289,16 +297,20 @@ select { height: 28px; max-width: 240px; }
 .state-row { display: flex; flex-wrap: wrap; align-items: center; row-gap: 8px; min-width: 0; }
 .state-row > .seg { position: relative; flex: none; flex-wrap: wrap; row-gap: 8px; max-width: 100%; }
 .state-row > .seg:not(:last-child) { margin-right: 17px; }
-.state-row > .seg:not(:last-child)::after { content: ""; position: absolute; top: 5px; right: -9px; height: 16px; border-left: 1px solid var(--border-strong); }
+.state-row > .seg:not(:last-child)::after, .tagfilter > .seg::after { content: ""; position: absolute; top: 5px; right: -9px; height: 16px; border-left: 1px solid var(--border-strong); }
+/* The tag row's head (全部, 未打标签 / 已打标签) is state, not tags: row 3's unfilled pills, each group ruled off from
+   what follows (the tags, 4px apart, so 13px + 4px = row 3's 17px). */
+.tagfilter > .seg { position: relative; flex: none; margin-right: 13px; }
+.tagfilter > .seg:last-child::after { display: none; }
 .seg button.st-danger:not([aria-pressed="true"]) { color: var(--danger); }
 /* 「AI 刚打的」 and its × (不再标出，标签不变) read as one pill. */
+/* 待决定's AI verdicts: a faint box right after it, so they read as its parts rather than a group of their own. */
+.state-row .sub { display: inline-flex; gap: 2px; margin-left: 2px; padding: 0 1px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
 .state-row .ai-recent { gap: 0; }
 .state-row .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
 .state-row .ai-recent > .ai-recent-x { height: 26px; padding: 0 9px 0 6px; border: 0; border-left: 1px solid var(--surface); border-radius: 0 var(--radius-pill) var(--radius-pill) 0; background: var(--field-bg); color: var(--muted); }
-/* No sidebar: row 3's pills take the whole line; its buttons go under them at the right, just above row 4's. */
+/* Too narrow even for the buttons alone: they wrap among themselves. */
 @media (max-width: 760px) {
-  .stagebar { grid-template-columns: minmax(0, 1fr); }
-  .stagebar .list-header { grid-column: 1; justify-self: end; }
   .stagebar .step-actions { flex-wrap: wrap; }
 }
 /* 全选 (shared.js selectAllBox): a checkbox drawn in a button. Empty box, blue bar = some, blue ✓ = all listed. */
@@ -313,9 +325,9 @@ select { height: 28px; max-width: 240px; }
 .seg button:hover { background: var(--border); }
 .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
 /* Row 3's pills sit on the white card with no fill; only the picked one is solid. */
-.state-row .seg { gap: 2px; }
-.state-row .seg button:not([aria-pressed="true"]), .state-row .ai-recent > .ai-recent-x { background: none; }
-.state-row .seg button:not([aria-pressed="true"]):hover, .state-row .ai-recent > .ai-recent-x:hover { background: var(--field-bg); }
+:is(.state-row, .tagfilter) .seg { gap: 2px; }
+:is(.state-row, .tagfilter) .seg button:not([aria-pressed="true"]), .state-row .ai-recent > .ai-recent-x { background: none; }
+:is(.state-row, .tagfilter) .seg button:not([aria-pressed="true"]):hover, .state-row .ai-recent > .ai-recent-x:hover { background: var(--field-bg); }
 /* A count of 0 stays, dimmed; only chips that exist for a condition (看完了, 已失效, AI 刚打的) leave at 0. */
 .seg button.zero:not([aria-pressed="true"]), .side-item.zero:not(.on) { opacity: 0.5; }
 .tagfilter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 1px; }
@@ -660,10 +672,9 @@ dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
   .tabs button, .tabs .arrow { flex: none; }
   /* The fold toggle and the tabs share a line; search and the buttons go under it, the search takes what is left. The
      rule under that line spans the whole row, under the toggle too: the row draws it (top: the tabs' 40px), and the tabs
-     keep a clear 1px border so the line stays as tall. z-index -1 keeps it under the selected tab's underline. */
+     keep a clear 1px border so the line stays as tall. */
   .tabrow .tabs { flex: 1 1 0; border-bottom: 1px solid transparent; }
   .tabrow::after { content: ""; position: absolute; left: 0; right: 0; top: 40px; z-index: -1; height: 1px; background: var(--border); }
-  .tabs button[aria-selected="true"]::after { bottom: -1px; }
   .row-tools { width: 100%; padding: 8px 0; }
   /* Row 2 is two lines here and its rule sits under the tabs: row 3 gets its own above it. */
   .stagebar { border-top: 1px solid var(--border); }

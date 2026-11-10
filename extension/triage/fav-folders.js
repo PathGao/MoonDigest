@@ -224,7 +224,7 @@ async function openFolder(mediaId) {
   S.tagFilter.clear();
   S.finishedFilter = S.dupFilter = false;
   S.tagState = "";
-  S.aiRecentFilter = false;
+  S.aiRecentFilter = S.noSubFilter = false;
   S.kindFilter = "";
   S.undo = agentSteps();
   S.focused = "";
@@ -244,7 +244,7 @@ async function openFolder(mediaId) {
   // A failed first read (limit, offline) still leaves the last folder's step and chips behind; a later folder owns the page.
   if (!ok && !run.alive) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
-  S.classFilter = { coarse: "all", fine: "all", read: "all" };
+  S.classFilter = { none: "all", coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }
@@ -485,6 +485,8 @@ async function openRemoved(run = S.view.current) {
   if (!run.alive) return false;
   const rec = got[K.removed] || {};
   const decisionsByFolder = Object.fromEntries(keys.map((k) => [k.slice(KEYS.triageDecisionsPrefix.length), got[k]]));
+  // 最近取消收藏 lists the chosen folders' 取消收藏 records.
+  for (const f of S.folders) S.folderDecisions[String(f.id)] = decisionsByFolder[String(f.id)] || {};
   setItems(Object.values(rec)
     .sort((x, y) => y.at - x.at)
     .map(({ item, at, movedTo, hidden, inFolder, from }) => ({ ...item, removedAt: at, movedTo, hidden, inFolder, from: from || inferFrom(decisionsByFolder, item.bvid, folderName) })));
@@ -590,7 +592,7 @@ async function cleanRemoved(list) {
   if (!list.length) return;
   if (favBusyReason()) return toast(favBusyReason(), true);
   const one = list.length === 1 ? `《${shortTitle(list[0])}》` : `这 ${list.length} 个视频`;
-  const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、分拣标签、保留标记、待播记录和取消收藏记录，无法撤销。摘读记录里的星标和标签会保留。删除后不能再从「处理完成」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
+  const body = `<p>删除${esc(one)}的 AI 判断、AI 总结、备注、分拣标签、保留标记、待播记录和取消收藏记录，无法撤销。摘读记录里的星标和标签会保留。删除后不能再从「${RECENT_UNFAV}」重新收藏。<br>${UI.CLEAN_BACKUP.ask}</p>`;
   if (!(await askConfirm(`清理${one}？`, body, `清理 ${list.length} 个`, { danger: true }))) return;
   return lockRecords(async () => {
     const bvids = list.map((it) => it.bvid);
@@ -688,7 +690,7 @@ function rebuildAll() {
   const items = mergeFolderItems(lists);
   const decisions = {};
   for (const it of items) if (S.kept[it.bvid]) decisions[it.bvid] = S.kept[it.bvid];
-  // Keep videos unfavorited from every folder this session, so they sit in 处理完成 and U can undo.
+  // Keep videos unfavorited from every folder this session, so U can undo (no tab lists them).
   const have = new Set(items.map((it) => it.bvid));
   for (const it of S.items) {
     if (!have.has(it.bvid) && S.decisions[it.bvid]?.action === "unfav") {
