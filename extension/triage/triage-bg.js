@@ -198,8 +198,7 @@ function aiSubtitleMissing({ subtitleNeedLogin = false, subtitleFailure = "" } =
 
 // subtitle is "" when the video has none; then comments (the hot comments, numbered) stand in for it, and meta's
 // subtitleNeedLogin / subtitleFailure say why (aiSubtitleMissing).
-// focus: what the user asked this 细看 to center on (a card's 重新细看), "" for none.
-function triageBuildMessages(meta, subtitle, comments, criteria, folder, focus = "") {
+function triageBuildMessages(meta, subtitle, comments, criteria, folder) {
   const user = [
     `标题：${meta.title}`,
     `UP主：${meta.upper}`,
@@ -211,7 +210,7 @@ function triageBuildMessages(meta, subtitle, comments, criteria, folder, focus =
     subtitle ? `\n字幕：\n${subtitle}` : `\n${aiSubtitleMissing(meta)}\n热门评论：\n${comments || "无"}`
   ].join("\n");
   return [
-    { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) + (focus ? `\n\n这次总结的侧重（一句话总结和要点都按它写）：${focus}` : "") },
+    { role: "system", content: triageWithCriteria(TRIAGE_SYSTEM_PROMPT, criteria, folder) },
     { role: "user", content: user }
   ];
 }
@@ -660,9 +659,8 @@ async function triageAiSettings() {
   };
 }
 
-async function triageAnalyze({ bvid, force, criteria, folder, focus, aiProviderId }) {
+async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   if (!bvid) throw triageError("缺少 bvid");
-  focus = String(focus ?? "").trim();
   const cacheKey = MdgLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
     const cached = (await chrome.storage.local.get(cacheKey))[cacheKey];
@@ -686,7 +684,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, focus, aiProviderI
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings();
-  const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder, focus), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
+  const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
   const analysis = {
     bvid,
     status: "done",
@@ -698,8 +696,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, focus, aiProviderI
     ...triageParseLlm(content),
     model,
     analyzedAt: Date.now(),
-    criteria: String(criteria ?? "").trim(),
-    ...(focus && { focus })
+    criteria: String(criteria ?? "").trim()
   };
   await chrome.storage.local.set({ [cacheKey]: analysis });
   return analysis;

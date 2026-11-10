@@ -142,7 +142,6 @@ const S = {
   stage1: { mediaId: "" }, // the folder of the last 标题粗看 (runs' "stage1")
   coarseFailed: new Map(), // bvid → why its 粗看 failed (this page only, like a failed 细看)
   analyzing: new Set(),
-  refocus: null, // a card's open 重新细看 box: { bvid, text }
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them but an AI tool's (agentSteps)
   agentLog: [], // an AI tool's 分拣台 writes over MCP (agent-writes.js), each a U step

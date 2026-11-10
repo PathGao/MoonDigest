@@ -91,7 +91,7 @@
     "triage-title-get": { from: ["triage/fav-folders.js"], to: TRIAGE_BG, request: ["bvids"], response: data },
     "triage-analysis-get": { from: ["triage/fav-folders.js"], to: TRIAGE_BG, request: ["bvids"], response: data },
     "triage-classify-titles": { from: ["triage/fav-ai.js"], to: TRIAGE_BG, request: ["items", "criteria", "folder", "aiProviderId"], response: data },
-    "triage-analyze": { from: ["triage/fav-ai.js"], to: TRIAGE_BG, request: ["bvid", "force", "criteria", "folder", "focus", "aiProviderId"], response: data },
+    "triage-analyze": { from: ["triage/fav-ai.js"], to: TRIAGE_BG, request: ["bvid", "force", "criteria", "folder", "aiProviderId"], response: data },
     "triage-ai-command": { from: ["triage/fav-ai.js"], to: TRIAGE_BG, request: ["instruction", "items", "tags", "maxNewTags", "allowRemove", "aiProviderId"], response: data },
     "triage-reading-ai-tag": { from: ["history/history.js"], to: TRIAGE_BG, request: ["instruction", "items", "tags", "maxNewTags", "allowRemove", "aiProviderId"], response: data },
     "triage-settings-get": { from: ["history/history.js", "triage/fav-page.js", ...FOLLOW], to: TRIAGE_BG, request: ["aiProviderId"], response: data },

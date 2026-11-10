@@ -101,13 +101,12 @@ const needsAnalysis = (b, group = null) => {
 };
 
 // redo: 细看 these again under the current criteria; each keeps its old result until the new one arrives. name: the
-// run's own name (a card's 重新细看); focus: what the user wants the summary to center on.
-function startGroup(bvids, redo = false, { name = "", focus = "" } = {}) {
+// run's own name (a card's 重新细看).
+function startGroup(bvids, redo = false, name = "") {
   if (!bvids.length || S.group) return;
   S.group = {
     bvids,
     name,
-    focus,
     redo: redo ? new Set(bvids) : null,
     mediaId: String(S.mediaId),
     items: new Map(bvids.map((b) => [b, S.itemMap.get(b)])),
@@ -118,10 +117,10 @@ function startGroup(bvids, redo = false, { name = "", focus = "" } = {}) {
 
 const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b, group));
 
-async function analyzeOne(bvid, force, { crit, ctx }, focus) {
+async function analyzeOne(bvid, force, { crit, ctx }) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx, focus });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx });
   S.analyzing.delete(bvid);
   render();
   return r;
@@ -142,7 +141,7 @@ async function runGroup() {
       const b = group.bvids.find((x) => groupPending(group, x));
       return b ? { b, judge: group.judge.get(b) } : null;
     },
-    act: ({ b, judge }) => analyzeOne(b, Boolean(group.redo), judge, group.focus),
+    act: ({ b, judge }) => analyzeOne(b, Boolean(group.redo), judge),
     // An error that is not this video's ends the run and leaves the card as it was.
     judge: aiJudge(),
     done({ b, judge }, r) {
@@ -202,20 +201,19 @@ function retry(bvid) {
 }
 
 // A card's own AI button, whatever the user decided: the next step for this one video (标题粗看, then 字幕细看), and after
-// 细看 a 重新细看 with an optional 侧重, which bypasses the cache. No 重新粗看: the same title gives the same answer, and
+// 细看 a 重新细看, which bypasses the cache. No 重新粗看: the same title gives the same answer, and
 // 按新标准重新粗看 covers a changed 判断标准. A failed card has 重试 instead; an invalid one has no step left.
 const REFINE = "重新细看";
 const CARD_STEP = { coarse: STEP_NAME.coarse, fine: STEP_NAME.fine, refine: REFINE };
 const cardStep = (it) => (S.mediaId === REMOVED || it.invalid || verdictOf(it).failed ? "" : { none: "coarse", coarse: "fine", fine: "refine" }[stageOf(it)]);
-// A run of one through the step's own runner, as the card's 重试. focus: 重新细看's 侧重.
-function runCardStep(bvid, focus = "") {
+// A run of one through the step's own runner, as the card's 重试.
+function runCardStep(bvid) {
   const it = S.itemMap.get(bvid);
   const step = it && cardStep(it);
   if (!step || aiBusyReason()) return;
   if (step === "coarse") return startJudging(CARD_STEP.coarse, "粗看", [it], () => runStage1([it]));
   if (step === "fine") return startJudging(CARD_STEP.fine, "细看", [it], () => startGroup([bvid]));
-  S.refocus = null;
-  startJudging(REFINE, REFINE, [it], () => startGroup([bvid], true, { name: REFINE, focus: focus.trim() }));
+  startJudging(REFINE, REFINE, [it], () => startGroup([bvid], true, REFINE));
 }
 
 // ---------- AI 打标签 (tag-dialogs.js) ----------

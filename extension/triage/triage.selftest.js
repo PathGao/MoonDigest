@@ -533,7 +533,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     // P4: a card's own AI button goes by its AI depth, whatever was decided: 标题粗看, 字幕细看, then 重新细看; never a
     // second 粗看. A failed card has only 重试; while another AI step runs the button is off with why.
     openFake("R4", [item(1)], { BV1: { action: "keep", at: 1 } });
-    Object.assign(t.S, { titleRes: {}, analyses: {}, refocus: null });
+    Object.assign(t.S, { titleRes: {}, analyses: {} });
     const card = () => t.cardHtml(item(1), false, "");
     const btn = () => /data-act="ai-step"[^>]*>(?:<span[^>]*><\/span>)?([^<]+)</.exec(card())?.[1] || "";
     assert.strictEqual(btn(), "标题粗看");
@@ -557,26 +557,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.cardAction("ai-step", "BV1");
     await until(() => !t.S.group);
     assert.deepStrictEqual([asked.length, asked[0].force, t.S.analyses.BV1.oneLiner], [1, false, "细看过"]);
-    // P5: 重新细看 opens a 侧重 box under the verdict row; 开始细看 sends it with force, the old result stays until the
-    // new one arrives, and the record keeps the 侧重, which the meta line names.
+    // 重新细看 runs right away with force (no 侧重 box, 2026-11-10 用户定); the old result stays until the new one arrives.
     t.S.analyses.BV1 = old;
-    t.cardAction("ai-step", "BV1");
-    assert.deepStrictEqual(plain(t.S.refocus), { bvid: "BV1", text: "" });
-    assert.ok(card().includes('placeholder="侧重什么（可留空），比如：只列操作步骤"') && card().includes(">开始细看<") && card().includes(">取消<"), card());
-    t.cardAction("refocus-cancel", "BV1");
-    assert.ok(t.S.refocus === null && !card().includes("data-refocus"), "取消 closes it");
-    t.cardAction("ai-step", "BV1");
-    t.S.refocus.text = "  只列操作步骤 ";
     let release;
-    handlers["triage-analyze"] = (m) => (asked.push(plain(m)), new Promise((r) => (release = () => r({ ok: true, data: { bvid: m.bvid, status: "done", verdict: "keep", oneLiner: "新总结", focus: m.focus } }))));
-    t.cardAction("refocus-go", "BV1");
+    handlers["triage-analyze"] = (m) => (asked.push(plain(m)), new Promise((r) => (release = () => r({ ok: true, data: { bvid: m.bvid, status: "done", verdict: "keep", oneLiner: "新总结" } }))));
+    t.cardAction("ai-step", "BV1");
     await until(() => release);
-    assert.deepStrictEqual([asked.at(-1).force, asked.at(-1).focus, t.S.refocus, t.activityState().text], [true, "只列操作步骤", null, "重新细看 0/1"]);
+    assert.ok(!card().includes("<input"), "no 侧重 box");
+    assert.deepStrictEqual([asked.at(-1).force, "focus" in asked.at(-1), t.activityState().text], [true, false, "重新细看 0/1"]);
     assert.strictEqual(t.S.analyses.BV1.oneLiner, "旧总结", "the old result stays meanwhile");
     release();
     await until(() => !t.S.group);
-    assert.deepStrictEqual([t.S.analyses.BV1.oneLiner, t.S.analyses.BV1.focus, t.activityState().text], ["新总结", "只列操作步骤", "重新细看完成 1 个"]);
-    assert.ok(/class="meta">[^\n]*按「只列操作步骤」细看/.test(card()), card());
+    assert.deepStrictEqual([t.S.analyses.BV1.oneLiner, t.activityState().text], ["新总结", "重新细看完成 1 个"]);
     Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, undo: [] });
   }
 

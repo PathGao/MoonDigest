@@ -114,9 +114,6 @@ assert.ok(both.includes("这个收藏夹叫「纯娱乐」。") && !both.include
 const msgs = t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "", "", "只留干货");
 assert.ok(msgs[0].content.includes('"verdict": "keep|drop|unsure"') && msgs[0].content.endsWith("只留干货"));
 for (const p of [TITLE_PROMPT, msgs[0].content]) assert.ok(!/标签|tags|新:/.test(p), "粗分/细看 prompts carry no tags");
-// P5: a 重新细看's 侧重 is one more line the user's focus governs; none without it.
-assert.ok(t.triageBuildMessages({ title: "T", upper: "U", tags: [] }, "", "", "只留干货", null, "只列操作步骤")[0].content.endsWith("这次总结的侧重（一句话总结和要点都按它写）：只列操作步骤"));
-assert.ok(!msgs[0].content.includes("侧重"));
 
 // form
 assert.strictEqual(t.triageForm({ resources: "1:2,3:2", csrf: "x y", privacy: 1 }), "resources=1%3A2%2C3%3A2&csrf=x+y&privacy=1");
@@ -568,17 +565,6 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.ok(prompt.includes("分区：知识") && prompt.includes("标签：标签") && prompt.includes("发布：2024-05-30") && prompt.includes("第一句\n最后一句"));
   assert.ok(prompt.includes("字幕：\n第一句") && !prompt.includes("热门评论") && !calls.some((u) => u.includes("/reply/main")), "with subtitles no comments are fetched or sent");
 
-  // P5: the 侧重 reaches the system prompt and is stored on the record; without one the record has no focus.
-  {
-    let system = "";
-    const fetch = t.fetch;
-    t.fetch = async (url, init) => (/bilibili\.com|hdslb\.com/.test(url) ? fetch(url, init) : ((system = JSON.parse(init.body).messages[0].content), aiAnswer));
-    const focused = await t.triageAnalyze({ bvid: "BVa", force: true, criteria: "", focus: " 只列操作步骤 " });
-    assert.ok(system.endsWith("这次总结的侧重（一句话总结和要点都按它写）：只列操作步骤"), system);
-    assert.deepStrictEqual([focused.focus, store["triage_analysis_BVa"].focus], ["只列操作步骤", "只列操作步骤"]);
-    assert.ok(!("focus" in (await t.triageAnalyze({ bvid: "BVa", force: true, criteria: "", focus: "" }))) && !system.includes("侧重"));
-    t.fetch = fetch;
-  }
   // A fetched subtitle that passes the duration guard is cached for the video page.
   delete store[subtitleKey];
   assert.strictEqual((await analyze()).source, "subtitle");

@@ -514,17 +514,7 @@ function bindEvents() {
     clearTimeout(noteTimer);
     noteTimer = setTimeout(flushNotes, 400);
   };
-  el.list.addEventListener("input", (e) => {
-    if (e.target.matches("[data-refocus]") && S.refocus) S.refocus.text = e.target.value;
-    else if (!e.isComposing) noteEdit(e);
-  });
-  // A 重新细看's 侧重: Enter starts it, Esc closes the box. Never mid-IME.
-  el.list.addEventListener("keydown", (e) => {
-    if (composing(e) || !e.target.matches("[data-refocus]") || !(e.key === "Enter" || e.key === "Escape")) return;
-    e.preventDefault();
-    e.stopPropagation();
-    cardAction(e.key === "Enter" ? "refocus-go" : "refocus-cancel", e.target.closest(".card").dataset.bvid);
-  });
+  el.list.addEventListener("input", (e) => !e.isComposing && noteEdit(e));
   el.list.addEventListener("compositionend", (e) => {
     noteEdit(e);
     if (listDeferred) setTimeout(renderList);
@@ -808,16 +798,7 @@ function cardAction(act, bvid) {
   else if (act === "tag") openPicker(bvid, `.card[data-bvid="${CSS.escape(bvid)}"] [data-act="tag"]`);
   else if (act === "basket") toggleBasket(bvid);
   else if (act === "retry") retry(bvid);
-  else if (act === "ai-step" && cardStep(it) === "refine") {
-    S.refocus = { bvid, text: "" };
-    renderList();
-    el.list.querySelector(`.card[data-bvid="${CSS.escape(bvid)}"] [data-refocus]`)?.focus();
-  } else if (act === "ai-step") runCardStep(bvid);
-  else if (act === "refocus-go") runCardStep(bvid, S.refocus?.text || "");
-  else if (act === "refocus-cancel") {
-    S.refocus = null;
-    renderList();
-  }
+  else if (act === "ai-step") runCardStep(bvid);
   else if (act === "note") {
     S.noteOpen.add(bvid);
     renderList();
