@@ -104,6 +104,18 @@
       [gone[4].bvid]: { item: gone[4], at: now - day, from: [f("1001", "稍后-AI", now - 6 * day), f("1002", "学习", now - day)] },
       [gone[5].bvid]: { item: gone[5], at: now - 3600000, from: [f("1001", "稍后-AI", now - 8 * day), f("1002", "学习", now - 4 * day), f("1003", "默认收藏夹", now - 3600000)] }
     };
+    // 稍后-AI: a 保留'd video with only 粗看 (粗看完成, 「✦ 字幕细看」 on its card), 细看 without a subtitle (no subtitle at
+    // all, and hidden from a logged-out user) and a 细看 with a 侧重 (细看完成, 「✦ 重新细看」).
+    const coarse = (it, verdict, reason) => (store[`triage_title_${it.bvid}`] = { verdict, reason, confidence: "high" });
+    const fine = (it, verdict, reason, extra = {}) => {
+      coarse(it, verdict, reason);
+      store[`triage_analysis_${it.bvid}`] = { bvid: it.bvid, status: "done", source: "subtitle", oneLiner: `${it.title.slice(0, 12)}：先讲原理再给示例。`, points: ["讲清了基本概念", "给出可运行的示例", "总结了常见误区"], verdict, reason, model: "mock-model", analyzedAt: now - day, ...extra };
+    };
+    coarse(ai[0], "keep", "标题显示为系统教程");
+    store.triage_kept = { [ai[0].bvid]: { action: "keep", at: now - day } };
+    fine(ai[3], "unsure", "只有简介和评论，拿不准", { source: "meta" });
+    fine(ai[4], "keep", "原理讲得清楚", { source: "meta", needLogin: true });
+    fine(ai[6], "keep", "能跟着做", { focus: "只列操作步骤", oneLiner: "8G 显存跑 LoRA：装环境、准备数据、训练、合并权重四步。", points: ["装 peft 和 bitsandbytes", "数据整理成指令格式", "rank 设 8、4bit 加载开训", "训练完合并 LoRA 权重"] });
   }
 
   // ?demo swaps in the README screenshot data: B站-style titles and covers, every step filled, tags, 待播, notes and
@@ -244,7 +256,7 @@
       }
       return { ok: true, data: { results } };
     },
-    "triage-analyze": async ({ bvid }) => {
+    "triage-analyze": async ({ bvid, focus }) => {
       await wait(300);
       if (globalThis.__mockNoAI) return noAi();
       const it = findItem(bvid);
@@ -262,12 +274,13 @@
         bvid,
         status: "done",
         source: it._i % 2 ? "subtitle" : "meta",
-        oneLiner: `${it.title.slice(0, 12)}：核心观点是先理解原理再动手。`,
+        oneLiner: focus ? `${it.title.slice(0, 12)}：按「${focus}」重写的一句话总结。` : `${it.title.slice(0, 12)}：核心观点是先理解原理再动手。`,
         points: ["讲清了基本概念和适用场景", "给出了一个可运行的完整示例", "最后总结了常见误区"],
         verdict,
         reason: { keep: "有可复用的方法论", drop: "内容浅，信息量低", unsure: "部分有用，需要自己判断" }[verdict],
         model: "mock-model",
-        analyzedAt: Date.now()
+        analyzedAt: Date.now(),
+        ...(focus && { focus })
       };
       store[`triage_analysis_${bvid}`] = a;
       return { ok: true, data: a };

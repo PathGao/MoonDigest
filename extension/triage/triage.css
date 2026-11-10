@@ -274,6 +274,8 @@ select { height: 28px; max-width: 240px; }
 /* Each row reads as one line left to right: more room between rows 2, 3 and 4, and a thin rule under row 3 as under
    row 2 (the tabs). */
 .stagebar, .tagbar { padding-top: 8px; padding-bottom: 8px; }
+/* 关注's row 3 with nothing in it (视频投稿 outside a refresh): no empty band. */
+.fw-bar:has(#fwBar:empty):has(#fwRunSlot:empty) { display: none; }
 .stagebar .list-header { grid-column: 2; margin-left: 0; }
 .stagebar .step-actions { flex-wrap: nowrap; }
 .stagebar .class-filter, .tagbar .tagfilter { min-height: 28px; }
