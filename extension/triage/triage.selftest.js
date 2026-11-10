@@ -530,13 +530,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo = [];
   }
   {
-    // P4: a card's own AI button goes by its AI depth, whatever was decided: 标题粗看, 字幕细看, then 重新细看; never a
-    // second 粗看. A failed card has only 重试; while another AI step runs the button is off with why.
+    // P4: a card's own AI button goes by its AI depth, whatever was decided: none before 粗看 (a batch step only), then
+    // 字幕细看, then 重新细看; never a second 粗看. A failed card has only 重试; while another AI step runs the button is off with why.
     openFake("R4", [item(1)], { BV1: { action: "keep", at: 1 } });
     Object.assign(t.S, { titleRes: {}, analyses: {} });
     const card = () => t.cardHtml(item(1), false, "");
     const btn = () => /data-act="ai-step"[^>]*>(?:<span[^>]*><\/span>)?([^<]+)</.exec(card())?.[1] || "";
-    assert.strictEqual(btn(), "标题粗看");
+    assert.ok(btn() === "" && !card().includes("标题粗看"), "no card 标题粗看");
     t.S.titleRes.BV1 = { verdict: "keep", reason: "标题" };
     assert.strictEqual(btn(), "字幕细看");
     assert.ok(/<div class="card-foot verdict-row">.*data-act="ai-step"/.test(card().replace(/\n/g, "")), "in the verdict row");

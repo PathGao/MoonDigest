@@ -200,18 +200,17 @@ function retry(bvid) {
   });
 }
 
-// A card's own AI button, whatever the user decided: the next step for this one video (标题粗看, then 字幕细看), and after
-// 细看 a 重新细看, which bypasses the cache. No 重新粗看: the same title gives the same answer, and
-// 按新标准重新粗看 covers a changed 判断标准. A failed card has 重试 instead; an invalid one has no step left.
+// A card's own AI button, whatever the user decided: 字幕细看 after 粗看, 重新细看 (bypassing the cache) after 细看. None
+// before 粗看: 标题粗看 is cheap only in batches of 20 titles, so it stays a batch step. No 重新粗看: the same title gives the
+// same answer, and 按新标准重新粗看 covers a changed 判断标准. A failed card has 重试 instead; an invalid one has no step left.
 const REFINE = "重新细看";
-const CARD_STEP = { coarse: STEP_NAME.coarse, fine: STEP_NAME.fine, refine: REFINE };
-const cardStep = (it) => (S.mediaId === REMOVED || it.invalid || verdictOf(it).failed ? "" : { none: "coarse", coarse: "fine", fine: "refine" }[stageOf(it)]);
+const CARD_STEP = { fine: STEP_NAME.fine, refine: REFINE };
+const cardStep = (it) => (S.mediaId === REMOVED || it.invalid || verdictOf(it).failed ? "" : { coarse: "fine", fine: "refine" }[stageOf(it)] || "");
 // A run of one through the step's own runner, as the card's 重试.
 function runCardStep(bvid) {
   const it = S.itemMap.get(bvid);
   const step = it && cardStep(it);
   if (!step || aiBusyReason()) return;
-  if (step === "coarse") return startJudging(CARD_STEP.coarse, "粗看", [it], () => runStage1([it]));
   if (step === "fine") return startJudging(CARD_STEP.fine, "细看", [it], () => startGroup([bvid]));
   startJudging(REFINE, REFINE, [it], () => startGroup([bvid], true, REFINE));
 }
