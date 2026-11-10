@@ -7,7 +7,7 @@
 收藏了却没看的视频、想读的网页，用 AI 帮你读完、整理好，挑出真正要看的。
 
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-4285F4?logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3)
-[![Version](https://img.shields.io/badge/version-3.7.7-7c6cf2)](extension/manifest.json)
+[![Version](https://img.shields.io/badge/version-3.7.8-7c6cf2)](extension/manifest.json)
 [![Platforms](https://img.shields.io/badge/platforms-Bilibili%20%7C%20YouTube-fb7299)](#功能)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
@@ -52,7 +52,7 @@
 
 ## 给 AI agent 用
 
-Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。用 MCP 时，agent 还能借你的登录搜 B站和 YouTube 视频。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。你的收藏夹、关注、观看历史和分拣台里的标签、备注，只有打开「允许 Agent 读我的收藏、关注和历史」后才能通过 MCP 读；B站稍后再看、YouTube 稍后观看和 YouTube 播放列表，再打开「允许 Agent 改我的收藏」后 agent 才能改。两种接法：
+Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。用 MCP 时，agent 还能借你的登录搜 B站和 YouTube 视频。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。你的收藏夹、关注、观看历史和分拣台里的标签、备注，只有打开「允许 Agent 读我的收藏、关注和历史」后才能通过 MCP 读；分拣台的 AI 判断、保留、备注和标签，再打开「允许 Agent 改分拣台」后 agent 才能写，取消收藏、移动和复制只能提议，要你在分拣台确认；B站稍后再看、YouTube 稍后观看和 YouTube 播放列表，再打开「允许 Agent 改我的收藏」后 agent 才能改。两种接法：
 
 - **skill**（agent 能操控浏览器，如 ego、Claude in Chrome、Playwright）：
 
