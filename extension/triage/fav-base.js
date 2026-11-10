@@ -11,7 +11,7 @@ const THROTTLES = {
 };
 const SYNC_MIN_GAP_MS = 60 * 1000;
 // Progress tabs: how far the AI has looked at a video, whatever the user decided. The AI class and the decision are
-// filters inside a tab, never a tab. 阅览 sits apart after them.
+// filters inside a tab, never a tab. 全部 sits apart before them.
 const STAGES = [
   ["none", "未分析"],
   ["coarse", "粗看完成"],
@@ -589,7 +589,7 @@ function stageOf(it) {
   return "none";
 }
 
-// A tab's videos before rows 3 and 4. 阅览 (and 已出分拣范围) is every video, whatever its step. A video unfavorited
+// A tab's videos before rows 3 and 4. 全部 (and 已出分拣范围) is every video, whatever its step. A video unfavorited
 // here is in no tab: it stays in S.items only so U can undo it, and 已出分拣范围 lists it.
 const inStage = (it, tab) => !isUnfaved(it) && (tab === "read" || stageOf(it) === tab);
 function inTab(it, tab) {

@@ -285,7 +285,7 @@ function renderListHeader(list) {
   // A selection, listed or not, decides alone: no AI-verdict batches beside it (all hidden: its buttons say why).
   const picked = S.selected.size;
   const f = S.classFilter[t];
-  // html is what this step does (阅览 mixes 粗看 guesses with 细看 conclusions: no class-wide batch, only the selection);
+  // html is what this step does (全部 mixes 粗看 guesses with 细看 conclusions: no class-wide batch, only the selection);
   // the selection's buttons go to its floating bar (selActs).
   let html = "";
   // 所有收藏夹 has no one 判断标准 to show: its runs ask for each folder's first (askAllCriteria).

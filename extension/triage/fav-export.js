@@ -12,7 +12,7 @@ function writeScopeItems(scope = el.writeScope.value, notes = el.writeFormat?.va
   return notes ? list.filter((it) => !it.invalid) : list;
 }
 
-// The 阅览 tab opens it preset; a running notes export keeps its own choice.
+// The 全部 tab opens it preset; a running notes export keeps its own choice.
 function openWrite({ scope, format } = {}) {
   if (!writeRunning() && scope) [el.writeScope.value, el.writeFormat.value] = [scope, format];
   // A notes run, running, finished or stopped by Obsidian, keeps its progress and failures here until the next export.
