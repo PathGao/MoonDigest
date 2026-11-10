@@ -301,6 +301,8 @@ select { height: 28px; max-width: 240px; }
 .tagfilter > .seg:last-child::after { display: none; }
 .seg button.st-danger:not([aria-pressed="true"]) { color: var(--danger); }
 /* 「AI 刚打的」 and its × (不再标出，标签不变) read as one pill. */
+/* 待决定's AI verdicts: a faint box right after it, so they read as its parts rather than a group of their own. */
+.state-row .sub { display: inline-flex; gap: 2px; margin-left: 2px; padding: 0 1px; border: 1px solid var(--border); border-radius: var(--radius-pill); }
 .state-row .ai-recent { gap: 0; }
 .state-row .ai-recent > button[aria-pressed] { border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
 .state-row .ai-recent > .ai-recent-x { height: 26px; padding: 0 9px 0 6px; border: 0; border-left: 1px solid var(--surface); border-radius: 0 var(--radius-pill) var(--radius-pill) 0; background: var(--field-bg); color: var(--muted); }

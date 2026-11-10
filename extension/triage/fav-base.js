@@ -115,7 +115,6 @@ const S = {
   noSubFilter: false, // 无字幕
   dupFilter: false, // 所有收藏夹 only: 重复收藏
   tagState: "", // row 4: "" | "untagged" | "tagged"
-  decisionFilter: "", // row 3: "" | "undecided" | "kept"
   aiRecent: {},
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
@@ -132,7 +131,7 @@ const S = {
     thinkingToggle: false
   },
   tab: "none",
-  classFilter: { coarse: "all", fine: "all", read: "all" }, // each tab keeps its own AI-class chip; a folder switch resets them
+  classFilter: { none: "all", coarse: "all", fine: "all", read: "all" }, // each tab's one pick of 已保留 / 待决定 / an AI verdict; a folder switch resets them
   tagFilter: new Set(),
   query: "",
   focused: "",
@@ -565,7 +564,6 @@ const ROW4 = new Set(["tagged", "tags"]);
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && !(skip === (ROW4.has(g) ? "tagrow" : "states"));
   if (on("dup") && S.dupFilter && !isDup(it)) return false;
-  if (on("decision") && S.decisionFilter && (isKept(it) ? "kept" : "undecided") !== S.decisionFilter) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("nosub") && S.noSubFilter && !noSubtitle(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
@@ -596,12 +594,13 @@ function stageOf(it) {
 const inStage = (it, tab) => !isUnfaved(it) && (tab === "read" || stageOf(it) === tab);
 function inTab(it, tab) {
   if (!inStage(it, tab)) return false;
-  const f = S.classFilter[tab];
-  return !f || f === "all" || classOf(it) === f;
+  return inClass(it, S.classFilter[tab]);
 }
+const inClass = (it, f) => !f || f === "all" || (f === "undecided" ? !isKept(it) : classOf(it) === f);
 
-// The AI-verdict chip a card falls under, decided or not: 已保留 + 可清理 finds kept videos the AI said to drop.
-const classOf = (it) => verdictOf(it).verdict;
+// The row-3 chip a card falls under: once kept it leaves the AI verdicts, as its card no longer shows one.
+const UNDECIDED = "待决定";
+const classOf = (it) => (isKept(it) ? "kept" : verdictOf(it).verdict);
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 // A 粗看 that failed on a card still without one: it stays in 未分析 with the failure and a retry, like a failed 细看.

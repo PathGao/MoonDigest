@@ -223,7 +223,7 @@ async function openFolder(mediaId) {
   S.selected.clear();
   S.tagFilter.clear();
   S.finishedFilter = S.dupFilter = false;
-  S.tagState = S.decisionFilter = "";
+  S.tagState = "";
   S.aiRecentFilter = S.noSubFilter = false;
   S.kindFilter = "";
   S.undo = agentSteps();
@@ -244,7 +244,7 @@ async function openFolder(mediaId) {
   // A failed first read (limit, offline) still leaves the last folder's step and chips behind; a later folder owns the page.
   if (!ok && !run.alive) return;
   S.tab = removed ? "read" : currentStage(stageCounts());
-  S.classFilter = { coarse: "all", fine: "all", read: "all" };
+  S.classFilter = { none: "all", coarse: "all", fine: "all", read: "all" };
   S.focused = visibleItems()[0]?.bvid || "";
   render();
 }

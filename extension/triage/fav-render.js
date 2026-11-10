@@ -171,7 +171,7 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.decisionFilter || S.finishedFilter || S.noSubFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.finishedFilter || S.noSubFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
 // Whether row 4 narrows the list (its 全部 is pressed when not).
 const tagRowOn = () => Boolean(S.tagState || S.tagFilter.size);
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
@@ -182,21 +182,19 @@ function stateRowHtml(t = S.tab) {
   const removed = S.mediaId === REMOVED;
   const base = S.items.filter((it) => inStage(it, t));
   const cf = S.classFilter[t];
-  const inClass = (it) => !cf || cf === "all" || classOf(it) === cf;
-  const cnt = (skip, fn) => base.filter((it) => (skip === "class" || skip === "states" || inClass(it)) && passFilter(it, skip) && fn(it)).length;
+  const cnt = (skip, fn) => base.filter((it) => (skip === "class" || skip === "states" || inClass(it, cf)) && passFilter(it, skip) && fn(it)).length;
   const group = UI.stateGroup;
   const groups = [group("全部", UI.filterBtn("data-states-all", "全部", cnt("states", () => true), !statesOn(t)))];
   // 所有收藏夹 only, right after 全部 (asked for there); like 已失效 it leaves at 0 unless on.
   const dupN = S.mediaId === ALL ? cnt("dup", isDup) : 0;
   if (dupN || S.dupFilter) groups.push(group("重复收藏", UI.filterBtn('data-dupfilter title="只看同时在两个以上收藏夹里的视频"', "重复收藏", dupN, S.dupFilter)));
-  // The user's decision and the AI's verdict are separate groups: 已保留 + 可清理 finds kept videos the AI said to drop.
-  // 未分析 has no AI verdict to filter by.
-  const decisions = [["undecided", "未决定", ""], ["kept", ACTION_LABEL.keep, KEEP_TIP]];
-  groups.push(group("按决定筛选", decisions.map(([k, label, tip]) => UI.filterBtn(`data-decision="${k}"${tip ? ` title="${esc(tip)}"` : ""}`, label, cnt("decision", (it) => isKept(it) === (k === "kept")), S.decisionFilter === k)).join("")));
-  if (t !== "none") {
-    groups.push(group("按 AI 判断筛选", Object.entries(VERDICTS).map(([k, label]) => UI.filterBtn(`data-class-filter="${k}"`, label, cnt("class", (it) => classOf(it) === k), cf === k)).join("")));
-  }
-  // Right after the verdict it qualifies: judged from the intro and comments only.
+  // One pick in row 3's first groups. A kept video has no AI verdict here, so the verdicts split 待决定 and sit inside its
+  // group, boxed (.sub). 未分析 has no verdicts.
+  const chip = (k, label, tip = "") => UI.filterBtn(`data-class-filter="${k}"${tip ? ` title="${esc(tip)}"` : ""}`, label, cnt("class", (it) => inClass(it, k)), cf === k);
+  const verdicts = t === "none" ? "" : `<span class="sub" role="group" aria-label="待决定里按 AI 判断">${Object.entries(VERDICTS).map(([k, label]) => chip(k, label)).join("")}</span>`;
+  groups.push(group(ACTION_LABEL.keep, chip("kept", ACTION_LABEL.keep, KEEP_TIP)));
+  groups.push(group(UNDECIDED, chip("undecided", UNDECIDED, "还没保留的视频，后面按 AI 判断再分") + verdicts));
+  // Right after the verdicts it qualifies: judged from the intro and comments only.
   const noSubN = cnt("nosub", noSubtitle);
   if (noSubN || S.noSubFilter) groups.push(group(NO_SUB, UI.filterBtn(`data-nosubfilter title="只看字幕细看时没有字幕、按简介和评论判断的视频"`, NO_SUB, noSubN, S.noSubFilter)));
   const seenN = cnt("seen", isFinished);
@@ -216,13 +214,11 @@ function pickState(group, value = "") {
   if (group === "all") {
     S.classFilter[t] = "all";
     S.finishedFilter = S.dupFilter = S.aiRecentFilter = S.noSubFilter = false;
-    S.decisionFilter = "";
     if (S.mediaId !== REMOVED) S.kindFilter = "";
   } else if (group === "tagrow") {
     S.tagState = "";
     S.tagFilter.clear();
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
-  else if (group === "decision") S.decisionFilter = S.decisionFilter === value ? "" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
   else if (group === "seen") S.finishedFilter = !S.finishedFilter;
   else if (group === "nosub") S.noSubFilter = !S.noSubFilter;
@@ -252,7 +248,7 @@ function renderListHeader(list) {
     const n = can || (verdict ? 0 : selectedIn(visibleItems()).length);
     const verb = route === "unfav" ? "取消收藏" : "保留";
     // One batch 取消收藏 at a time: while another folder's runs, this one waits.
-    const empty = verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、未决定的视频` : route === "unfav" ? "选中的都已取消收藏" : "选中的都已保留";
+    const empty = verdict ? `这里没有 AI 判断为${VERDICTS[verdict]}、待决定的视频` : route === "unfav" ? "选中的都已取消收藏" : "选中的都已保留";
     const reason = none || (!can ? empty
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的${UNFAV_MANY}`)
       : route === "unfav" ? UI.busyText(favBusy) : "");
@@ -315,8 +311,8 @@ function renderListHeader(list) {
     const staleN = staleFine().length;
     if (staleN) html += critBtn + redoBtn("redo-fine", "fine", staleN);
     if (!picked) {
-      if (f === "all" || f === "drop") html += batchBtn("unfav", "drop");
-      if (f === "all" || f === "keep") html += batchBtn("keep", "keep");
+      if (f === "all" || f === "undecided" || f === "drop") html += batchBtn("unfav", "drop");
+      if (f === "all" || f === "undecided" || f === "keep") html += batchBtn("keep", "keep");
     }
   } else if (t === "read" && S.mediaId === REMOVED) {
     const c = S.removedCheck;

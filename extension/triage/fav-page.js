@@ -380,7 +380,6 @@ function bindEvents() {
     if (b.matches("[data-airecent-done]")) endAiRecent();
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
-    else if (b.dataset.decision) pickState("decision", b.dataset.decision);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.matches("[data-nosubfilter]")) pickState("nosub");
     else if (b.matches("[data-dupfilter]")) pickState("dup");

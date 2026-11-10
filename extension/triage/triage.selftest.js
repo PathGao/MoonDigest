@@ -766,14 +766,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
   t.S.selected.clear();
-  t.S.selected.add("BV2"); // kept, so 未决定 hides it: a selection hidden there is left out
+  t.S.selected.add("BV2"); // kept, so 待决定 hides it: a selection hidden there is left out
   t.S.selected.add("BV3");
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
   assert.deepStrictEqual(scope("filter"), ["BV1", "BV2", "BV3"], "kept, BV2 is still in 未分析: the tabs go by AI depth");
-  t.S.decisionFilter = "undecided";
+  t.S.classFilter.none = "undecided";
   assert.deepStrictEqual([scope("selected"), scope("all"), scope("filter")], [["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
-  t.S.decisionFilter = "";
+  t.S.classFilter.none = "all";
   t.S.selected.delete("BV2");
   // A filter hides part of the selection: the bar counts only what is listed, and the hidden one stays selected.
   t.S.selected.add("BV1");
@@ -991,32 +991,35 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
   await t.batchKeep(t.batchList("keep"));
   assert.strictEqual(t.stageOf(pool[0]), "fine", "batch 保留 leaves it in 细看完成");
-  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"], "kept, it still falls under the AI's 拿不准");
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), [], "kept, it leaves the AI's 拿不准");
+  t.S.classFilter.fine = "kept";
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"], "and is under 已保留");
   t.S.selected.clear();
   assert.deepStrictEqual([t.batchList("keep").length, t.batchList("unsure").length], [0, 0], "verdict 保留 batches take only undecided videos");
   assert.strictEqual(t.batchList("unsure", "unfav").length, 0, "a verdict-wide 取消收藏 leaves kept videos alone");
   t.S.selected.add("BV200");
   assert.deepStrictEqual(plain(t.batchList("unsure", "unfav").map((it) => it.bvid)), ["BV200"], "a selected kept video can be 取消收藏'd in a batch");
   t.S.selected.clear();
-  // P2: 未决定 / 已保留 and the AI verdict are separate groups, AND-ed: 已保留 + 可清理 finds kept videos the AI said to drop.
+  // 已保留, 待决定 and the AI verdicts are one pick: a kept video has no verdict here, the verdicts split 待决定.
   t.S.analyses.BV201 = { status: "done", verdict: "drop" };
   t.S.analyses.BV202 = { status: "done", verdict: "drop" };
   t.S.decisions.BV201 = { action: "keep", at: 1 };
-  Object.assign(t.S, { decisionFilter: "kept" });
   t.S.classFilter.fine = "drop";
-  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV201"]);
-  t.S.decisionFilter = "undecided";
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV202"], "可清理 lists only the undecided one");
+  t.S.classFilter.fine = "undecided";
   assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV202"]);
-  t.S.decisionFilter = "";
   t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
-  for (const part of [">未决定 1<", ">已保留 2<", ">可清理 2<", ">拿不准 1<", 'data-decision="kept" title="保留标记']) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
-  assert.ok(t.el.classFilter.innerHTML.indexOf("未决定") < t.el.classFilter.innerHTML.indexOf("值得留"), "the decision group comes before the AI verdict");
+  const row = t.el.classFilter.innerHTML;
+  for (const part of [">待决定 1<", ">已保留 2<", ">可清理 1<", ">拿不准 0<", 'data-class-filter="kept" title="保留标记']) assert.ok(row.includes(part), part);
+  assert.ok(row.indexOf("已保留") < row.indexOf("待决定") && row.indexOf("待决定") < row.indexOf('class="sub"') && row.indexOf('class="sub"') < row.indexOf("值得留"), "已保留, then 待决定 with its verdicts boxed after it");
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏（AI：可清理）1 个"), "the batch 取消收藏 leaves the kept 可清理 one out");
-  t.pickState("decision", "kept");
-  assert.strictEqual(t.S.decisionFilter, "kept");
+  t.pickState("class", "kept");
+  assert.strictEqual(t.S.classFilter.fine, "kept");
+  t.pickState("class", "drop");
+  assert.strictEqual(t.S.classFilter.fine, "drop", "a verdict replaces 已保留");
   t.pickState("all");
-  assert.strictEqual(t.S.decisionFilter, "", "全部 clears it");
+  assert.strictEqual(t.S.classFilter.fine, "all", "全部 clears it");
   delete store[t.K.kept];
   Object.assign(t.S, { analyses: {}, decisions: {}, kept: {}, classFilter: { coarse: "all", fine: "all" } });
   t.S.selected.clear();
@@ -2234,19 +2237,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("A", [item(1)]);
   }
 
-  // 阅览: a decided video keeps its AI class; 已保留 is the decision group's, the same word its card shows.
+  // 全部: a kept video is under 已保留 only, the same word its card shows.
   {
     const saved = { tab: t.S.tab, titleRes: t.S.titleRes, classFilter: t.S.classFilter };
     openFake("A", [item(1), item(2)], { BV1: { action: "keep" } });
     Object.assign(t.S, { tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "keep" } }, classFilter: { coarse: "all", fine: "all", read: "all" } });
     t.renderListHeader(t.visibleItems());
-    for (const part of [">全部 2<", ">值得留 2<", ">已保留 1<", ">未决定 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
-    assert.ok(!t.el.classFilter.innerHTML.includes('data-class-filter="kept"'), "已保留 is no AI class");
-    t.S.decisionFilter = "kept";
+    for (const part of [">全部 2<", ">值得留 1<", ">已保留 1<", ">待决定 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+    t.S.classFilter.read = "kept";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
-    t.S.decisionFilter = "";
     t.S.classFilter.read = "keep";
-    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1", "BV2"]);
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV2"], "a kept video leaves the AI verdicts");
     Object.assign(t.S, saved);
     openFake("A", [item(1)]);
   }
@@ -3380,7 +3381,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.clear();
     const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
     const has = (...parts) => parts.forEach((p) => assert.ok(row3().includes(p), p));
-    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "已失效"], "fixed groups, then 已失效 (conditional) last");
+    assert.deepStrictEqual(groups(), ["全部", "已保留", "待决定", "待决定里按 AI 判断", "已失效"], "fixed groups, then 已失效 (conditional) last");
     has(">全部 5<", ">值得留 2<", ">可清理 2<", ">拿不准 1<", ">已失效 1<");
     assert.ok(row3().startsWith('<span class="row-label">状态</span>'), "row 3 starts with its name");
     t.renderTabs();
@@ -3426,7 +3427,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.seenCfg = { on: true, bar: false, mark: true, threshold: 80, style: "badge" };
     t.S.seenPct = { BV93: [100, 1] };
     t.S.aiRecent = { R: { bvids: ["BV94"] } };
-    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "看完了", "已失效", "AI 刚打的"]);
+    assert.deepStrictEqual(groups(), ["全部", "已保留", "待决定", "待决定里按 AI 判断", "看完了", "已失效", "AI 刚打的"]);
     t.pickState("class", "unsure");
     assert.ok(!row3().includes("data-finishedfilter"), "看完了 at 0 (BV93 is 可清理) is not shown");
     t.S.tagFilter.add("rb");
@@ -3435,18 +3436,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.pickState("all");
     assert.ok(!t.S.finishedFilter && t.S.classFilter.coarse === "all" && t.S.tagFilter.has("rb"), "全部 clears row 3, not row 4");
     t.S.tagFilter.clear();
-    // Row 4 counts the videos of the tab, row 3 applied; 未分析 has no AI group; 未决定 / 已保留 is in every tab.
+    // Row 4 counts the videos of the tab, row 3 applied; 未分析 has no AI verdicts; 已保留 / 待决定 is in every tab.
     t.pickState("class", "drop");
     t.renderTabs();
     assert.ok(t.el.tagFilter.innerHTML.includes('甲<span class="chip-n">1</span>') && t.el.tagFilter.innerHTML.includes('乙<span class="chip-n">1</span>'));
     t.pickState("all");
     t.S.tab = "none";
-    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "按决定筛选"], "未分析: no AI verdict group");
+    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "已保留", "待决定"], "未分析: no AI verdicts");
     t.S.decisions = { BV92: { action: "keep", at: 1 } };
     t.S.tab = "read";
-    has(">已保留 1<", ">未决定 5<");
+    has(">已保留 1<", ">待决定 5<");
     t.S.tab = "coarse";
-    has(">已保留 1<", ">未决定 4<");
+    has(">已保留 1<", ">待决定 4<");
     Object.assign(t.S, { decisions: {}, aiRecent: {}, seenPct: {}, titleRes: {}, tags: [], videoTags: {} });
     t.S.seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   }
@@ -3455,7 +3456,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("N", [item(1), item(2), item(3)]);
     Object.assign(t.S, { titleRes: {}, analyses: { BV1: { status: "done", source: "meta", verdict: "keep" }, BV2: { status: "done", source: "subtitle", verdict: "keep" } }, tab: "fine", classFilter: { coarse: "all", fine: "all", read: "all" } });
     const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
-    assert.ok(row3().includes(">无字幕 1<") && groups()[groups().indexOf("按 AI 判断筛选") + 1] === "无字幕", groups().join());
+    assert.ok(row3().includes(">无字幕 1<") && groups()[groups().indexOf("待决定里按 AI 判断") + 1] === "无字幕", groups().join());
     t.pickState("nosub");
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
     t.pickState("all");
