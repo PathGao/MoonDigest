@@ -379,11 +379,13 @@ const unfavBatchItems = (batch, f) =>
     .map(([bvid, d]) => favRef({ bvid, ...d }));
 
 let listDeferred = false;
+// The card boxes a user types in: a note, a 重新细看's 侧重.
+const TYPED = "[data-note], [data-refocus]";
 // The card a Shift+click picks from: the last one picked by click or X.
 let pickAnchor = "";
 function renderList() {
   // Rebuilding the list mid-IME in a note would drop the composition and leave the raw pinyin; compositionend renders.
-  if (MdgTyping.isComposing() && document.activeElement?.closest?.("[data-note]")) return void (listDeferred = true);
+  if (MdgTyping.isComposing() && document.activeElement?.closest?.(TYPED)) return void (listDeferred = true);
   listDeferred = false;
   const list = visibleItems();
   renderListHeader(list);
@@ -421,9 +423,9 @@ function renderList() {
   const failedList = list.filter((it) => failedIn(S.tab, it));
   const failed = failedList.length;
   const failedHead = failedHeadHtml(failedList);
-  // Background progress re-renders the list; keep a note being typed in focus.
-  const typing = document.activeElement?.closest?.("[data-note]");
-  const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd];
+  // Background progress re-renders the list; keep a note or a 侧重 being typed in focus.
+  const typing = document.activeElement?.closest?.(TYPED);
+  const caret = typing && [typing.closest(".card").dataset.bvid, typing.selectionStart, typing.selectionEnd, typing.matches("[data-note]") ? "[data-note]" : "[data-refocus]"];
   const restore = UI.keepScroll(el.list, ".card[data-bvid]");
   el.list.innerHTML =
     list
@@ -434,7 +436,7 @@ function renderList() {
       .join("") + recent;
   restore();
   if (caret) {
-    const box = el.list.querySelector(`.card[data-bvid="${CSS.escape(caret[0])}"] [data-note]`);
+    const box = el.list.querySelector(`.card[data-bvid="${CSS.escape(caret[0])}"] ${caret[3]}`);
     box?.focus();
     box?.setSelectionRange(caret[1], caret[2]);
   }
@@ -447,6 +449,7 @@ const verdictBadge = (b, v, low = v.low) =>
     ? `<span class="badge running">${ANALYZING}</span>`
     : `<span class="badge ${VERDICTS[v.verdict] ? v.verdict : "none"}${low ? " low" : ""}">${VERDICTS[v.verdict] ? `<span class="ai-mark">AI</span>` : ""}${esc(verdictLabel(v.verdict))}${low ? " · 低置信" : ""}</span>`;
 const KEEP_TIP = `保留标记${MdgErrors.TEXT.localOnly}`;
+const REFOCUS_HINT = "侧重什么（可留空），比如：只列操作步骤";
 // 字幕细看下一批 has none to send but 已保留 ones.
 const KEPT_NOT_NEXT = `已保留的视频不进${NEXT_BATCH}，选中后可以细看`;
 
@@ -478,7 +481,7 @@ function cardHtml(it, expanded, mark) {
     : `<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   // The 发布时间 is relative, the date on hover; the rest is text.
-  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], done && basisText(a), esc(seenText(it)), it.invalid && KIND_NAME.invalid, it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
+  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), done && a.focus ? esc(`按「${a.focus}」细看`) : ["", "粗看", "细看"][v.stage], done && basisText(a), esc(seenText(it)), it.invalid && KIND_NAME.invalid, it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);
@@ -493,6 +496,11 @@ function cardHtml(it, expanded, mark) {
       : "";
   const failed = v.failed
     ? `<span class="fail-text">${ANALYSIS_FAILED}：${esc(v.failed)}</span><button type="button" data-act="retry" aria-label="重试分析"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${MdgErrors.LABEL.retry}</button>`
+    : "";
+  const step = cardStep(it);
+  const stepBtn = step ? `<button type="button" data-act="ai-step" aria-label="${CARD_STEP[step]}"${UI.reasonAttrs(aiBusyReason())}>${AI_SPARK}${CARD_STEP[step]}</button>` : "";
+  const refocus = step === "refine" && S.refocus?.bvid === b
+    ? `<div class="card-foot refocus"><input type="text" name="refocus" data-refocus placeholder="${REFOCUS_HINT}" aria-label="细看侧重" value="${esc(S.refocus.text)}" /><button type="button" data-act="refocus-go"${UI.reasonAttrs(aiBusyReason())}>开始细看</button><button type="button" data-act="refocus-cancel">取消</button></div>`
     : "";
 
   const chips = tagIdsOf(b)
@@ -511,7 +519,8 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}</div>
+      <div class="card-foot verdict-row">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}${stepBtn}</div>
+      ${refocus}
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}
       <div class="card-foot">

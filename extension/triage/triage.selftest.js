@@ -529,6 +529,56 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete t.S.analyses.BV1;
     t.S.undo = [];
   }
+  {
+    // P4: a card's own AI button goes by its AI depth, whatever was decided: 标题粗看, 字幕细看, then 重新细看; never a
+    // second 粗看. A failed card has only 重试; while another AI step runs the button is off with why.
+    openFake("R4", [item(1)], { BV1: { action: "keep", at: 1 } });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, refocus: null });
+    const card = () => t.cardHtml(item(1), false, "");
+    const btn = () => /data-act="ai-step"[^>]*>(?:<span[^>]*><\/span>)?([^<]+)</.exec(card())?.[1] || "";
+    assert.strictEqual(btn(), "标题粗看");
+    t.S.titleRes.BV1 = { verdict: "keep", reason: "标题" };
+    assert.strictEqual(btn(), "字幕细看");
+    assert.ok(/<div class="card-foot verdict-row">.*data-act="ai-step"/.test(card().replace(/\n/g, "")), "in the verdict row");
+    const old = { bvid: "BV1", status: "done", verdict: "keep", reason: "旧理由", oneLiner: "旧总结" };
+    t.S.analyses.BV1 = old;
+    assert.strictEqual(btn(), "重新细看");
+    assert.ok(!card().includes("重新粗看") && !card().includes(">标题粗看<"), "no re-粗看 on a card");
+    t.S.analyses.BV1 = { bvid: "BV1", status: "error", error: "字幕取不到" };
+    assert.ok(btn() === "" && card().includes('data-act="retry"'), "a failed card: 重试 only");
+    t.S.analyses.BV1 = old;
+    t.S.group = { bvids: ["x"], mediaId: "other" };
+    assert.ok(/data-act="ai-step"[^>]* disabled title="字幕细看还在跑，等它完成"/.test(card()), card());
+    t.S.group = null;
+    // A kept card with only 粗看 runs its 字幕细看 as a run of one.
+    delete t.S.analyses.BV1;
+    const asked = [];
+    handlers["triage-analyze"] = (m) => (asked.push(plain(m)), { ok: true, data: { bvid: m.bvid, status: "done", verdict: "keep", oneLiner: "细看过" } });
+    t.cardAction("ai-step", "BV1");
+    await until(() => !t.S.group);
+    assert.deepStrictEqual([asked.length, asked[0].force, t.S.analyses.BV1.oneLiner], [1, false, "细看过"]);
+    // P5: 重新细看 opens a 侧重 box under the verdict row; 开始细看 sends it with force, the old result stays until the
+    // new one arrives, and the record keeps the 侧重, which the meta line names.
+    t.S.analyses.BV1 = old;
+    t.cardAction("ai-step", "BV1");
+    assert.deepStrictEqual(plain(t.S.refocus), { bvid: "BV1", text: "" });
+    assert.ok(card().includes('placeholder="侧重什么（可留空），比如：只列操作步骤"') && card().includes(">开始细看<") && card().includes(">取消<"), card());
+    t.cardAction("refocus-cancel", "BV1");
+    assert.ok(t.S.refocus === null && !card().includes("data-refocus"), "取消 closes it");
+    t.cardAction("ai-step", "BV1");
+    t.S.refocus.text = "  只列操作步骤 ";
+    let release;
+    handlers["triage-analyze"] = (m) => (asked.push(plain(m)), new Promise((r) => (release = () => r({ ok: true, data: { bvid: m.bvid, status: "done", verdict: "keep", oneLiner: "新总结", focus: m.focus } }))));
+    t.cardAction("refocus-go", "BV1");
+    await until(() => release);
+    assert.deepStrictEqual([asked.at(-1).force, asked.at(-1).focus, t.S.refocus, t.activityState().text], [true, "只列操作步骤", null, "重新细看 0/1"]);
+    assert.strictEqual(t.S.analyses.BV1.oneLiner, "旧总结", "the old result stays meanwhile");
+    release();
+    await until(() => !t.S.group);
+    assert.deepStrictEqual([t.S.analyses.BV1.oneLiner, t.S.analyses.BV1.focus, t.activityState().text], ["新总结", "只列操作步骤", "重新细看完成 1 个"]);
+    assert.ok(/class="meta">[^\n]*按「只列操作步骤」细看/.test(card()), card());
+    Object.assign(t.S, { titleRes: {}, analyses: {}, decisions: {}, undo: [] });
+  }
 
   // C39: a 取消收藏 that leaves the video in another chosen folder (by its cached list, 稍后再看 aside) records elsewhere,
   // so B站 pages other than a favorites page leave 已取消收藏 off; checked against the folder it started in, even when
@@ -3991,7 +4041,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.settingsDialog.close?.();
     // a background re-render waits while a note is composing, and runs on compositionend.
     t.S.items = [];
-    t.document.activeElement = { closest: (s) => (s === "[data-note]" ? note : null) };
+    t.document.activeElement = { closest: (s) => (s.split(", ").includes("[data-note]") ? note : null) };
     t.el.list.innerHTML = "before";
     doc("compositionstart");
     t.renderList();
