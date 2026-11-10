@@ -157,11 +157,11 @@
   const labeledRow = (label, html) => `<span class="row-label">${esc(label)}</span>${html}`;
   // Row 3 (both modes): one group of state pills; the CSS splits groups by a thin rule and wraps them whole.
   const stateGroup = (label, html, cls = "") => `<span class="seg${cls}" role="group" aria-label="${esc(label)}">${html}</span>`;
-  // 未打标签 / 已打标签 (row 4 in 收藏夹 and 关注, row 3 in 摘读记录): attrs(k) and n(k) for k "untagged" | "tagged", cur
+  // 未打标签 / 已打标签 (the tag row in 收藏夹, 关注 and 摘读记录): attrs(k) and n(k) for k "untagged" | "tagged", cur
   // the picked one.
   const tagStateGroup = (attrs, n, cur, prefix = "") =>
     stateGroup("按有没有标签", [["untagged", "未打标签"], ["tagged", "已打标签"]].map(([k, label]) => filterBtn(attrs(k), prefix + label, n(k), cur === k)).join(""));
-  // Row 4's head in 收藏夹 and 关注: its own 全部 (clears row 4 only, pressed while row 4 has nothing on; allN counts with
+  // The tag row's head in 收藏夹, 关注 and 摘读记录: its own 全部 (clears the tag row only, pressed while it has nothing on; allN counts with
   // row 4 cleared), then 未打标签 / 已打标签, before the tag chips.
   const tagRowHead = ({ allAttrs, allN, on, attrs, n, cur, prefix = "" }) => stateGroup("全部", filterBtn(allAttrs, "全部", allN, !on)) + tagStateGroup(attrs, n, cur, prefix);
   // 「AI 刚打的」: the filter of the items the last applied AI 打标签 changed, and what to do with them.

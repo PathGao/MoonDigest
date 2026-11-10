@@ -231,7 +231,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   // H4: 已打标签 with none tagged lists nothing and says why, as the other filters do.
   headClick("tagstate:tagged");
   assert.ok(html.includes("没有符合筛选的记录"), html);
-  headClick("all");
+  headClick("tagall");
   // H9: 删除 removes AI conversations only. A selected video with only a 备注 is not counted, and the tooltip says so;
   // with none that has a conversation it is disabled with the reason.
   const NOTES = ctx.MdgLimits.KEYS.triageNotes;
@@ -785,13 +785,17 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(20);
     assert.ok(entry(pageKey) && els.status.textContent === "已撤销：去掉「读过」", els.status.textContent);
     await filter(`tag:${tag.id}`);
-    // 未打标签 / 已打标签 as on the 分拣台, by the record's own tags; 全部 clears them.
+    // 未打标签 / 已打标签 head the tag row as on the 分拣台, by the record's own tags; the tag row's 全部 clears them,
+    // the 状态 row's 全部 does not.
     await filter("tagstate:untagged");
-    assert.ok(entry("untagged") && /data-f="tagstate:untagged" aria-pressed="true">未打标签 \d+</.test(els.stateRow.innerHTML), els.stateRow.innerHTML);
+    assert.ok(entry("untagged") && /data-f="tagstate:untagged" aria-pressed="true">未打标签 \d+</.test(els.tagRow.innerHTML), els.tagRow.innerHTML);
+    assert.ok(!els.stateRow.innerHTML.includes("tagstate:"), els.stateRow.innerHTML);
     await filter("tagstate:tagged");
     assert.ok(!entry("untagged") && entry(videoKey) && entry(pageKey), html);
     await filter("all");
-    assert.ok(entry("untagged") && !els.stateRow.innerHTML.includes('aria-pressed="true">已打标签'), els.stateRow.innerHTML);
+    assert.ok(!entry("untagged") && els.tagRow.innerHTML.includes('aria-pressed="true">已打标签'), els.tagRow.innerHTML);
+    await filter("tagall");
+    assert.ok(entry("untagged") && !els.tagRow.innerHTML.includes('aria-pressed="true">已打标签') && /data-f="tagall" aria-pressed="true">全部 /.test(els.tagRow.innerHTML), els.tagRow.innerHTML);
     await search("读过");
     assert.ok(entry(videoKey) && entry(pageKey), html);
     await search("分拣标签");
