@@ -263,6 +263,9 @@ select { height: 28px; max-width: 240px; }
 .tabs button { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .tabs button:hover { background: var(--field-bg); }
 .tabs button[aria-selected="true"] { background: var(--text); color: var(--bg); font-weight: 600; }
+/* The three rows' 全部 count different things (the folder, the tab), so their pills differ in width: one min width, text
+   left, keeps the rules after them in a column up to three digits. */
+#tabs [data-tab="read"], :is(.state-row, .tagfilter) > .seg[aria-label="全部"] > button { min-width: 78px; justify-content: flex-start; text-align: left; }
 .tabs .step.zero:not([aria-selected="true"]) { opacity: 0.5; }
 .tabs .arrow { margin: 0 2px; color: var(--faint); font-size: var(--fs-xs); }
 .tabs .tab-sep { flex: 0 0 1px; height: 16px; margin: 0 6px; border-left: 1px solid var(--border-strong); }
