@@ -167,7 +167,7 @@ function criteriaBtn() {
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
-const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.decisionFilter || S.finishedFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
+const statesOn = (t = S.tab) => (S.classFilter[t] && S.classFilter[t] !== "all") || Boolean(S.tagState || S.decisionFilter || S.finishedFilter || S.noSubFilter || S.dupFilter || S.aiRecentFilter || (S.mediaId !== REMOVED && S.kindFilter));
 // Row 3: what the system knows about each video, in groups split by a thin rule. One pick per group (a second click
 // clears it), groups AND together, and each group counts with its own pick left out. 全部 clears row 3 only. The fixed
 // groups come first (a 0 stays, dimmed); the chips that exist only sometimes (看完了, 已失效, AI 刚打的) go last and
@@ -197,6 +197,8 @@ function stateRowHtml(t = S.tab) {
   const invalidN = cnt("kind", (it) => kindOf(it) === "invalid");
   const invalidOn = S.kindFilter === "invalid";
   if (!removed && (invalidN || invalidOn)) groups.push(group(KIND_NAME.invalid, UI.filterBtn(`data-kindfilter="invalid" class="st-danger" title="只看${KIND_NAME.invalid}的视频"`, KIND_NAME.invalid, invalidN, invalidOn)));
+  const noSubN = cnt("nosub", noSubtitle);
+  if (noSubN || S.noSubFilter) groups.push(group(NO_SUB, UI.filterBtn(`data-nosubfilter title="只看字幕细看时没有字幕、按简介和评论判断的视频"`, NO_SUB, noSubN, S.noSubFilter)));
   const recentN = cnt("recent", (it) => aiRecentSet().has(it.bvid));
   groups.push(UI.aiRecentChip({ attrs: "data-airecent", xAttrs: "data-airecent-done", n: recentN, on: S.aiRecentFilter, who: "视频" }));
   return groups.join("");
@@ -207,13 +209,14 @@ function pickState(group, value = "") {
   const t = S.tab;
   if (group === "all") {
     S.classFilter[t] = "all";
-    S.finishedFilter = S.dupFilter = S.aiRecentFilter = false;
+    S.finishedFilter = S.dupFilter = S.aiRecentFilter = S.noSubFilter = false;
     S.tagState = S.decisionFilter = "";
     if (S.mediaId !== REMOVED) S.kindFilter = "";
   } else if (group === "class") S.classFilter[t] = S.classFilter[t] === value ? "all" : value;
   else if (group === "decision") S.decisionFilter = S.decisionFilter === value ? "" : value;
   else if (group === "kind") S.kindFilter = S.kindFilter === value ? "" : value;
   else if (group === "seen") S.finishedFilter = !S.finishedFilter;
+  else if (group === "nosub") S.noSubFilter = !S.noSubFilter;
   else if (group === "dup") S.dupFilter = !S.dupFilter;
   else if (group === "tagged") S.tagState = S.tagState === value ? "" : value;
   else if (group === "recent") S.aiRecentFilter = !S.aiRecentFilter;
@@ -455,12 +458,20 @@ const KEPT_NOT_NEXT = `已保留的视频不进${NEXT_BATCH}，选中后可以�
 
 // A verdict an AI tool wrote over MCP (agent-writes.js), on the card's meta line in place of the basis.
 const AGENT_VERDICT = "Agent 判断";
-// What a 细看 judged from, on the card's meta line, in the video page's words: no subtitle (and why), or a subtitle
-// whose time range may not match the video. Nothing for a matching subtitle.
+// What a 细看 judged from, on the card's meta line, in the video page's words: a subtitle whose time range may not match
+// the video. Nothing for a matching subtitle; no subtitle is the verdict row's 无字幕 badge (noSubBadge).
 function basisText(a) {
   if (a.source === "agent") return AGENT_VERDICT;
-  if (a.source !== "meta") return a.subtitleWarning ? esc(a.subtitleWarning.replace(/。$/, "")) : "";
-  return esc(`${MdgErrors.subtitleMissing({ subtitleNeedLogin: a.needLogin, subtitleFailure: a.subtitleFailure })}，按简介和评论判断`);
+  return a.source !== "meta" && a.subtitleWarning ? esc(a.subtitleWarning.replace(/。$/, "")) : "";
+}
+// The 无字幕 chip, and the badge a 细看 card without a subtitle leads its verdict row with (why on hover).
+const NO_SUB = "无字幕";
+function noSubBadge(it) {
+  if (!noSubtitle(it)) return "";
+  const a = S.analyses[it.bvid];
+  const label = a.needLogin ? "未登录无字幕" : a.subtitleFailure ? "字幕抓取失败" : NO_SUB;
+  const why = `${MdgErrors.subtitleMissing({ subtitleNeedLogin: a.needLogin, subtitleFailure: a.subtitleFailure })}，按简介和评论判断`;
+  return `<span class="badge none" title="${esc(why)}">${label}</span>`;
 }
 function cardHtml(it, expanded, mark) {
   const b = it.bvid;
@@ -519,7 +530,7 @@ function cardHtml(it, expanded, mark) {
       ${left ? `<div class="left-row">${left}</div>` : ""}
       <div class="meta">${meta.join(" · ")}</div>
       ${body.join("")}
-      <div class="card-foot verdict-row">${verdict}<span class="reason">${esc(v.reason)}</span>${failed}${stepBtn}</div>
+      <div class="card-foot verdict-row">${noSubBadge(it)}${verdict}<span class="reason">${esc(v.reason)}</span>${failed}${stepBtn}</div>
       ${refocus}
       ${chips ? `<div class="chips">${chips}</div>` : ""}
       ${noteHtml}

@@ -112,6 +112,7 @@ const S = {
   basket: [],
   notes: {},
   finishedFilter: false, // 看完了
+  noSubFilter: false, // 无字幕
   dupFilter: false, // 所有收藏夹 only: 重复收藏
   tagState: "", // row 3: "" | "untagged" | "tagged"
   decisionFilter: "", // row 3: "" | "undecided" | "kept"
@@ -552,6 +553,9 @@ function kindOf(it) {
   return at ? "out" : it.inFolder === null ? "unfav" : "";
 }
 
+// A 细看 that had no subtitle and judged from the intro and comments (粗看 never reads subtitles).
+const noSubtitle = (it) => S.analyses[it.bvid]?.status === "done" && S.analyses[it.bvid].source === "meta";
+
 // 重复收藏: in more than one chosen folder (所有收藏夹 only; elsewhere items have no .folders).
 const isDup = (it) => it.folders?.length > 1;
 
@@ -562,6 +566,7 @@ function passFilter(it, skip = "") {
   if (on("dup") && S.dupFilter && !isDup(it)) return false;
   if (on("decision") && S.decisionFilter && (isKept(it) ? "kept" : "undecided") !== S.decisionFilter) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
+  if (on("nosub") && S.noSubFilter && !noSubtitle(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
   if (on("tagged") && S.tagState && (tagIdsOf(it.bvid).length > 0) !== (S.tagState === "tagged")) return false;

@@ -713,18 +713,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(btn(1), '<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>');
     t.S.basket = kept;
   }
-  // F27: a 细看 judged without subtitles says so on the card, and why (the login, a failed download); a subtitle that may
-  // not match the video gets the video page's warning.
+  // F27 / P6: a 细看 judged without subtitles says so once, in a gray badge leading the verdict row (before the AI verdict
+  // or the decision), and why on hover (the login, a failed download); a subtitle that may not match the video gets the
+  // video page's warning on the meta line.
   {
     const meta = () => t.cardHtml(item(1), false, "").match(/<div class="meta">([^]*?)<\/div>/)[1];
+    const row = () => t.cardHtml(item(1), false, "").match(/<div class="card-foot verdict-row">([^]*?)<\/div>/)[1];
     t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep" };
-    assert.ok(!meta().includes("字幕"));
+    assert.ok(!meta().includes("字幕") && !row().includes("字幕"));
     t.S.analyses.BV1 = { status: "done", source: "meta", verdict: "keep" };
-    assert.ok(meta().includes("视频没有字幕，按简介和评论判断"), meta());
+    assert.ok(row().startsWith('<span class="badge none" title="视频没有字幕，按简介和评论判断">无字幕</span><span class="badge keep'), row());
+    assert.ok(!meta().includes("字幕"), "said once, in the badge");
     t.S.analyses.BV1.needLogin = true;
-    assert.ok(meta().includes("未登录 B站，拿不到字幕，按简介和评论判断"), meta());
+    assert.ok(row().startsWith('<span class="badge none" title="未登录 B站，拿不到字幕，按简介和评论判断">未登录无字幕</span>'), row());
     t.S.analyses.BV1 = { status: "done", source: "meta", verdict: "keep", subtitleFailure: "网络断了" };
-    assert.ok(meta().includes("字幕抓取失败：网络断了，按简介和评论判断") && !meta().includes("没有字幕"), meta());
+    assert.ok(row().startsWith('<span class="badge none" title="字幕抓取失败：网络断了，按简介和评论判断">字幕抓取失败</span>'), row());
+    t.S.decisions.BV1 = { action: "keep", at: 1 };
+    assert.ok(row().startsWith('<span class="badge none"'), "first on a decided card too");
+    delete t.S.decisions.BV1;
+    t.S.titleRes.BV3 = { verdict: "keep" };
+    assert.ok(!t.cardHtml(item(3), false, "").includes("无字幕"), "粗看 never says 无字幕");
+    delete t.S.titleRes.BV3;
     t.S.analyses.BV1 = { status: "done", source: "subtitle", verdict: "keep", subtitleWarning: "字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上。" };
     assert.ok(meta().includes(" · 字幕时间轴到 06:40，视频长 04:33，字幕时间可能对不上"), meta());
     delete t.S.analyses.BV1;
@@ -3430,6 +3439,20 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     has(">已保留 1<", ">未决定 4<");
     Object.assign(t.S, { decisions: {}, aiRecent: {}, seenPct: {}, titleRes: {}, tags: [], videoTags: {} });
     t.S.seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
+  }
+  // P6: 无字幕 is a conditional chip counting the 细看 videos without a subtitle: gone at 0 unless on, cleared by 全部.
+  {
+    openFake("N", [item(1), item(2), item(3)]);
+    Object.assign(t.S, { titleRes: {}, analyses: { BV1: { status: "done", source: "meta", verdict: "keep" }, BV2: { status: "done", source: "subtitle", verdict: "keep" } }, tab: "fine", classFilter: { coarse: "all", fine: "all", read: "all" } });
+    const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(row3().includes(">无字幕 1<") && groups().at(-1) === "无字幕", groups().join());
+    t.pickState("nosub");
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
+    t.pickState("all");
+    assert.strictEqual(t.S.noSubFilter, false, "全部 clears it");
+    t.S.tab = "none";
+    assert.ok(!row3().includes("无字幕"), "at 0 it is not shown");
+    Object.assign(t.S, { analyses: {} });
   }
 
   {
