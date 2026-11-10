@@ -153,12 +153,14 @@ function followShared(changes) {
     else delete S.analyses[b];
     changed = true;
   }
-  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders.
+  // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders; in
+  // 已出分拣范围 every chosen folder's (最近取消收藏).
   for (const [key, c] of Object.entries(changes)) {
     const id = /^triage_decisions_(.+)$/.exec(key)?.[1];
     if (!id || ownEcho(key, c)) continue;
     const d = c.newValue || {};
     if (id === String(S.mediaId)) S.decisions = { ...S.kept, ...d };
+    else if (S.mediaId === REMOVED && S.folders.some((f) => String(f.id) === id)) S.folderDecisions[id] = d;
     else if (S.loadAll && S.folderDecisions[id]) {
       S.folderDecisions[id] = d;
       rebuildAll();
@@ -378,6 +380,7 @@ function bindEvents() {
     if (b.matches("[data-airecent-done]")) endAiRecent();
     else if (b.matches("[data-states-all]")) pickState("all");
     else if (b.dataset.classFilter) pickState("class", b.dataset.classFilter);
+    else if (b.dataset.decision) pickState("decision", b.dataset.decision);
     else if (b.matches("[data-finishedfilter]")) pickState("seen");
     else if (b.matches("[data-dupfilter]")) pickState("dup");
     else if (b.dataset.tagstate) pickState("tagged", b.dataset.tagstate);
@@ -455,9 +458,9 @@ function bindEvents() {
     if (e.target.closest("[data-pick-folders]")) return openSettings(false, true);
     if (e.target.closest("[data-refresh]")) return el.refreshBtn.click();
     const refav = e.target.closest("[data-refav]");
-    if (refav) return fav.refav(refav.dataset.refav);
+    if (refav) return fav.refav(refav.dataset.refav, refav.dataset.folder);
     const refavAll = e.target.closest("[data-refav-batch]");
-    if (refavAll) return fav.refavBatch(Number(refavAll.dataset.refavBatch));
+    if (refavAll) return fav.refavBatch(Number(refavAll.dataset.refavBatch), refavAll.dataset.folder);
     const picked = e.target.closest(".card[data-bvid]");
     if (picked && UI.cardPickClick(e)) {
       e.preventDefault();

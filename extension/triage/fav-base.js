@@ -10,13 +10,12 @@ const THROTTLES = {
   AI_THROTTLED: MdgRuns.AI_HOLD
 };
 const SYNC_MIN_GAP_MS = 60 * 1000;
-// Progress tabs: how far a video has been looked at. The AI class is a filter inside a tab, never a tab.
-// 阅览 sits apart after them.
+// Progress tabs: how far the AI has looked at a video, whatever the user decided. The AI class and the decision are
+// filters inside a tab, never a tab. 阅览 sits apart after them.
 const STAGES = [
   ["none", "未分析"],
   ["coarse", "粗看完成"],
-  ["fine", "细看完成"],
-  ["done", "处理完成"]
+  ["fine", "细看完成"]
 ];
 const READ_TAB = "阅览全部";
 const NEXT_BATCH = "下一批"; // a step's button and the cards it will send
@@ -62,10 +61,11 @@ const UNDO = globalThis.TriageUi.UNDO;
 // 待播's remove: the list's button, E on a card in it, the card's ✓ 待播.
 const BASKET_REMOVE = "从待播移除";
 const BASKET_REMOVED = `已${BASKET_REMOVE}${UNDO}`;
-const RECENT_UNFAV = "最近取消收藏"; // 处理完成's list of the unfavorited, where each can be 重新收藏
+const RECENT_UNFAV = "最近取消收藏"; // 已出分拣范围's list of every chosen folder's 取消收藏 records, each can be 重新收藏
+const RECENT_UNFAV_AT = `「${REMOVED_NAME}」的「${RECENT_UNFAV}」`;
 // 取消收藏 or 保留 on a video already unfavorited: its card's buttons and the D / S keys say the same.
 const UNFAVED = "已经取消收藏了";
-const KEEP_UNFAVED = `${UNFAVED}，要保留先在「${RECENT_UNFAV}」里${REFAV}`;
+const KEEP_UNFAVED = `${UNFAVED}，要保留先在${RECENT_UNFAV_AT}里${REFAV}`;
 const TOVIEW = "toview"; // 稍后再看, listed by triage-bg as one more folder
 // The fixed AI classes, shown as chips inside 粗看完成 and 细看完成.
 // The ids are the badge color classes too.
@@ -104,7 +104,7 @@ const S = {
   kept: {},
   removedCount: 0,
   folderIntro: {}, // { [mediaId]: Bilibili folder intro }, read with the folder list
-  folderDecisions: {}, // 所有收藏夹 only: { [mediaId]: that folder's decisions }
+  folderDecisions: {}, // 所有收藏夹 and 已出分拣范围 only: { [mediaId]: that folder's decisions }
   loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, phase (LOAD_ALL_STEPS), error, partial }
   tags: [],
   folderCriteria: {},
@@ -114,6 +114,7 @@ const S = {
   finishedFilter: false, // 看完了
   dupFilter: false, // 所有收藏夹 only: 重复收藏
   tagState: "", // row 3: "" | "untagged" | "tagged"
+  decisionFilter: "", // row 3: "" | "undecided" | "kept"
   aiRecent: {},
   sortBy: {}, // triage_sort
   aiRecentFilter: false, // AI 刚打的
@@ -219,8 +220,8 @@ const judgeOf = (it) => {
 // current one), so after the criteria change the old results can be redone.
 const isStale = (r, crit = criteria()) => Boolean(r) && (r.criteria ?? crit) !== crit;
 const judged = () => S.mediaId && S.mediaId !== REMOVED;
-const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && stageOf(it) === "coarse" && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
-const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && stageOf(it) === "fine" && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
+const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "coarse") && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
+const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "fine") && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
 
 const $ = (id) => document.getElementById(id);
 
@@ -498,8 +499,10 @@ function tagIdsOf(bvid) {
     return t && (!folders || folders.includes(t.folder));
   });
 }
-// Only 取消收藏 / 保留 finish a video; tags and notes never do.
+// Only 取消收藏 / 保留 are decisions; tags and notes never are.
 const isProcessed = (bvid) => Boolean(S.decisions[bvid]);
+const isKept = (it) => S.decisions[it.bvid]?.action === "keep";
+const isUnfaved = (it) => S.decisions[it.bvid]?.action === "unfav";
 // 粗看 and 细看 runs keep going in their own folder (mediaId) after another one opens; these are the open folder's.
 const ownStage1 = () => Boolean(runs.get("stage1")) && S.stage1.mediaId === String(S.mediaId);
 
@@ -556,6 +559,7 @@ const isDup = (it) => it.folders?.length > 1;
 function passFilter(it, skip = "") {
   const on = (g) => skip !== g && (skip !== "states" || g === "tags");
   if (on("dup") && S.dupFilter && !isDup(it)) return false;
+  if (on("decision") && S.decisionFilter && (isKept(it) ? "kept" : "undecided") !== S.decisionFilter) return false;
   if (on("seen") && S.finishedFilter && !isFinished(it)) return false;
   if (on("recent") && S.aiRecentFilter && !aiRecentSet().has(it.bvid)) return false;
   if ((S.mediaId === REMOVED || on("kind")) && S.kindFilter && kindOf(it) !== S.kindFilter) return false;
@@ -571,25 +575,26 @@ function passFilter(it, skip = "") {
 let queryMemo = ["", []];
 const queryWords = () => (queryMemo[0] === S.query ? queryMemo[1] : (queryMemo = [S.query, S.query.toLowerCase().split(/\s+/).filter(Boolean)])[1]);
 
-// Which AI steps have run, not what they said. Invalid videos (可清理) can never be 细看'd, so they stop at 粗看;
-// a failed 细看 stays where its 粗看 put it.
+// Which AI steps have run, not what they said nor what the user decided. Invalid videos (可清理) can never be 细看'd,
+// so they stop at 粗看; a failed 细看 stays where its 粗看 put it.
 function stageOf(it) {
   const b = it.bvid;
-  if (isProcessed(b)) return "done";
   if (S.analyses[b]?.status === "done") return "fine";
   if (it.invalid || VERDICTS[S.titleRes[b]?.verdict]) return "coarse";
   return "none";
 }
 
+// A tab's videos before rows 3 and 4. 阅览 (and 已出分拣范围) is every video, whatever its step. A video unfavorited
+// here is in no tab: it stays in S.items only so U can undo it, and 已出分拣范围 lists it.
+const inStage = (it, tab) => !isUnfaved(it) && (tab === "read" || stageOf(it) === tab);
 function inTab(it, tab) {
-  // 阅览 (and 已出分拣范围) is every video of the folder, whatever its step.
-  if (tab !== "read" && stageOf(it) !== tab) return false;
+  if (!inStage(it, tab)) return false;
   const f = S.classFilter[tab];
   return !f || f === "all" || classOf(it) === f;
 }
 
-// The filter chip a card falls under: the user's decision once there is one (as on the card), else the AI verdict.
-const classOf = (it) => (isProcessed(it.bvid) ? (S.decisions[it.bvid].action === "keep" ? "kept" : "unfav") : verdictOf(it).verdict);
+// The AI-verdict chip a card falls under, decided or not: 已保留 + 可清理 finds kept videos the AI said to drop.
+const classOf = (it) => verdictOf(it).verdict;
 
 const failedAnalysis = (b) => S.analyses[b]?.status === "error";
 // A 粗看 that failed on a card still without one: it stays in 未分析 with the failure and a retry, like a failed 细看.
@@ -675,10 +680,12 @@ const stage1Label = (batch) => batchLabel(STEP_NAME.coarse, batch, coarseOpen(),
 const groupLabel = (batch) => batchLabel(STEP_NAME.fine, batch, fineOpen(), "coarse");
 // Why it is disabled when the selection has nothing it can run (why: 「选中的都不能字幕细看」 and the like).
 const pickReason = (why, batch, tab) => (!picking(tab) || batch.length ? "" : pickedShown() ? why : UI.HIDDEN_ALL);
+// 细看's next batch leaves 已保留 out to save AI cost; a selection runs whatever was decided.
+const skipKept = (open, tab) => (picking(tab) ? open : open.filter((it) => !isKept(it)));
 // What 按新标准重新粗看 / 细看 can send: the stale ones its tab lists now (search and filters applied), from any tab
 // (the 判断标准 dialog offers 重新粗看 too); redoState takes one run's batch of them.
 const redoCoarseOpen = () => staleCoarse().filter((it) => inTab(it, "coarse") && passFilter(it));
-const redoFineOpen = () => staleFine().filter((it) => inTab(it, "fine") && passFilter(it));
+const redoFineOpen = () => skipKept(staleFine().filter((it) => inTab(it, "fine") && passFilter(it)), "fine");
 // 按新标准重新粗看 / 细看's batch, label and why it is disabled: row 3's button and the 「判断标准改了」 dialog's.
 const redoState = (verb, open, cap, tab) => {
   const batch = pickBatch(open, cap, tab);
@@ -692,9 +699,9 @@ const redoOf = (step) => (step === "coarse" ? redoState("粗看", redoCoarseOpen
 const visibleSelected = () => selectedIn(visibleItems());
 
 function stageCounts() {
-  const c = { none: 0, coarse: 0, fine: 0, done: 0, read: 0 };
+  const c = { none: 0, coarse: 0, fine: 0, read: 0 };
   for (const it of S.items) {
-    if (!passFilter(it)) continue;
+    if (isUnfaved(it) || !passFilter(it)) continue;
     c[stageOf(it)]++;
     c.read++;
   }
@@ -703,8 +710,10 @@ function stageCounts() {
 // The earliest step that still has videos.
 const currentStage = (c) => STAGES.find(([k]) => c[k])?.[0] || "none";
 
-// The 细看 batch: the first fineBatchSize() selected cards of 粗看完成, otherwise its first fineBatchSize(), 拿不准 / low confidence first.
+// The 细看 batch: the first fineBatchSize() selected cards of 粗看完成, otherwise its first fineBatchSize() not 已保留,
+// 拿不准 / low confidence first.
 const fineOpen = () => S.items.filter((it) => inTab(it, "coarse") && passFilter(it) && needsAnalysis(it.bvid)).sort((x, y) => unsureFirst(x) - unsureFirst(y));
+const fineBatch = () => pickBatch(skipKept(fineOpen(), "coarse"), fineBatchSize(), "coarse");
 function nextBatch() {
-  return pickBatch(fineOpen(), fineBatchSize(), "coarse").map((it) => it.bvid);
+  return fineBatch().map((it) => it.bvid);
 }

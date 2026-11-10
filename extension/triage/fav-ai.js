@@ -12,7 +12,7 @@ const { TITLES_PER_REQUEST } = TriageUi;
 
 // What 标题粗看 counts and sends: the first coarseBatchSize() 未分析 videos listed now (search and filters applied),
 // not the hidden ones. A selection wins, like 细看's nextBatch.
-const coarseOpen = () => S.items.filter((it) => stageOf(it) === "none" && !S.coarseFailed.has(it.bvid) && passFilter(it));
+const coarseOpen = () => S.items.filter((it) => inStage(it, "none") && !S.coarseFailed.has(it.bvid) && passFilter(it));
 const stage1Pending = () => pickBatch(coarseOpen(), coarseBatchSize(), "none");
 
 // list: 未分析 by default; 重新粗看 passes the cards whose 粗看 used an older 判断标准. Their old results stay on the
@@ -32,7 +32,7 @@ async function runStage1(list = stage1Pending(), redo = false) {
   };
   // In its own folder the live step decides (a card may have been sorted meanwhile); elsewhere only the result does.
   const pending = () =>
-    list.filter((it) => !S.coarseFailed.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || ["none", "coarse"].includes(stageOf(it))));
+    list.filter((it) => !S.coarseFailed.has(it.bvid) && !it.invalid && due(it) && (S.mediaId !== folder || (["none", "coarse"].includes(stageOf(it)) && !isUnfaved(it))));
   const run = (S.stage1 = { mediaId: folder });
   const name = runName("coarse", redo);
   const running = runs.run("stage1", {
@@ -91,12 +91,13 @@ function otherFolderToast(run, name, r) {
 
 // ---------- AI stage 2: subtitle group ----------
 // group: a 细看 run, which judges by its own items (the open folder's list is empty while a folder loads, and may be
-// another folder's); 已处理 is read only in its own folder.
+// another folder's). 保留 does not matter (the next batch leaves 已保留 out on its own: skipKept); 取消收藏 in its own
+// folder (read only there) does, the video has left.
 const needsAnalysis = (b, group = null) => {
   const own = !group || group.mediaId === String(S.mediaId);
   const it = group ? group.items.get(b) : S.itemMap.get(b);
   const a = S.analyses[b];
-  return it && !it.invalid && !(own && isProcessed(b)) && a?.status !== "done" && a?.status !== "error";
+  return it && !it.invalid && !(own && isUnfaved(it)) && a?.status !== "done" && a?.status !== "error";
 };
 
 // redo: 细看 these again under the current criteria; each keeps its old result until the new one arrives.

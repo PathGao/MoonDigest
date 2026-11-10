@@ -243,18 +243,42 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.S.decisions), {}, "folder B's decisions are untouched");
   assert.strictEqual(t.S.undo.length, 0, "folder B's undo stack gets no entry for folder A");
 
-  // 最近取消收藏 re-favorites a whole batch in one go (all 45, though it lists only the latest), a single one alone.
-  openFake("A", [], structuredClone(savedA));
-  t.S.decisions.BVsolo = { action: "unfav", at: 1, aid: 7, title: "单个" };
-  assert.ok(t.recentUnfavHtml().includes(`data-refav-batch="${savedA.BV0.batch}"`) && t.recentUnfavHtml().includes("批量取消收藏 45 个"));
+  // R3: 处理完成 is gone; 已出分拣范围's 最近取消收藏 lists every chosen folder's records and re-favorites a whole batch
+  // into the folder it left in one go (all 45, though it lists only the latest), a single one alone.
+  const openRecent = (folderDecisions) => {
+    openFake("removed", []);
+    t.S.folderDecisions = folderDecisions;
+    for (const [f, d] of Object.entries(folderDecisions)) store[t.K.decisions(f)] = structuredClone(d);
+  };
+  openRecent({ A: { ...structuredClone(savedA), BVsolo: { action: "unfav", at: 1, aid: 7, title: "单个" } } });
+  assert.ok(t.recentUnfavHtml().includes(`data-refav-batch="${savedA.BV0.batch}" data-folder="A"`) && t.recentUnfavHtml().includes("批量取消收藏 45 个"));
   const refavAids = [];
-  handlers["triage-refav"] = (m) => (refavAids.push(m.aid), { ok: true });
-  await t.fav.refavBatch(savedA.BV0.batch);
+  handlers["triage-refav"] = (m) => (refavAids.push([m.mediaId, m.aid]), { ok: true });
+  await t.fav.refavBatch(savedA.BV0.batch, "A");
   assert.strictEqual(refavAids.length, 45, "the batch, not the single one");
-  assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), [], "the stored records are gone");
-  assert.ok(t.S.decisions.BVsolo && toasts.at(-1) === "已重新收藏这批 45 个", toasts.at(-1));
+  assert.ok(refavAids.every(([f]) => f === "A"), "back into the folder it left");
+  assert.deepStrictEqual(Object.keys(store[t.K.decisions("A")]), ["BVsolo"], "the batch's stored records are gone");
+  assert.ok(t.S.folderDecisions.A.BVsolo && toasts.at(-1) === "「A」已重新收藏这批 45 个", toasts.at(-1));
   assert.ok(!t.recentUnfavHtml().includes("data-refav-batch"), "no batch line once it is re-favorited");
   store[t.K.decisions("A")] = structuredClone(savedA);
+  // A folder no longer draws it (its tabs list no unfavorited video); 已出分拣范围 draws it on 全部 and 已取消收藏 only.
+  {
+    t.el.list.querySelectorAll = () => [];
+    openFake("A", [item(1)], structuredClone(savedA));
+    t.S.tab = "read";
+    t.renderList();
+    assert.ok(!t.el.list.innerHTML.includes("最近取消收藏"), "no 最近取消收藏 in a folder");
+    openRecent({ A: structuredClone(savedA) });
+    t.S.items = [item(1)];
+    t.S.itemMap = new Map([["BV1", t.S.items[0]]]);
+    t.S.tab = "read";
+    for (const [kind, shown] of [["", true], ["unfav", true], ["out", false]]) {
+      t.S.kindFilter = kind;
+      t.renderList();
+      assert.strictEqual(t.el.list.innerHTML.includes("最近取消收藏"), shown, kind);
+    }
+    t.S.kindFilter = "";
+  }
 
   // Back in the folder mid-run with a record read before the batch's last write: nothing written earlier is lost.
   openFake("A2", many);
@@ -268,10 +292,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.S.undo.length, 1, "back in its folder, the batch is undoable with U");
 
   // U7: after a reload the unfavorited videos are listed and re-favorited into their own folder.
-  openFake("A", many.slice(40), savedA);
+  openRecent({ A: structuredClone(savedA) });
   const recent = t.recentUnfavs();
-  assert.strictEqual(recent.length, 40);
-  assert.ok(t.recentUnfavHtml().includes('data-refav="BV0"'));
+  assert.strictEqual(recent.length, 45);
+  assert.ok(t.recentUnfavHtml().includes('data-refav="BV0" data-folder="A"'));
   handlers["triage-refav"] = () => ({ ok: true });
   t.syncFolder = async () => true;
   // Waits out the settle window (__TRIAGE_SETTLE_MS) and drops a read deferred meanwhile.
@@ -280,14 +304,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     vm.runInContext("clearTimeout(deferredRead?.timer); deferredRead = null;", ctx);
   };
   await settled();
-  await t.fav.refav("BV7");
+  await t.fav.refav("BV7", "A");
   assert.deepStrictEqual(plain(sent.at(-1)), { type: "triage-refav", mediaId: "A", aid: 1007 });
-  assert.ok(!("BV7" in store[t.K.decisions("A")]), "re-favorited video leaves the recent list");
+  assert.ok(!("BV7" in store[t.K.decisions("A")]) && !t.recentUnfavHtml().includes('data-refav="BV7"'), "re-favorited video leaves the recent list");
   // X10: the folder counts as written, so the read after it waits for B站 to catch up.
   assert.ok(t.fav.state().writing("A"), "the read after a 重新收藏 waits for B站 to catch up");
   await settled();
   const capped = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`BVx${i}`, { action: "unfav", at: i, aid: i, title: "x" }]));
-  openFake("C", [], capped);
+  openRecent({ C: capped });
   assert.strictEqual(t.recentUnfavs().length, 50, "the recent list is capped");
   assert.strictEqual(t.recentUnfavs()[0][0], "BVx59", "newest first");
 
@@ -322,11 +346,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     };
     const limitedOnce = (log) => (m) => (log.push(m.aid || m.aids), log.length === 1 ? { ok: false, code: "THROTTLED", error: "412" } : { ok: true });
     const refavs = [];
-    openFake("R", [], { BV60: { action: "unfav", at: 1, aid: 1060, title: "视频60" } });
+    openRecent({ R: { BV60: { action: "unfav", at: 1, aid: 1060, title: "视频60" } } });
     handlers["triage-refav"] = limitedOnce(refavs);
-    await t.fav.refav("BV60");
+    await t.fav.refav("BV60", "R");
     assert.deepStrictEqual(plain(refavs), [1060, 1060]);
-    assert.ok(!("BV60" in store[t.K.decisions("R")]) && toasts.at(-1) === "已重新收藏《视频60》", toasts.at(-1));
+    assert.ok(!("BV60" in store[t.K.decisions("R")]) && toasts.at(-1) === "已重新收藏《视频60》到「R」", toasts.at(-1));
     const moves = [];
     t.S.allFolders = t.S.folders = [{ id: "R", title: "源" }, { id: "T", title: "目标" }];
     t.S.included = ["R", "T"];
@@ -338,7 +362,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain(moves), [[1061, 1062], [1061, 1062]]);
     assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "copied, still listed: they stay selected");
     assert.strictEqual(toasts.at(-1), "已复制 2 个到「目标」");
-    assert.deepStrictEqual(pills, ["重新收藏中 0/1 · B站限流卡住，0:01 后重试", "复制到「目标」0/2 · B站限流卡住，0:01 后重试"]);
+    assert.deepStrictEqual(pills, ["重新收藏中 0/1（R） · B站限流卡住，0:01 后重试", "复制到「目标」0/2 · B站限流卡住，0:01 后重试"]);
     Object.assign(t.S, saved);
     t.askTransfer = realAsk;
     t.renderStatus = realStatus;
@@ -404,9 +428,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     handlers["triage-unfav"] = () => ({ ok: true });
     await t.fav.unfav("BV2");
     await t.fav.unfavMany([three[0]]);
-    Object.assign(t.S.decisions, { BV8: { action: "unfav", at: 2, aid: 1008, title: "视频8" }, BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } });
+    t.S.folderDecisions = { D: { BV8: { action: "unfav", at: 2, aid: 1008, title: "视频8" }, BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } } };
     const h = holdNext("triage-refav");
-    const running = t.fav.refav("BV8");
+    const running = t.fav.refav("BV8", "D");
     await ticks();
     let asked = 0;
     const savedAsk = t.askConfirm;
@@ -414,7 +438,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const [sentBefore, toastsBefore] = [sent.length, toasts.length];
     await t.fav.unfavMany([three[2]]);
     await t.fav.transfer([three[2]]);
-    await t.fav.refav("BV9");
+    await t.fav.refav("BV9", "D");
     assert.deepStrictEqual([asked, sent.length, toasts.length], [0, sentBefore, toastsBefore], "nothing asked, sent or told");
     await t.undo();
     assert.deepStrictEqual([asked, sent.length, t.S.undo.length, toasts.at(-1)], [0, sentBefore, 2, "重新收藏还在跑，等它完成再撤销"]);
@@ -426,7 +450,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.undo();
     assert.deepStrictEqual([t.S.undo.length, toasts.at(-1)], [1, "已重新收藏 1 个"]);
     const h2 = holdNext("triage-refav");
-    const again = t.fav.refav("BV9");
+    const again = t.fav.refav("BV9", "D");
     await ticks();
     await t.undo();
     assert.deepStrictEqual([t.S.undo.length, toasts.at(-1)], [1, "重新收藏还在跑，等它完成再撤销"]);
@@ -444,7 +468,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const running = t.fav.unfavMany(five.slice(0, 3));
     await ticks();
     const sentBefore = sent.length;
-    await t.fav.refav("BV9");
+    t.S.folderDecisions = { H: { BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } } };
+    await t.fav.refav("BV9", "H");
     await t.fav.unfav("BV43");
     assert.strictEqual(sent.length, sentBefore, "nothing sent");
     assert.ok(/data-refav="BV9"[^>]* disabled title="批量取消收藏还在跑，等它完成"/.test(t.recentUnfavHtml()), t.recentUnfavHtml());
@@ -554,7 +579,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(asked[2], "取消收藏 3 个");
     assert.deepStrictEqual(calls, [["W1", [1060, 1061], "取消收藏中「夹1」 0/4"], ["W2", [1061, 1062], "取消收藏中「夹2」 2/4"]]);
     assert.deepStrictEqual(plain(vids.map((it) => it.folders)), [[], [], ["W3"]]);
-    assert.deepStrictEqual(plain(Object.keys(t.S.decisions)), ["BV60", "BV61"], "out of every folder: 处理完成");
+    assert.deepStrictEqual(plain(Object.keys(t.S.decisions)), ["BV60", "BV61"], "out of every folder: unfavorited, in no tab");
     assert.deepStrictEqual([Object.keys(store[t.K.decisions("W1")]), Object.keys(store[t.K.decisions("W2")])], [["BV60", "BV61"], ["BV61", "BV62"]]);
     // C39: W1's BV61 and W2's BV62 left the video in a chosen folder (W2, W3); W2's BV61 was its last.
     const els = (f, b) => store[t.K.decisions(f)][b].elsewhere;
@@ -586,7 +611,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
     // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
-    // in each folder's 最近取消收藏 and the open folder gets no step.
+    // in 已出分拣范围's 最近取消收藏 and the open folder gets no step.
     for (const away of [false, true]) {
       const again = [{ ...item(63), folders: ["W1"] }, { ...item(64), folders: ["W2"] }];
       openFake("all", again);
@@ -594,7 +619,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       await t.fav.unfavMany(again);
       handlers["triage-refav"] = (m) => (m.aid === 1064 ? { ok: false, error: "网络错误" } : (away && openFake("E", []), { ok: true }));
       await t.undo();
-      const want = away ? ["「所有收藏夹」撤销中断（已重新收藏 1 个，剩余 1 个在各收藏夹的最近取消收藏里）：网络错误", 0] : ["撤销中断（已重新收藏 1 个，剩余 1 个可再按 U 重试）：网络错误", 1];
+      const want = away ? ["「所有收藏夹」撤销中断（已重新收藏 1 个，剩余 1 个在「已出分拣范围」的「最近取消收藏」里）：网络错误", 0] : ["撤销中断（已重新收藏 1 个，剩余 1 个可再按 U 重试）：网络错误", 1];
       assert.deepStrictEqual([toasts.at(-1), t.S.undo.length], want, away ? "elsewhere: told only" : "here: U again");
     }
     // No folder checked: the dialog's button is off and says why; it is on again for the next dialog.
@@ -690,11 +715,15 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.itemMap.set("BV4", t.S.items[3]);
   t.S.basket.push({ bvid: "BV4" });
   t.S.selected.clear();
-  t.S.selected.add("BV2"); // kept, so not listed in 未分析: a selection hidden there is left out
+  t.S.selected.add("BV2"); // kept, so 未决定 hides it: a selection hidden there is left out
   t.S.selected.add("BV3");
   Object.assign(t.S, { tab: "none", titleRes: {}, analyses: { BVgone: { status: "done", oneLiner: "一句话", points: ["要点"] } }, notes: { BV3: { text: " 我的笔记 " } }, videoTags: {} });
   const scope = (s) => plain(t.writeScopeItems(s, true).map((it) => it.bvid));
+  assert.deepStrictEqual(scope("filter"), ["BV1", "BV2", "BV3"], "kept, BV2 is still in 未分析: the tabs go by AI depth");
+  t.S.decisionFilter = "undecided";
   assert.deepStrictEqual([scope("selected"), scope("all"), scope("filter")], [["BV3"], ["BV1", "BV2", "BV3"], ["BV1", "BV3"]]);
+  t.S.decisionFilter = "";
+  t.S.selected.delete("BV2");
   // A filter hides part of the selection: the bar counts only what is listed, and the hidden one stays selected.
   t.S.selected.add("BV1");
   t.S.query = "视频3";
@@ -709,11 +738,16 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   const hiddenAll = sight();
   assert.ok(hiddenAll.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏</span>") && hiddenAll.includes('aria-label="AI 打标签选中的 2 个 (I)"'), hiddenAll);
   t.S.query = "";
-  // The selection belongs to the tab: the kept BV2 is not in 未分析, so it leaves the selection, and so does one kept now.
+  // The selection belongs to the tab: 保留 leaves a video in the tab of its AI depth, so it stays selected; an
+  // unfavorited one leaves every tab, and the selection.
   await t.keepOne("BV1");
   t.renderListHeader(t.visibleItems());
+  assert.deepStrictEqual(plain([...t.S.selected]), ["BV3", "BV1"]);
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 2 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("被筛选隐藏"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+  t.S.decisions.BV1 = { action: "unfav", at: 1 };
+  t.renderListHeader(t.visibleItems());
   assert.deepStrictEqual(plain([...t.S.selected]), ["BV3"]);
-  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("已选中 1 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("被筛选隐藏"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+  t.S.decisions.BV1 = t.S.kept.BV1;
   delete t.S.kept.BV1;
   assert.deepStrictEqual(plain(t.writeScopeItems("all", false).map((it) => it.bvid)), ["BV1", "BV2", "BV3", "BV4"]);
   // 一篇摘录 carries what each video's own note carries (MdgNote.triageExtras), read from storage as the note is: the
@@ -808,7 +842,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(t.verdictOf({ bvid: "BVnone", invalid: true }).reason, "视频已失效");
 
   // Progress tabs follow which AI steps ran: no 粗看 → 未分析, a 粗看 class or invalid → 粗看完成,
-  // a done 细看 → 细看完成, processed → 处理完成. Class and confidence never move a card.
+  // a done 细看 → 细看完成. Class, confidence and the user's decision never move a card.
   Object.assign(t.S, { analyses: {}, titleRes: {}, decisions: {}, videoTags: {}, tags: [] });
   const st = (patch = {}, it = v) => {
     Object.assign(t.S, patch);
@@ -822,15 +856,23 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.strictEqual(st({ analyses: { BVv: { status: "error" } }, titleRes: { BVv: { verdict: "unsure" } } }), "coarse", "a failed 细看 stays in 粗看完成 with its retry button");
   assert.strictEqual(st({ analyses: {}, titleRes: {} }, { ...v, invalid: true }), "coarse");
   assert.strictEqual(t.verdictOf({ ...v, invalid: true }).verdict, "drop", "invalid videos count as 可以删");
-  assert.strictEqual(st({ decisions: { BVv: { action: "keep" } } }), "done");
+  assert.strictEqual(st({ decisions: { BVv: { action: "keep" } }, titleRes: { BVv: { verdict: "keep" } } }), "coarse", "保留 leaves a 粗看'd video in 粗看完成");
   assert.strictEqual(st({ decisions: {} }, { ...v, invalid: true, bvid: "BVv" }), "coarse");
-  // A1: only 取消收藏 / 保留 move a video to 处理完成; tags (T, 批量打标签) and notes do not.
+  // 处理完成 is gone: four tabs, three of them AI depth.
+  assert.deepStrictEqual(plain(vm.runInContext("STAGES", ctx).map(([k]) => k)), ["none", "coarse", "fine"]);
+  assert.ok(!/处理完成/.test(source), "no page code says 处理完成");
+  // A1: tags (T, 批量打标签) and notes move no video either.
   const tagged = { tags: [{ id: "t1", name: "x" }], videoTags: { BVv: ["t1"] }, notes: { BVv: { text: "备注", updatedAt: 1 } } };
   assert.strictEqual(st({ ...tagged, titleRes: {} }), "none", "a tagged, noted video without 粗看 stays in 未分析");
   assert.strictEqual(st({ titleRes: { BVv: { verdict: "unsure", confidence: "high" } } }), "coarse", "tagged 待定 stays in 粗看完成");
   assert.strictEqual(st({ analyses: { BVv: { status: "done", verdict: "keep" } } }), "fine", "tagged after 细看 stays in 细看完成");
-  assert.strictEqual(st({ decisions: { BVv: { action: "unfav" } } }), "done");
-  Object.assign(t.S, { videoTags: {}, tags: [], notes: {} });
+  // An unfavorited video is in no tab (已出分拣范围 has it); 阅览全部 leaves it out too.
+  t.S.decisions = { BVv: { action: "unfav" } };
+  assert.strictEqual(t.stageOf(v), "fine");
+  assert.ok(["none", "coarse", "fine", "read"].every((tab) => !t.inTab(v, tab)), "unfavorited: in no tab");
+  t.S.decisions = { BVv: { action: "keep" } };
+  assert.ok(t.inTab(v, "fine") && t.inTab(v, "read"), "kept: in the tab of its AI depth and in 阅览全部");
+  Object.assign(t.S, { videoTags: {}, tags: [], notes: {}, decisions: {} });
 
   // 细看 batch: first fineBatchSize() open cards of 粗看完成, or the selected ones; 细看完成 buttons follow the selection too.
   const pool = Array.from({ length: 12 }, (_, i) => item(200 + i));
@@ -897,10 +939,46 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(plain(t.batchList("keep").map((it) => it.bvid)), ["BV200"]);
   assert.deepStrictEqual(plain(t.batchList("drop").map((it) => it.bvid)), ["BV200"]);
   await t.batchKeep(t.batchList("keep"));
-  assert.strictEqual(t.stageOf(pool[0]), "done", "batch 保留 moves it to 处理完成");
+  assert.strictEqual(t.stageOf(pool[0]), "fine", "batch 保留 leaves it in 细看完成");
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV200"], "kept, it still falls under the AI's 拿不准");
+  t.S.selected.clear();
+  assert.deepStrictEqual([t.batchList("keep").length, t.batchList("unsure").length], [0, 0], "verdict batches take only undecided videos");
+  // P2: 未决定 / 已保留 and the AI verdict are separate groups, AND-ed: 已保留 + 可清理 finds kept videos the AI said to drop.
+  t.S.analyses.BV201 = { status: "done", verdict: "drop" };
+  t.S.analyses.BV202 = { status: "done", verdict: "drop" };
+  t.S.decisions.BV201 = { action: "keep", at: 1 };
+  Object.assign(t.S, { decisionFilter: "kept" });
+  t.S.classFilter.fine = "drop";
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV201"]);
+  t.S.decisionFilter = "undecided";
+  assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV202"]);
+  t.S.decisionFilter = "";
+  t.S.classFilter.fine = "all";
+  t.renderListHeader(t.visibleItems());
+  for (const part of [">未决定 1<", ">已保留 2<", ">可清理 2<", ">拿不准 1<", 'data-decision="kept" title="保留标记']) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+  assert.ok(t.el.classFilter.innerHTML.indexOf("未决定") < t.el.classFilter.innerHTML.indexOf("值得留"), "the decision group comes before the AI verdict");
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏（AI：可清理）1 个"), "the batch 取消收藏 leaves the kept 可清理 one out");
+  t.pickState("decision", "kept");
+  assert.strictEqual(t.S.decisionFilter, "kept");
+  t.pickState("all");
+  assert.strictEqual(t.S.decisionFilter, "", "全部 clears it");
   delete store[t.K.kept];
   Object.assign(t.S, { analyses: {}, decisions: {}, kept: {}, classFilter: { coarse: "all", fine: "all" } });
   t.S.selected.clear();
+  // P3: a kept video with only 粗看 sits in 粗看完成; 字幕细看下一批 leaves 已保留 out (AI cost), a selection runs it.
+  t.S.tab = "coarse";
+  t.S.titleRes = Object.fromEntries(pool.map((it) => [it.bvid, { verdict: "unsure", confidence: "high" }]));
+  t.S.decisions = { BV200: { action: "keep", at: 1 } };
+  assert.ok(t.inTab(pool[0], "coarse") && vm.runInContext("needsAnalysis", ctx)("BV200"), "kept after 粗看: in 粗看完成 and still 细看-able");
+  assert.ok(!t.nextBatch().includes("BV200") && t.nextBatch().length === 10, "下一批 skips 已保留");
+  t.S.selected.add("BV200");
+  assert.deepStrictEqual(plain(t.nextBatch()), ["BV200"], "selected, a kept video is 细看'd");
+  t.S.selected.clear();
+  t.S.decisions = Object.fromEntries(pool.map((it) => [it.bvid, { action: "keep", at: 1 }]));
+  assert.deepStrictEqual(plain(t.nextBatch()), []);
+  t.renderListHeader(t.visibleItems());
+  assert.ok(t.el.listHeader.innerHTML.includes('disabled title="已保留的视频不进下一批，选中后可以细看"'), t.el.listHeader.innerHTML);
+  Object.assign(t.S, { decisions: {}, titleRes: {} });
   // 粗看完成 chips: per-class counts in the tab; a chip narrows the next batch, a selection still wins; each tab keeps its chip.
   t.S.tab = "coarse";
   t.S.titleRes = Object.fromEntries(pool.map((it, i) => [it.bvid, i < 6 ? { verdict: "unsure", confidence: "high" } : { verdict: i % 2 ? "keep" : "drop", confidence: "low" }]));
@@ -1084,6 +1162,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "all";
   t.renderListHeader(t.visibleItems());
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("按新标准重新细看下一批 1 个"));
+  // P3: its next batch leaves 已保留 out too; selected, a kept one is redone.
+  t.S.decisions = { BV203: { action: "keep", at: 1 } };
+  assert.deepStrictEqual(plain(vm.runInContext('redoOf("fine")', ctx).batch), [], "下一批 skips the kept stale one");
+  t.S.selected = new Set(["BV203"]);
+  assert.deepStrictEqual(plain(vm.runInContext('redoOf("fine")', ctx).batch.map((it) => it.bvid)), ["BV203"]);
+  t.S.selected.clear();
+  t.S.decisions = {};
   // F1: like the step's own button, a selection of stale ones wins. G9: a selection with none stale does not fall back
   // to the next batch: the button stays the selection's, disabled with why.
   t.S.selected = new Set(["BV204"]);
@@ -1898,7 +1983,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual(Object.keys(store[t.K.kept]), ["BV1"]);
   assert.ok(!store[t.K.decisions("A")], "保留 writes no folder record");
   t.S.decisions = { ...t.S.kept, ...store[t.K.decisions("B")] };
-  assert.strictEqual(t.stageOf(item(1)), "done", "kept in A is kept in B");
+  assert.strictEqual(t.S.decisions.BV1?.action, "keep", "kept in A is kept in B");
   await t.undo();
   await flush();
   assert.deepStrictEqual(plain(store[t.K.kept]), {});
@@ -2077,11 +2162,11 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     delete t.S.titleRes.BV1;
   }
 
-  // 处理完成 keeps what 细看 found: the one-liner and the points stay on the card.
+  // A kept card in 细看完成 keeps what 细看 found: the one-liner and the points stay on the card.
   {
     const saved = { tab: t.S.tab, analyses: t.S.analyses };
     openFake("A", [item(1)], { BV1: { action: "keep" } });
-    Object.assign(t.S, { tab: "done", analyses: { BV1: { status: "done", verdict: "keep", reason: "讲得清楚", oneLiner: "一句话", points: ["要点甲", "要点乙"] } } });
+    Object.assign(t.S, { tab: "fine", analyses: { BV1: { status: "done", verdict: "keep", reason: "讲得清楚", oneLiner: "一句话", points: ["要点甲", "要点乙"] } } });
     t.renderList();
     for (const part of ["一句话", "要点甲", "要点乙", "讲得清楚", "已保留"]) assert.ok(t.el.list.innerHTML.includes(part), part);
     assert.ok(!t.el.list.innerHTML.includes("值得留"), "the decision replaces the verdict label");
@@ -2094,17 +2179,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     openFake("A", [item(1)]);
   }
 
-  // 阅览: a decided video leaves the AI classes for 已保留, the same word its card shows.
+  // 阅览: a decided video keeps its AI class; 已保留 is the decision group's, the same word its card shows.
   {
     const saved = { tab: t.S.tab, titleRes: t.S.titleRes, classFilter: t.S.classFilter };
     openFake("A", [item(1), item(2)], { BV1: { action: "keep" } });
     Object.assign(t.S, { tab: "read", titleRes: { BV1: { verdict: "keep" }, BV2: { verdict: "keep" } }, classFilter: { coarse: "all", fine: "all", read: "all" } });
     t.renderListHeader(t.visibleItems());
-    for (const part of [">全部 2<", ">值得留 1<", ">已保留 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
-    t.S.classFilter.read = "kept";
+    for (const part of [">全部 2<", ">值得留 2<", ">已保留 1<", ">未决定 1<"]) assert.ok(t.el.classFilter.innerHTML.includes(part), part);
+    assert.ok(!t.el.classFilter.innerHTML.includes('data-class-filter="kept"'), "已保留 is no AI class");
+    t.S.decisionFilter = "kept";
     assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1"]);
+    t.S.decisionFilter = "";
     t.S.classFilter.read = "keep";
-    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV2"]);
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1", "BV2"]);
     Object.assign(t.S, saved);
     openFake("A", [item(1)]);
   }
@@ -2448,9 +2535,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const writeRun = hang("write");
     assert.strictEqual(leave(), true, "notes export");
     await writeRun();
-    t.S.decisions.BV9 = { action: "unfav", at: 1, aid: 1009, title: "视频9" };
+    t.S.folderDecisions = { K: { BV9: { action: "unfav", at: 1, aid: 1009, title: "视频9" } } };
     const h = holdNext("triage-refav");
-    const running = t.fav.refav("BV9");
+    const running = t.fav.refav("BV9", "K");
     await ticks();
     assert.strictEqual(leave(), true, "a 重新收藏 running");
     h.release();
@@ -3236,7 +3323,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.clear();
     const groups = () => [...row3().matchAll(/role="group" aria-label="([^"]+)"/g)].map((m) => m[1]);
     const has = (...parts) => parts.forEach((p) => assert.ok(row3().includes(p), p));
-    assert.deepStrictEqual(groups(), ["全部", "按 AI 判断筛选", "按有没有标签", "已失效"], "fixed groups, then 已失效 (conditional) last");
+    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "按有没有标签", "已失效"], "fixed groups, then 已失效 (conditional) last");
     has(">全部 5<", ">值得留 2<", ">可清理 2<", ">拿不准 1<", ">已失效 1<");
     assert.ok(row3().startsWith('<span class="row-label">状态</span>'), "row 3 starts with its name");
     t.renderTabs();
@@ -3270,7 +3357,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.seenCfg = { on: true, bar: false, mark: true, threshold: 80, style: "badge" };
     t.S.seenPct = { BV93: [100, 1] };
     t.S.aiRecent = { R: { bvids: ["BV94"] } };
-    assert.deepStrictEqual(groups(), ["全部", "按 AI 判断筛选", "按有没有标签", "看完了", "已失效", "AI 刚打的"]);
+    assert.deepStrictEqual(groups(), ["全部", "按决定筛选", "按 AI 判断筛选", "按有没有标签", "看完了", "已失效", "AI 刚打的"]);
     t.pickState("class", "unsure");
     assert.ok(!row3().includes("data-finishedfilter"), "看完了 at 0 (BV93 is 可清理) is not shown");
     t.S.tagFilter.add("rb");
@@ -3279,18 +3366,18 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.pickState("all");
     assert.ok(!t.S.finishedFilter && t.S.classFilter.coarse === "all" && t.S.tagFilter.has("rb"), "全部 clears row 3, not row 4");
     t.S.tagFilter.clear();
-    // Row 4 counts the videos of the tab, row 3 applied; 未分析 has no AI group; 已保留 is 阅览全部's.
+    // Row 4 counts the videos of the tab, row 3 applied; 未分析 has no AI group; 未决定 / 已保留 is in every tab.
     t.pickState("class", "drop");
     t.renderTabs();
     assert.ok(t.el.tagFilter.innerHTML.includes('甲<span class="chip-n">1</span>') && t.el.tagFilter.innerHTML.includes('乙<span class="chip-n">1</span>'));
     t.pickState("all");
     t.S.tab = "none";
-    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "按有没有标签"], "未分析: no AI verdict group");
+    assert.deepStrictEqual(groups().filter((g) => g !== "已失效"), ["全部", "按决定筛选", "按有没有标签"], "未分析: no AI verdict group");
     t.S.decisions = { BV92: { action: "keep", at: 1 } };
     t.S.tab = "read";
-    has(">已保留 1<");
+    has(">已保留 1<", ">未决定 5<");
     t.S.tab = "coarse";
-    assert.ok(!row3().includes("已保留"));
+    has(">已保留 1<", ">未决定 4<");
     Object.assign(t.S, { decisions: {}, aiRecent: {}, seenPct: {}, titleRes: {}, tags: [], videoTags: {} });
     t.S.seenCfg = { on: false, bar: false, mark: false, threshold: 80, style: "badge" };
   }

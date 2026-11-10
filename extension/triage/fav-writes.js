@@ -196,26 +196,26 @@ function cutText(error, stopped, { n = null, left = null, there = "" } = {}) {
   if (stopped) return `${stopWords("撤销", { done: n ?? 0, total: (n ?? 0) + (left ?? 1) })}，${there ? `未完成的在${there}里` : "可再按 U 撤销"}`;
   return "";
 }
-// U on a batch 取消收藏 in one folder: back into it. Elsewhere the ones left stay under its 最近取消收藏.
+// U on a batch 取消收藏 in one folder: back into it. Elsewhere the ones left stay in 已出分拣范围's 最近取消收藏.
 function unfavManyStep(mediaId, items) {
   return favStep(items.length, refavAsk(items.length), async () => {
     const { n, rest, error, stopped } = await refavInto(mediaId, items);
     const here = S.mediaId === mediaId;
     const where = here ? "" : `「${folderName(mediaId)}」`;
-    const cut = cutText(error, stopped, { n, left: rest.length, there: here ? "" : `它的${RECENT_UNFAV}` });
+    const cut = cutText(error, stopped, { n, left: rest.length, there: here ? "" : RECENT_UNFAV_AT });
     if (cut && here) pushUndo(unfavManyStep(mediaId, rest));
     toast(cut ? `${where}${cut}` : `${where}已重新收藏 ${n} 个`, Boolean(error));
     return redraw();
   });
 }
 // U on 所有收藏夹's batch 取消收藏: each video back in every folder it left (gone: folder → [{ bvid, aid, ogv }]). Elsewhere
-// the ones left stay under each folder's 最近取消收藏.
+// the ones left stay in 已出分拣范围's 最近取消收藏.
 function goneStep(items, gone) {
   return favStep(items.length, refavAsk(items.length), async () => {
     const { rest, error, stopped } = await refavGone(gone);
     const here = S.mediaId === ALL;
     const left = items.filter((x) => Object.values(rest).some((list) => list.some((y) => y.bvid === x.bvid)));
-    const cut = cutText(error, stopped, { n: items.length - left.length, left: left.length, there: here ? "" : `各收藏夹的${RECENT_UNFAV}` });
+    const cut = cutText(error, stopped, { n: items.length - left.length, left: left.length, there: here ? "" : RECENT_UNFAV_AT });
     if (cut && here) pushUndo(goneStep(left, rest));
     toast(cut ? `${here ? "" : `「${folderName(ALL)}」`}${cut}` : `已重新收藏 ${items.length} 个`, Boolean(error));
     return redraw();
@@ -352,15 +352,15 @@ const fav = {
       pushUndo(goneStep(videos.map(favRef), gone));
       tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏 ${videos.length} 个视频${UNDO}`, `${UNDO}已完成的`);
     } else if (done && all) {
-      tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在各收藏夹的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在各收藏夹的${RECENT_UNFAV}里${REFAV}`);
+      tell(`已从 ${Object.keys(gone).length} 个收藏夹取消收藏，可在${RECENT_UNFAV_AT}里${REFAV}`, `，已完成的可在${RECENT_UNFAV_AT}里${REFAV}`);
     } else if (done && S.mediaId === mediaId) {
       // By folder, not by view: the records are the folder's, so back in it after a switch the batch is still undoable.
       const went = new Set(r.keys);
       pushUndo(unfavManyStep(mediaId, list.filter((it) => went.has(it.bvid)).map(favRef)));
       tell(`${KIND_NAME.unfav} ${done} 个${UNDO}`, `${UNDO}已完成的`);
     } else if (done) {
-      // Elsewhere they are saved under their folder and listed in its 最近取消收藏, where they can be re-favorited.
-      tell(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在它的${RECENT_UNFAV}里${REFAV}`, `，已完成的可在它的${RECENT_UNFAV}里${REFAV}`);
+      // Elsewhere they are saved under their folder and listed in 已出分拣范围's 最近取消收藏, where they can be re-favorited.
+      tell(`「${folderName(mediaId)}」已取消收藏 ${done} 个，可在${RECENT_UNFAV_AT}里${REFAV}`, `，已完成的可在${RECENT_UNFAV_AT}里${REFAV}`);
     }
     render();
   },
@@ -443,29 +443,29 @@ const fav = {
     render();
   },
 
-  // 最近取消收藏's 重新收藏 of one video.
-  async refav(bvid) {
-    const d = S.decisions[bvid];
+  // 最近取消收藏's 重新收藏 of one video, into the folder it left (mediaId). Back in a chosen folder, it leaves 已出分拣范围.
+  async refav(bvid, mediaId) {
+    const d = S.folderDecisions[mediaId]?.[bvid];
     if (!d?.aid || W.busy()) return;
-    const mediaId = S.mediaId;
-    const { error } = await refavInto(String(mediaId), [favRef({ bvid, ...d })]);
+    const { error } = await refavInto(mediaId, [favRef({ bvid, ...d })]);
     if (error) return toast(`重新收藏失败：${error}`, true);
-    if (mediaId !== S.mediaId) return;
-    toast(`已重新收藏《${d.title || bvid}》`);
-    quickSync({ force: true });
+    toast(`已重新收藏《${d.title || bvid}》到「${folderName(mediaId)}」`);
+    if (S.mediaId === REMOVED) await dropRemoved([bvid]);
+    render();
   },
 
-  // 最近取消收藏's 这批全部重新收藏: every record one batch 取消收藏 left here.
-  async refavBatch(batch) {
-    const items = unfavBatchItems(batch);
+  // 最近取消收藏's 这批全部重新收藏: every record one batch 取消收藏 left in mediaId.
+  async refavBatch(batch, mediaId) {
+    const items = unfavBatchItems(batch, mediaId);
     if (!items.length || W.busy()) return;
-    const mediaId = String(S.mediaId);
     const { n, rest, error, stopped } = await refavInto(mediaId, items);
-    const where = S.mediaId === mediaId ? "" : `「${folderName(mediaId)}」`;
+    const where = `「${folderName(mediaId)}」`;
     if (error) toast(`${where}${cutShort(REFAV, n, error, `，剩余 ${rest.length} 个可再点${MdgErrors.LABEL.retry}`)}`, true);
     else if (stopped) toast(`${where}${stopWords(REFAV, { done: n, total: items.length })}`);
     else toast(`${where}已重新收藏这批 ${n} 个`);
-    if (!where) quickSync({ force: true });
+    const back = new Set(rest.map((it) => it.bvid));
+    if (S.mediaId === REMOVED) await dropRemoved(items.map((it) => it.bvid).filter((b) => !back.has(b)));
+    render();
   },
 
   // What the page draws and checks: busy (the running batch's name, "" when none), run (it, once planned: favRun),
