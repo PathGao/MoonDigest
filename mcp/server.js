@@ -565,7 +565,7 @@ function errorResult(err) {
 }
 
 export function createMcpServer(bridge) {
-  const server = new Server({ name: "moondigest", version: "0.1.0" }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+  const server = new Server({ name: "moondigest", version: "0.1.1" }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     const args = params.arguments || {};
