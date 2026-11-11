@@ -497,7 +497,7 @@ function cardHtml(it, expanded, mark) {
     : `<button type="button" data-act="basket" aria-label="加入待播 (E)" title="加入待播">+ 待播<kbd class="key">E</kbd></button>`;
   const askBtn = `<button type="button" data-act="ask" aria-label="问 AI (Q)">${AI_SPARK}问 AI<kbd class="key">Q</kbd></button>`;
   // The 发布时间 is relative, the date on hover; the rest is text.
-  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], done && basisText(a), esc(seenText(it)), it.invalid && KIND_NAME.invalid, it.folders?.length && esc(`收藏夹：${folderNames(it)}`)].filter(Boolean);
+  const meta = [esc(it.upper), it.pubdate && UI.agoHtml(it.pubdate), Number.isFinite(it.play) && esc(`▶ ${fmtCount(it.play)}`), ["", "粗看", "细看"][v.stage], done && basisText(a), esc(seenText(it)), it.invalid && KIND_NAME.invalid, it.folders?.length && esc(`收藏夹：${folderNames(it)}`), esc(zoneOf(it))].filter(Boolean);
   const left = removed && [originHtml(it), it.removedAt && `<span>${esc(leftText(it))}</span>`].filter(Boolean).join("");
 
   const verdict = decision ? "" : verdictBadge(b, v);

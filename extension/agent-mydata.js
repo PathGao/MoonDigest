@@ -22,7 +22,7 @@
   // The 分拣台's data on each video: tags (and 摘读记录's), 备注, the AI verdict and one-line summary, 保留.
   async function withTriage(items, staged = false) {
     const bvids = items.map((it) => it.bvid);
-    const keys = [K.triageNotes, K.triageTags, K.triageVideoTags, K.readingMarks, K.triageKept, ...bvids.flatMap((b) => [K.triageAnalysis(b), K.triageTitle(b)])];
+    const keys = [K.triageNotes, K.triageTags, K.triageVideoTags, K.readingMarks, K.triageKept, K.triageZones, ...bvids.flatMap((b) => [K.triageAnalysis(b), K.triageTitle(b)])];
     const got = await chrome.storage.local.get(keys);
     return items.map((it) => {
       const x = MdgNote.triageExtras(got, { site: "bilibili", videoId: it.bvid });
@@ -40,7 +40,8 @@
         ...(x.userTags.length && { tags: x.userTags }),
         ...(x.note && { note: x.note }),
         ...(v.verdict !== "none" && { verdict: v.verdict }),
-        ...(staged && { stage: v.stage === 2 ? "fine" : v.stage === 1 ? "coarse" : "none" }),
+        // B站's 分区, where the 分拣台 has read it: coarse, but a hint for sorting.
+        ...(staged && { stage: v.stage === 2 ? "fine" : v.stage === 1 ? "coarse" : "none", ...(TriageCore.zoneName(got[K.triageZones]?.[it.bvid]) && { zone: TriageCore.zoneName(got[K.triageZones][it.bvid]) }) }),
         ...(summary && { summary }),
         ...(got[K.triageKept]?.[it.bvid] && { kept: true })
       };

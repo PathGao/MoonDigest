@@ -106,10 +106,13 @@ check("all: every chosen folder's copy as one list, a video once with its folder
   local[K.triageTags] = [{ id: "t1", name: "Rust", folder: "11" }];
   local[K.triageVideoTags] = { BV1aaaaaaaaa: ["t1"] };
   local[K.triageAnalysis("BV1aaaaaaaaa")] = { status: "done", verdict: "keep", oneLiner: "讲透所有权" };
+  local[K.triageZones] = { BV1aaaaaaaaa: 201, BV1ddddddddd: 0 }; // 201: 科学科普, under 知识; 0: B站 gave none
   const all = (p) => M.favorites({ all: true, ...p }).then((r) => r.data);
   const ids = (d) => d.items.map((x) => x.bvid.slice(3, 4)).join("");
   const d = await all({});
   assert.deepStrictEqual([d.source, d.total, plain(d.unsynced), ids(d)], ["local", 3, ["33"], "abd"], "the 取消收藏 one is left out; folder 33 has no copy yet");
+  assert.deepStrictEqual([d.items[0].zone, "zone" in d.items[2]], [ctx.TriageCore.zoneName(201), false]);
+  assert.ok(d.items[0].zone);
   assert.deepStrictEqual([plain(d.items[0].folders), d.items[0].stage, d.items[1].stage, d.items[1].verdict, d.items[2].stage], [["11", "22"], "fine", "none", "drop", "none"]);
   assert.deepStrictEqual([ids(await all({ verdict: "none" })), ids(await all({ stage: "fine" })), ids(await all({ tag: "Rust" })), ids(await all({ invalid: true })), ids(await all({ invalid: false })), ids(await all({ folderId: "22" })), ids(await all({ query: "没看" }))], ["d", "a", "a", "b", "ad", "ad", "d"]);
   assert.strictEqual((await M.favorites({ all: true, verdict: "maybe" })).code, "BAD_PARAMS");

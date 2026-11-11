@@ -66,6 +66,9 @@
     // the MCP's own undo.
     triageAgentLog: "triage_agent_log",
     triageBasket: "triage_basket",
+    // { [bvid]: tid }: B站's old sub-zone number of each listed video (0: B站 gave none), asked by triage-bg.js's
+    // triage-zones and written by the 分拣台 (fav-folders.js fillZones), which shows its 分区. B站's, read again when missing: not in 完整备份.
+    triageZones: "triage_zones",
     // 摘读记录's 星标 and tags: { tags: [{ id, name, color, rule }], items: { [record key]: { star, tags, ref, updatedAt } } }.
     // The record key is MdgNote.readingKey; ref keeps the title and address, so a record stays after its conversations go.
     readingMarks: "mdg_reading_marks_v1",

@@ -84,6 +84,7 @@
     "triage-folder-page": { from: [TRIAGE_BG], to: "triage/fav-page.js", request: ["mediaId", "page"], response: [] },
     "triage-folder-ids": { from: ["triage/fav-folders.js", "triage/fav-writes.js"], to: TRIAGE_BG, request: ["mediaId"], response: data },
     "triage-fav-where": { from: ["triage/fav-folders.js"], to: TRIAGE_BG, request: ["aid", "mid"], response: data },
+    "triage-zones": { from: ["triage/fav-folders.js"], to: TRIAGE_BG, request: ["items"], response: data },
     "triage-folder-create": { from: ["triage/fav-writes.js"], to: TRIAGE_BG, request: ["title", "privacy"], response: data },
     "triage-unfav": { from: ["triage/fav-writes.js"], to: TRIAGE_BG, request: ["mediaId", "aids"], response: data },
     "triage-refav": { from: ["triage/fav-writes.js"], to: TRIAGE_BG, request: ["mediaId", "aid"], response: data },

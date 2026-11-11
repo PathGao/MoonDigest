@@ -194,7 +194,7 @@ export function formatFavorites(d) {
     const lines = [`Every ticked folder's copy as one list. Page ${d.page}, ${d.items.length} of ${d.total}.${d.hasMore ? ` More: page ${d.page + 1}.` : ""}${d.unsynced?.length ? ` No copy yet (sync_favorites): ${d.unsynced.join(", ")}.` : ""}`];
     for (const v of d.items) {
       lines.push(joinParts([
-        v.bvid, v.title, v.author, clock(v.duration), `in ${v.folders.join(",")}`, v.invalid && "unavailable", v.kept && "kept",
+        v.bvid, v.title, v.author, clock(v.duration), `in ${v.folders.join(",")}`, v.zone, v.invalid && "unavailable", v.kept && "kept",
         v.verdict && `AI: ${v.verdict}${v.stage === "coarse" ? " (title only)" : ""}`, v.tags?.length && `tags: ${v.tags.join(", ")}`,
       ]));
     }

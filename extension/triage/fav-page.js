@@ -41,7 +41,7 @@ async function start() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, zones] = await Promise.all([
     loadTagsAndCriteria(),
     storeGet(K.kept, {}),
     storeGet(K.basket, []),
@@ -52,9 +52,10 @@ async function start() {
     storeGet(K.sort, {}),
     storeGet(K.readAt, {}),
     storeGet(K.aiProposals, {}),
-    storeGet(K.agentLog, [])
+    storeGet(K.agentLog, []),
+    storeGet(K.zones, {})
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, zones });
   followAgentLog(agentLog, false);
   S.ai.proposals = aiProposals;
   pruneAiProposals();

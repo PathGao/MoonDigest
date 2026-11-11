@@ -579,6 +579,7 @@ async function cleanRemoved(list) {
   return lockRecords(async () => {
     const bvids = list.map((it) => it.bvid);
     const set = new Set(bvids);
+    bvids.forEach((b) => (zoneGone.add(b), delete S.zones[b]));
     const rec = await storeGet(K.removed, {});
     for (const b of bvids) {
       for (const map of [rec, S.notes, S.analyses, S.titleRes]) delete map[b];
@@ -600,6 +601,8 @@ async function cleanRemoved(list) {
     // 保留 and 待播 are every tab's: each by read-modify-write, only these videos taken out.
     await patchKept(Object.fromEntries(bvids.map((b) => [b, null])));
     await editBasket((b) => b.filter((x) => !set.has(x.bvid)));
+    // Their 分区 too, so the map holds only videos the 分拣台 still has (B站's, so the dialog does not name it).
+    await storeEdit(K.zones, {}, untag);
     S.removedCount = Object.keys(rec).length;
     setItems(S.items.filter((it) => !set.has(it.bvid)));
     toast(`已清理 ${list.length} 个视频`);
@@ -611,6 +614,7 @@ async function cleanRemoved(list) {
 async function loadResults(run) {
   await loadSeen(run);
   if (!run.alive) return false;
+  fillZones(run);
   const missing = S.items.map((it) => it.bvid).filter((b) => !(b in S.titleRes) && !(b in S.analyses));
   if (!missing.length) return true;
   const [t, a] = await Promise.all([
@@ -639,6 +643,55 @@ async function loadResults(run) {
   const failed = [t, a].find((r) => !r.ok);
   if (failed) toast(`读取已有的 AI 判断失败：${MdgErrors.text(failed)}`, true);
   return true;
+}
+
+// 分区 of the listed videos not known yet (no 番剧, nothing invalid or without an aid), UI.ZONE_BATCH a request, as runs'
+// "zones": a gap between requests, a B站 limit counts down in the pill, another view opened ends it and drops the answer
+// in flight. A failure only leaves those cards without a 分区. Each step takes the ones still missing, so videos listed
+// while it runs (所有收藏夹 loading folder by folder) join the same run.
+// The page writes what comes back (K.zones), so a video 清理 took out meanwhile (zoneGone) is not written back.
+const ZONE_GAP_MS = 1000;
+let zoneRun = null; // the view run the "zones" job fills for
+// This page's videos whose batch failed or came back empty: not asked again until the page is reloaded.
+const zoneFailed = new Set();
+// Videos 清理 took out in this page: an answer in flight for them lands nowhere.
+const zoneGone = new Set();
+async function fillZones(run) {
+  if (zoneRun === run) return;
+  zoneRun = run;
+  // One of an earlier view ends once its request in flight lands.
+  while (runs.busy("zones") && run.alive) await sleepWhile(50, () => true);
+  if (!run.alive) return;
+  const asked = new Set();
+  let cur = null; // the step in flight: a failure marks its videos
+  const wanted = () => S.items.filter((it) => it.aid && !it.ogv && !it.invalid && !(it.bvid in S.zones) && !asked.has(it.bvid) && !zoneFailed.has(it.bvid));
+  const r = await runs.run("zones", {
+    gap: ZONE_GAP_MS,
+    alive: () => run.alive,
+    // Another tab may have read some meanwhile.
+    plan: async () => (Object.assign(S.zones, await storeGet(K.zones, {})), run.alive && wanted().length ? {} : null),
+    line: (d) => `读取分区 ${d}/${asked.size + wanted().length}`,
+    next() {
+      const items = wanted().slice(0, UI.ZONE_BATCH);
+      items.forEach((it) => asked.add(it.bvid));
+      return items.length ? { items, n: items.length } : null;
+    },
+    act: (step) => ((cur = step), send({ type: "triage-zones", items: step.items.map(({ bvid, aid }) => ({ bvid, aid })) })),
+    async done({ items }, x) {
+      const zones = x.data?.zones || {};
+      if (!Object.keys(zones).length) return items.forEach((it) => zoneFailed.add(it.bvid));
+      const kept = (z) => Object.fromEntries(Object.entries(z).filter(([b]) => !zoneGone.has(b)));
+      Object.assign(S.zones, kept(zones));
+      // Filtered again under the key's lock: a 清理 may have run while this waited for it.
+      await storeEdit(K.zones, {}, (stored) => ({ ...stored, ...kept(zones) }));
+      render();
+    }
+  });
+  if (zoneRun === run) zoneRun = null;
+  if (r.error) {
+    cur?.items.forEach((it) => zoneFailed.add(it.bvid));
+    console.warn("[triage] 分区 not read", r.error);
+  }
 }
 
 // ---------- 所有收藏夹 ----------

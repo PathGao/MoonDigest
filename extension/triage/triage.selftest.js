@@ -108,6 +108,9 @@ for (const [name, key, empty] of [["tags", t.K.tags, []], ["videoTags", t.K.vide
   Object.defineProperty(t.S, name, { get: () => store[key] ?? empty, set: (v) => (store[key] = v), enumerable: true });
 }
 Object.assign(t, { render() {}, setFocus() {}, toast: (m) => toasts.push(m), askConfirm: async () => true });
+// Every video's 分区 counts as known, so loadResults starts no 分区 fill (runs' "zones") outside the tests of it.
+const ALL_ZONES_KNOWN = new Proxy({}, { has: () => true });
+t.S.zones = ALL_ZONES_KNOWN;
 
 // The picker as 收藏夹 opens it: po = the last open's options; pickWith ticks (fn gets the Map of Sets) and closes.
 let po = null;
@@ -4796,6 +4799,95 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.undo = [];
     delete store[t.K.agentLog];
     delete handlers["agent-undo"];
+  }
+
+  // 分区: B站's top-level zone of the old sub-zone number, searched and at the end of the card's meta line; not in row 4.
+  {
+    assert.deepStrictEqual([129, "21", 0, 9999, undefined].map(t.zoneName), ["舞蹈", "生活", "", "", ""]);
+    openFake("Z", [1, 2, 3, 4].map(item));
+    Object.assign(t.S, { titleRes: {}, analyses: {}, tab: "read", classFilter: { none: "all", coarse: "all", fine: "all", read: "all" }, query: "", tagState: "" });
+    t.S.zones = { BV1: 20, BV2: 129, BV3: 21 };
+    t.S.tagFilter.clear();
+    t.S.query = "舞蹈";
+    assert.deepStrictEqual(plain(t.visibleItems().map((it) => it.bvid)), ["BV1", "BV2"], "search finds the 分区");
+    t.S.query = "";
+    assert.ok(t.cardHtml(t.S.itemMap.get("BV1"), false, "").includes(" · 舞蹈</div>"), "the meta line ends with it");
+    assert.ok(!t.cardHtml(t.S.itemMap.get("BV4"), false, "").includes("舞蹈"));
+    t.S.zones = ALL_ZONES_KNOWN;
+  }
+
+  // The fill: listed videos without a 分区 (no 番剧, invalid or aid-less one), 50 a request with a gap, each answer
+  // merged; a B站 limit waits and sends the same batch again; a failure only leaves them without.
+  {
+    const list = Array.from({ length: 60 }, (_, i) => item(i + 1));
+    Object.assign(list[0], { ogv: true });
+    Object.assign(list[1], { invalid: true });
+    delete list[2].aid;
+    openFake("Z", list);
+    t.S.zones = { BV4: 20 };
+    const calls = [];
+    let limited = true;
+    handlers["triage-zones"] = (m) => {
+      calls.push(m.items.map((x) => x.bvid));
+      if (calls.length === 1 && limited) return { ok: false, code: "THROTTLED", error: "412" };
+      return { ok: true, data: { zones: Object.fromEntries(m.items.map((x) => [x.bvid, 21])) } };
+    };
+    await t.fillZones(t.S.view.current);
+    assert.deepStrictEqual(calls.map((c) => c.length), [50, 50, 6], "limited, the same 50 again; then the rest");
+    assert.ok(!calls.flat().some((b) => ["BV1", "BV2", "BV3", "BV4"].includes(b)), "番剧, invalid, no aid and known ones are not asked");
+    assert.deepStrictEqual(plain(sent.filter((m) => m.type === "triage-zones")[0].items[0]), { bvid: "BV5", aid: 1005 });
+    assert.strictEqual(Object.keys(t.S.zones).length, 57);
+    assert.strictEqual(Object.keys(store[t.K.zones]).length, 56, "the page stores what came back");
+    // A failure: nothing lands, the list stays as it is, and the failed batch is not sent again in this page (所有收藏夹
+    // calls loadResults per folder); the rest still are.
+    openFake("F", Array.from({ length: 60 }, (_, i) => item(201 + i)));
+    delete store[t.K.zones];
+    t.S.zones = {};
+    calls.length = 0;
+    handlers["triage-zones"] = (m) => (calls.push(m.items.map((x) => x.bvid)), { ok: false, error: "B站请求失败 HTTP 500" });
+    await t.fillZones(t.S.view.current);
+    assert.deepStrictEqual([calls.length, Object.keys(t.S.zones).length, t.S.items.length], [1, 0, 60], "one failure ends the fill");
+    await t.fillZones(t.S.view.current);
+    await t.fillZones(t.S.view.current);
+    assert.deepStrictEqual(calls.map((c) => c.length), [50, 10], "a failed batch is not sent again");
+    // An empty answer (B站 refusing the batch) likewise.
+    openFake("E", [item(301), item(302)]);
+    calls.length = 0;
+    handlers["triage-zones"] = (m) => (calls.push(m.items), { ok: true, data: { zones: {} } });
+    await t.fillZones(t.S.view.current);
+    await t.fillZones(t.S.view.current);
+    assert.deepStrictEqual([calls.length, "BV301" in t.S.zones], [1, false], "an empty answer is not asked again");
+    // L4: an answer that comes back after another view opened lands nowhere, and nothing more is sent.
+    openFake("L", [item(401), item(402)]);
+    let answer;
+    calls.length = 0;
+    handlers["triage-zones"] = (m) => (calls.push(m.items), new Promise((r) => (answer = () => r({ ok: true, data: { zones: { BV401: 20 } } }))));
+    const fill = t.fillZones(t.S.view.current);
+    await until(() => answer);
+    openFake("Y", []);
+    answer();
+    await fill;
+    assert.deepStrictEqual([calls.length, t.S.zones.BV401, store[t.K.zones]?.BV401], [1, undefined, undefined], "the old view's answer is dropped");
+    // 清理 while a batch is in flight: its answer, arriving after, does not write the cleaned video back.
+    openFake("removed", [{ ...item(501), inFolder: null }, { ...item(502), inFolder: null }]);
+    answer = null;
+    handlers["triage-zones"] = () => new Promise((r) => (answer = () => r({ ok: true, data: { zones: { BV501: 20, BV502: 21 } } })));
+    const late = t.fillZones(t.S.view.current);
+    await until(() => answer);
+    await t.cleanRemoved([t.S.items[0]]);
+    answer();
+    await late;
+    assert.deepStrictEqual([store[t.K.zones]?.BV501, t.S.zones.BV501, store[t.K.zones]?.BV502], [undefined, undefined, 21], "the cleaned one stays out");
+    delete handlers["triage-zones"];
+    t.S.zones = ALL_ZONES_KNOWN;
+  }
+  // 清理 deletes its videos' 分区 and no other's.
+  {
+    store[t.K.zones] = { BV601: 20, BV602: 21 };
+    openFake("removed", [{ ...item(601), inFolder: null }]);
+    await t.cleanRemoved([t.S.items[0]]);
+    assert.deepStrictEqual(plain(store[t.K.zones]), { BV602: 21 });
+    delete store[t.K.zones];
   }
   console.log("triage selftest: all passed");
 })().catch((e) => {
