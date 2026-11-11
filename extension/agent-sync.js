@@ -78,11 +78,20 @@
     if (unknown.length) throw fail(`Not one of the user's folders: ${unknown.join(", ")}.`, "BAD_PARAMS");
     const notes = [];
     if (add.length || drop.length) {
+      // The 取消收藏 records an unticked folder loses, read before the 分拣台 can drop them: undo puts them back.
+      const records = await chrome.storage.local.get(drop.map(K.triageDecisions));
+      let gone = [];
       await MdgLimits.update(K.triageIncludedFolders, (cur) => {
-        const next = [...new Set([...(cur || []).map(String).filter((id) => !drop.includes(id)), ...add])];
-        return next.length === (cur || []).length && next.every((id, i) => id === String(cur[i])) ? undefined : next;
+        const was = (cur || []).map(String);
+        gone = drop.filter((id) => was.includes(id));
+        const next = [...new Set([...was.filter((id) => !drop.includes(id)), ...add])];
+        return next.length === was.length && next.every((id, i) => id === was[i]) ? undefined : next;
       });
-      if (drop.length) notes.push(`Unticked: ${drop.join(", ")}. The 分拣台 drops their copies and their 取消收藏 records the next time it is open, and their videos that are in no other ticked folder go to 已出分拣范围. AI verdicts, notes and tags stay. Tell the user.`);
+      if (gone.length) {
+        const names = list.folders.filter((f) => gone.includes(String(f.id))).map((f) => f.title).join("、");
+        const undoId = await MdgAgentJournal.add({ kind: "scope", n: gone.length, dropped: gone, decisions: Object.fromEntries(gone.map((id) => [id, records[K.triageDecisions(id)] || {}])), titles: { from: names } }).catch(() => "");
+        notes.push(`Unticked: ${gone.join(", ")}. The 分拣台 drops their copies and their 取消收藏 records the next time it is open, and their videos that are in no other ticked folder go to 已出分拣范围. AI verdicts, notes and tags stay. Tell the user.${undoId ? ` Undo: undo {"id":"${undoId}"} ticks them again and puts those records back.` : ""}`);
+      }
     }
     if (!list.toviewUnread) await chrome.storage.local.set({ [K.triageFolderList]: { mid: list.mid, folders: list.folders } }).catch(() => {});
     const chosen = await included();
@@ -106,6 +115,18 @@
       ...(notes.length && { notes })
     };
   }
+
+  // An untick undone: ticked again, and the 取消收藏 records the 分拣台 dropped meanwhile are back. The copy is read again
+  // by the next sync; videos gone to 已出分拣范围 return when the 分拣台 opens (it takes back a ticked folder's).
+  MdgAgentJournal.undoer("scope", async (e) => {
+    await MdgLimits.update(K.triageIncludedFolders, (cur) => [...new Set([...(cur || []).map(String), ...e.dropped])]);
+    await R.lock(async () => {
+      const got = await chrome.storage.local.get(e.dropped.map(K.triageDecisions));
+      const back = Object.fromEntries(e.dropped.filter((id) => !got[K.triageDecisions(id)] && Object.keys(e.decisions?.[id] || {}).length).map((id) => [K.triageDecisions(id), e.decisions[id]]));
+      if (Object.keys(back).length) await chrome.storage.local.set(back);
+    });
+    return { done: 0 };
+  });
 
   MdgAgentBridge.addMethods({
     sync: (params) => sync(params && typeof params === "object" ? params : {}).then((data) => ({ ok: true, data }), (e) => ({ ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) }))

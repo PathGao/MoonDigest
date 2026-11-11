@@ -66,9 +66,11 @@ const MCP_INSTALL = [
   ["Claude Code", `claude mcp add moondigest -- node ${MCP_SERVER}`],
   ["Codex", `[mcp_servers.moondigest]\ncommand = "node"\nargs = ["${MCP_SERVER}"]`, "写进 ~/.codex/config.toml"],
   ["Cursor", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 ~/.cursor/mcp.json"],
-  ["Claude 桌面版", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 claude_desktop_config.json"]
+  ["Claude 桌面版", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 claude_desktop_config.json"],
+  // What an outdated server's OUTDATED_MCP answer (agent-bridge.js) sends the user here for.
+  ["升级", `cd ${MCP_SERVER.replace("/mcp/server.js", "")} && git pull && cd mcp && npm install`]
 ];
-const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent启动 MCP 服务后一分钟内连上。", off: "" };
+const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent 启动 MCP 服务后一分钟内连上。", off: "" };
 const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
 
 init();
@@ -704,7 +706,7 @@ function renderMcpInstall() {
   elements.mcpInstall.addEventListener("click", async (event) => {
     const i = event.target.closest?.("[data-mcp-copy]")?.dataset.mcpCopy;
     if (i == null) return;
-    await navigator.clipboard.writeText(MCP_INSTALL[i][1]).then(() => setStatus(`已复制 ${MCP_INSTALL[i][0]} 的${MCP_INSTALL[i][2] ? "配置" : "命令"}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
+    await navigator.clipboard.writeText(MCP_INSTALL[i][1]).then(() => setStatus(`已复制：${MCP_INSTALL[i][0]}${MCP_INSTALL[i][2] ? "的配置" : "命令"}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
   });
 }
 // One journaled call (agent-writes.js) in a line.
@@ -712,6 +714,8 @@ function mcpLogLine(e) {
   const at = MdgCommon.localDate(new Date(e.at), true);
   if (e.kind === "fav") return `${at} ${MCP_OPS[e.op]} ${e.n} 个：「${e.titles?.from || e.from}」${e.to ? ` → 「${e.titles?.to || e.to}」` : ""}`;
   if (e.kind === "folder") return `${at} ${MCP_OPS[e.op]}：「${e.before?.title || e.after?.title || e.folder}」${e.op === "folder_rename" ? ` → 「${e.after.title}」` : ""}`;
+  if (e.kind === "collection") return `${at} ${e.op === "add" ? "加进" : "移出"} ${e.n} 个：${e.titles?.from || ""}`;
+  if (e.kind === "scope") return `${at} 取消勾选分拣：「${e.titles?.from || e.dropped?.join("、")}」`;
   if (e.kind === "criteria") return `${at} 改判断标准：「${e.titles?.from || e.folder}」`;
   return `${at} 改了 ${e.n} 个视频的分拣结果`;
 }
@@ -736,6 +740,8 @@ async function undoMcp(button) {
       n += r.data.n;
       const refused = r.data.failed ? `，${r.data.failed} 个 B站不让加回（多半是视频已被删除）` : "";
       if (r.data.left && r.data.stopped === "THROTTLED") return setStatus(`${MdgErrors.TEXT.biliThrottled}（撤销了 ${n} 个，剩 ${r.data.left} 个没撤销，过一会儿再点撤销）`, true);
+      // Nothing went back this round (not logged in, the site refusing): asking again would not either.
+      if (r.data.left && !r.data.n) return setStatus(`没能撤销，剩 ${r.data.left} 个：看一下是否登录了对应网站，再点撤销`, true);
       if (r.data.left) setStatus(`正在撤销：剩 ${r.data.left} 个`, false, true);
       else if (r.data.skipped && !r.data.n) return setStatus("没有撤销：你之后又改过，保持现在的样子", true);
       else return setStatus(`已撤销${r.data.skipped ? `，其中 ${r.data.skipped} 个你后来又改了，保持不变` : ""}${refused}`, Boolean(refused));

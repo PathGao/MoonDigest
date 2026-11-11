@@ -188,7 +188,17 @@
 
   // The last LOG_MAX B站 changes and the last LOG_MAX local ones, counted apart: cheap local writes never push a B站
   // change (the only record of what a deleted folder held) out of the journal.
-  const onBili = (e) => e.kind === "fav" || e.kind === "folder";
+  const onBili = (e) => ["fav", "folder", "collection"].includes(e.kind);
+  // Entries other files journal (agent-collections.js, agent-sync.js): add resolves the new entry's id; undoer(kind,
+  // fn) is how one of that kind is undone, fn(entry, deadline) resolving as undoFav does.
+  const undoers = {};
+  globalThis.MdgAgentJournal = {
+    add: (entry) => {
+      const e = { id: MdgTagCore.newTagId("a"), at: Date.now(), ...entry };
+      return journal(e).then(() => e.id);
+    },
+    undoer: (kind, fn) => (undoers[kind] = fn)
+  };
   const journal = (entry) =>
     MdgLimits.update(K.triageAgentLog, (log = []) => {
       const all = [...log, entry];
@@ -220,8 +230,8 @@
     let rest = null;
     try {
       if (entry.kind === "criteria") out = await undoCriteria(entry);
-      else if (onBili(entry)) {
-        const r = await (entry.kind === "fav" ? undoFav : undoFolder)(entry, deadline);
+      else if (onBili(entry) || undoers[entry.kind]) {
+        const r = await (undoers[entry.kind] || (entry.kind === "fav" ? undoFav : undoFolder))(entry, deadline);
         rest = r.entry || null;
         out = { id: entry.id, n: r.done, skipped: 0, ...(r.failed && { failed: r.failed }), ...(rest && { left: r.left, ...(r.stopped && { stopped: r.stopped }) }) };
       } else out = await undoTriage(entry);

@@ -166,7 +166,7 @@ check("an added method answers without a tab, before the url check", async () =>
   // A method only an older MCP server asks for: its answer says to update the server.
   const old = await rpc(s, "m4", "propose", { action: "unfav" });
   assert.deepEqual([old.ok, old.code], [false, "OUTDATED_MCP"]);
-  assert.match(old.error, /update the MCP server/);
+  assert.match(old.error, /设置 → MCP.*升级 command/);
   assert.equal(env.created.length, 0);
   assert.equal(env.sent.length, 0);
 });

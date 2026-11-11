@@ -63,7 +63,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 ### 用 MCP 还是用 skill
 
 - **skill**（`skills/moondigest/`）：agent 本来就在操控浏览器（能在页面里跑 JS）时用。不用开开关，不用装服务器。只能读它打开的那个视频页，不能读你的账号，也不能改。
-- **MCP**：任何 MCP 客户端都能用，agent 不需要会操控浏览器。读你的收藏夹、关注、历史，成批读视频，改收藏夹和分拣台，都只有 MCP 能做。代价是要装这个服务器，并在 MoonDigest 的「设置 → MCP」打开「允许 Agent使用我的 B站和 YouTube 账号」。
+- **MCP**：任何 MCP 客户端都能用，agent 不需要会操控浏览器。读你的收藏夹、关注、历史，成批读视频，改收藏夹和分拣台，都只有 MCP 能做。代价是要装这个服务器，并在 MoonDigest 的「设置 → MCP」打开「允许 Agent 使用我的 B站和 YouTube 账号」。
 
 ### 安装
 
@@ -104,7 +104,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 
 发布后把 `node` 和路径换成 `npx` 和 `["-y", "moondigest-mcp"]`。
 
-最后在 MoonDigest 的「设置 → MCP」打开「允许 Agent使用我的 B站和 YouTube 账号」。这一节还列出各客户端的安装命令（带「复制」按钮，路径要换成你电脑上 MoonDigest 文件夹的位置），并写明现在是否已连接。
+最后在 MoonDigest 的「设置 → MCP」打开「允许 Agent 使用我的 B站和 YouTube 账号」。这一节还列出各客户端的安装命令（带「复制」按钮，路径要换成你电脑上 MoonDigest 文件夹的位置），并写明现在是否已连接。
 
 ### 安全模型
 
@@ -113,9 +113,9 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 同一时间只认一个扩展。第二个连上来会被关闭（关闭码 4001）。
 - B站 的 `/video/` 链接由扩展后台直接读，不用标签页。番剧（`/bangumi/play/`）、活动页（`/festival/`）、不带 BV 号的 `/list/` 和 YouTube 观看页（`/watch?v=`）可以用你已开着的标签页；没有就用扩展自己的后台标签页，最多开一个，之后的视频都在它里面打开。其他网址返回 `BAD_URL`。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
-- 只有一个开关：「允许 Agent使用我的 B站和 YouTube 账号」，默认关闭。关着的时候扩展不建任何连接，所有工具都返回 `NOT_CONNECTED`。打开后上面的工具都能用，包括改收藏夹和分拣台的；没有按数据种类分开的开关。API Key 和 AI 对话任何时候都不会给出去。
-- 修改不先问你，安全靠撤销。`fav_write`、`set_triage` 和 `triage_settings` 改判断标准的每次调用，都记在扩展的本地存储里（B站上的修改和本地的修改各留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「Agent最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
-- 撤销做不到的事：删除收藏夹撤销后是一个新的收藏夹，B站 没有列出的视频找不回来；各自超出最近 100 次的修改没有记录；取消勾选收藏夹（`sync_favorites` 的 `exclude`）不在记录里；`collection_write` 不在记录里，用它自己返回的那次调用撤销。
+- 只有一个开关：「允许 Agent 使用我的 B站和 YouTube 账号」，默认关闭。关着的时候扩展不建任何连接，所有工具都返回 `NOT_CONNECTED`。打开后上面的工具都能用，包括改收藏夹和分拣台的；没有按数据种类分开的开关。API Key 和 AI 对话任何时候都不会给出去。
+- 修改不先问你，安全靠撤销。`fav_write`、`collection_write`、`set_triage`、`triage_settings` 改判断标准和 `sync_favorites` 取消勾选的每次调用，都记在扩展的本地存储里（B站上的修改和本地的修改各留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「Agent 最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
+- 撤销做不到的事：删除收藏夹撤销后是一个新的收藏夹，B站 没有列出的视频找不回来；各自超出最近 100 次的修改没有记录；撤销取消勾选会重新勾选并放回取消收藏记录，副本要再同步一次；YouTube 播放列表里移出再加回的视频会排到末尾。
 - 字幕、简介和评论是别人写的文字，里面可能夹着写给 AI 的指令。服务器给 Agent 的说明要求把这些文字当作数据，不照着做，只改你要求改的。这一条由 Agent 遵守，扩展检查不了；被诱导做出的修改同样有记录，可以撤销。
 - B站 的收藏夹和稍后再看由扩展后台直接改，发的是分拣台自己用的那些请求。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 
@@ -127,13 +127,13 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - 后启动的不会崩溃。它的工具调用返回 `PORT_IN_USE`，说明端口被另一个 moondigest-mcp 占着。
 - 每次工具调用它都会再试一次占端口。先启动的那个退出后（它的客户端关掉时会跟着退出），下一次调用就会接管端口，扩展最多一分钟内连过来。
 
-没有扩展连着时，调用立刻返回 `NOT_CONNECTED`，提示打开「允许 Agent使用我的 B站和 YouTube 账号」。扩展每分钟重连一次，所以开关刚打开、或服务刚启动时，等一分钟再调用。
+没有扩展连着时，调用立刻返回 `NOT_CONNECTED`，提示打开「允许 Agent 使用我的 B站和 YouTube 账号」。扩展每分钟重连一次，所以开关刚打开、或服务刚启动时，等一分钟再调用。
 
 `MOONDIGEST_MCP_PORT` 环境变量可以改端口，但扩展固定连 47823，所以它只在测试里有用。
 
 ### 排查
 
-- `NOT_CONNECTED`：浏览器没开、没装 MoonDigest、或「设置 → MCP」的「允许 Agent使用我的 B站和 YouTube 账号」没开。刚打开开关的话，等一分钟扩展连上再试。设置页的 MCP 一节写着现在是否已连接。
+- `NOT_CONNECTED`：浏览器没开、没装 MoonDigest、或「设置 → MCP」的「允许 Agent 使用我的 B站和 YouTube 账号」没开。刚打开开关的话，等一分钟扩展连上再试。设置页的 MCP 一节写着现在是否已连接。
 - `PORT_IN_USE`：另一个 MCP 客户端的 moondigest-mcp 占着端口，见上一节。也可以用 `lsof -nP -iTCP:47823 -sTCP:LISTEN` 看是谁。
 - `THROTTLED`：B站或 YouTube 在限流。停下来，过一阵再试，不要连续重试。
 - `TIMEOUT`：60 秒内没有回答。常见原因是页面加载太慢，或后台标签页被浏览器冻结。切到那个标签页看一眼再试。
@@ -210,7 +210,7 @@ Two tools work on your own YouTube collections. MoonDigest has no pages for them
 ### MCP or the skill
 
 - **Skill** (`skills/moondigest/`): use it when the agent already drives a browser and can run JS in the page. No switch, no server. It reads the video page it opened and nothing else: not your account, and it changes nothing.
-- **MCP**: works from any MCP client, and the agent needs no browser automation. Only the MCP reads your favorites, follows and history, reads many videos in a row, and changes favorites and the 分拣台. It needs this server installed and the switch in MoonDigest's 设置 → MCP (Settings → MCP) turned on: 允许 Agent使用我的 B站和 YouTube 账号.
+- **MCP**: works from any MCP client, and the agent needs no browser automation. Only the MCP reads your favorites, follows and history, reads many videos in a row, and changes favorites and the 分拣台. It needs this server installed and the switch in MoonDigest's 设置 → MCP (Settings → MCP) turned on: 允许 Agent 使用我的 B站和 YouTube 账号.
 
 ### Install
 
@@ -251,7 +251,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 
 Once published, replace `node` and the path with `npx` and `["-y", "moondigest-mcp"]`.
 
-Then turn on 允许 Agent使用我的 B站和 YouTube 账号 in MoonDigest's 设置 → MCP. That section also lists the install command for each client (with a 复制 button; replace the path with where your MoonDigest folder is) and says whether the extension is connected now.
+Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's 设置 → MCP. That section also lists the install command for each client (with a 复制 button; replace the path with where your MoonDigest folder is) and says whether the extension is connected now.
 
 ### Security model
 
@@ -260,9 +260,9 @@ Then turn on 允许 Agent使用我的 B站和 YouTube 账号 in MoonDigest's 设
 - One extension at a time. A second one is closed with code 4001.
 - A Bilibili `/video/` URL is read by the extension's background, with no tab. 番剧 (`/bangumi/play/`), 活动页 (`/festival/`), a `/list/` without a BV id and YouTube watch pages (`/watch?v=`) may be read in a tab you already have open; else in the extension's own background tab, at most one, which later videos reuse. Any other URL gets `BAD_URL`. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
-- One switch: 允许 Agent使用我的 B站和 YouTube 账号, off by default. While off, the extension opens no socket and every tool returns `NOT_CONNECTED`. While on, every tool above works, including the ones that change favorites and the 分拣台; there is no switch per kind of data. API keys and AI conversations are never given out.
-- Changes do not ask you first; safety is undo. Every `fav_write`, `set_triage` and 判断标准 change by `triage_settings` is recorded in the extension's local storage (the last 100 Bilibili changes and the last 100 local ones): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under Agent最近的修改 in 设置 → MCP. The last two work with the switch off too.
-- What undo cannot do: a deleted folder comes back as a new folder, without the videos Bilibili did not list; changes beyond those are not recorded; unticking a folder (`sync_favorites` `exclude`) is not recorded; `collection_write` is not recorded and is undone with the call it returns.
+- One switch: 允许 Agent 使用我的 B站和 YouTube 账号, off by default. While off, the extension opens no socket and every tool returns `NOT_CONNECTED`. While on, every tool above works, including the ones that change favorites and the 分拣台; there is no switch per kind of data. API keys and AI conversations are never given out.
+- Changes do not ask you first; safety is undo. Every `fav_write`, `collection_write`, `set_triage`, 判断标准 change by `triage_settings` and untick by `sync_favorites` is recorded in the extension's local storage (the last 100 Bilibili changes and the last 100 local ones): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under Agent 最近的修改 in 设置 → MCP. The last two work with the switch off too.
+- What undo cannot do: a deleted folder comes back as a new folder, without the videos Bilibili did not list; changes beyond those are not recorded; undoing an untick ticks the folder again and puts its 取消收藏 records back, and its copy needs another sync; a video taken out of a YouTube playlist and put back ends up last.
 - Transcripts, descriptions and comments are text other people wrote, and may contain instructions aimed at an AI. The server's instructions tell the AI tool to treat that text as data, not to act on it, and to change only what you asked for. The AI tool has to follow this; the extension cannot check it. A change it was talked into is recorded like any other and can be undone.
 - Bilibili favorites and 稍后再看 are changed by the extension's background directly, with the requests the 分拣台 itself uses. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 
@@ -274,13 +274,13 @@ Each MCP client starts its own moondigest-mcp, and there is only one port:
 - The later one does not crash. Its tool calls return `PORT_IN_USE`, saying another moondigest-mcp holds the port.
 - It retries the port on every tool call. Once the first one exits (it exits when its client closes), the next call takes the port over, and the extension reconnects within a minute.
 
-With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 允许 Agent使用我的 B站和 YouTube 账号 to be turned on. The extension reconnects once a minute, so right after turning the switch on or starting the server, wait a minute and call again.
+With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 允许 Agent 使用我的 B站和 YouTube 账号 to be turned on. The extension reconnects once a minute, so right after turning the switch on or starting the server, wait a minute and call again.
 
 `MOONDIGEST_MCP_PORT` changes the port, but the extension always connects to 47823, so it is only useful in tests.
 
 ### Troubleshooting
 
-- `NOT_CONNECTED`: the browser is not open, MoonDigest is not installed, or 允许 Agent使用我的 B站和 YouTube 账号 in 设置 → MCP is off. Right after turning it on, wait a minute for the extension to connect. The MCP section of the settings page says whether it is connected.
+- `NOT_CONNECTED`: the browser is not open, MoonDigest is not installed, or 允许 Agent 使用我的 B站和 YouTube 账号 in 设置 → MCP is off. Right after turning it on, wait a minute for the extension to connect. The MCP section of the settings page says whether it is connected.
 - `PORT_IN_USE`: another MCP client's moondigest-mcp holds the port, see above. `lsof -nP -iTCP:47823 -sTCP:LISTEN` shows which process.
 - `THROTTLED`: Bilibili or YouTube is rate limiting. Stop and try later. Do not retry in a loop.
 - `TIMEOUT`: no answer in 60 s. Usually the page loaded too slowly or the browser froze the background tab. Look at that tab and try again.

@@ -92,7 +92,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; changes to Bilibili favorites and the 分拣台 are recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; every change is recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;
@@ -301,7 +301,8 @@ export function formatCollectionWrite(d) {
   if (d.notDone.length) lines.push(`Not tried: ${d.notDone.join(", ")}.`);
   if (d.stopped === "TIMEOUT") lines.push("Stopped: the call's time ran out. Call again with the items not tried.");
   else if (d.stopped) lines.push(`Stopped: ${d.stopped}.${d.stopped === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon." : " Ask the user to log in to the site in that browser."}`);
-  if (d.undo) lines.push(`Undo: collection_write ${JSON.stringify(d.undo)}`);
+  if (d.undoId) lines.push(`Undo: undo {"id":"${d.undoId}"} (the user can undo it in MoonDigest's settings too).`);
+  else if (d.undo) lines.push(`Undo: collection_write ${JSON.stringify(d.undo)}`);
   return lines.join("\n");
 }
 
@@ -464,7 +465,7 @@ const TOOLS = [
   },
   {
     name: "collection_write",
-    description: "Changes the user's own collection: adds videos to or removes them from Bilibili watch_later (稍后再看), YouTube watch_later or one of the user's own YouTube playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and the undo call. If it says THROTTLED, stop calling MoonDigest and tell the user.",
+    description: "Changes the user's own collection: adds videos to or removes them from Bilibili watch_later (稍后再看), YouTube watch_later or one of the user's own YouTube playlists (id). Likes and subscriptions are read-only. Unless the user named exactly these videos and this change, call with dryRun: true first and show the user what would change. At most 20 video ids a call; they are changed one at a time, a few seconds apart, each read before (already so: skipped) and after (confirmed). The result lists each item, what was done and not tried, and an undo id (undo reverses it; the user can too, in MoonDigest's settings). If it says THROTTLED, stop calling MoonDigest and tell the user.",
     inputSchema: {
       type: "object",
       properties: {

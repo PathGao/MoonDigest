@@ -1315,12 +1315,13 @@ importScripts("obsidian.js", "triage/triage-bg.js", "triage/triage-core.js", "tr
 // The agent interface's personal-data methods (docs/AGENT.md §2) read through triage-bg.js and follow-core.js.
 importScripts("agent-mydata.js");
 importScripts("agent-video.js");
+// Its writes go through triage-bg.js's handlers and keep the 收藏夹's records as the 分拣台 page does (fav-records.js).
+// Before the files below: they journal their own changes through it (MdgAgentJournal).
+importScripts("agent-writes.js");
 // The user's collections on the sites whose adapter has them (docs/AGENT.md §2 collection, collectionWrite).
 importScripts("agent-collections.js");
 // A numbered grid of video covers from the 分拣台's local copies (docs/AGENT.md §2 covers).
 importScripts("agent-covers.js");
-// Its writes go through triage-bg.js's handlers and keep the 收藏夹's records as the 分拣台 page does (fav-records.js).
-importScripts("agent-writes.js");
 // Which folders the 分拣台 keeps, and reading their lists without the 分拣台 open.
 importScripts("agent-sync.js");
 

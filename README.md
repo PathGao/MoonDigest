@@ -52,7 +52,7 @@
 
 ## 给 AI agent 用
 
-Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。用 MCP 并在设置 → MCP 打开「允许 Agent使用我的 B站和 YouTube 账号」后，agent 还能借你的登录搜 B站和 YouTube 视频，读你的收藏夹、关注、观看历史和分拣台里的标签、备注，并直接修改：在 B站移动、复制、取消收藏视频，新建、改名、删除收藏夹；写分拣台的 AI 判断、保留、备注和标签；改 B站稍后再看、YouTube 稍后观看和 YouTube 播放列表。修改不逐次问你；对 B站收藏夹和分拣台的每次修改都记在本地，在设置 → MCP 或分拣台里可以撤销。两种接法：
+Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。用 MCP 并在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」后，agent 还能借你的登录搜 B站和 YouTube 视频，读你的收藏夹、关注、观看历史和分拣台里的标签、备注，并直接修改：在 B站移动、复制、取消收藏视频，新建、改名、删除收藏夹；写分拣台的 AI 判断、保留、备注和标签；改 B站稍后再看、YouTube 稍后观看和 YouTube 播放列表。修改不逐次问你；对 B站收藏夹和分拣台的每次修改都记在本地，在设置 → MCP 或分拣台里可以撤销。两种接法：
 
 - **skill**（agent 能操控浏览器，如 ego、Claude in Chrome、Playwright）：
 
@@ -61,7 +61,7 @@ Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能
   mkdir -p ~/.claude/skills && cp -r MoonDigest/skills/moondigest ~/.claude/skills/
   ```
 
-- **MCP**（Claude Code、Cursor、Codex 等）：在设置 → MCP 打开「允许 Agent使用我的 B站和 YouTube 账号」（用时再开，不用时关掉），再装服务（要 Node 20+）：
+- **MCP**（Claude Code、Cursor、Codex 等）：在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」（用时再开，不用时关掉），再装服务（要 Node 20+）：
 
   ```sh
   git clone https://github.com/PathGao/MoonDigest.git

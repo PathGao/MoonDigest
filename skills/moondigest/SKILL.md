@@ -103,7 +103,7 @@ When a task needs one of these and you cannot do it through MoonDigest, tell the
   ```
 
   MoonDigest's 设置 → MCP (Settings → MCP) lists the command for Claude Code, Codex, Cursor and Claude desktop, each with a copy button, and says whether the extension is connected.
-- A tool answers `NOT_CONNECTED`: the server is installed but the extension is not connected, because the switch is off or that browser is closed. Ask the user to open the browser that has MoonDigest and turn on 设置 → MCP → 允许 Agent使用我的 B站和 YouTube 账号. Say what it enables: you can then read and change their Bilibili and YouTube account through MoonDigest (favorites, follows, history, 分拣台 results), every change is recorded, and they can undo it in that same settings section. The extension connects within a minute.
+- A tool answers `NOT_CONNECTED`: the server is installed but the extension is not connected, because the switch is off or that browser is closed. Ask the user to open the browser that has MoonDigest and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号. Say what it enables: you can then read and change their Bilibili and YouTube account through MoonDigest (favorites, follows, history, 分拣台 results), every change is recorded, and they can undo it in that same settings section. The extension connects within a minute.
 - The tools work but none does what the task needs: say MoonDigest does not support it. Do not pretend it does.
 
 ## Sorting favorites (整理收藏夹)

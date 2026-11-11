@@ -181,7 +181,7 @@
     if (Object.hasOwn(added, method)) return added[method](params, deadline);
     // A method this version no longer has: only a moondigest-mcp older than the extension asks for it. Its tools print
     // the code and the sentence as they are, so the tool reading it can tell the user what to update.
-    if (method === "propose") return { ok: false, code: "OUTDATED_MCP", error: "This moondigest-mcp server is older than the MoonDigest extension: favorites are no longer proposed, they are changed directly (fav_write) and undone (undo). Ask the user to update the MCP server (git pull in their MoonDigest folder, or the newest moondigest-mcp from npm) and restart this MCP client." };
+    if (method === "propose") return { ok: false, code: "OUTDATED_MCP", error: "This moondigest-mcp server is older than the MoonDigest extension: favorites are no longer proposed, they are changed directly (fav_write) and undone (undo). Ask the user to open MoonDigest's 设置 → MCP in the browser, run the 升级 command shown there (it has a copy button), and restart this MCP client." };
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
     const url = params && typeof params.url === "string" ? MdgAgentSites.canonical(params.url) : null;
     const key = url ? MdgAgentSites.keyOf(url) : null;

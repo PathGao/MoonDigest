@@ -473,9 +473,10 @@ const fav = {
 // Each journaled call is a U step here: the background undoes it (local results still as the tool left them go back;
 // a B站 write is reversed on B站). A failed or cut-short undo leaves the entry in the journal, and followAgentLog puts
 // its step back from there.
-const agentWhat = (e) => (e.kind === "fav" || e.kind === "folder" ? "对 B站收藏夹的修改" : e.kind === "criteria" ? "对判断标准的修改" : "修改");
+const AGENT_WHAT = { fav: "对 B站收藏夹的修改", folder: "对 B站收藏夹的修改", collection: "对稍后再看或 YouTube 播放列表的修改", criteria: "对判断标准的修改", scope: "取消的分拣勾选" };
+const agentWhat = (e) => AGENT_WHAT[e.kind] || "修改";
 function agentStep(e) {
-  const local = e.kind !== "fav" && e.kind !== "folder"; // nothing to change back on B站
+  const local = !["fav", "folder", "collection"].includes(e.kind); // nothing to change back on B站 or YouTube
   return {
     kind: "agent",
     agentId: e.id,
@@ -483,7 +484,7 @@ function agentStep(e) {
     ask: e.n > 1
       ? local
         ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"]
-        : [`撤销 Agent 对 B站收藏夹的修改？`, `<p>Agent 在 B站动了 ${e.n} 个视频的收藏，撤销会在 B站改回去。</p>`, "撤销"]
+        : [`撤销 Agent ${agentWhat(e)}？`, `<p>Agent 动了 ${e.n} 个视频，撤销会在网站上改回去。</p>`, "撤销"]
       : null,
     undo: async () => {
       const r = await send({ type: "agent-undo", id: e.id });
@@ -499,6 +500,7 @@ function agentStep(e) {
       if (left) pushUndo(agentStep({ ...e, n: left }));
       if (left) return redraw() || `已撤销 Agent ${agentWhat(e)}中的 ${n} 个视频，还剩 ${left} 个，可再按 U 撤销`;
       if (e.kind === "criteria") return redraw() || (skipped ? "判断标准你之后改过，没动" : `已撤销：Agent ${agentWhat(e)}`);
+      if (e.kind === "scope") return redraw() || `已撤销：Agent ${agentWhat(e)}`;
       return redraw() || `已撤销：Agent 的${agentWhat(e)}${local ? `（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）` : ""}`;
     }
   };

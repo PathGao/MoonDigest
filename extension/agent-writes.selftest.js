@@ -48,7 +48,7 @@ for (const file of order) {
   }
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 }
-assert.deepStrictEqual(Object.keys(M), ["triage", "favWrite", "undo", "log", "triageSettings", "sync"]);
+assert.deepStrictEqual(Object.keys(M), ["triage", "favWrite", "undo", "log", "triageSettings", "collection", "collectionWrite", "covers", "sync"]);
 // B站, faked: every request recorded; a route answers by path (default: code 0).
 const posts = [];
 let routes = {};
@@ -536,6 +536,39 @@ check("a read B站 cuts short is not saved; B站's limit stops the run and says 
   assert.strictEqual((await idle()).job.stopped, "THROTTLED");
   const no = await M.sync({ start: true, folders: ["22"] });
   assert.match(no.data.notes[0], /Not ticked, so not read: 22/);
+});
+
+check("a 稍后再看 change (collectionWrite) is journaled with the others and undo reverses it; a dry run is not", async () => {
+  favReset();
+  const V = A;
+  let later = [];
+  Object.assign(routes, {
+    "/x/v2/history/toview": () => ({ code: 0, data: { list: later.map((bvid) => ({ bvid, aid: 9, state: 0 })) } }),
+    "/x/web-interface/view": () => ({ code: 0, data: { aid: 2 } }),
+    "/x/v2/history/toview/add": () => (later.push(V), null),
+    "/x/v2/history/toview/del": () => ((later = []), null)
+  });
+  const dry = await M.collectionWrite({ site: "bilibili", op: "add", kind: "watch_later", items: [V], dryRun: true }, far());
+  assert.deepStrictEqual([dry.ok, dry.data.undoId, log().length], [true, undefined, 0]);
+  const r = await M.collectionWrite({ site: "bilibili", op: "add", kind: "watch_later", items: [V] }, far());
+  const [e] = log();
+  assert.deepStrictEqual([r.ok, plain(later), e.kind, e.op, e.n, plain(e.items), e.titles.from, r.data.undoId], [true, [V], "collection", "add", 1, [V], "稍后再看", e.id]);
+  const u = await M.undo({ id: e.id }, far());
+  assert.deepStrictEqual([u.ok, u.data.n, plain(later), log().length], [true, 1, [], 0], "taken out again, and the undo itself is not journaled");
+});
+
+check("unticking is journaled with the folder's 取消收藏 records; undo ticks it again and puts back the records the 分拣台 dropped", async () => {
+  syncRoutes();
+  local[K.triageDecisions("33")] = { [B]: { action: "unfav", at: 1, aid: 2, title: "二" } };
+  const t = await M.sync({ exclude: ["33", "22"] }); // 22 was not ticked: nothing to undo for it
+  const [e] = log();
+  assert.deepStrictEqual([e.kind, plain(e.dropped), e.titles.from, local[K.triageIncludedFolders]], ["scope", ["33"], "已有", ["11"]]);
+  assert.match(t.data.notes[0], new RegExp(`Unticked: 33\\..*undo \\{"id":"${e.id}"\\}`));
+  delete local[K.triageDecisions("33")]; // the 分拣台 opened meanwhile and dropped them
+  delete local[K.triageSnapshot("33")];
+  await M.undo({ id: e.id }, far());
+  assert.deepStrictEqual([local[K.triageIncludedFolders], Object.keys(local[K.triageDecisions("33")]), log().length], [["11", "33"], [B], 0]);
+  assert.strictEqual((await M.sync({ exclude: ["22"] })).data.notes, undefined, "unticking what was not ticked changes and journals nothing");
 });
 
 check("log lists the journal newest first, a line's worth per call", async () => {

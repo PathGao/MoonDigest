@@ -146,7 +146,7 @@ test("no extension -> NOT_CONNECTED", async () => {
   const s = await setup();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, true);
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 Agent使用我的 B站和 YouTube 账号/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 Agent 使用我的 B站和 YouTube 账号/);
   await s.close();
 });
 
@@ -154,7 +154,7 @@ test("no extension answers NOT_CONNECTED at once, without waiting for one to con
   const s = await setup();
   const started = Date.now();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 Agent使用.*within a minute/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 Agent 使用.*within a minute/);
   assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
   await s.close();
 });
