@@ -35,7 +35,7 @@ const K = {
   decisions: KEYS.triageDecisions, // 取消收藏 only: it changes one Bilibili folder
   kept: KEYS.triageKept, // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
   removed: KEYS.triageRemoved, // { [bvid]: { item, at, movedTo?, hidden?, inFolder?: { id, title } | null, from?: [{ id, title, at }] } }: videos that left every folder, kept until the user cleans them
-  left: "triage_left", // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
+  left: KEYS.triageLeft, // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one; becomes the record's from
   included: KEYS.triageIncludedFolders, // [mediaId]: the folders the user chose; only these are listed and read
   snapshot: KEYS.triageSnapshot,
   aiHistory: "triage_ai_command_history",
@@ -43,8 +43,7 @@ const K = {
   sort: "triage_sort", // { [mediaId]: { sort, dir } }: each folder's card order; none = 收藏时间 新→旧
   aiRecent: "triage_ai_recent", // { [mediaId]: { at, bvids } }: 「AI 刚打的」, the videos the last applied 批量打 changed
   aiProposals: "triage_ai_proposals", // { [mediaId]: proposal }: AI 打标签 proposals waiting for 应用, kept across a reload
-  agentLog: KEYS.triageAgentLog,
-  agentProposals: KEYS.triageAgentProposals
+  agentLog: KEYS.triageAgentLog
 };
 const ALL = "all"; // the 所有收藏夹 view's folder-select value
 const REMOVED = "removed"; // the 已出分拣范围 view
@@ -144,7 +143,6 @@ const S = {
   seenRead: { busy: false, pages: 0, until: 0 }, // the background's read of the watch history (triage_seen_meta)
   undo: [], // 收藏夹's steps; a folder switch clears them but an AI tool's (agentSteps)
   agentLog: [], // an AI tool's 分拣台 writes over MCP (agent-writes.js), each a U step
-  agentProposals: [], // its B站 proposals waiting for the user: [{ id, at, action, from, to?, bvids, reason? }]
   modeUndo: [], // 关注's steps ({ kind: "mode" }): U undoes only the steps of the mode it is pressed in
   lastSyncAt: 0,
   readAt: {}, // K.readAt
@@ -177,14 +175,13 @@ const S = {
 const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
 // What runs or waits, in this order on every tab (the first wins), then the finished lines. A run's row is its own;
 // these are mirrored from elsewhere.
-const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "agent", "seen", "seenRead"];
+const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "seen", "seenRead"];
 runs.put("load", () => loadAllActivity());
 // S.syncing is the view run of the folder being read: one left meanwhile no longer shows it.
 const ownSync = () => Boolean(S.syncing?.alive);
 runs.put("sync", () => ownSync() && { text: `${UI.REFRESHING}…${pageText(S.mediaId)}` });
 runs.put("proposal", () => S.ai.proposal && { text: UI.AI_TAGS_PENDING });
 runs.put("aiOther", () => otherAiFolder() && { text: `「${folderName(otherAiFolder())}」的${UI.AI_TAGS_PENDING}` });
-runs.put("agent", () => S.agentProposals.length > 0 && { text: `Agent 的 ${S.agentProposals.length} 条收藏夹提议等你确认` });
 // 观看进度's 30-minute pause on B站 risk control comes from the background (triage_seen_meta); tick() redraws it.
 runs.put("seen", () => S.seenCfg.on && S.seenRead.until > Date.now() && { text: MdgErrors.LABEL.seen, wait: { until: S.seenRead.until, label: THROTTLES.THROTTLED.label } });
 runs.put("seenRead", () => S.seenCfg.on && S.seenRead.busy && S.seenRead.pages && { text: `读观看进度… 已读 ${S.seenRead.pages} 页` });
@@ -198,8 +195,7 @@ const PILL_BTN = {
   fav: ["fav", MdgErrors.LABEL.stop, MdgErrors.LABEL.stopping, globalThis.TriageUi.WRITE_STOPPING],
   ai: ["tags", VIEW],
   proposal: ["tags", VIEW],
-  aiOther: ["aiOther", VIEW],
-  agent: ["agent", VIEW]
+  aiOther: ["aiOther", VIEW]
 };
 const stopWhy = (act) => Object.values(PILL_BTN).find((b) => b[0] === act)?.[3] || "";
 const aiRunning = () => Boolean(runs.get("ai"));
@@ -357,7 +353,10 @@ function storeFailed(keys, e) {
 // Read-modify-writes of the shared records (已出分拣范围, the left trail, a folder's list or 取消收藏) run one at a time
 // across every 分拣台 tab (MdgLimits.locked): two overlapping ones would each write back what they read, and the first
 // one's change be lost. A locked fn must not lock again (it would wait on itself): the *Now variants are for that.
-const lockRecords = (fn) => MdgLimits.locked("mdg-triage-records", fn);
+const lockRecords = MdgFavRecords.lock;
+// The records' shared writers (fav-records.js, the background's too), writing as this page writes: its own writes
+// noted, a refused one toasted (a function then resolves null).
+const records = MdgFavRecords.using((obj) => (noteOwnWrites(obj), store(obj)));
 
 const stamp = (d = new Date(), withTime = true) => MdgCommon.localDate(d, withTime);
 function fmtTime(ts) {

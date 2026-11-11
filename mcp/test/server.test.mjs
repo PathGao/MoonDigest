@@ -63,7 +63,7 @@ test("hello, get_video formatting, pings", async () => {
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, undefined);
   const text = r.content[0].text;
-  assert.match(text, /^Title: A talk\nAuthor: Someone\nDate: 2026-01-02\nDuration: 01:02:05\nURL: https:\/\/www.youtube.com\/watch\?v=abc\nSubtitle: English/);
+  assert.match(text, /^Title: A talk\nAuthor: Someone\nDate: 2026-01-02\nDuration: 01:02:05\nURL: https:\/\/www.youtube.com\/watch\?v=abc\nVideo id: abc\nSubtitle: English/);
   assert.match(text, /Chapters:\n\[00:00\] Intro\n\[01:01:40\] Late/);
   assert.match(text, /Transcript:\n\[00:01\] hello\n\[01:01:01\] bye/);
   assert.match(text, /Comments:\n- u1 \(5 likes\): nice$/);
@@ -146,7 +146,7 @@ test("no extension -> NOT_CONNECTED", async () => {
   const s = await setup();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, true);
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 MCP 连接/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 AI 助手使用我的 B站和 YouTube 账号/);
   await s.close();
 });
 
@@ -154,7 +154,7 @@ test("no extension answers NOT_CONNECTED at once, without waiting for one to con
   const s = await setup();
   const started = Date.now();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 MCP 连接.*within a minute/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 AI 助手使用.*within a minute/);
   assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
   await s.close();
 });
@@ -178,7 +178,7 @@ test("stdio binary lists the tools", async () => {
   const client = new Client({ name: "test", version: "0" });
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "get_follows", "get_history", "list_collection", "collection_write", "set_triage", "propose_fav_change"]);
+  assert.deepEqual(tools.map((t) => t.name), ["search_videos", "get_video", "get_frame", "get_favorites", "sync_favorites", "fav_write", "undo", "get_covers", "get_follows", "get_history", "list_collection", "collection_write", "set_triage", "triage_settings"]);
   // The server tells the model to check videos that turn up in its own searches, not only linked ones.
   assert.match(client.getInstructions() || "", /search turns up Bilibili or YouTube videos/);
   assert.match(tools.find((t) => t.name === "get_video").description, /search results/);
@@ -269,7 +269,7 @@ test("search_videos: empty is not an error, THROTTLED says stop", async () => {
 
 test("personal data: favorites, follows and history formatting", () => {
   assert.equal(formatFavorites({ folders: [{ id: "toview", title: "稍后再看", count: 3 }, { id: "11", title: "Rust", count: 40 }] }),
-    "Folders (id · title · videos):\n- toview · 稍后再看 · 3\n- 11 · Rust · 40");
+    "Folders (id · title · videos on Bilibili · ticked for 分拣 and how many videos MoonDigest's copy holds):\n- toview · 稍后再看 · 3\n- 11 · Rust · 40");
   const fav = formatFavorites({ folderId: "11", source: "local", total: 41, page: 1, hasMore: true, items: [
     { bvid: "BV1", url: "https://www.bilibili.com/video/BV1", title: "Rust 入门", author: "UP", duration: 125, favTime: 0, tags: ["教程", "Rust"], verdict: "keep", summary: "所有权讲透", note: "第二遍\n再看", kept: true },
     { bvid: "BV2", url: "https://www.bilibili.com/video/BV2", title: "Gone", author: "", duration: 0, favTime: 0, invalid: true },
@@ -358,25 +358,57 @@ test("collection tools: params pass through; a stopped batch is an error with it
   await s.close();
 });
 
-test("分拣台 writes: params pass through, the answers say what happened, TRIAGE_WRITES_OFF passes through", async () => {
+test("writes: params pass through, the answers say what happened and give the undo id; a batch B站 stopped is an error with what was done", async () => {
   const s = await setup();
-  let off = false;
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (off
-    ? { ok: false, code: "TRIAGE_WRITES_OFF", error: "Ask the user to turn it on." }
-    : { ok: true, data: m.method === "triage" ? { changed: 2, tagsNotMade: ["新"] } : { id: "p1", status: "proposed" } }) });
+  const answers = {
+    triage: { changed: 2, undoId: "a1", tagsNotMade: ["新"] },
+    favWrite: { op: "move", from: "11", to: "22", done: ["BV1aaaaaaaaa"], notDone: [], undoId: "a2" },
+    undo: { id: "a2", n: 1, skipped: 0 },
+    log: { entries: [{ id: "a2", at: 1700000000000, kind: "fav", op: "move", n: 1, titles: { from: "Rust", to: "杂" } }] },
+    sync: { folders: [{ id: "11", title: "Rust", count: 3, private: true, included: true, synced: 2 }, { id: "22", title: "杂", count: 1 }], job: { running: true, total: 2, done: 1, current: "22", read: 1, unchanged: 0, partial: [] }, notes: ["Unticked: 33."] },
+    triageSettings: { folders: [{ id: "11", title: "Rust", criteria: "只留教程", tags: [{ name: "入门", videos: 3, rule: "新手向" }] }], changed: { folderId: "11", was: "旧", undoId: "a3" } },
+    covers: { image: "data:image/jpeg;base64,QUJD", width: 1280, height: 200, cells: [{ n: 1, bvid: "BV1aaaaaaaaa", title: "一" }, { n: 2, bvid: "BV1bbbbbbbbb", title: "", missing: true }] },
+    get: { title: "T", videoId: "BV1aaaaaaaaa", zone: "知识", tags: ["rust"], brief: true, subtitle: { segments: [] } },
+  };
+  let stop = false;
+  const ext = fakeExtension(s.bridge.port, { onCall: (m) => ({ ok: true, data: stop ? { op: "unfav", from: "11", done: ["BV1aaaaaaaaa"], notDone: ["BV1bbbbbbbbb"], stopped: "THROTTLED", undoId: "a9" } : answers[m.method] }) });
   await ext.opened;
   await until(() => s.bridge.connected);
-  const items = [{ bvid: "BV1aaaaaaaaa", verdict: "keep", summary: "好", addTags: ["新"], folderId: "11" }];
-  let r = await s.client.callTool({ name: "set_triage", arguments: { items } });
-  assert.equal(r.content[0].text, "Saved in the 分拣台: 2 video(s) changed. The user can undo this call there. Not made (the folder is at its tag limit): 新.");
-  r = await s.client.callTool({ name: "propose_fav_change", arguments: { action: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"], extra: 1 } });
-  assert.match(r.content[0].text, /^Proposed \(p1\)\. Nothing has changed on Bilibili/);
+  const call = async (name, args) => (await s.client.callTool({ name, arguments: args })).content;
+  const items = [{ bvid: "BV1aaaaaaaaa", verdict: "drop", coarse: true, reason: "标题党" }];
+  assert.equal((await call("set_triage", { items }))[0].text, 'Saved in the 分拣台: 2 video(s) changed. Undo: undo {"id":"a1"}. Not made (the folder is at its tag limit): 新.');
+  assert.equal((await call("fav_write", { op: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"], extra: 1 }))[0].text, 'move from 11 to 22: 1 done on Bilibili. Undo: undo {"id":"a2"}.');
+  assert.equal((await call("undo", { id: "a2" }))[0].text, "Undone (a2): 1 video(s).");
+  assert.match((await call("undo", { list: true }))[0].text, /^Recorded changes, newest first.*\n- a2 · .* · move · 1 video\(s\) · Rust → 杂$/);
+  assert.equal((await call("sync_favorites", { include: ["22"], start: true }))[0].text, [
+    "Folders (id · title · videos on Bilibili · ticked for 分拣 and how many videos MoonDigest's copy holds):",
+    "- 11 · Rust · 3 · private · ticked, copy holds 2",
+    "- 22 · 杂 · 1",
+    "Reading in the background: 1 of 2 folders done, now 22. Call sync_favorites with no parameters again in a while for the progress.",
+    "Unticked: 33.",
+  ].join("\n"));
+  assert.equal((await call("triage_settings", { folderId: "11", criteria: "只留教程" }))[0].text, [
+    '判断标准 of folder 11 changed (was: 旧). Undo: undo {"id":"a3"}. Results judged by the old one now count as stale in the 分拣台: tell the user.',
+    "Folder 11 「Rust」", "  判断标准: 只留教程", "  Tags: 入门 (3; rule: 新手向)",
+  ].join("\n"));
+  const covers = await call("get_covers", { bvids: ["BV1aaaaaaaaa", "BV1bbbbbbbbb"] });
+  assert.deepEqual([covers[0].type, covers[0].mimeType, covers[0].data, covers[1].text], ["image", "image/jpeg", "QUJD", "1. BV1aaaaaaaaa 一\n2. BV1bbbbbbbbb  (no cover)"]);
+  assert.match((await call("get_video", { url: "https://www.bilibili.com/video/BV1aaaaaaaaa", brief: true }))[0].text, /^Title: T\nVideo id: BV1aaaaaaaaa\nZone: 知识\nTags: rust\nBrief: /);
   const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
-  assert.deepEqual(calls, [{ method: "triage", params: { items } }, { method: "propose", params: { action: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"] } }]);
-  off = true;
-  r = await s.client.callTool({ name: "set_triage", arguments: { items } });
+  assert.deepEqual(calls, [
+    { method: "triage", params: { items } },
+    { method: "favWrite", params: { op: "move", from: "11", to: "22", bvids: ["BV1aaaaaaaaa"] } },
+    { method: "undo", params: { id: "a2" } },
+    { method: "log", params: {} },
+    { method: "sync", params: { include: ["22"], start: true } },
+    { method: "triageSettings", params: { folderId: "11", criteria: "只留教程" } },
+    { method: "covers", params: { bvids: ["BV1aaaaaaaaa", "BV1bbbbbbbbb"] } },
+    { method: "get", params: { url: "https://www.bilibili.com/video/BV1aaaaaaaaa", brief: true } },
+  ]);
+  stop = true;
+  const r = await s.client.callTool({ name: "fav_write", arguments: { op: "unfav", from: "11", bvids: ["BV1aaaaaaaaa", "BV1bbbbbbbbb"] } });
   assert.equal(r.isError, true);
-  assert.equal(r.content[0].text, "TRIAGE_WRITES_OFF: Ask the user to turn it on.");
+  assert.match(r.content[0].text, /^THROTTLED: unfav from 11: 1 done on Bilibili, 1 not done\. Undo: undo \{"id":"a9"\}\.\nStopped: THROTTLED\..*Not done: BV1bbbbbbbbb$/);
   ext.ws.close();
   await s.close();
 });

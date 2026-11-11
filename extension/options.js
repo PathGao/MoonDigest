@@ -60,6 +60,17 @@ const obsidianTests = MdgCommon.latest();
 // The Obsidian 测试连接 while it runs (setBusy).
 let busyButton = null;
 
+// 设置 → MCP. The MCP server is not on npm yet: the commands name the folder the user cloned.
+const MCP_SERVER = "/path/to/MoonDigest/mcp/server.js";
+const MCP_INSTALL = [
+  ["Claude Code", `claude mcp add moondigest -- node ${MCP_SERVER}`],
+  ["Codex", `[mcp_servers.moondigest]\ncommand = "node"\nargs = ["${MCP_SERVER}"]`, "写进 ~/.codex/config.toml"],
+  ["Cursor", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 ~/.cursor/mcp.json"],
+  ["Claude 桌面版", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 claude_desktop_config.json"]
+];
+const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，AI 助手启动 MCP 服务后一分钟内连上。", off: "" };
+const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
+
 init();
 
 function init() {
@@ -132,8 +143,7 @@ function init() {
     scheduleSave();
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
-  elements.mcpEnabled.addEventListener("change", syncMcpRows);
-  elements.mcpPersonalData.addEventListener("change", syncMcpRows);
+  bindMcp();
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -282,7 +292,6 @@ async function loadSettings() {
   for (const k of SWITCH_KEYS) elements[k].checked = settings[k];
   for (const k of VALUE_KEYS) elements[k].value = String(settings[k] ?? "");
   syncObsidianBody();
-  syncMcpRows();
   renderBiliMarks(settings.biliMarksOff);
   syncSeenRows();
   syncBiliMarks();
@@ -689,16 +698,61 @@ function validateNoteExtras() {
   return { ok: true };
 }
 
-// Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
-// 允许 Agent 读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
-// The two write switches (改分拣台, 改我的收藏) hang on both the same way: a write reads first.
-function syncMcpRows() {
-  const mcp = elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」";
-  MdgErrors.setReason(elements.mcpPersonalData, mcp);
-  const read = mcp || (elements.mcpPersonalData.checked ? "" : "先打开「允许 Agent 读我的收藏、关注和历史」");
-  for (const box of [elements.mcpWrites, elements.mcpCollectionWrite]) MdgErrors.setReason(box, read);
+// ---------- MCP ----------
+function renderMcpInstall() {
+  elements.mcpInstall.innerHTML = MCP_INSTALL.map(([name, cmd, where], i) => `<li><span>${escapeHtml(name)}</span><code title="${escapeHtml(where || "")}">${escapeHtml(cmd)}</code><button type="button" class="sm" data-mcp-copy="${i}">复制</button></li>`).join("");
+  elements.mcpInstall.addEventListener("click", async (event) => {
+    const i = event.target.closest?.("[data-mcp-copy]")?.dataset.mcpCopy;
+    if (i == null) return;
+    await navigator.clipboard.writeText(MCP_INSTALL[i][1]).then(() => setStatus(`已复制 ${MCP_INSTALL[i][0]} 的${MCP_INSTALL[i][2] ? "配置" : "命令"}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
+  });
+}
+// One journaled call (agent-writes.js) in a line.
+function mcpLogLine(e) {
+  const at = MdgCommon.localDate(new Date(e.at), true);
+  if (e.kind === "fav") return `${at} ${MCP_OPS[e.op]} ${e.n} 个：「${e.titles?.from || e.from}」${e.to ? ` → 「${e.titles?.to || e.to}」` : ""}`;
+  if (e.kind === "folder") return `${at} ${MCP_OPS[e.op]}：「${e.before?.title || e.after?.title || e.folder}」${e.op === "folder_rename" ? ` → 「${e.after.title}」` : ""}`;
+  if (e.kind === "criteria") return `${at} 改判断标准：「${e.titles?.from || e.folder}」`;
+  return `${at} 改了 ${e.n} 个视频的分拣结果`;
+}
+function renderMcpLog(log) {
+  const rows = [...(log || [])].reverse();
+  elements.mcpLog.innerHTML = rows.length
+    ? rows.map((e) => `<li><span>${escapeHtml(mcpLogLine(e))}</span><button type="button" class="sm" data-mcp-undo="${escapeHtml(e.id)}">撤销</button></li>`).join("")
+    : `<li class="empty">还没有修改</li>`;
+}
+// A B站 undo too long for one call (B站 takes re-favorites one at a time) answers with what is left: asked again until done.
+async function undoMcp(button) {
+  const id = button.dataset.mcpUndo;
+  MdgErrors.setReason(button, "正在撤销");
+  let n = 0;
+  for (;;) {
+    const r = await chrome.runtime.sendMessage({ type: "agent-undo", id }).catch(sendFailed);
+    if (!r?.ok) return setStatus(`撤销失败${n ? `（已撤销 ${n} 个视频）` : ""}：${MdgErrors.text(r)}`, true);
+    n += r.data.n;
+    if (!r.data.left) return setStatus("已撤销");
+    if (r.data.stopped === "THROTTLED") return setStatus(`${MdgErrors.TEXT.biliThrottled}（撤销了 ${n} 个，剩 ${r.data.left} 个没撤销，过一会儿再点撤销）`, true);
+    setStatus(`正在撤销：剩 ${r.data.left} 个`, false, true);
+  }
+}
+async function bindMcp() {
+  renderMcpInstall();
+  const key = MdgLimits.KEYS.triageAgentLog;
+  const got = await chrome.storage.local.get([key, "mcpStatus"]);
+  renderMcpLog(got[key]);
+  elements.mcpStatusText.textContent = MCP_STATUS[got.mcpStatus] || "";
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[key]) renderMcpLog(changes[key].newValue);
+    if (changes.mcpStatus) elements.mcpStatusText.textContent = MCP_STATUS[changes.mcpStatus.newValue] || "";
+  });
+  elements.mcpLog.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-mcp-undo]");
+    if (button && !button.disabled) undoMcp(button);
+  });
 }
 
+// Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
 function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
 }

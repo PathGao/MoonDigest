@@ -806,6 +806,27 @@ async function ytComments(next, byContinuation) {
   f = fake(new Error("YouTube 拒绝了字幕请求"), {}, { fetchTranscript: async () => Promise.reject(new Error("没有转写文稿")) });
   eq((await load(f)).failure, "YouTube 拒绝了字幕请求");
 
+  // B站's player/v2 (asked when wbi/v2 fails, or alone without an aid) hands out other videos' subtitles at random:
+  // its subtitle is used only when it matches the video's length. A mismatched one from wbi/v2 is used with its check.
+  {
+    const listed = { code: 0, data: { subtitle: { subtitles: [{ id: 7, lan: "ai-zh", lan_doc: "中文", subtitle_url: "//aisubtitle.hdslb.com/a.json" }] } } };
+    const biliLoad = (wbi, body, meta = { ...biliMeta, duration: 100 }) =>
+      S.loadSubtitle(bili, biliRef, meta, { fresh: true, fetchJson: async (url) => (url.includes("/x/player/wbi/v2") ? wbi : url.includes("/x/player/v2") ? listed : { body }) });
+    const down = { code: -400, message: "请求错误" };
+    got = await biliLoad(down, tooLong);
+    eq([got.track, got.body, got.mismatch, got.failure, got.needLogin], [null, [], null, "旧接口返回的字幕时长对不上，没有采用", false]);
+    eq((await biliLoad(down, tooLong, { cid: biliMeta.cid, duration: 100 })).failure, "旧接口返回的字幕时长对不上，没有采用");
+    got = await biliLoad(down, fit);
+    eq([got.track.id, got.body.length, got.mismatch, got.failure], ["7", 1, null, ""]);
+    got = await biliLoad(listed, tooLong);
+    eq([got.track.id, got.body.length, got.mismatch.reason, got.failure], ["7", 2, "too-long", ""]);
+    // The list read again after a mismatch came from wbi/v2: its subtitle is the one judged.
+    let asked = 0;
+    const flaky = { fresh: true, fetchJson: async (url) => (url.includes("/x/player/wbi/v2") ? (asked++ ? listed : down) : url.includes("/x/player/v2") ? listed : { body: tooLong }) };
+    got = await S.loadSubtitle(bili, biliRef, { ...biliMeta, duration: 100 }, flaky);
+    eq([got.track.id, got.mismatch.reason, asked], ["7", "too-long", 2]);
+  }
+
   // step sees every wait: once it throws (the video page's run guard) nothing more is asked.
   f = fake(two, { a: tooLong, b: fit });
   let waits = 0;

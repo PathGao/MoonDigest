@@ -38,8 +38,6 @@
   async function list(params, deadline) {
     const { p, adapter, kind } = target(params);
     if (p.cursor != null && (typeof p.cursor !== "string" || p.cursor.length > 4096)) throw fail("cursor must be the cursor a previous list_collection returned.", "BAD_PARAMS");
-    const off = await MdgAgentBridge.switchOff("mcpPersonalData");
-    if (off) throw off;
     const { items, cursor } = await adapter.list({ kind, id: p.id, cursor: p.cursor || "" }, deadline);
     return { site: adapter.id, kind, ...(p.id != null && { id: String(p.id) }), items, cursor };
   }
@@ -56,9 +54,6 @@
     if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) throw fail(`items must be 1 to ${MAX_ITEMS} ids.`, "BAD_PARAMS");
     if (!items.every((i) => typeof i === "string" && ITEM.test(i)) || new Set(items).size !== items.length) throw fail("items must be distinct ids.", "BAD_PARAMS");
     const dryRun = p.dryRun === true;
-    // dryRun only reads: the read switch alone.
-    const off = await MdgAgentBridge.switchOff("mcpPersonalData", ...(dryRun ? [] : ["mcpCollectionWrite"]));
-    if (off) throw off;
     const at = { kind, id: p.id };
     const want = op === "add";
     const slot = (item) => [adapter.id, kind, p.id ?? "", item].join("|");

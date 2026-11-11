@@ -449,26 +449,8 @@ function markRead(mediaId) {
 // chosen folder go to 已出分拣范围.
 function saveSnapshot(mediaId, items, ids = null) {
   return lockRecords(async () => {
-    const others = chosenOtherIds(mediaId);
-    const got = await chrome.storage.local.get([K.snapshot(mediaId), K.removed, K.left, ...others.map(K.snapshot)]);
-    const old = got[K.snapshot(mediaId)];
-    const oldItems = old?.items || (old?.bvids || []).map((bvid) => ({ bvid, title: old.titles?.[bvid] || bvid }));
-    const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
-    const { removed, left } = updateRemoved(got[K.removed] || {}, got[K.left] || {}, oldItems, items, otherBvids, Date.now(), ids, { id: String(mediaId), title: folderName(mediaId) });
-    const saved = await store({
-      [K.snapshot(mediaId)]: {
-        bvids: items.map((it) => it.bvid),
-        invalid: items.filter((it) => it.invalid).map((it) => it.bvid),
-        titles: Object.fromEntries(items.map((it) => [it.bvid, it.title])),
-        items,
-        ids, // the folder's id list at this load; 所有收藏夹 compares the next id list with it
-        intro: S.folderIntro[mediaId] ?? old?.intro,
-        title: knownTitle(mediaId) ?? old?.title // named in 已出分拣范围 after the folder is deleted on B站
-      },
-      [K.removed]: removed,
-      [K.left]: left
-    });
-    if (!saved) return;
+    const removed = await records.saveNow(mediaId, items, ids, { others: chosenOtherIds(mediaId), title: knownTitle(mediaId), intro: S.folderIntro[mediaId] });
+    if (!removed) return;
     await refreshElsewhereNow(mediaId);
     S.removedCount = Object.keys(removed).length;
     renderTop();

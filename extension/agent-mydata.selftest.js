@@ -14,8 +14,8 @@ const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8")
 assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js"), "agent-mydata.js loads after the triage helpers it uses");
 let M = null;
 for (const file of order) {
-  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods: (m) => (M ??= m) };
-  if (file === "agent-writes.js") ctx.MdgAgentBridge = { switchOff: ctx.MdgAgentBridge.switchOff, addMethods() {} }; // agent-writes.selftest.js's
+  if (file === "agent-mydata.js") ctx.MdgAgentBridge = { addMethods: (m) => (M ??= m) };
+  if (file === "agent-writes.js") ctx.MdgAgentBridge = { addMethods() {} }; // agent-writes.selftest.js's
   vm.runInContext(fs.readFileSync(path.join(__dirname, file), "utf8"), ctx);
 }
 assert.deepStrictEqual(Object.keys(M), ["favorites", "follows", "history"]);
@@ -86,28 +86,35 @@ const cases = [];
 const check = (name, fn) => cases.push([name, fn]);
 const reset = () => {
   local = {};
-  sync = { mcpPersonalData: true };
+  sync = {};
   routes = baseRoutes();
   fetched.length = 0;
   writes.length = 0;
 };
 
-check("switch off: PERSONAL_DATA_OFF for every method, nothing fetched", async () => {
-  sync = {};
-  for (const name of Object.keys(M)) {
-    const r = await M[name]({});
-    assert.strictEqual(r.ok, false);
-    assert.strictEqual(r.code, "PERSONAL_DATA_OFF");
-    assert.match(r.error, /Ask the user to turn on 设置 → MCP → 允许 Agent 读我的收藏、关注和历史/);
-  }
-  sync = { mcpPersonalData: false };
-  assert.strictEqual((await M.favorites({})).code, "PERSONAL_DATA_OFF");
-  assert.strictEqual(fetched.length, 0);
-});
-
 check("folder list: 稍后再看 first, ids as strings", async () => {
   const r = await M.favorites({});
   assert.deepStrictEqual(plain(r), { ok: true, data: { folders: [{ id: "toview", title: "稍后再看", count: 1 }, { id: "11", title: "Rust", count: 2 }, { id: "22", title: "杂", count: 50 }] } });
+});
+
+check("all: every chosen folder's copy as one list, a video once with its folders; filters by verdict, stage, tag, invalid; no B站 request", async () => {
+  const it = (bvid, title, more = {}) => ({ bvid, title, upper: "UP", duration: 60, favTime: 1700000000, invalid: false, ...more });
+  local[K.triageIncludedFolders] = [11, 22, 33];
+  local[K.triageSnapshot("11")] = { items: [it("BV1aaaaaaaaa", "所有权"), it("BV1bbbbbbbbb", "别的", { invalid: true }), it("BV1ccccccccc", "已取消")] };
+  local[K.triageSnapshot("22")] = { items: [it("BV1aaaaaaaaa", "所有权"), it("BV1ddddddddd", "没看过")] };
+  local[K.triageDecisions("11")] = { BV1ccccccccc: { action: "unfav", at: 1800000000000 } };
+  local[K.triageTags] = [{ id: "t1", name: "Rust", folder: "11" }];
+  local[K.triageVideoTags] = { BV1aaaaaaaaa: ["t1"] };
+  local[K.triageAnalysis("BV1aaaaaaaaa")] = { status: "done", verdict: "keep", oneLiner: "讲透所有权" };
+  const all = (p) => M.favorites({ all: true, ...p }).then((r) => r.data);
+  const ids = (d) => d.items.map((x) => x.bvid.slice(3, 4)).join("");
+  const d = await all({});
+  assert.deepStrictEqual([d.source, d.total, plain(d.unsynced), ids(d)], ["local", 3, ["33"], "abd"], "the 取消收藏 one is left out; folder 33 has no copy yet");
+  assert.deepStrictEqual([plain(d.items[0].folders), d.items[0].stage, d.items[1].stage, d.items[1].verdict, d.items[2].stage], [["11", "22"], "fine", "none", "drop", "none"]);
+  assert.deepStrictEqual([ids(await all({ verdict: "none" })), ids(await all({ stage: "fine" })), ids(await all({ tag: "Rust" })), ids(await all({ invalid: true })), ids(await all({ invalid: false })), ids(await all({ folderId: "22" })), ids(await all({ query: "没看" }))], ["d", "a", "a", "b", "ad", "ad", "d"]);
+  assert.strictEqual((await M.favorites({ all: true, verdict: "maybe" })).code, "BAD_PARAMS");
+  assert.strictEqual(fetched.length, 0);
+  assert.strictEqual((await M.favorites({ folderId: "11" })).data.total, 2, "one folder's copy leaves the 取消收藏 one out too");
 });
 
 check("a ticked folder reads the 分拣台's copy, with tags, note, verdict, summary and 保留; query searches them", async () => {
@@ -130,9 +137,9 @@ check("a ticked folder reads the 分拣台's copy, with tags, note, verdict, sum
     { bvid: "BV1bbbbbbbbb", url: "https://www.bilibili.com/video/BV1bbbbbbbbb", title: "别的", author: "UPb", duration: 30, favTime: 1700000001, invalid: true, note: "讲 rust 宏", verdict: "drop" }
   ] });
   const q = await M.favorites({ folderId: "11", query: "RUST" });
-  assert.deepStrictEqual(q.data.items.map((it) => it.bvid), ["BV1aaaaaaaaa", "BV1bbbbbbbbb"], "a tag and a note match");
-  assert.deepStrictEqual((await M.favorites({ folderId: "11", query: "rust 宏" })).data.items.map((it) => it.bvid), ["BV1bbbbbbbbb"], "every word");
-  assert.deepStrictEqual((await M.favorites({ folderId: "11", page: 2 })).data.items, []);
+  assert.deepStrictEqual(plain(q.data.items.map((it) => it.bvid)), ["BV1aaaaaaaaa", "BV1bbbbbbbbb"], "a tag and a note match");
+  assert.deepStrictEqual(plain((await M.favorites({ folderId: "11", query: "rust 宏" })).data.items.map((it) => it.bvid)), ["BV1bbbbbbbbb"], "every word");
+  assert.deepStrictEqual(plain((await M.favorites({ folderId: "11", page: 2 })).data.items), []);
 });
 
 check("another folder: one B站 page, B站 searches by keyword (total left out: B站 gives the folder's); only videos", async () => {

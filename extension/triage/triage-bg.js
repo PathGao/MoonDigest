@@ -622,7 +622,8 @@ async function triageCreatedFolders() {
     folders: [
       // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
       ...(toview ? [{ id: TRIAGE_TOVIEW, title: MdgErrors.LABEL.watchLater, count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: TriageUi.https(toview.list[0].pic) } : {}) }] : []),
-      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover) }))
+      // attr's lowest bit: 1 私密, 0 公开.
+      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover), ...((Number(f.attr) & 1) === 1 && { private: true }) }))
     ]
   };
 }

@@ -276,20 +276,18 @@
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="mcpEnabled">允许 MCP 连接</label><p class="hint">让 Cursor、Codex、Claude Code 等 Agent 通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a> 搜索 B站和 YouTube 视频，读视频的字幕、评论和画面。用 MCP 时再打开：开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行。不用时关掉，能省一点电和内存。</p></div>
+            <div class="lab"><label class="name" for="mcpEnabled">允许 AI 助手使用我的 B站和 YouTube 账号</label><p class="hint">打开后，Claude Code、Cursor、Codex 等 AI 助手能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录：搜索和读视频（字幕、评论、画面）；读你的 B站收藏夹、关注、历史和稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表；改它们：移动、复制、移出收藏夹，新建、改名、删除收藏夹，写分拣台的 AI 判断、保留、备注和标签。每次修改都记在下面，可以撤销。不含 API Key 和 AI 对话。开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</p></div>
             <div class="ctl"><input id="mcpEnabled" type="checkbox" class="switch" /></div>
           </div>
-          <div class="row sub">
-            <div class="lab"><label class="name" for="mcpPersonalData">允许 Agent 读我的收藏、关注和历史</label><p class="hint">Agent 还能通过 MCP 读你 B站的收藏夹和里面的视频（带分拣台的标签、备注和 AI 判断）、关注和分组（带 UP 标签）、观看历史、稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表。只读，不改 B站、YouTube 和 MoonDigest 里的任何东西；不含 API Key 和 AI 对话。要先打开「允许 MCP 连接」。</p></div>
-            <div class="ctl"><input id="mcpPersonalData" type="checkbox" class="switch" /></div>
+          <div class="row">
+            <div class="lab"><span class="name">安装</span><p class="hint">在 AI 助手里添加 MCP 服务，命令里的路径换成你电脑上 MoonDigest 文件夹的位置（先在 <code>mcp</code> 文件夹里运行一次 <code>npm install</code>）。<span id="mcpStatusText"></span></p>
+              <ul class="mcp-install" id="mcpInstall"></ul>
+            </div>
           </div>
-          <div class="row sub">
-            <div class="lab"><label class="name" for="mcpWrites">允许 Agent 改分拣台</label><p class="hint">Agent 还能通过 MCP 写分拣台里的 AI 判断、保留、备注和视频标签，分拣台里按 U 撤销。取消收藏、移动和复制它只能提议，在分拣台里由你确认后才改 B站。要先打开「允许 Agent 读我的收藏、关注和历史」。</p></div>
-            <div class="ctl"><input id="mcpWrites" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row sub">
-            <div class="lab"><label class="name" for="mcpCollectionWrite">允许 Agent 改我的收藏</label><p class="hint">Agent 还能通过 MCP 把视频加进或移出你的 B站稍后再看、YouTube 稍后观看和你自己建的 YouTube 播放列表。一次不超过 20 个，一个一个改，改前改后各读一次，被限流就停。要先打开「允许 Agent 读我的收藏、关注和历史」。</p></div>
-            <div class="ctl"><input id="mcpCollectionWrite" type="checkbox" class="switch" /></div>
+          <div class="row">
+            <div class="lab"><span class="name">AI 助手最近的修改</span><p class="hint">最多留 100 次。撤销 B站上的修改会在 B站改回去：移走的移回去，移出收藏夹的加回原收藏夹。</p>
+              <ul class="mcp-log" id="mcpLog"></ul>
+            </div>
           </div>
         </div>
       </section>

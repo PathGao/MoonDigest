@@ -50,6 +50,8 @@
     triageSnapshotPrefix: SNAPSHOT,
     triageSnapshot: (mediaId) => `${SNAPSHOT}${mediaId}`,
     triageRemoved: "triage_removed",
+    // { [bvid]: { [folderId]: { title, at } } }: folders a video left while still in another chosen one.
+    triageLeft: "triage_left",
     // 分拣台's 取消收藏 records per folder, and 保留 (one list for every folder): the B站 pages show them too.
     triageDecisionsPrefix: DECISIONS,
     triageDecisions: (mediaId) => `${DECISIONS}${mediaId}`,
@@ -60,10 +62,9 @@
     triageVideoTags: "triage_video_tags",
     // B站's folder list as the 分拣台 last read it: { mid, folders: [{ id, title, count, … }] }.
     triageFolderList: "triage_folder_list",
-    // An AI tool's changes over MCP (agent-writes.js): its local writes, newest last, each undoable from the 分拣台 (U),
-    // and its B站 proposals waiting for the user there.
+    // An AI tool's changes over MCP (agent-writes.js), newest last: each undoable from 设置 → MCP, the 分拣台 (U) and
+    // the MCP's own undo.
     triageAgentLog: "triage_agent_log",
-    triageAgentProposals: "triage_agent_proposals",
     triageBasket: "triage_basket",
     // 摘读记录's 星标 and tags: { tags: [{ id, name, color, rule }], items: { [record key]: { star, tags, ref, updatedAt } } }.
     // The record key is MdgNote.readingKey; ref keeps the title and address, so a record stays after its conversations go.

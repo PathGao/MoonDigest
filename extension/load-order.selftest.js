@@ -27,7 +27,8 @@ assert.ok(runtimes.length >= 11, `found ${runtimes.length} runtimes`);
 // The worker loads triage/shared.js for its pure helpers; the DOM bindings that read MdgTyping never run there.
 // The video page passes its own dialog to note-actions.js and only writes: its download and default dialogs never run there.
 // The bridge names MdgAgentPage only in a function it runs in a page, right after injecting agent-page.js there.
-const exempt = new Set(["background.js|triage/shared.js|MdgTyping", "content.js|note-actions.js|MdgDownload", "content.js|note-actions.js|MdgOverwriteDialog", "background.js|agent-bridge.js|MdgAgentPage"]);
+// It reads MdgAgentVideo (loaded after triage-bg.js, which it reads through) only when a get arrives, and checks it is there.
+const exempt = new Set(["background.js|agent-bridge.js|MdgAgentVideo", "background.js|triage/shared.js|MdgTyping", "content.js|note-actions.js|MdgDownload", "content.js|note-actions.js|MdgOverwriteDialog", "background.js|agent-bridge.js|MdgAgentPage"]);
 let checked = 0;
 for (const [where, list, page] of runtimes) {
   // A script in the page's own world would hand the page our globals.

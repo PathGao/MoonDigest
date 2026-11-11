@@ -41,7 +41,7 @@ async function start() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, agentProposals] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog] = await Promise.all([
     loadTagsAndCriteria(),
     storeGet(K.kept, {}),
     storeGet(K.basket, []),
@@ -52,10 +52,9 @@ async function start() {
     storeGet(K.sort, {}),
     storeGet(K.readAt, {}),
     storeGet(K.aiProposals, {}),
-    storeGet(K.agentLog, []),
-    storeGet(K.agentProposals, [])
+    storeGet(K.agentLog, [])
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, agentProposals });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt });
   followAgentLog(agentLog, false);
   S.ai.proposals = aiProposals;
   pruneAiProposals();
@@ -127,7 +126,7 @@ function followIncluded(changes) {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {}, agentProposals: [] };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -409,7 +408,6 @@ function bindEvents() {
     const act = btn.dataset.head;
     if (act === "tags") openAi();
     else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
-    else if (act === "agent") reviewProposal();
     else if (act === "stage1") {
       if (!runs.get("stage1")) {
         const list = stage1Pending();
