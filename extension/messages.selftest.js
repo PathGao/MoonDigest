@@ -16,7 +16,7 @@ const vm = require("vm");
 
 const root = __dirname;
 const read = (f) => fs.readFileSync(path.join(root, f), "utf8");
-const files = require("./page-sources.selftest.js").walk(".", (d) => /^dev/.test(d)).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "messages.js");
+const files = require("./page-sources.selftest.js").walk(".", (d) => /^(dev|vendor$)/.test(d)).filter((f) => f.endsWith(".js") && !f.endsWith(".selftest.js") && f !== "messages.js");
 // Comments out, strings kept (field names and types live in them), same offsets.
 const blank = (s) => s.replace(/\/\*[\s\S]*?\*\/|(^|[^:"'`\\])\/\/.*$/gm, (m, pre = "") => pre + m.slice(pre.length).replace(/[^\n]/g, " "));
 const src = Object.fromEntries(files.map((f) => [f, blank(read(f))]));

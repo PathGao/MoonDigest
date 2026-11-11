@@ -76,3 +76,33 @@ The YouTube subtitle fetching approach follows [jdepoix/youtube-transcript-api](
 ## catppuccin/palette
 
 The extension's status colors (ok, warn, danger) use the [Catppuccin](https://github.com/catppuccin/palette) palette (MIT, Copyright (c) 2021 Catppuccin): Mocha for dark mode, and Latte for light mode with its accents desaturated and darkened.
+
+## ronkok/Temml
+
+`extension/vendor/temml.min.js`, `Temml-Local.css` and `Temml.woff2` are the files of the same names in `dist/` of [Temml](https://github.com/ronkok/Temml), unmodified. The side panel and 摘读记录 use them to show the LaTeX in an AI answer as MathML. To update, copy the three files from the npm package and change the version below.
+
+Version: 0.14.0
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2020 Ron Kok
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

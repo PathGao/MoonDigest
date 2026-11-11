@@ -61,6 +61,7 @@ summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 .turn-a :is(p, ul, ol, pre, table) { margin: var(--space-1) 0; }
 .turn-a :is(h3, h4, h5) { margin: var(--space-2) 0 var(--space-1); font-size: var(--fs-sm); color: var(--text); }
 .turn-a :is(ul, ol) { padding-left: 1.4em; }
+.turn-a .md-math-block { display: block; overflow-x: auto; }
 .turn-a code { font-family: var(--font-mono); }
 .turn-a pre { overflow-x: auto; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--surface-muted); }
 .turn-a table { border-collapse: collapse; }
