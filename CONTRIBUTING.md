@@ -41,7 +41,7 @@ extension/
 ├── tokens.css      共享的颜色、字号、间距（含深色主题）
 ├── triage/         B站分拣台：收藏夹（fav-*.js，由 triage.js 启动，纯函数在 triage-core.js）、关注（follow.js，纯函数在 follow-core.js），后台接口 triage-bg.js、follow-bg.js
 ├── history/        摘读记录页
-├── vendor/         第三方代码：defuddle.js（网页正文提取，`scripts/update-defuddle.sh <版本>` 更新，要 bash）
+├── vendor/         第三方代码：defuddle.js（网页正文提取，`scripts/update-defuddle.sh <版本>` 更新，要 bash）；temml.min.js、Temml-Local.css、Temml.woff2（AI 回答里的 LaTeX 公式，来源和版本见 `THIRD_PARTY_NOTICES.md`）
 ├── dev-sidepanel/  侧边栏的开发预览
 └── dev/            设置页的开发用假数据
 ```

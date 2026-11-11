@@ -506,6 +506,29 @@ const XSS = ["<img src=x onerror=alert(1)>", `"'><script>alert(1)</script>`];
 const assertInert = (html, where) => assert.ok(!/<img src=x|<script|"'>/i.test(html) && /&lt;|&#60;/.test(html), `${where}: ${html}`);
 for (const bad of XSS) assertInert(N.renderMarkdown(`${bad}\n\n- **${bad}**\n\n\`${bad}\``), "renderMarkdown");
 assert.ok(N.renderMarkdown("[x](javascript:alert(1))").includes('href="#"'), "only http, mailto and # links");
+// #462: LaTeX renders as MathML where Temml is loaded (the side panel and 摘读记录), and stays text elsewhere.
+assert.strictEqual(N.renderMarkdown("\\(x\\) 和 $y$"), "<p>\\(x\\) 和 $y$</p>", "no Temml, no math");
+{
+  const mctx = vm.createContext({ URL, URLSearchParams, console });
+  for (const f of ["common.js", "limits.js", "errors.js", "settings.js", "sites.js", "tag-core.js", "vendor/temml.min.js", "note.js"]) vm.runInContext(fs.readFileSync(path.join(__dirname, f), "utf8"), mctx);
+  const md = mctx.MdgNote.renderMarkdown;
+  const block = md("得到：\n\n\\[ \\begin{bmatrix} 1 & 3\\\\ 4 & 6 \\end{bmatrix} \\]\n\n$$a<b$$");
+  assert.strictEqual(block.match(/<span class="md-math-block"><math [^>]*display="block"/g)?.length, 2, block);
+  assert.ok(block.includes("<mtable") && !block.includes("bmatrix") && !block.includes("\\["), block);
+  const inline = md("- 用 **\\(2\\times2\\)** 的窗口，$x_1$");
+  assert.strictEqual(inline.match(/<math/g)?.length, 2, inline);
+  assert.ok(/<li>用 <strong><math/.test(inline) && inline.includes("×") && !inline.includes('display="block"'), inline);
+  assert.ok(!md("花了 $5 和 $10，$5-$10").includes("<math"), "prices are not math");
+  assert.ok(!md("`$x$` 和\n```\n\\[y\\]\n```").includes("<math"), "code keeps its LaTeX");
+  assert.ok(!md("还没写完 \\[ x").includes("<math"), "an unclosed formula stays text while the answer streams");
+  for (const bad of XSS) assertInert(md(`$$${bad}$$ \\(\\text{${bad}}\\) ${bad}`), "renderMarkdown math");
+  assert.ok(!md("\\(\\href{javascript:alert(1)}{x}\\)").includes("href="), "\\href is not trusted");
+  assert.ok(md("前 $\\def\\a#1{\\a{#1#1}}\\a{x}$ 后").startsWith("<p>前 $"), "a formula that overflows Temml's stack stays text");
+  assert.ok(!md("```python\nx = '$a$'\ny = '\\(b\\)'\n").includes("<math"), "a fence still streaming keeps its LaTeX");
+  assert.ok(md("\\[ a\n\n```\ncode \\] here\n```").includes("<pre><code>code \\] here"), "display math stops at a blank line");
+  assert.ok(md("[x](https://a.com/$b$)").includes('<a href="#"'), "no formula inside an href");
+  assert.strictEqual(md("\u00030\u0003 plain"), "<p>0 plain</p>", "a placeholder character in the answer is dropped");
+}
 // 详情 › 笔记标签 shows the tags the note gets: none when the setting is cleared, plus the 分拣台 tags, from one function.
 assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })], ["学_习"]);
 assert.deepStrictEqual([...N.noteTags({}, { tags: "MoonDigest, a" })], ["MoonDigest", "a"]);
