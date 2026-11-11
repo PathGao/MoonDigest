@@ -854,10 +854,33 @@
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
   }
 
+  // LaTeX in an answer: $$..$$ and \[..\] are display math, \(..\) and $..$ inline. A lone $ is math only when it hugs
+  // its content and no digit follows the closing one, so "$5 和 $10" stays text. Code alternatives match first and are
+  // kept, a fence still streaming included. Display math ends at a blank line, so a stray \[ cannot swallow the answer.
+  const MATH_OR_CODE = /```[\s\S]*?(?:```|$)|`[^`\n]+`|\$\$((?:(?!\n[ \t]*\n)[\s\S])+?)\$\$|\\\[((?:(?!\n[ \t]*\n)[\s\S])+?)\\\]|\\\((.+?)\\\)|(?<![\w$\\])\$(?!\s)([^$\n]+?)(?<![\s\\])\$(?![\w$])/g;
+
   // Chat-answer Markdown to HTML for the side panel and the history page. HTML is escaped first,
   // so only the tags built here reach the page.
   function renderMarkdown(text) {
-    let escaped = escapeHtml(stripThinkBlocks(text));
+    // Math is set aside before escaping, since Temml reads the raw LaTeX. Code keeps its dollars and backslashes.
+    const math = [];
+    const temml = globalThis.temml;
+    const source = stripThinkBlocks(text).replaceAll("\u0003", "").replace(MATH_OR_CODE, (all, dollars, bracket, paren, dollar) => {
+      const tex = dollars ?? bracket ?? paren ?? dollar;
+      if (tex === undefined || !temml) {
+        return all;
+      }
+      const displayMode = dollars !== undefined || bracket !== undefined;
+      let html;
+      try {
+        html = temml.renderToString(tex, { displayMode, throwOnError: false });
+      } catch {
+        // throwOnError covers parse errors only: a runaway macro overflows the stack, and the answer must still show.
+        return all;
+      }
+      return `\u0003${math.push(displayMode ? `<span class="md-math-block">${html}</span>` : html) - 1}\u0003`;
+    });
+    let escaped = escapeHtml(source);
     const codeBlocks = [];
     escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code) => {
       // The fence's first line is its language (```python), not code.
@@ -1002,7 +1025,8 @@
     flushPara();
     closeList();
     // A code block that shares its line with text is shown inline.
-    return out.join("").replace(/\u0001MDG_CODE_(\d+)\u0001/g, (_, n) => `<code>${codeBlocks[Number(n)]}</code>`);
+    return out.join("").replace(/\u0001MDG_CODE_(\d+)\u0001/g, (_, n) => `<code>${codeBlocks[Number(n)]}</code>`)
+      .replace(/\u0003(\d+)\u0003/g, (_, n) => math[Number(n)]);
   }
 
   // Code spans are set aside first, so the bold, italic and link rules never reach inside them.
@@ -1013,7 +1037,8 @@
       .replace(/\*\*([^*\n]+)\*\*/g, (_, c) => `<strong>${c}</strong>`)
       .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre, c) => `${pre}<em>${c}</em>`)
       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => {
-        const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
+        // A formula's placeholder would put its HTML inside the attribute.
+        const safeUrl = /^(https?:|mailto:|#)/i.test(u) && !u.includes("\u0003") ? u : "#";
         return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
       })
       .replace(/\u0002(\d+)\u0002/g, (_, n) => spans[Number(n)]);

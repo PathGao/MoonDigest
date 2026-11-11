@@ -831,6 +831,12 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   overflow-x: auto;
 }
 
+/* A wide matrix scrolls inside the bubble. */
+.sp-msg-assistant .md-math-block {
+  display: block;
+  overflow-x: auto;
+}
+
 .sp-msg-assistant pre code {
   padding: 0;
   background: transparent;
