@@ -257,7 +257,8 @@ const favReset = () => {
   posts.length = 0;
   routes = {
     "/x/web-interface/nav": () => ({ code: 0, data: { isLogin: true, mid: 1 } }),
-    "/x/v3/fav/resource/ids": () => ({ code: 0, data: [] })
+    // What B站 says each folder holds: 33 has B, which MoonDigest's copy of it may or may not know.
+    "/x/v3/fav/resource/ids": (q) => ({ code: 0, data: q.get("media_id") === "33" ? [{ type: 2, bvid: B }] : [] })
   };
 };
 const paths = () => posts.map(([p]) => p.replace("/x/v3/fav/", ""));
@@ -284,6 +285,61 @@ check("copy: one the target already held stays there on undo; only the new one i
   await M.undo({ id: r.data.undoId }, far());
   assert.deepStrictEqual(plain(posts[1]), ["/x/v3/fav/resource/batch-del", { media_id: "33", resources: "1:2", platform: "web", csrf: "csrf" }]);
   assert.deepStrictEqual([local[K.triageSnapshot("33")].bvids, local[K.triageSnapshot("11")].bvids], [[B], [A, B]]);
+});
+
+check("what the target already held is asked of B站, not of a copy that may be behind: undo leaves it there", async () => {
+  favReset();
+  local[K.triageSnapshot("33")] = { bvids: [], invalid: [], titles: {}, items: [], ids: [], title: "已有" }; // the copy does not know B is there
+  const r = await M.favWrite({ op: "copy", from: "11", to: "33", bvids: [B] }, far());
+  await M.undo({ id: r.data.undoId }, far());
+  assert.deepStrictEqual([plain(log()), paths()], [[], ["resource/copy"]], "nothing is taken out of 33");
+});
+
+check("a move out of 稍后再看 is undone one video at a time: back into it, then out of the target", async () => {
+  favReset();
+  local[K.triageIncludedFolders] = ["11", "toview"];
+  local[K.triageSnapshot("toview")] = { bvids: [C], invalid: [], titles: {}, items: [vid(C, 3)], ids: [C] };
+  const r = await M.favWrite({ op: "move", from: "toview", to: "11", bvids: [C] }, far());
+  assert.deepStrictEqual([r.ok, local[K.triageSnapshot("toview")].bvids, local[K.triageSnapshot("11")].bvids], [true, [], [C, A, B]]);
+  posts.length = 0;
+  const u = await M.undo({ id: r.data.undoId }, far());
+  assert.deepStrictEqual([u.ok, u.data.n, plain(posts)], [true, 1, [["/x/v2/history/toview/add", { aid: "3", csrf: "csrf" }], ["/x/v3/fav/resource/batch-del", { media_id: "11", resources: "3:2", platform: "web", csrf: "csrf" }]]]);
+  assert.deepStrictEqual([local[K.triageSnapshot("toview")].bvids, local[K.triageSnapshot("11")].bvids, log()], [[C], [A, B], []]);
+  assert.strictEqual(local[K.triageSnapshot("toview")].items[0].title, "标题3", "the copy gets the whole item back, not a stub");
+});
+
+check("an undo goes on past a video B站 refuses to take back, and says how many; one in progress is refused, and a dead one can be undone again", async () => {
+  favReset();
+  const r = await M.favWrite({ op: "unfav", from: "11", bvids: [A, B] }, far());
+  routes["/x/v3/fav/resource/deal"] = (_, b) => (b.rid === "1" ? { code: 11010, message: "稿件不存在" } : null);
+  const u = await M.undo({ id: r.data.undoId }, far());
+  assert.deepStrictEqual([u.ok, u.data.n, u.data.failed, u.data.left, log().length, Object.keys(local[K.triageDecisions("11")])], [true, 1, 1, undefined, 0, [A]]);
+  favReset();
+  const w = await M.favWrite({ op: "unfav", from: "11", bvids: [A] }, far());
+  local[K.triageAgentLog][0].undoing = Date.now(); // another page is undoing it right now
+  assert.match((await M.undo({ id: w.data.undoId }, far())).error, /正在撤销/);
+  local[K.triageAgentLog][0].undoing = Date.now() - 3 * 60_000; // the background died midway: the mark ran out
+  assert.deepStrictEqual([(await M.undo({ id: w.data.undoId }, far())).data.n, log().length], [1, 0]);
+});
+
+check("a batch that landed on B站 is journaled even when its local records cannot be written", async () => {
+  favReset();
+  const set = chrome.storage.local.set;
+  chrome.storage.local.set = async (o) => {
+    if (Object.keys(o).some((k) => k.startsWith("triage_snapshot_"))) throw new Error("QUOTA");
+    return set(o);
+  };
+  const r = await M.favWrite({ op: "move", from: "11", to: "22", bvids: [A] }, far());
+  chrome.storage.local.set = set;
+  assert.deepStrictEqual([r.ok, posts.length, log().length, log()[0].items.map((it) => it.bvid)], [false, 1, 1, [A]]);
+  assert.match(r.error, /QUOTA.*1 of 1/);
+});
+
+check("B站 changes and local ones are counted apart in the journal: a hundred triage calls leave a folder change in it", async () => {
+  favReset();
+  const f = await M.favWrite({ op: "unfav", from: "11", bvids: [A] }, far());
+  for (let i = 0; i < 101; i++) await M.triage({ items: [{ bvid: B, note: `第 ${i} 次` }] });
+  assert.deepStrictEqual([log().length, log()[0].id], [101, f.data.undoId]);
 });
 
 check("unfav: recorded as the 分拣台's 取消收藏 (elsewhere when another chosen folder holds it); undo re-favorites into the folder", async () => {

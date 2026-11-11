@@ -127,6 +127,7 @@ function followIncluded(changes) {
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
 const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
+let snapshotFollow = 0;
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -151,6 +152,14 @@ function followShared(changes) {
     if (c.newValue) S.analyses[b] = c.newValue;
     else delete S.analyses[b];
     changed = true;
+  }
+  // The open folder's cached list written elsewhere (an AI tool's 移动 or undo, a background read): the folder opens
+  // again from it, once the writes settle, so no card shows a video that has left.
+  const snap = changes[K.snapshot(S.mediaId)];
+  if (snap && !ownEcho(K.snapshot(S.mediaId), snap)) {
+    clearTimeout(snapshotFollow);
+    const mediaId = S.mediaId;
+    snapshotFollow = setTimeout(() => S.mediaId === mediaId && !fav.state().busy && openFolder(mediaId), 3000);
   }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders; in
   // 已出分拣范围 every chosen folder's (最近取消收藏).

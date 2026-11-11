@@ -44,7 +44,7 @@
           continue;
         }
         mine.current = id;
-        const was = await readFolder(id, titles[id]);
+        const was = await MdgAgentQueue(() => readFolder(id, titles[id]));
         if (was === "partial") mine.partial.push(id);
         else mine[was]++;
         mine.done++;

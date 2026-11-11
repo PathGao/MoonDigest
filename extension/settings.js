@@ -82,7 +82,7 @@
     enableDebugLogs: false,
     // The agent interface's MCP socket (agent-bridge.js in the background, docs/AGENT.md): off until 设置 → MCP → 允许 AI
     // 助手使用我的 B站和 YouTube 账号. The one switch: while it is on an AI tool reads and changes through the socket.
-    mcpEnabled: false,
+    mcpAccess: false,
     readerTheme: "light",
     readerFontScale: "m",
     readerLetterSpacing: "normal",

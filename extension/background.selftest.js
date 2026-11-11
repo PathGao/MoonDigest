@@ -238,18 +238,20 @@ process.on("exit", (code) => {
   await init();
   assert.strictEqual(JSON.stringify(oldUser), once);
 
-  // 3.8's one MCP switch: on only for someone who had all three switches under it on; the old keys go, so it acts once.
+  // 3.8's one MCP switch (mcpAccess): on only for someone who had 允许 MCP 连接 and all three switches under it on. One
+  // who had only the connection on never allowed reading the account. The old keys go, so it acts once.
   for (const [was, on] of [
     [{ mcpEnabled: true, mcpPersonalData: true, mcpWrites: true, mcpCollectionWrite: true }, true],
     [{ mcpEnabled: true, mcpPersonalData: true, mcpWrites: false, mcpCollectionWrite: true }, undefined],
     [{ mcpEnabled: true, mcpPersonalData: true }, undefined],
-    [{ mcpEnabled: true }, true] // already migrated, or never had the others: left alone
+    [{ mcpEnabled: true }, undefined],
+    [{ mcpAccess: true }, true] // migrated already
   ]) {
     const stored = { obsidianEnabled: false, ...was };
     init = install(stored);
     await init();
     await init();
-    assert.deepStrictEqual([stored.mcpEnabled, "mcpPersonalData" in stored, "mcpWrites" in stored, "mcpCollectionWrite" in stored], [on, false, false, false], JSON.stringify(was));
+    assert.deepStrictEqual([stored.mcpAccess, ["mcpEnabled", "mcpPersonalData", "mcpWrites", "mcpCollectionWrite"].filter((k) => k in stored)], [on, []], JSON.stringify(was));
   }
 
   // The chat port, message by message: fn is the background's listener, disconnect the panel going away.

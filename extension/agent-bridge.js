@@ -189,7 +189,9 @@
     if (direct) return direct;
     const { url: _drop, ...rest } = params;
     const id = key.slice(key.indexOf(":") + 1, key.lastIndexOf(":"));
-    const want = method === "get" && (/^BV[0-9A-Za-z]{10}$/.test(id) || site.id === "youtube") ? id : null;
+    // Only where the path names the video: a 活动页 or list keeps its ?bvid= after the player moves on to another.
+    const named = site.id === "youtube" || /^\/video\//.test(new URL(url).pathname);
+    const want = method === "get" && named && (/^BV[0-9A-Za-z]{10}$/.test(id) || site.id === "youtube") ? id : null;
     const user = await findUserTab(site, key);
     if (user) return callVideo(user, method, rest, deadline, want);
     return inOwnTab(async () => {

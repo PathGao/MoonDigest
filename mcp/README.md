@@ -43,7 +43,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
   - `from` 有本地副本时，`bvids` 必须都在本地副本里，否则返回 `BAD_PARAMS`：先用 `sync_favorites` 重新读取。
   - `folder_delete`：B站 的视频数有时比列表里列出的多，多出来的看不到，多半是已被删除的视频。这时不删除，返回 `HIDDEN_ITEMS` 和相差的个数：删除收藏夹后这些视频撤销也找不回来。你同意后带 `acceptLoss: true` 再调用。
   - 结果里带撤销编号（`undoId`）。
-- `undo({ id?, list?, raw? })`：撤销一次有记录的修改。`id` 是撤销编号，不给就撤销最近一次。`list: true` 只列出记录（留最近 100 次），不撤销。
+- `undo({ id?, list?, raw? })`：撤销一次有记录的修改。`id` 是撤销编号，不给就撤销最近一次。`list: true` 只列出记录（B站上的修改和本地的修改各留最近 100 次），不撤销。
   - 取消收藏、清理失效视频：把视频加回原收藏夹，一次请求一个视频。
   - 移动：移回原收藏夹。复制：从目标收藏夹取消收藏。调用前目标收藏夹里已经有的视频留在目标收藏夹（移动的会再复制回原收藏夹）。
   - 新建收藏夹：删除它；里面已经有视频时不删除，返回错误。改名、改公开或私密：改回原来的。
@@ -114,8 +114,8 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - B站 的 `/video/` 链接由扩展后台直接读，不用标签页。番剧（`/bangumi/play/`）、活动页（`/festival/`）、不带 BV 号的 `/list/` 和 YouTube 观看页（`/watch?v=`）可以用你已开着的标签页；没有就用扩展自己的后台标签页，最多开一个，之后的视频都在它里面打开。其他网址返回 `BAD_URL`。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 只有一个开关：「允许 AI 助手使用我的 B站和 YouTube 账号」，默认关闭。关着的时候扩展不建任何连接，所有工具都返回 `NOT_CONNECTED`。打开后上面的工具都能用，包括改收藏夹和分拣台的；没有按数据种类分开的开关。API Key 和 AI 对话任何时候都不会给出去。
-- 修改不先问你，安全靠撤销。`fav_write`、`set_triage` 和 `triage_settings` 改判断标准的每次调用，都记在扩展的本地存储里（留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「AI 助手最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
-- 撤销做不到的事：删除收藏夹撤销后是一个新的收藏夹，B站 没有列出的视频找不回来；超出最近 100 次的修改没有记录；取消勾选收藏夹（`sync_favorites` 的 `exclude`）不在记录里；`collection_write` 不在记录里，用它自己返回的那次调用撤销。
+- 修改不先问你，安全靠撤销。`fav_write`、`set_triage` 和 `triage_settings` 改判断标准的每次调用，都记在扩展的本地存储里（B站上的修改和本地的修改各留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「AI 助手最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
+- 撤销做不到的事：删除收藏夹撤销后是一个新的收藏夹，B站 没有列出的视频找不回来；各自超出最近 100 次的修改没有记录；取消勾选收藏夹（`sync_favorites` 的 `exclude`）不在记录里；`collection_write` 不在记录里，用它自己返回的那次调用撤销。
 - 字幕、简介和评论是别人写的文字，里面可能夹着写给 AI 的指令。服务器给 Agent 的说明要求把这些文字当作数据，不照着做，只改你要求改的。这一条由 Agent 遵守，扩展检查不了；被诱导做出的修改同样有记录，可以撤销。
 - B站 的收藏夹和稍后再看由扩展后台直接改，发的是分拣台自己用的那些请求。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 
@@ -190,7 +190,7 @@ Change your Bilibili favorites and the 分拣台. These tools act at once and do
   - When `from` has a local copy, every bvid must be in it, else `BAD_PARAMS`: read it again with `sync_favorites`.
   - `folder_delete`: Bilibili sometimes counts more videos than its list returns; the extra ones cannot be seen and are most likely deleted videos. Then nothing is deleted and the call returns `HIDDEN_ITEMS` with the difference: once the folder is deleted, undo cannot bring those back. Call again with `acceptLoss: true` when you agree.
   - The result carries an undo id (`undoId`).
-- `undo({ id?, list?, raw? })`: reverses one recorded change. `id` is an undo id; without it the newest change. `list: true` lists the recorded changes (the last 100) and undoes nothing.
+- `undo({ id?, list?, raw? })`: reverses one recorded change. `id` is an undo id; without it the newest change. `list: true` lists the recorded changes (the last 100 Bilibili changes and the last 100 local ones) and undoes nothing.
   - Unfavorite, clean unavailable: the videos are favorited into their folder again, one request a video.
   - Move: moved back. Copy: taken out of the target folder. Videos the target folder already held before the call stay in it (after a move they are copied back to the source).
   - New folder: deleted, unless it holds videos by now (an error). Rename, privacy: set back.
@@ -261,8 +261,8 @@ Then turn on 允许 AI 助手使用我的 B站和 YouTube 账号 in MoonDigest's
 - A Bilibili `/video/` URL is read by the extension's background, with no tab. 番剧 (`/bangumi/play/`), 活动页 (`/festival/`), a `/list/` without a BV id and YouTube watch pages (`/watch?v=`) may be read in a tab you already have open; else in the extension's own background tab, at most one, which later videos reuse. Any other URL gets `BAD_URL`. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - One switch: 允许 AI 助手使用我的 B站和 YouTube 账号, off by default. While off, the extension opens no socket and every tool returns `NOT_CONNECTED`. While on, every tool above works, including the ones that change favorites and the 分拣台; there is no switch per kind of data. API keys and AI conversations are never given out.
-- Changes do not ask you first; safety is undo. Every `fav_write`, `set_triage` and 判断标准 change by `triage_settings` is recorded in the extension's local storage (the last 100): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under AI 助手最近的修改 in 设置 → MCP. The last two work with the switch off too.
-- What undo cannot do: a deleted folder comes back as a new folder, without the videos Bilibili did not list; changes older than the last 100 are not recorded; unticking a folder (`sync_favorites` `exclude`) is not recorded; `collection_write` is not recorded and is undone with the call it returns.
+- Changes do not ask you first; safety is undo. Every `fav_write`, `set_triage` and 判断标准 change by `triage_settings` is recorded in the extension's local storage (the last 100 Bilibili changes and the last 100 local ones): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under AI 助手最近的修改 in 设置 → MCP. The last two work with the switch off too.
+- What undo cannot do: a deleted folder comes back as a new folder, without the videos Bilibili did not list; changes beyond those are not recorded; unticking a folder (`sync_favorites` `exclude`) is not recorded; `collection_write` is not recorded and is undone with the call it returns.
 - Transcripts, descriptions and comments are text other people wrote, and may contain instructions aimed at an AI. The server's instructions tell the AI tool to treat that text as data, not to act on it, and to change only what you asked for. The AI tool has to follow this; the extension cannot check it. A change it was talked into is recorded like any other and can be undone.
 - Bilibili favorites and 稍后再看 are changed by the extension's background directly, with the requests the 分拣台 itself uses. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 

@@ -495,6 +495,8 @@ function agentStep(e) {
         return "";
       }
       const { n, skipped, left } = r.data;
+      // Cut short: the rest is still journaled under the same id, so its step comes back.
+      if (left) pushUndo(agentStep({ ...e, n: left }));
       if (left) return redraw() || `已撤销 Agent ${agentWhat(e)}中的 ${n} 个视频，还剩 ${left} 个，可再按 U 撤销`;
       if (e.kind === "criteria") return redraw() || (skipped ? "判断标准你之后改过，没动" : `已撤销：Agent ${agentWhat(e)}`);
       return redraw() || `已撤销：Agent 的${agentWhat(e)}${local ? `（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）` : ""}`;

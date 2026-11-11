@@ -7,14 +7,14 @@ importScripts("agent-sites/youtube.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
-// 设置 → MCP's one switch (mcpEnabled). At the top level: the alarm that wakes it must find its listener.
-const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpEnabled: value }).mcpEnabled;
+// 设置 → MCP's one switch (mcpAccess). At the top level: the alarm that wakes it must find its listener.
+const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpAccess: value }).mcpAccess;
 MdgAgentBridge.start({
   extensionVersion: chrome.runtime.getManifest().version,
-  isEnabled: async () => mcpOn((await chrome.storage.sync.get("mcpEnabled")).mcpEnabled),
+  isEnabled: async () => mcpOn((await chrome.storage.sync.get("mcpAccess")).mcpAccess),
   onEnabledChange: (callback) =>
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "sync" && changes.mcpEnabled) callback(mcpOn(changes.mcpEnabled.newValue));
+      if (area === "sync" && changes.mcpAccess) callback(mcpOn(changes.mcpAccess.newValue));
     })
 });
 
@@ -769,14 +769,14 @@ async function initializeSettingsStorage() {
   }
 }
 
-// 3.8 made 允许 MCP 连接 the one MCP switch, which now lets an AI tool read and change the account. Someone who had left
-// any of the three switches under it off (read, 改分拣台, 改我的收藏) did not allow that: the switch goes off once, for
-// them to turn on under its new name. The old keys go, so this acts once.
+// 3.8's one MCP switch (mcpAccess) lets an AI tool read and change the account, which 允许 MCP 连接 (mcpEnabled) did
+// only with the three switches under it. It starts on for someone who had all four on, off for everyone else; the old
+// keys go, so this acts once, and an older version on another computer writing mcpEnabled again turns nothing on here.
 async function migrateMcpSwitches() {
-  const old = ["mcpPersonalData", "mcpWrites", "mcpCollectionWrite"];
+  const old = ["mcpEnabled", "mcpPersonalData", "mcpWrites", "mcpCollectionWrite"];
   const got = await chrome.storage.sync.get(old);
   if (!old.some((k) => k in got)) return;
-  if (old.some((k) => !MdgSettings.normalizeSwitches({ mcpEnabled: got[k] }).mcpEnabled)) await chrome.storage.sync.remove("mcpEnabled");
+  if (old.every((k) => MdgSettings.normalizeSwitches({ mcpAccess: got[k] }).mcpAccess)) await chrome.storage.sync.set({ mcpAccess: got.mcpEnabled });
   await chrome.storage.sync.remove(old);
 }
 

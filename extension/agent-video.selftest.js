@@ -121,6 +121,10 @@ check("brief: the subtitle's first two minutes, no chapters, no comment request;
   videos[B] = video({ aid: 222, body: [], replies: ["1", "2", "3", "4", "5", "6", "7"] });
   d = (await V.read(page(B), { brief: true }, later())).data;
   assert.deepStrictEqual([d.subtitle.missing, d.comments.map((c) => c.message)], ["视频没有字幕", ["1", "2", "3", "4", "5"]]);
+  // A subtitle whose first line comes after two minutes is not reported as no subtitle: its own first two minutes.
+  videos[B] = video({ aid: 222, body: [seg(130, 140), seg(240, 249), seg(260, 270)] });
+  d = (await V.read(page(B), { brief: true }, later())).data;
+  assert.deepStrictEqual(plain(d.subtitle.segments), [seg(130, 140), seg(240, 249)]);
 });
 
 check("only a URL that names its video is read here: the others are null and ask B站 nothing", async () => {

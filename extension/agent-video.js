@@ -43,7 +43,8 @@
         warning: found.mismatch ? MdgNote.subtitleMismatchWarning(found.mismatch) : "",
         missing: all.length ? "" : MdgErrors.subtitleMissing({ subtitleNeedLogin: found.needLogin, subtitleFailure: found.failure }),
         needLogin: !all.length && found.needLogin,
-        segments: brief ? all.filter((s) => s.from < BRIEF_SECONDS) : all
+        // From where the subtitle starts: a video whose first line comes late still shows its first two minutes.
+        segments: brief ? all.filter((s) => s.from < (all[0]?.from || 0) + BRIEF_SECONDS) : all
       },
       comments,
       ...(brief && { brief: true })

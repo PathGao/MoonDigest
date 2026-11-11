@@ -96,6 +96,8 @@ jobs:
   # to exist; until then this job only says so.
   npm:
     needs: check
+    # Not on a re-run for an old tag: that would publish the tag's old code as a new version.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,8 +119,12 @@ jobs:
         working-directory: mcp
         run: |
           version=$(node -p "require('./package.json').version")
-          if ! npm view moondigest-mcp name >/dev/null 2>&1; then echo "moondigest-mcp is not on npm yet: publish the first version by hand (docs/RELEASE.md)"; exit 0; fi
-          if npm view "moondigest-mcp@$version" version 2>/dev/null | grep -q .; then echo "moondigest-mcp@$version is already on npm"; exit 0; fi
+          # Only a 404 means the package is not there; any other failure (the registry down) fails the job.
+          if ! out=$(npm view moondigest-mcp versions --json 2>&1); then
+            if echo "$out" | grep -q E404; then echo "moondigest-mcp is not on npm yet: publish the first version by hand (docs/RELEASE.md)"; exit 0; fi
+            echo "$out"; exit 1
+          fi
+          if echo "$out" | grep -q "\"$version\""; then echo "moondigest-mcp@$version is already on npm"; exit 0; fi
           npm ci
           npm test
           npm publish --access public

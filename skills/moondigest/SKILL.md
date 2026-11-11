@@ -16,7 +16,7 @@ The MoonDigest extension answers JS running in a Bilibili or YouTube video page.
 
 - The browser you drive (ego, Claude in Chrome, Playwright with the user's profile, …) has MoonDigest installed and enabled.
 - Bilibili shows subtitles (AI subtitles too) only to logged-in users. If `subtitle.needLogin` is `true`, ask the user to log in. Never type their password.
-- If you have no browser but the `moondigest` MCP tools are available, use `search_videos`, `get_video` and `get_frame` instead of this skill. The MCP takes full video URLs only (`bilibili.com/video/…`, `youtube.com/watch?v=…`), not b23.tv or youtu.be short links.
+- If you have no browser but the `moondigest` MCP tools are available, use `search_videos`, `get_video` and `get_frame` instead of this skill. The MCP takes full video URLs only (`bilibili.com/video/…`, `youtube.com/watch?v=…`), not b23.tv short links (youtu.be links work).
 - The page messages read one video page and nothing else. For the user's favorites, follows or history, for many videos in a row, or for any change, see "When the page messages are not enough" below.
 
 ## 1. Open the page

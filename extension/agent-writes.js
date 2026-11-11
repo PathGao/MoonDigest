@@ -186,93 +186,106 @@
     return { changed: changedIds().length, ...(entryId && { undoId: entryId }), ...(notMade.length && { tagsNotMade: [...new Set(notMade)] }), ...(noUndo && { noUndo }) };
   }
 
-  const journal = (entry) => MdgLimits.update(K.triageAgentLog, (log = []) => [...log, entry].slice(-LOG_MAX));
+  // The last LOG_MAX B站 changes and the last LOG_MAX local ones, counted apart: cheap local writes never push a B站
+  // change (the only record of what a deleted folder held) out of the journal.
+  const onBili = (e) => e.kind === "fav" || e.kind === "folder";
+  const journal = (entry) =>
+    MdgLimits.update(K.triageAgentLog, (log = []) => {
+      const all = [...log, entry];
+      const keep = new Set([...all.filter(onBili).slice(-LOG_MAX), ...all.filter((e) => !onBili(e)).slice(-LOG_MAX)]);
+      return all.filter((e) => keep.has(e));
+    });
+  // The journal's entry of this id replaced by next; null takes it out.
+  const putEntry = (id, next) => MdgLimits.update(K.triageAgentLog, (log = []) => (next ? log.map((e) => (e.id === id ? next : e)) : log.filter((e) => e.id !== id)));
+  const UNDO_HOLD_MS = 120_000;
 
-  // One journaled call undone (id; none: the newest). The entry is taken first, so a second undo of it (another page)
-  // is refused. What could not be undone goes back into the journal: a failed write whole, a B站 undo cut short (the
+  // One journaled call undone (id; none: the newest). The entry stays in the journal while it is undone, marked, so a
+  // second undo of it (another page) is refused and a background that dies midway loses nothing: the mark runs out and
+  // it can be undone again. What could not be undone stays journaled: a failed write whole, a B站 undo cut short (the
   // call's time, B站's limit) with the videos still to do, so undoing it again goes on.
   async function undo({ id } = {}, deadline = Date.now() + 50_000) {
     let entry = null;
+    let busy = false;
     await MdgLimits.update(K.triageAgentLog, (log = []) => {
       entry = (id == null ? log.at(-1) : log.find((e) => e.id === id)) || null;
-      return entry ? log.filter((e) => e !== entry) : undefined;
+      if (!entry) return undefined;
+      if (Date.now() - (entry.undoing || 0) < UNDO_HOLD_MS) return void (busy = true);
+      return log.map((e) => (e === entry ? { ...e, undoing: Date.now() } : e));
     });
     if (!entry) throw fail(id == null ? "没有可以撤销的修改" : "这一步已经撤销过了");
-    const back = (e) => MdgLimits.update(K.triageAgentLog, (log = []) => [...log, e].sort((x, y) => x.at - y.at)).catch(() => {});
-    if (entry.kind === "criteria") {
-      let skipped = 1;
-      await MdgLimits.update(K.triageFolderCriteria, (cur = {}) => {
-        if ((cur[entry.folder] || "") !== entry.after) return undefined;
-        skipped = 0;
-        const { [entry.folder]: _, ...others } = cur;
-        return entry.before ? { ...others, [entry.folder]: entry.before } : others;
-      }).catch(async (e) => {
-        await back(entry);
-        throw e;
-      });
-      return { id: entry.id, n: 1 - skipped, skipped };
+    if (busy) throw fail("这一步正在撤销");
+    const { undoing: _, ...plain } = entry;
+    entry = plain;
+    let out;
+    let rest = null;
+    try {
+      if (entry.kind === "criteria") out = await undoCriteria(entry);
+      else if (onBili(entry)) {
+        const r = await (entry.kind === "fav" ? undoFav : undoFolder)(entry, deadline);
+        rest = r.entry || null;
+        out = { id: entry.id, n: r.done, skipped: 0, ...(r.failed && { failed: r.failed }), ...(rest && { left: r.left, ...(r.stopped && { stopped: r.stopped }) }) };
+      } else out = await undoTriage(entry);
+    } catch (e) {
+      await putEntry(entry.id, e.rest || entry).catch(() => {});
+      throw e;
     }
-    if (entry.kind === "fav" || entry.kind === "folder") {
-      let rest;
-      try {
-        rest = await (entry.kind === "fav" ? undoFav : undoFolder)(entry, deadline);
-      } catch (e) {
-        await back(e.rest || entry);
-        throw e;
-      }
-      if (rest.entry) await back(rest.entry);
-      return { id: entry.id, n: rest.done, skipped: 0, ...(rest.entry && { left: rest.left, ...(rest.stopped && { stopped: rest.stopped }) }) };
-    }
-    return undoTriage(entry);
+    await putEntry(entry.id, rest);
+    return out;
+  }
+
+  async function undoCriteria(entry) {
+    let skipped = 1;
+    await MdgLimits.update(K.triageFolderCriteria, (cur = {}) => {
+      if ((cur[entry.folder] || "") !== entry.after) return undefined;
+      skipped = 0;
+      const { [entry.folder]: _, ...others } = cur;
+      return entry.before ? { ...others, [entry.folder]: entry.before } : others;
+    });
+    return { id: entry.id, n: 1 - skipped, skipped };
   }
 
   // A triage's values still as the tool left them go back; one changed since stays (skipped).
   async function undoTriage(entry) {
     const { kept = {}, note = {}, title = {}, analysis = {}, tags = {} } = entry.changes;
     const skipped = new Set();
-    try {
-      if (Object.keys(kept).length) {
-        await MdgLimits.update(K.triageKept, (cur = {}) => {
-          const next = { ...cur };
-          for (const [b, [was, v]] of Object.entries(kept)) {
-            if (!same(cur[b], v)) skipped.add(b);
-            else if (was) next[b] = was;
-            else delete next[b];
-          }
-          return next;
-        });
-      }
-      for (const [b, [was, v]] of Object.entries(note)) {
-        if (!(await MdgLimits.saveVideoNote(b, was || "", undefined, v || ""))) skipped.add(b);
-      }
-      const results = [...Object.entries(title).map(([b, p]) => [K.triageTitle(b), b, p]), ...Object.entries(analysis).map(([b, p]) => [K.triageAnalysis(b), b, p])];
-      for (const [key, b, [was, v]] of results) {
-        await MdgLimits.locked(MdgLimits.keyLock(key), async () => {
-          const cur = (await chrome.storage.local.get(key))[key];
-          if (!cur || !same(asWritten(cur), asWritten(v))) return skipped.add(b);
-          if (was) await chrome.storage.local.set({ [key]: was });
-          else await chrome.storage.local.remove(key);
-        });
-      }
-      if (Object.keys(tags).length || entry.made.length) {
-        await MdgLimits.locked(MdgLimits.keyLock(K.triageTags), async () => {
-          const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags]);
-          const map = { ...got[K.triageVideoTags] };
-          const live = new Set((got[K.triageTags] || []).map((t) => t.id));
-          for (const [b, [was, v]] of Object.entries(tags)) {
-            if (!same(map[b] || [], v)) skipped.add(b);
-            else if (was.some((id) => live.has(id))) map[b] = was.filter((id) => live.has(id));
-            else delete map[b];
-          }
-          // Tags it made that nothing carries any more go too.
-          const used = new Set(Object.values(map).flat());
-          const left = (got[K.triageTags] || []).filter((t) => !entry.made.includes(t.id) || used.has(t.id));
-          await chrome.storage.local.set({ [K.triageTags]: left, [K.triageVideoTags]: map });
-        });
-      }
-    } catch (e) {
-      await MdgLimits.update(K.triageAgentLog, (log = []) => [...log, entry].sort((x, y) => x.at - y.at)).catch(() => {});
-      throw e;
+    if (Object.keys(kept).length) {
+      await MdgLimits.update(K.triageKept, (cur = {}) => {
+        const next = { ...cur };
+        for (const [b, [was, v]] of Object.entries(kept)) {
+          if (!same(cur[b], v)) skipped.add(b);
+          else if (was) next[b] = was;
+          else delete next[b];
+        }
+        return next;
+      });
+    }
+    for (const [b, [was, v]] of Object.entries(note)) {
+      if (!(await MdgLimits.saveVideoNote(b, was || "", undefined, v || ""))) skipped.add(b);
+    }
+    const results = [...Object.entries(title).map(([b, p]) => [K.triageTitle(b), b, p]), ...Object.entries(analysis).map(([b, p]) => [K.triageAnalysis(b), b, p])];
+    for (const [key, b, [was, v]] of results) {
+      await MdgLimits.locked(MdgLimits.keyLock(key), async () => {
+        const cur = (await chrome.storage.local.get(key))[key];
+        if (!cur || !same(asWritten(cur), asWritten(v))) return skipped.add(b);
+        if (was) await chrome.storage.local.set({ [key]: was });
+        else await chrome.storage.local.remove(key);
+      });
+    }
+    if (Object.keys(tags).length || entry.made.length) {
+      await MdgLimits.locked(MdgLimits.keyLock(K.triageTags), async () => {
+        const got = await chrome.storage.local.get([K.triageTags, K.triageVideoTags]);
+        const map = { ...got[K.triageVideoTags] };
+        const live = new Set((got[K.triageTags] || []).map((t) => t.id));
+        for (const [b, [was, v]] of Object.entries(tags)) {
+          if (!same(map[b] || [], v)) skipped.add(b);
+          else if (was.some((id) => live.has(id))) map[b] = was.filter((id) => live.has(id));
+          else delete map[b];
+        }
+        // Tags it made that nothing carries any more go too.
+        const used = new Set(Object.values(map).flat());
+        const left = (got[K.triageTags] || []).filter((t) => !entry.made.includes(t.id) || used.has(t.id));
+        await chrome.storage.local.set({ [K.triageTags]: left, [K.triageVideoTags]: map });
+      });
     }
     return { id: entry.id, n: entry.n, skipped: skipped.size };
   }
@@ -287,12 +300,14 @@
     return (got[K.triageFolderList]?.folders || []).find((f) => String(f.id) === id)?.title || got[K.triageSnapshot(id)]?.title || id;
   }
   const res = (it) => (it.ogv ? `${it.aid}:42` : it.aid); // as the 分拣台's favRes
-  const ref = ({ bvid, aid, ogv, title }) => ({ bvid, aid, ...(ogv && { ogv: true }), title: title || "" });
+  // A video known only by its BV id (its folder has no cached list): good for B站's requests, not for a cached list,
+  // which then waits for its next read.
+  const listed = (items) => items.filter((it) => !it.bare);
   // The videos as the folder's cached list has them (its aid, 番剧 mark and title); a folder MoonDigest has no list of
   // gives only the aid its BV id encodes. One the cached list does not hold is refused: the list is stale, or the id wrong.
   async function itemsIn(folder, bvids) {
     const snap = (await chrome.storage.local.get(K.triageSnapshot(folder)))[K.triageSnapshot(folder)];
-    if (!snap) return bvids.map((bvid) => ({ bvid, aid: triageBvToAv(bvid), title: "" }));
+    if (!snap) return bvids.map((bvid) => ({ bvid, aid: triageBvToAv(bvid), title: "", bare: true }));
     const by = new Map((snap.items || []).map((it) => [it.bvid, it]));
     const missing = bvids.filter((b) => !by.get(b)?.aid);
     if (missing.length) throw bad(`Not in folder ${folder} as MoonDigest has it (sync_favorites reads it again): ${missing.join(", ")}.`);
@@ -301,27 +316,36 @@
 
   // One run of B站 requests over items, a chunk per request, until the call's time or B站's limit ends it: send(chunk)
   // makes the request (triage-bg.js's handler, as the 分拣台 sends it), then landed(chunk, reply) keeps the local
-  // records. Resolves { done: the items written, stopped?: "TIMEOUT" | "THROTTLED" }; another error is thrown with
-  // .done, the items written before it.
-  async function run(items, one, deadline, send, landed) {
+  // records. Resolves { done: the items written, failed: those B站 refused (skip, one at a time), stopped?: "TIMEOUT" |
+  // "THROTTLED" }; another error is thrown with .done, the items written before it.
+  async function run(items, one, deadline, send, landed, { skip = false } = {}) {
     const size = one ? 1 : 20;
     const gap = one ? 300 : 1000;
     const done = [];
+    const failed = [];
     for (let i = 0; i < items.length; i += size) {
       if (i) await sleep(gap);
-      if (Date.now() > deadline - 8000) return { done, stopped: "TIMEOUT" };
+      if (Date.now() > deadline - 8000) return { done, failed, stopped: "TIMEOUT" };
       const chunk = items.slice(i, i + size);
       let reply;
       try {
         reply = await send(chunk);
       } catch (e) {
-        if (e.code === MdgErrors.CODE.THROTTLED) return { done, stopped: "THROTTLED" };
+        if (e.code === MdgErrors.CODE.THROTTLED) return { done, failed, stopped: "THROTTLED" };
+        // B站 refused this one video (deleted, say): an undo goes on with the others.
+        if (skip && one && !e.code) {
+          failed.push(...chunk);
+          continue;
+        }
+        if (e.code === "NETWORK") e.message += ` (${chunk.map((it) => it.bvid).join(", ")})`;
         throw Object.assign(e, { done });
       }
-      await landed(chunk, reply);
-      done.push(...chunk);
+      done.push(...chunk); // on B站 now, whatever happens to the records
+      await Promise.resolve(landed(chunk, reply)).catch((e) => {
+        throw Object.assign(e, { done });
+      });
     }
-    return { done };
+    return { done, failed };
   }
 
   // 移动 / 复制 from → to, records kept as the 分拣台's transfer keeps them. Resolves run's result.
@@ -333,7 +357,7 @@
         const chosen = await chosenIds();
         const inTo = chosen.includes(to);
         if (inTo) {
-          await R.patchSnapshotNow(to, { add: chunk }, { title: toName });
+          await R.patchSnapshotNow(to, { add: listed(chunk) }, { title: toName });
           await R.dropRemovedNow(chunk.map((it) => it.bvid));
         }
         if (!move) return;
@@ -369,9 +393,9 @@
       ([it]) => TRIAGE_HANDLERS["triage-refav"]({ mediaId: folder, aid: res(it) }),
       ([it]) => R.lock(async () => {
         await R.patchDecisionsNow(folder, { [it.bvid]: null });
-        await R.patchSnapshotNow(folder, { add: [it] });
+        await R.patchSnapshotNow(folder, { add: listed([it]) });
         await R.dropRemovedNow([it.bvid]);
-      }));
+      }), { skip: true });
 
   const folderInfo = (id) => triageBiliGet(`${TRIAGE_BILI_API}/x/v3/fav/folder/info?media_id=${id}`);
   const isPrivate = (info) => (Number(info?.attr) & 1) === 1; // attr's lowest bit: 1 私密, 0 公开
@@ -440,7 +464,7 @@
     },
     // B站's count can exceed what its list returns (videos deleted there stay counted, unseen): they go with the folder
     // and no undo brings them back, so the call says how many and wants acceptLoss before it deletes.
-    async folder_delete({ folder, acceptLoss }) {
+    async folder_delete({ folder, acceptLoss }, deadline) {
       const id = folderOf(folder, "folder", false);
       const info = await folderInfo(id);
       const { items, partial } = await TRIAGE_HANDLERS["triage-folder-items"]({ mediaId: id });
@@ -449,10 +473,12 @@
       if (hidden && acceptLoss !== true) {
         throw fail(`Nothing was deleted. B站 counts ${info.media_count} videos in 「${info.title}」 but lists ${items.length}: ${hidden} cannot be seen (most likely deleted videos) and would be gone for good, undo cannot bring them back. Tell the user; call again with acceptLoss: true to delete anyway.`, "HIDDEN_ITEMS");
       }
+      // Reading the folder took the call's time: the caller has stopped waiting, so nothing is deleted behind its back.
+      if (Date.now() > deadline - 5000) throw fail(`Reading folder ${id} took too long; nothing was deleted. Call again.`, "TIMEOUT");
       await triageBiliPost("/x/v3/fav/folder/del", { media_ids: id });
       await editList((list) => list.filter((f) => String(f.id) !== id)).catch(() => {});
       await MdgLimits.update(K.triageIncludedFolders, (cur) => (cur?.map(String).includes(id) ? cur.filter((f) => String(f) !== id) : undefined)).catch(() => {});
-      return folderDone({ op: "folder_delete", folder: id, before: { title: info.title, private: isPrivate(info), intro: info.intro || "" }, items: items.filter((it) => it.aid).map(ref), ...(hidden && { hidden }) });
+      return folderDone({ op: "folder_delete", folder: id, before: { title: info.title, private: isPrivate(info), intro: info.intro || "" }, items: items.filter((it) => it.aid), ...(hidden && { hidden }) });
     }
   };
 
@@ -470,9 +496,9 @@
     const dest = folderOf(to, "to", false);
     if (src === dest) throw bad("to must be another folder.");
     const items = await itemsIn(src, bvidsOf(bvids));
-    // Already in the target before this call: undo must leave them there.
-    const snap = (await chrome.storage.local.get(K.triageSnapshot(dest)))[K.triageSnapshot(dest)];
-    const there = new Set(snap?.bvids || (await triageFolderIds(dest)));
+    // Already in the target before this call: undo must leave them there. Asked of B站 (one request): a cached list
+    // may be behind, and undo would then take out videos the user had there.
+    const there = new Set(await triageFolderIds(dest));
     return favDone({ op: move ? "move" : "copy", from: src, to: dest, had: items.filter((it) => there.has(it.bvid)).map((it) => it.bvid) }, items, (list) => transfer(src, dest, list, move, deadline));
   }
 
@@ -489,7 +515,7 @@
     const done = r.done.map((it) => it.bvid);
     let undoId = "";
     if (done.length) {
-      const e = { id: MdgTagCore.newTagId("a"), at: Date.now(), kind: "fav", n: done.length, ...entry, items: r.done.map(ref), titles: { from: await titleOf(entry.from), ...(entry.to && { to: await titleOf(entry.to) }) } };
+      const e = { id: MdgTagCore.newTagId("a"), at: Date.now(), kind: "fav", n: done.length, ...entry, items: r.done, titles: { from: await titleOf(entry.from), ...(entry.to && { to: await titleOf(entry.to) }) } };
       if (e.had) e.had = e.had.filter((b) => done.includes(b));
       await journal(e).then(() => (undoId = e.id), () => {});
     }
@@ -508,9 +534,9 @@
 
   // Cut short, the rest of an undo stays journaled under the same id.
   const restOf = (entry, r, items) => {
-    const went = new Set(r.done.map((it) => it.bvid));
-    const left = items.filter((it) => !went.has(it.bvid));
-    return { done: r.done.length, ...(left.length && { left: left.length, stopped: r.stopped, entry: { ...entry, items: left, n: left.length } }) };
+    const gone = new Set([...r.done, ...(r.failed || [])].map((it) => it.bvid));
+    const left = items.filter((it) => !gone.has(it.bvid));
+    return { done: r.done.length, ...(r.failed?.length && { failed: r.failed.length }), ...(left.length && { left: left.length, stopped: r.stopped, entry: { ...entry, items: left, n: left.length } }) };
   };
   const failRest = (entry, items) => (e) => {
     const went = new Set((e.done || []).map((it) => it.bvid));
@@ -524,6 +550,19 @@
     const had = new Set(entry.had || []);
     const fresh = items.filter((it) => !had.has(it.bvid));
     const old = op === "move" ? items.filter((it) => had.has(it.bvid)) : [];
+    // 稍后再看 takes no 移动: each goes back into it, then out of the target.
+    if (op === "move" && from === TOVIEW) {
+      const r = await run(items, true, deadline,
+        async ([it]) => {
+          await TRIAGE_HANDLERS["triage-refav"]({ mediaId: TOVIEW, aid: res(it) });
+          if (!had.has(it.bvid)) await TRIAGE_HANDLERS["triage-unfav"]({ mediaId: to, aids: [res(it)] });
+        },
+        ([it]) => R.lock(async () => {
+          await R.patchSnapshotNow(TOVIEW, { add: listed([it]) });
+          if (!had.has(it.bvid)) await R.patchSnapshotNow(to, { drop: [it.bvid] });
+        }), { skip: true }).catch(failRest(entry, items));
+      return restOf(entry, r, items);
+    }
     const first = await (op === "move" ? transfer(to, from, fresh, true, deadline) : remove(to, fresh, deadline)).catch(failRest(entry, items));
     const second = first.stopped || !old.length ? { done: [], stopped: first.stopped } : await transfer(to, from, old, false, deadline).catch(failRest(entry, [...old]));
     return restOf(entry, { done: [...first.done, ...second.done], stopped: first.stopped || second.stopped }, [...fresh, ...old]);
@@ -555,11 +594,8 @@
       await editList((list) => [...list, { id: made.id, title: made.title, count: 0 }]).catch(() => {});
     }
     // Oldest first, so the newest favorite ends up on top as it was.
-    const todo = [...e.items].reverse();
-    const r = await refav(e.remade, todo, deadline).catch((err) => failRest(e, todo)(err));
-    const rest = restOf(e, r, todo);
-    if (rest.entry) rest.entry.items = rest.entry.items.reverse();
-    return rest;
+    const r = await refav(e.remade, [...e.items].reverse(), deadline).catch(failRest(e, e.items));
+    return restOf(e, r, e.items);
   }
 
   async function favWrite(params, deadline) {
@@ -608,14 +644,18 @@
   // Writes run one at a time: two B站 batches at once would double the request rate, and an undo must not overtake
   // the write it undoes.
   let queue = Promise.resolve();
-  const method = (fn) => (params, deadline = Date.now() + 50_000) => {
-    const call = queue.then(async () => {
+  const queued = (fn) => {
+    const call = queue.then(fn);
+    queue = call.catch(() => {});
+    return call;
+  };
+  const method = (fn) => (params, deadline = Date.now() + 50_000) =>
+    queued(async () => {
       if (Date.now() > deadline) throw fail("The call waited too long behind earlier ones.", "TIMEOUT");
       return fn(params && typeof params === "object" ? params : {}, deadline);
-    });
-    queue = call.catch(() => {});
-    return call.then((data) => ({ ok: true, data }), (e) => ({ ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) }));
-  };
+    }).then((data) => ({ ok: true, data }), (e) => ({ ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) }));
+  // agent-sync.js saves a folder's list through the same queue: a list read before a write must not be saved after it.
+  globalThis.MdgAgentQueue = queued;
   MdgAgentBridge.addMethods({ triage: method(triage), favWrite: method(favWrite), undo: method(undo), log: method(log), triageSettings: method(triageSettings) });
   // 设置 → MCP and the 分拣台 (U) undo through the same queue, whatever the switch says now: the user takes back what
   // was written while it was on.

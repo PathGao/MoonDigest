@@ -92,7 +92,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 AI 助手使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest, every change undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 AI 助手使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; changes to Bilibili favorites and the 分拣台 are recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;
@@ -243,7 +243,8 @@ export function formatUndo(d) {
     return ["Recorded changes, newest first (undo takes an id):", ...d.entries.map((e) => `- ${e.id} · ${when(e.at / 1000)} · ${e.op || e.kind} · ${e.n} video(s)${e.titles ? ` · ${e.titles.from}${e.titles.to ? ` → ${e.titles.to}` : ""}` : ""}${e.was ? ` · was 「${e.was}」` : ""}`)].join("\n");
   }
   if (d.left) return `Undone for ${d.n} video(s), ${d.left} left${d.stopped === "THROTTLED" ? ": Bilibili is rate-limiting. Stop for now and tell the user; undo the same id later." : `: the call's time ran out. Call undo {"id":"${d.id}"} again to go on.`}`;
-  return `Undone (${d.id})${d.n ? `: ${d.n} video(s)` : ""}.${d.skipped ? ` ${d.skipped} left as they are: the user changed them since.` : ""}`;
+  if (d.skipped && !d.n) return `Nothing undone (${d.id}): the user changed it since, so it stays as it is.`;
+  return `Undone (${d.id})${d.n ? `: ${d.n} video(s)` : ""}.${d.failed ? ` ${d.failed} could not be put back: Bilibili refused them (most likely deleted videos).` : ""}${d.skipped ? ` ${d.skipped} left as they are: the user changed them since.` : ""}`;
 }
 
 export function formatSync(d) {
@@ -383,7 +384,7 @@ const TOOLS = [
   },
   {
     name: "fav_write",
-    description: "Change the user's Bilibili favorites, at once, on Bilibili. op move / copy: bvids from folder from to folder to. unfav: take bvids out of from (取消收藏). clean_invalid: take out the videos of from that Bilibili marks unavailable, as MoonDigest's copy lists them. folder_create (title, private), folder_rename (folder, title), folder_privacy (folder, private), folder_delete (folder). Nothing asks the user first: do what they asked for, and no more. Every call is recorded and the result gives an undo id; undo reverses it (a moved video moves back, an unfavorited one is favorited into its folder again), and the user can undo it too in MoonDigest's settings. Up to 500 bvids a call, sent 20 a request a second apart (稍后再看 one at a time); a call that runs out of time returns what is not done, to send again. THROTTLED stops it: tell the user and do not retry soon. A source folder MoonDigest has a copy of must hold every bvid in that copy (BAD_PARAMS: sync_favorites, then try again). folder_delete answers HIDDEN_ITEMS without deleting when Bilibili counts more videos than it lists (deleted videos, unseen): they cannot be brought back, so tell the user the number and pass acceptLoss: true only when they agree.",
+    description: "Change the user's Bilibili favorites, at once, on Bilibili. op move / copy: bvids from folder from to folder to. unfav: take bvids out of from (取消收藏). clean_invalid: take out the videos of from that Bilibili marks unavailable, as MoonDigest's copy lists them. folder_create (title, private), folder_rename (folder, title), folder_privacy (folder, private), folder_delete (folder). Nothing asks the user first: do what they asked for, and no more. Every call is recorded and the result gives an undo id; undo reverses it (a moved video moves back, an unfavorited one is favorited into its folder again; one Bilibili refuses to take back, a deleted video for example, is reported and left), and the user can undo it too in MoonDigest's settings. Up to 500 bvids a call, sent 20 a request a second apart (稍后再看 one at a time); a call that runs out of time returns what is not done, to send again. THROTTLED stops it: tell the user and do not retry soon. A source folder MoonDigest has a copy of must hold every bvid in that copy (BAD_PARAMS: sync_favorites, then try again). folder_delete answers HIDDEN_ITEMS without deleting when Bilibili counts more videos than it lists (deleted videos, unseen): they cannot be brought back, so tell the user the number and pass acceptLoss: true only when they agree.",
     inputSchema: {
       type: "object",
       properties: {
@@ -402,7 +403,7 @@ const TOOLS = [
   },
   {
     name: "undo",
-    description: "Undo one recorded change MoonDigest made for an AI tool: a fav_write, a set_triage or a triage_settings change, by the undo id its result gave, or the newest one without an id. list: true lists the recorded changes (the last 100) instead. Undoing a fav_write changes Bilibili back; one too long for a call (re-favoriting goes one video at a time) says how many are left: call it again with the same id.",
+    description: "Undo one recorded change MoonDigest made for an AI tool: a fav_write, a set_triage or a triage_settings change, by the undo id its result gave, or the newest one without an id. list: true lists the recorded changes (the last 100 Bilibili changes and the last 100 local ones) instead. Undoing a fav_write changes Bilibili back; one too long for a call (re-favoriting goes one video at a time) says how many are left: call it again with the same id.",
     inputSchema: {
       type: "object",
       properties: {

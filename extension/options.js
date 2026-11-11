@@ -720,20 +720,34 @@ function renderMcpLog(log) {
   elements.mcpLog.innerHTML = rows.length
     ? rows.map((e) => `<li><span>${escapeHtml(mcpLogLine(e))}</span><button type="button" class="sm" data-mcp-undo="${escapeHtml(e.id)}">撤销</button></li>`).join("")
     : `<li class="empty">还没有修改</li>`;
+  syncMcpUndo();
 }
 // A B站 undo too long for one call (B站 takes re-favorites one at a time) answers with what is left: asked again until done.
+let mcpUndoing = false;
 async function undoMcp(button) {
   const id = button.dataset.mcpUndo;
-  MdgErrors.setReason(button, "正在撤销");
+  mcpUndoing = true;
+  syncMcpUndo();
   let n = 0;
-  for (;;) {
-    const r = await chrome.runtime.sendMessage({ type: "agent-undo", id }).catch(sendFailed);
-    if (!r?.ok) return setStatus(`撤销失败${n ? `（已撤销 ${n} 个视频）` : ""}：${MdgErrors.text(r)}`, true);
-    n += r.data.n;
-    if (!r.data.left) return setStatus("已撤销");
-    if (r.data.stopped === "THROTTLED") return setStatus(`${MdgErrors.TEXT.biliThrottled}（撤销了 ${n} 个，剩 ${r.data.left} 个没撤销，过一会儿再点撤销）`, true);
-    setStatus(`正在撤销：剩 ${r.data.left} 个`, false, true);
+  try {
+    for (;;) {
+      const r = await chrome.runtime.sendMessage({ type: "agent-undo", id }).catch(sendFailed);
+      if (!r?.ok) return setStatus(`撤销失败${n ? `（撤销了 ${n} 个）` : ""}：${MdgErrors.text(r)}`, true);
+      n += r.data.n;
+      const refused = r.data.failed ? `，${r.data.failed} 个 B站不让加回（多半是视频已被删除）` : "";
+      if (r.data.left && r.data.stopped === "THROTTLED") return setStatus(`${MdgErrors.TEXT.biliThrottled}（撤销了 ${n} 个，剩 ${r.data.left} 个没撤销，过一会儿再点撤销）`, true);
+      if (r.data.left) setStatus(`正在撤销：剩 ${r.data.left} 个`, false, true);
+      else if (r.data.skipped && !r.data.n) return setStatus("没有撤销：你之后又改过，保持现在的样子", true);
+      else return setStatus(`已撤销${r.data.skipped ? `，其中 ${r.data.skipped} 个你后来又改了，保持不变` : ""}${refused}`, Boolean(refused));
+    }
+  } finally {
+    mcpUndoing = false;
+    syncMcpUndo();
   }
+}
+// One undo at a time: the others wait, and say so.
+function syncMcpUndo() {
+  for (const b of elements.mcpLog.querySelectorAll("[data-mcp-undo]")) MdgErrors.setReason(b, mcpUndoing ? "正在撤销" : "");
 }
 async function bindMcp() {
   renderMcpInstall();
@@ -748,7 +762,7 @@ async function bindMcp() {
   });
   elements.mcpLog.addEventListener("click", (event) => {
     const button = event.target.closest?.("[data-mcp-undo]");
-    if (button && !button.disabled) undoMcp(button);
+    if (button && !mcpUndoing) undoMcp(button);
   });
 }
 
