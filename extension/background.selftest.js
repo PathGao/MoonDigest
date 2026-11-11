@@ -245,7 +245,9 @@ process.on("exit", (code) => {
     [{ mcpEnabled: true, mcpPersonalData: true, mcpWrites: false, mcpCollectionWrite: true }, undefined],
     [{ mcpEnabled: true, mcpPersonalData: true }, undefined],
     [{ mcpEnabled: true }, undefined],
-    [{ mcpAccess: true }, true] // migrated already
+    [{ mcpAccess: true }, true], // migrated already
+    // Turned off here after the update, then an older version on another computer wrote its four keys again: stays off.
+    [{ mcpAccess: false, mcpEnabled: true, mcpPersonalData: true, mcpWrites: true, mcpCollectionWrite: true }, false]
   ]) {
     const stored = { obsidianEnabled: false, ...was };
     init = install(stored);

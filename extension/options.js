@@ -60,16 +60,22 @@ const obsidianTests = MdgCommon.latest();
 // The Obsidian 测试连接 while it runs (setBusy).
 let busyButton = null;
 
-// 设置 → MCP. The MCP server is not on npm yet: the commands name the folder the user cloned.
-const MCP_SERVER = "/path/to/MoonDigest/mcp/server.js";
+// 设置 → MCP. @latest: npx then takes the newest moondigest-mcp each time the Agent starts, so the server keeps up with
+// the extension without the user updating it.
+const MCP_NPX = "npx -y moondigest-mcp@latest";
+const MCP_JSON = `{"mcpServers":{"moondigest":{"command":"npx","args":["-y","moondigest-mcp@latest"]}}}`;
 const MCP_INSTALL = [
-  ["Claude Code", `claude mcp add moondigest -- node ${MCP_SERVER}`],
-  ["Codex", `[mcp_servers.moondigest]\ncommand = "node"\nargs = ["${MCP_SERVER}"]`, "写进 ~/.codex/config.toml"],
-  ["Cursor", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 ~/.cursor/mcp.json"],
-  ["Claude 桌面版", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 claude_desktop_config.json"],
-  // What an outdated server's OUTDATED_MCP answer (agent-bridge.js) sends the user here for.
-  ["升级", `cd ${MCP_SERVER.replace("/mcp/server.js", "")} && git pull && cd mcp && npm install`]
+  ["Claude Code", `claude mcp add moondigest -- ${MCP_NPX}`],
+  ["Codex", `[mcp_servers.moondigest]\ncommand = "npx"\nargs = ["-y", "moondigest-mcp@latest"]`, "写进 ~/.codex/config.toml"],
+  ["Cursor", MCP_JSON, "写进 ~/.cursor/mcp.json"],
+  ["Claude 桌面版", MCP_JSON, "写进 claude_desktop_config.json"]
 ];
+// Why an undo stopped with videos left (agent-writes.js restOf): what the user can do about it.
+const MCP_UNDO_STOP = {
+  THROTTLED: "网站在限流，过一会儿再点撤销",
+  NOT_LOGGED_IN: "先在这个浏览器里登录对应的网站，再点撤销",
+  REFUSED: "网站不让加回（多半是视频已被删除，或列表满了），处理后可以再点撤销"
+};
 const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent 启动 MCP 服务后一分钟内连上。", off: "" };
 const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
 
@@ -737,14 +743,16 @@ async function undoMcp(button) {
     for (;;) {
       const r = await chrome.runtime.sendMessage({ type: "agent-undo", id }).catch(sendFailed);
       if (!r?.ok) return setStatus(`撤销失败${n ? `（撤销了 ${n} 个）` : ""}：${MdgErrors.text(r)}`, true);
+      const { left, stopped, skipped } = r.data;
       n += r.data.n;
-      const refused = r.data.failed ? `，${r.data.failed} 个 B站不让加回（多半是视频已被删除）` : "";
-      if (r.data.left && r.data.stopped === "THROTTLED") return setStatus(`${MdgErrors.TEXT.biliThrottled}（撤销了 ${n} 个，剩 ${r.data.left} 个没撤销，过一会儿再点撤销）`, true);
-      // Nothing went back this round (not logged in, the site refusing): asking again would not either.
-      if (r.data.left && !r.data.n) return setStatus(`没能撤销，剩 ${r.data.left} 个：看一下是否登录了对应网站，再点撤销`, true);
-      if (r.data.left) setStatus(`正在撤销：剩 ${r.data.left} 个`, false, true);
-      else if (r.data.skipped && !r.data.n) return setStatus("没有撤销：你之后又改过，保持现在的样子", true);
-      else return setStatus(`已撤销${r.data.skipped ? `，其中 ${r.data.skipped} 个你后来又改了，保持不变` : ""}${refused}`, Boolean(refused));
+      if (!left && skipped && !n) return setStatus("没有撤销：你之后又改过，保持现在的样子", true);
+      if (!left) return setStatus(`已撤销${skipped ? `，其中 ${skipped} 个你后来又改了，保持不变` : ""}`);
+      // Only the call's time running out is worth asking again at once; the entry keeps what is left.
+      if (stopped === "TIMEOUT") {
+        setStatus(`正在撤销：剩 ${left} 个`, false, true);
+        continue;
+      }
+      return setStatus(`撤销了 ${n} 个，剩 ${left} 个没撤销：${MCP_UNDO_STOP[stopped] || MCP_UNDO_STOP.REFUSED}`, true);
     }
   } finally {
     mcpUndoing = false;

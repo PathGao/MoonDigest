@@ -27,7 +27,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
   - `all: true`：只读本地副本，不请求 B站。所有勾选收藏夹合成一个精简列表，每页 300 个，每个视频一行、只出现一次，写明它在哪几个收藏夹里。可以筛选：`verdict`（`none` 是还没有 AI 判断，`keep`、`drop`、`unsure`）、`stage`（`none`、`coarse` 粗看、`fine` 细看）、`tag`（标签名）、`invalid`（`true` 只要已失效的，`false` 只要没失效的）、`query`；`folderId` 把范围限定到一个收藏夹。还没有本地副本的勾选收藏夹不在列表里，结果会列出它们的 id，先用 `sync_favorites` 读取。
 - `sync_favorites({ include?, exclude?, start?, folders?, raw? })`：管分拣台勾选哪些收藏夹，并从 B站 读取它们的本地副本。
   - 不带参数：收藏夹列表和读取进度。
-  - `include` / `exclude`：勾选、取消勾选收藏夹。取消勾选的后果：下次打开分拣台时，这个收藏夹的本地副本和取消收藏记录会被删除，不在其他勾选收藏夹里的视频进「已出分拣范围」；AI 判断、保留、备注和标签都留着。取消勾选不能用 `undo` 撤销。
+  - `include` / `exclude`：勾选、取消勾选收藏夹。取消勾选的后果：下次打开分拣台时，这个收藏夹的本地副本和取消收藏记录会被删除，不在其他勾选收藏夹里的视频进「已出分拣范围」；AI 判断、保留、备注和标签都留着。取消勾选有撤销记录：`undo` 会重新勾选并放回取消收藏记录，副本要再同步一次。
   - `start: true`：在扩展后台读取勾选的收藏夹（或 `folders` 指定的几个），不需要打开分拣台。调用立刻返回，再不带参数调用一次看进度。视频没有增减的收藏夹只花一次请求。B站 限流时读取停下，结果里写明。扩展后台被浏览器重启后，没读完的不会接着读，要再 `start` 一次。
 - `get_follows({ page?, query?, raw? })`：关注的 UP 主，每页 50 个，带关注分组和你的 UP 标签。分拣台的「关注」刷新过就读本地的关注列表，`query` 能用；没刷新过就从 B站 读一页，`query` 不生效，结果里会写明。
 - `get_history({ cursor?, raw? })`：观看历史，从新到旧，每次 30 条，把返回的 `cursor` 传回去读更早的。
@@ -43,7 +43,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
   - `from` 有本地副本时，`bvids` 必须都在本地副本里，否则返回 `BAD_PARAMS`：先用 `sync_favorites` 重新读取。
   - `folder_delete`：B站 的视频数有时比列表里列出的多，多出来的看不到，多半是已被删除的视频。这时不删除，返回 `HIDDEN_ITEMS` 和相差的个数：删除收藏夹后这些视频撤销也找不回来。你同意后带 `acceptLoss: true` 再调用。
   - 结果里带撤销编号（`undoId`）。
-- `undo({ id?, list?, raw? })`：撤销一次有记录的修改。`id` 是撤销编号，不给就撤销最近一次。`list: true` 只列出记录（B站上的修改和本地的修改各留最近 100 次），不撤销。
+- `undo({ id?, list?, raw? })`：撤销一次有记录的修改。`id` 是撤销编号，不给就撤销最近一次。`list: true` 只列出记录（B站和 YouTube 上的修改留最近 100 次，本地的修改另留最近 100 次），不撤销。
   - 取消收藏、清理失效视频：把视频加回原收藏夹，一次请求一个视频。
   - 移动：移回原收藏夹。复制：从目标收藏夹取消收藏。调用前目标收藏夹里已经有的视频留在目标收藏夹（移动的会再复制回原收藏夹）。
   - 新建收藏夹：删除它；里面已经有视频时不删除，返回错误。改名、改公开或私密：改回原来的。
@@ -56,7 +56,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 你自己 YouTube 的收藏有两个工具。MoonDigest 不为它们做页面，Agent 就是界面：
 
 - `list_collection({ site, kind, id?, cursor?, raw? })`：`site` 写 `bilibili` 时 `kind` 只有 `watch_later`（稍后再看）；B站 的收藏夹、关注和历史仍用上面的工具。`site` 写 `youtube` 时 `kind` 是 `watch_later`（稍后观看）、`playlists`（你的 YouTube 播放列表）、`playlist`（`id` 那个 YouTube 播放列表里的视频）、`likes`（赞过的视频）、`subscriptions`（订阅）、`history`（历史记录）。一次一页，把返回的 `cursor` 传回去读下一页。
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频加进或移出 B站稍后再看、YouTube 稍后观看（都是 `kind: "watch_later"`）或你自己的 YouTube 播放列表（`kind: "playlist"`, `id`）。`items` 是 BV 号或 YouTube 视频 id。赞和订阅只能读。`dryRun: true` 只读、不改。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认（YouTube 以它自己的写入回应为准：它的状态要十来秒才更新）。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。这个工具的修改不进 `undo` 的记录，撤销就用它返回的那次调用。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在 YouTube 播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`：把视频加进或移出 B站稍后再看、YouTube 稍后观看（都是 `kind: "watch_later"`）或你自己的 YouTube 播放列表（`kind: "playlist"`, `id`）。`items` 是 BV 号或 YouTube 视频 id。赞和订阅只能读。`dryRun: true` 只读、不改。一次最多 20 个，一个一个改，间隔 1.5 到 3 秒；每个先读一次，已经是那样的跳过，改完再读一次确认（YouTube 以它自己的写入回应为准：它的状态要十来秒才更新）。被限流（`THROTTLED`）或掉了登录就停，返回改了哪些、哪些没动，和撤销用的那次调用。它的修改也进撤销记录，结果里带撤销编号，用 `undo` 撤销。撤销不能完全复原：移出后再加回的视频排到列表末尾，原来的位置回不来；同一个视频在 YouTube 播放列表里出现多次时，移出会按视频 id 移走，撤销只加回一次。
 
 `get_video` 默认返回紧凑文本，每条字幕一行 `[mm:ss] 内容`（超过一小时用 `hh:mm:ss`）。扩展原始 JSON 每条字幕都带 `from`、`to`、`content` 三个键名和小数时间，实测体积约是文本的两倍，而模型几乎用不到结束时间。确实要精确时间时传 `raw: true`。
 
@@ -69,27 +69,20 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
 
 需要 Node 20 或更高版本。
 
-> 还没有发布到 npm。发布之前请用本地路径的写法。
-
-本地路径（现在就能用）：
+Claude Code：
 
 ```sh
-cd /path/to/MoonDigest/mcp && npm install
-claude mcp add moondigest -- node /path/to/MoonDigest/mcp/server.js
+claude mcp add moondigest -- npx -y moondigest-mcp@latest
 ```
 
-发布到 npm 之后：
-
-```sh
-claude mcp add moondigest -- npx -y moondigest-mcp
-```
+`@latest` 让 `npx` 每次随 Agent 启动取最新版，服务跟着插件一起更新，不用手动升级。插件的设置 → MCP 里有各客户端的这条命令，带复制按钮。
 
 Cursor（`~/.cursor/mcp.json` 或项目里的 `.cursor/mcp.json`）：
 
 ```json
 {
   "mcpServers": {
-    "moondigest": { "command": "node", "args": ["/path/to/MoonDigest/mcp/server.js"] }
+    "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
   }
 }
 ```
@@ -98,11 +91,11 @@ Codex（`~/.codex/config.toml`）：
 
 ```toml
 [mcp_servers.moondigest]
-command = "node"
-args = ["/path/to/MoonDigest/mcp/server.js"]
+command = "npx"
+args = ["-y", "moondigest-mcp@latest"]
 ```
 
-发布后把 `node` 和路径换成 `npx` 和 `["-y", "moondigest-mcp"]`。
+改代码时用本地的一份：克隆仓库，在 `mcp/` 里 `npm install`，把上面的 `npx` 和参数换成 `node` 和 `/path/to/MoonDigest/mcp/server.js`。
 
 最后在 MoonDigest 的「设置 → MCP」打开「允许 Agent 使用我的 B站和 YouTube 账号」。这一节还列出各客户端的安装命令（带「复制」按钮，路径要换成你电脑上 MoonDigest 文件夹的位置），并写明现在是否已连接。
 
@@ -114,7 +107,7 @@ args = ["/path/to/MoonDigest/mcp/server.js"]
 - B站 的 `/video/` 链接由扩展后台直接读，不用标签页。番剧（`/bangumi/play/`）、活动页（`/festival/`）、不带 BV 号的 `/list/` 和 YouTube 观看页（`/watch?v=`）可以用你已开着的标签页；没有就用扩展自己的后台标签页，最多开一个，之后的视频都在它里面打开。其他网址返回 `BAD_URL`。`get_video` 不会切换标签页。Chrome 不给从没显示过的标签页加载视频，所以 `get_frame` 第一次在这种标签页里截帧时，会把它切到前台截完，再切回你原来的标签页，屏幕会闪一下。
 - `search_videos` 不开标签页：扩展后台带着你的登录状态直接请求 B站的搜索接口或 YouTube 的搜索结果页。一次只搜一个，两次搜索至少隔 2 秒。
 - 只有一个开关：「允许 Agent 使用我的 B站和 YouTube 账号」，默认关闭。关着的时候扩展不建任何连接，所有工具都返回 `NOT_CONNECTED`。打开后上面的工具都能用，包括改收藏夹和分拣台的；没有按数据种类分开的开关。API Key 和 AI 对话任何时候都不会给出去。
-- 修改不先问你，安全靠撤销。`fav_write`、`collection_write`、`set_triage`、`triage_settings` 改判断标准和 `sync_favorites` 取消勾选的每次调用，都记在扩展的本地存储里（B站上的修改和本地的修改各留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「Agent 最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
+- 修改不先问你，安全靠撤销。`fav_write`、`collection_write`、`set_triage`、`triage_settings` 改判断标准和 `sync_favorites` 取消勾选的每次调用，都记在扩展的本地存储里（B站和 YouTube 上的修改留最近 100 次，本地的修改另留最近 100 次）：改了哪些视频、原来在哪个收藏夹、原来的值。三个地方都能撤销：Agent 调用 `undo`；分拣台里按 U；设置 → MCP 的「Agent 最近的修改」里点「撤销」。关掉开关以后，后两个地方照样能撤销。
 - 撤销做不到的事：删除收藏夹撤销后是一个新的收藏夹，B站 没有列出的视频找不回来；各自超出最近 100 次的修改没有记录；撤销取消勾选会重新勾选并放回取消收藏记录，副本要再同步一次；YouTube 播放列表里移出再加回的视频会排到末尾。
 - 字幕、简介和评论是别人写的文字，里面可能夹着写给 AI 的指令。服务器给 Agent 的说明要求把这些文字当作数据，不照着做，只改你要求改的。这一条由 Agent 遵守，扩展检查不了；被诱导做出的修改同样有记录，可以撤销。
 - B站 的收藏夹和稍后再看由扩展后台直接改，发的是分拣台自己用的那些请求。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
@@ -174,7 +167,7 @@ Read your own Bilibili data:
   - `all: true`: local copies only, no Bilibili request. Every ticked folder as one compact list, 300 a page, one line a video, each video once with every folder it is in. Filters: `verdict` (`none`: no AI verdict yet, `keep`, `drop`, `unsure`), `stage` (`none`, `coarse`: 粗看, `fine`: 细看), `tag` (a tag name), `invalid` (`true`: only unavailable videos, `false`: only available ones), `query`; `folderId` limits it to one folder. Ticked folders with no local copy yet are not in the list; the result names them, and `sync_favorites` reads them.
 - `sync_favorites({ include?, exclude?, start?, folders?, raw? })`: which folders are ticked in the 分拣台, and reading their local copies from Bilibili.
   - No parameters: the folder list and the progress of a read.
-  - `include` / `exclude`: tick and untick folders. What unticking costs: the next time the 分拣台 is open, that folder's local copy and its 取消收藏 records are removed, and its videos that are in no other ticked folder go to 已出分拣范围; AI verdicts, 保留, notes and tags stay. `undo` does not reverse an untick.
+  - `include` / `exclude`: tick and untick folders. What unticking costs: the next time the 分拣台 is open, that folder's local copy and its 取消收藏 records are removed, and its videos that are in no other ticked folder go to 已出分拣范围; AI verdicts, 保留, notes and tags stay. An untick is recorded: `undo` ticks the folder again and puts its 取消收藏 records back; its copy needs another sync.
   - `start: true`: reads the ticked folders (or those in `folders`) in the extension's background, without the 分拣台 open. The call answers at once; call again with no parameters for the progress. A folder whose videos did not change costs one request. Rate limiting stops the read, and the result says so. If the browser restarts the extension's background, the rest is not read: `start` again.
 - `get_follows({ page?, query?, raw? })`: the UP 主 you follow, 50 a page, with follow groups and your UP tags. Read from the 分拣台's follow list when it has one (then `query` works); otherwise one page from Bilibili, where `query` is not applied and the result says so.
 - `get_history({ cursor?, raw? })`: watch history, newest first, 30 a call. Pass the returned `cursor` back for older items.
@@ -190,7 +183,7 @@ Change your Bilibili favorites and the 分拣台. These tools act at once and do
   - When `from` has a local copy, every bvid must be in it, else `BAD_PARAMS`: read it again with `sync_favorites`.
   - `folder_delete`: Bilibili sometimes counts more videos than its list returns; the extra ones cannot be seen and are most likely deleted videos. Then nothing is deleted and the call returns `HIDDEN_ITEMS` with the difference: once the folder is deleted, undo cannot bring those back. Call again with `acceptLoss: true` when you agree.
   - The result carries an undo id (`undoId`).
-- `undo({ id?, list?, raw? })`: reverses one recorded change. `id` is an undo id; without it the newest change. `list: true` lists the recorded changes (the last 100 Bilibili changes and the last 100 local ones) and undoes nothing.
+- `undo({ id?, list?, raw? })`: reverses one recorded change. `id` is an undo id; without it the newest change. `list: true` lists the recorded changes (the last 100 on Bilibili and YouTube, and the last 100 local ones) and undoes nothing.
   - Unfavorite, clean unavailable: the videos are favorited into their folder again, one request a video.
   - Move: moved back. Copy: taken out of the target folder. Videos the target folder already held before the call stay in it (after a move they are copied back to the source).
   - New folder: deleted, unless it holds videos by now (an error). Rename, privacy: set back.
@@ -203,7 +196,7 @@ Change your Bilibili favorites and the 分拣台. These tools act at once and do
 Two tools work on your own YouTube collections. MoonDigest has no pages for them: the AI tool is the UI.
 
 - `list_collection({ site, kind, id?, cursor?, raw? })`: `site` `bilibili` has only `kind` `watch_later` (稍后再看); Bilibili favorites, follows and history stay in the tools above. `site` `youtube` has `kind` `watch_later`, `playlists` (your playlists), `playlist` (the videos of playlist `id`), `likes`, `subscriptions` or `history`. One page a call; pass the returned `cursor` back for the next.
-- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos to or removes them from Bilibili 稍后再看 or YouTube Watch later (both `kind: "watch_later"`) or one of your own YouTube playlists (`kind: "playlist"`, `id`). `items` are BV ids or YouTube video ids. Likes and subscriptions are read-only. `dryRun: true` only reads. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed; YouTube by its own answer to the write, since its state takes about 12 s to catch up). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives the call that undoes it. Its changes are not among `undo`'s recorded changes: undo them with that returned call. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
+- `collection_write({ site, op, kind, id?, items, dryRun?, raw? })`: adds videos to or removes them from Bilibili 稍后再看 or YouTube Watch later (both `kind: "watch_later"`) or one of your own YouTube playlists (`kind: "playlist"`, `id`). `items` are BV ids or YouTube video ids. Likes and subscriptions are read-only. `dryRun: true` only reads. At most 20 a call, one at a time, 1.5 to 3 s apart; each is read first (already so: skipped) and again after (confirmed; YouTube by its own answer to the write, since its state takes about 12 s to catch up). Rate limiting (`THROTTLED`) or a lost login stops the batch; the result says what was done and not tried, and gives an undo id. Its changes are recorded like the others: `undo` reverses them. Undo is not exact: a video removed and added back goes to the end of the list, not its old place; a video that was in a playlist more than once is removed by its id and added back once.
 
 `get_video` returns compact text by default, one transcript line per segment as `[mm:ss] text` (`hh:mm:ss` past an hour). The extension's raw JSON repeats the `from`, `to` and `content` keys and fractional times on every segment, which measures about twice the size, and models rarely need end times. Pass `raw: true` when you do need exact times.
 
@@ -216,27 +209,20 @@ Two tools work on your own YouTube collections. MoonDigest has no pages for them
 
 Needs Node 20 or later.
 
-> Not published to npm yet. Use the local path form until it is.
-
-Local path (works now):
+Claude Code:
 
 ```sh
-cd /path/to/MoonDigest/mcp && npm install
-claude mcp add moondigest -- node /path/to/MoonDigest/mcp/server.js
+claude mcp add moondigest -- npx -y moondigest-mcp@latest
 ```
 
-After it is on npm:
-
-```sh
-claude mcp add moondigest -- npx -y moondigest-mcp
-```
+With `@latest`, `npx` takes the newest version each time the agent starts, so the server keeps up with the extension and never needs a manual update. The extension's 设置 → MCP shows this command for each client, with a copy button.
 
 Cursor (`~/.cursor/mcp.json` or the project's `.cursor/mcp.json`):
 
 ```json
 {
   "mcpServers": {
-    "moondigest": { "command": "node", "args": ["/path/to/MoonDigest/mcp/server.js"] }
+    "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
   }
 }
 ```
@@ -245,11 +231,11 @@ Codex (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.moondigest]
-command = "node"
-args = ["/path/to/MoonDigest/mcp/server.js"]
+command = "npx"
+args = ["-y", "moondigest-mcp@latest"]
 ```
 
-Once published, replace `node` and the path with `npx` and `["-y", "moondigest-mcp"]`.
+To work on the code, use a local copy: clone the repository, run `npm install` in `mcp/`, and replace `npx` and its arguments above with `node` and `/path/to/MoonDigest/mcp/server.js`.
 
 Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's 设置 → MCP. That section also lists the install command for each client (with a 复制 button; replace the path with where your MoonDigest folder is) and says whether the extension is connected now.
 
@@ -261,7 +247,7 @@ Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's �
 - A Bilibili `/video/` URL is read by the extension's background, with no tab. 番剧 (`/bangumi/play/`), 活动页 (`/festival/`), a `/list/` without a BV id and YouTube watch pages (`/watch?v=`) may be read in a tab you already have open; else in the extension's own background tab, at most one, which later videos reuse. Any other URL gets `BAD_URL`. `get_video` never switches tabs. Chrome loads no video in a tab that has never been shown, so the first `get_frame` in such a tab brings it to the front for the frame and then switches back to the tab you had open: the screen flashes once.
 - `search_videos` opens no tab: the extension's background requests Bilibili's search API or YouTube's results page directly, with your login. One search at a time, at least 2 s apart.
 - One switch: 允许 Agent 使用我的 B站和 YouTube 账号, off by default. While off, the extension opens no socket and every tool returns `NOT_CONNECTED`. While on, every tool above works, including the ones that change favorites and the 分拣台; there is no switch per kind of data. API keys and AI conversations are never given out.
-- Changes do not ask you first; safety is undo. Every `fav_write`, `collection_write`, `set_triage`, 判断标准 change by `triage_settings` and untick by `sync_favorites` is recorded in the extension's local storage (the last 100 Bilibili changes and the last 100 local ones): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under Agent 最近的修改 in 设置 → MCP. The last two work with the switch off too.
+- Changes do not ask you first; safety is undo. Every `fav_write`, `collection_write`, `set_triage`, 判断标准 change by `triage_settings` and untick by `sync_favorites` is recorded in the extension's local storage (the last 100 on Bilibili and YouTube, and the last 100 local ones): which videos, which folder they were in, the values before. Three places undo one: the AI tool calling `undo`; U in the 分拣台; 撤销 under Agent 最近的修改 in 设置 → MCP. The last two work with the switch off too.
 - What undo cannot do: a deleted folder comes back as a new folder, without the videos Bilibili did not list; changes beyond those are not recorded; undoing an untick ticks the folder again and puts its 取消收藏 records back, and its copy needs another sync; a video taken out of a YouTube playlist and put back ends up last.
 - Transcripts, descriptions and comments are text other people wrote, and may contain instructions aimed at an AI. The server's instructions tell the AI tool to treat that text as data, not to act on it, and to change only what you asked for. The AI tool has to follow this; the extension cannot check it. A change it was talked into is recorded like any other and can be undone.
 - Bilibili favorites and 稍后再看 are changed by the extension's background directly, with the requests the 分拣台 itself uses. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.

@@ -130,7 +130,7 @@
     const r = await write({ site: e.site, op: e.op === "add" ? "remove" : "add", kind: e.list, ...(e.listId != null && { id: e.listId }), items: e.items }, deadline, { record: false });
     const back = new Set(r.results.filter((x) => x.status === "done" || x.status === "unchanged").map((x) => x.item));
     const left = e.items.filter((i) => !back.has(i));
-    return { done: back.size, ...(left.length && { left: left.length, stopped: r.stopped || "FAILED", entry: { ...e, items: left, n: left.length } }) };
+    return { done: back.size, ...(left.length && { left: left.length, stopped: r.stopped || "REFUSED", entry: { ...e, items: left, n: left.length } }) };
   });
 
   MdgAgentBridge.addMethods({

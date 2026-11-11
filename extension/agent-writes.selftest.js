@@ -287,12 +287,38 @@ check("copy: one the target already held stays there on undo; only the new one i
   assert.deepStrictEqual([local[K.triageSnapshot("33")].bvids, local[K.triageSnapshot("11")].bvids], [[B], [A, B]]);
 });
 
+check("a background read whose folder was written meanwhile is not saved: its list may be from before the write", async () => {
+  syncRoutes();
+  let wrote = null;
+  const list = routes["/x/v3/fav/resource/list"];
+  routes["/x/v3/fav/resource/list"] = (q) => {
+    wrote ||= M.favWrite({ op: "unfav", from: "33", bvids: [B] }, far()); // a write starts while folder 11 is being read
+    return list(q);
+  };
+  await M.sync({ start: true, folders: ["11"] });
+  const done = await idle();
+  await wrote;
+  assert.deepStrictEqual([plain(done.job.partial), local[K.triageSnapshot("11")].bvids], [["11"], [A, B]]);
+});
+
 check("what the target already held is asked of B站, not of a copy that may be behind: undo leaves it there", async () => {
   favReset();
   local[K.triageSnapshot("33")] = { bvids: [], invalid: [], titles: {}, items: [], ids: [], title: "已有" }; // the copy does not know B is there
   const r = await M.favWrite({ op: "copy", from: "11", to: "33", bvids: [B] }, far());
   await M.undo({ id: r.data.undoId }, far());
   assert.deepStrictEqual([plain(log()), paths()], [[], ["resource/copy"]], "nothing is taken out of 33");
+});
+
+check("a 番剧 the target already holds is recognised by its episode id, so undo leaves it there", async () => {
+  favReset();
+  const X = "BV1xxxxxxxxx";
+  local[K.triageSnapshot("11")].items.push(vid(X, 5, { ogv: true, ep: "7:24" }));
+  delete local[K.triageSnapshot("33")];
+  routes["/x/v3/fav/resource/ids"] = () => ({ code: 0, data: [{ type: 24, id: 7 }] }); // B站 lists it by episode id, no BV id
+  const r = await M.favWrite({ op: "copy", from: "11", to: "33", bvids: [X] }, far());
+  assert.deepStrictEqual(plain(log()[0].had), [X]);
+  await M.undo({ id: r.data.undoId }, far());
+  assert.deepStrictEqual(paths(), ["resource/copy"], "nothing is taken out of 33");
 });
 
 check("a move out of 稍后再看 is undone one video at a time: back into it, then out of the target", async () => {
@@ -308,12 +334,20 @@ check("a move out of 稍后再看 is undone one video at a time: back into it, t
   assert.strictEqual(local[K.triageSnapshot("toview")].items[0].title, "标题3", "the copy gets the whole item back, not a stub");
 });
 
-check("an undo goes on past a video B站 refuses to take back, and says how many; one in progress is refused, and a dead one can be undone again", async () => {
+check("an undo goes on past a video B站 says no to, which stays journaled; a request that only failed loses nothing; one in progress is refused, and a dead one can be undone again", async () => {
   favReset();
   const r = await M.favWrite({ op: "unfav", from: "11", bvids: [A, B] }, far());
   routes["/x/v3/fav/resource/deal"] = (_, b) => (b.rid === "1" ? { code: 11010, message: "稿件不存在" } : null);
   const u = await M.undo({ id: r.data.undoId }, far());
-  assert.deepStrictEqual([u.ok, u.data.n, u.data.failed, u.data.left, log().length, Object.keys(local[K.triageDecisions("11")])], [true, 1, 1, undefined, 0, [A]]);
+  assert.deepStrictEqual([u.ok, u.data.n, u.data.failed, u.data.left, u.data.stopped, log().map((e) => e.items.map((it) => it.bvid)), Object.keys(local[K.triageDecisions("11")])], [true, 1, 1, 1, "REFUSED", [[A]], [A]]);
+  // B站 down (HTTP 500) is no refusal: the undo fails and the entry keeps both videos.
+  favReset();
+  const d = await M.favWrite({ op: "unfav", from: "11", bvids: [A, B] }, far());
+  routes["/x/v3/fav/resource/deal"] = () => ({ status: 500 });
+  const down = await M.undo({ id: d.data.undoId }, far());
+  assert.deepStrictEqual([down.ok, log().map((e) => e.items.length), Object.keys(local[K.triageDecisions("11")]).length], [false, [2], 2]);
+  routes["/x/v3/fav/resource/deal"] = () => null;
+  assert.deepStrictEqual([(await M.undo({ id: d.data.undoId }, far())).data.n, log().length], [2, 0], "and goes through once B站 answers again");
   favReset();
   const w = await M.favWrite({ op: "unfav", from: "11", bvids: [A] }, far());
   local[K.triageAgentLog][0].undoing = Date.now(); // another page is undoing it right now

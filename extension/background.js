@@ -776,7 +776,9 @@ async function migrateMcpSwitches() {
   const old = ["mcpEnabled", "mcpPersonalData", "mcpWrites", "mcpCollectionWrite"];
   const got = await chrome.storage.sync.get(old);
   if (!old.some((k) => k in got)) return;
-  if (old.every((k) => MdgSettings.normalizeSwitches({ mcpAccess: got[k] }).mcpAccess)) await chrome.storage.sync.set({ mcpAccess: got.mcpEnabled });
+  // Only while the new switch was never set: old keys an older version on another computer wrote again decide nothing.
+  const set = "mcpAccess" in (await chrome.storage.sync.get("mcpAccess"));
+  if (!set && old.every((k) => MdgSettings.normalizeSwitches({ mcpAccess: got[k] }).mcpAccess)) await chrome.storage.sync.set({ mcpAccess: got.mcpEnabled });
   await chrome.storage.sync.remove(old);
 }
 

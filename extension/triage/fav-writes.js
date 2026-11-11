@@ -481,7 +481,9 @@ function agentStep(e) {
     kind: "agent",
     agentId: e.id,
     blocked: local ? undefined : undoBlocked,
-    ask: e.n > 1
+    ask: e.kind === "scope"
+      ? [`撤销 Agent ${agentWhat(e)}？`, `<p>重新勾选「${esc(e.titles?.from || "")}」，放回它的取消收藏记录。</p>`, "撤销"]
+      : e.n > 1
       ? local
         ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"]
         : [`撤销 Agent ${agentWhat(e)}？`, `<p>Agent 动了 ${e.n} 个视频，撤销会在网站上改回去。</p>`, "撤销"]
@@ -495,9 +497,15 @@ function agentStep(e) {
         if (log.some((x) => x.id === e.id) && !S.undo.some((s) => s.agentId === e.id)) pushUndo(agentStep(e));
         return "";
       }
-      const { n, skipped, left } = r.data;
-      // Cut short: the rest is still journaled under the same id, so its step comes back.
+      const { n, skipped, left, stopped } = r.data;
+      // Cut short: the rest is still journaled under the same id, so its step comes back. Only the call's time running
+      // out is worth another U at once; B站's limit, a lost login or a refusal is said as the failure it is.
       if (left) pushUndo(agentStep({ ...e, n: left }));
+      if (left && stopped !== "TIMEOUT") {
+        const why = MdgErrors.text({ code: stopped }, "网站不让加回（多半是视频已被删除，或列表满了）");
+        toast(`只撤销了 ${n} 个：${why}。其余 ${left} 个之后可再按 U`, true);
+        return redraw();
+      }
       if (left) return redraw() || `已撤销 Agent ${agentWhat(e)}中的 ${n} 个视频，还剩 ${left} 个，可再按 U 撤销`;
       if (e.kind === "criteria") return redraw() || (skipped ? "判断标准你之后改过，没动" : `已撤销：Agent ${agentWhat(e)}`);
       if (e.kind === "scope") return redraw() || `已撤销：Agent ${agentWhat(e)}`;
@@ -516,9 +524,11 @@ function followAgentLog(log, tell = true) {
   S.undo = S.undo.filter((s) => s.kind !== "agent" || ids.has(s.agentId));
   for (const e of log.filter((e) => !known.has(e.id) && !S.undo.some((s) => s.agentId === e.id))) pushUndo(agentStep(e));
   S.agentLog = log;
-  const n = log.filter((e) => e.at > agentSeenAt).reduce((sum, e) => sum + e.n, 0);
+  const fresh = log.filter((e) => e.at > agentSeenAt);
+  const n = fresh.filter((e) => e.kind !== "scope").reduce((sum, e) => sum + e.n, 0);
   agentSeenAt = Math.max(agentSeenAt, ...log.map((e) => e.at));
   if (tell && n) toast(`Agent 改了 ${n} 个视频${UNDO}`);
+  else if (tell && fresh.length) toast(`Agent 取消了分拣勾选${UNDO}`);
 }
 
 // U undoes the last step of the mode it is pressed in.

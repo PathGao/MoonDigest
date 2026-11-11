@@ -16,6 +16,7 @@
   // One folder: unchanged when B站's id list still equals the copy's (one request), else read whole and saved. A list
   // B站 cut short is not saved: a partial list must not pass for the folder.
   async function readFolder(id, title) {
+    const writes = MdgAgentQueue.writes();
     const key = K.triageSnapshot(id);
     const old = (await chrome.storage.local.get(key))[key];
     if (old && id !== TRIAGE_TOVIEW) {
@@ -25,14 +26,19 @@
     const r = await TRIAGE_HANDLERS["triage-folder-items"]({ mediaId: id });
     if (r.partial) return "partial";
     const items = TriageCore.keepInvalidInfo(r.items, old?.items);
-    await R.lock(async () => {
-      // Read again inside the lock: a folder unticked meanwhile is not saved back.
-      const now = await included();
-      if (!now.includes(id)) return;
-      await R.saveNow(id, items, r.ids ?? null, { others: now.filter((f) => f !== id), title: r.info?.title || title, intro: r.info?.intro });
-      await R.refreshElsewhereNow(id, now);
+    // Saved in the Agent's write queue, and not at all when a write started while this was reading: the list may be from
+    // before it. The read itself stays outside the queue, so a long folder holds up no write or undo.
+    return MdgAgentQueue(async () => {
+      if (MdgAgentQueue.writes() !== writes) return "partial";
+      await R.lock(async () => {
+        // Read again inside the lock: a folder unticked meanwhile is not saved back.
+        const now = await included();
+        if (!now.includes(id)) return;
+        await R.saveNow(id, items, r.ids ?? null, { others: now.filter((f) => f !== id), title: r.info?.title || title, intro: r.info?.intro });
+        await R.refreshElsewhereNow(id, now);
+      });
+      return "read";
     });
-    return "read";
   }
 
   async function runJob(ids, titles, gapMs) {
@@ -44,7 +50,7 @@
           continue;
         }
         mine.current = id;
-        const was = await MdgAgentQueue(() => readFolder(id, titles[id]));
+        const was = await readFolder(id, titles[id]);
         if (was === "partial") mine.partial.push(id);
         else mine[was]++;
         mine.done++;

@@ -242,9 +242,16 @@ export function formatUndo(d) {
     if (!d.entries.length) return "No changes are recorded.";
     return ["Recorded changes, newest first (undo takes an id):", ...d.entries.map((e) => `- ${e.id} · ${when(e.at / 1000)} · ${e.op || e.kind} · ${e.n} video(s)${e.titles ? ` · ${e.titles.from}${e.titles.to ? ` → ${e.titles.to}` : ""}` : ""}${e.was ? ` · was 「${e.was}」` : ""}`)].join("\n");
   }
-  if (d.left) return `Undone for ${d.n} video(s), ${d.left} left${d.stopped === "THROTTLED" ? ": Bilibili is rate-limiting. Stop for now and tell the user; undo the same id later." : `: the call's time ran out. Call undo {"id":"${d.id}"} again to go on.`}`;
+  if (d.left) {
+    const why = {
+      TIMEOUT: `the call's time ran out. Call undo {"id":"${d.id}"} again to go on.`,
+      THROTTLED: "the site is rate-limiting. Stop for now and tell the user; undo the same id later, not soon.",
+      NOT_LOGGED_IN: "the user is not logged in to that site in the browser. Ask them to log in, then undo the same id again.",
+    }[d.stopped] || "the site refused them (most likely deleted videos, or a full list). They stay recorded: tell the user; undoing the same id again helps only once that has changed.";
+    return `Undone for ${d.n} video(s), ${d.left} left: ${why}`;
+  }
   if (d.skipped && !d.n) return `Nothing undone (${d.id}): the user changed it since, so it stays as it is.`;
-  return `Undone (${d.id})${d.n ? `: ${d.n} video(s)` : ""}.${d.failed ? ` ${d.failed} could not be put back: Bilibili refused them (most likely deleted videos).` : ""}${d.skipped ? ` ${d.skipped} left as they are: the user changed them since.` : ""}`;
+  return `Undone (${d.id})${d.n ? `: ${d.n} video(s)` : ""}.${d.skipped ? ` ${d.skipped} left as they are: the user changed them since.` : ""}`;
 }
 
 export function formatSync(d) {
@@ -385,7 +392,7 @@ const TOOLS = [
   },
   {
     name: "fav_write",
-    description: "Change the user's Bilibili favorites, at once, on Bilibili. op move / copy: bvids from folder from to folder to. unfav: take bvids out of from (取消收藏). clean_invalid: take out the videos of from that Bilibili marks unavailable, as MoonDigest's copy lists them. folder_create (title, private), folder_rename (folder, title), folder_privacy (folder, private), folder_delete (folder). Nothing asks the user first: do what they asked for, and no more. Every call is recorded and the result gives an undo id; undo reverses it (a moved video moves back, an unfavorited one is favorited into its folder again; one Bilibili refuses to take back, a deleted video for example, is reported and left), and the user can undo it too in MoonDigest's settings. Up to 500 bvids a call, sent 20 a request a second apart (稍后再看 one at a time); a call that runs out of time returns what is not done, to send again. THROTTLED stops it: tell the user and do not retry soon. A source folder MoonDigest has a copy of must hold every bvid in that copy (BAD_PARAMS: sync_favorites, then try again). folder_delete answers HIDDEN_ITEMS without deleting when Bilibili counts more videos than it lists (deleted videos, unseen): they cannot be brought back, so tell the user the number and pass acceptLoss: true only when they agree.",
+    description: "Change the user's Bilibili favorites, at once, on Bilibili. op move / copy: bvids from folder from to folder to. unfav: take bvids out of from (取消收藏). clean_invalid: take out the videos of from that Bilibili marks unavailable, as MoonDigest's copy lists them. folder_create (title, private), folder_rename (folder, title), folder_privacy (folder, private), folder_delete (folder). Nothing asks the user first: do what they asked for, and no more. Every call is recorded and the result gives an undo id; undo reverses it (a moved video moves back, an unfavorited one is favorited into its folder again; one Bilibili refuses to take back, a deleted video for example, stays recorded and is reported), and the user can undo it too in MoonDigest's settings. Up to 500 bvids a call, sent 20 a request a second apart (稍后再看 one at a time); a call that runs out of time returns what is not done, to send again. THROTTLED stops it: tell the user and do not retry soon. A source folder MoonDigest has a copy of must hold every bvid in that copy (BAD_PARAMS: sync_favorites, then try again). folder_delete answers HIDDEN_ITEMS without deleting when Bilibili counts more videos than it lists (deleted videos, unseen): they cannot be brought back, so tell the user the number and pass acceptLoss: true only when they agree.",
     inputSchema: {
       type: "object",
       properties: {
@@ -404,7 +411,7 @@ const TOOLS = [
   },
   {
     name: "undo",
-    description: "Undo one recorded change MoonDigest made for an AI tool: a fav_write, a set_triage or a triage_settings change, by the undo id its result gave, or the newest one without an id. list: true lists the recorded changes (the last 100 Bilibili changes and the last 100 local ones) instead. Undoing a fav_write changes Bilibili back; one too long for a call (re-favoriting goes one video at a time) says how many are left: call it again with the same id.",
+    description: "Undo one recorded change MoonDigest made for an AI tool: a fav_write, a set_triage or a triage_settings change, by the undo id its result gave, or the newest one without an id. list: true lists the recorded changes (the last 100 on Bilibili and YouTube, and the last 100 local ones) instead. Undoing a fav_write changes Bilibili back; one too long for a call (re-favoriting goes one video at a time) says how many are left: call it again with the same id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -587,7 +594,8 @@ export function createMcpServer(bridge) {
       }
       if (params.name === "undo") {
         const data = args.list ? await bridge.call("log", {}) : await bridge.call("undo", args.id == null ? {} : { id: args.id });
-        return { ...(data.stopped === "THROTTLED" && { isError: true }), content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatUndo(data) }] };
+        // Stopped by the site, not by the call's time: an error the Agent must tell the user, not retry.
+        return { ...(data.left && data.stopped !== "TIMEOUT" && { isError: true }), content: [{ type: "text", text: args.raw ? JSON.stringify(data) : formatUndo(data) }] };
       }
       if (params.name === "get_covers") {
         const data = await bridge.call("covers", { bvids: args.bvids });

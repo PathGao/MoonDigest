@@ -300,7 +300,8 @@ const triageNotLoggedIn = () => triageError(MdgErrors.TEXT.biliLogin, "NOT_LOGGE
 function triageCodeError(json, what = "B站返回 ", keep = false) {
   if (json.code === -101) return triageNotLoggedIn();
   if (BILI_RISK_CODES.has(json.code)) return triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED);
-  return triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined);
+  // refused: B站 answered and said no to this request (a deleted video, a full list), unlike a request that failed.
+  return Object.assign(triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined), { refused: true });
 }
 function triageBiliData(json) {
   if (json.code !== 0) throw triageCodeError(json);

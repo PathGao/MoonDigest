@@ -14,7 +14,7 @@
 - 改了 `mcp/` 就把 `mcp/package.json` 的 `version` 和 `mcp/server.js` 里 `new Server({ version })` 一起加一号，跟功能改动走同一个 PR。推标签后 `release.yml` 的 `npm` 任务发现这个版本号还不在 npm 上，就跑 `mcp/` 的测试并发布；版本号没变就什么都不发。
 - 不用令牌：npm 上这个包的 Settings → Trusted Publisher 里登记了 GitHub 仓库 `PathGao/MoonDigest` 和工作流文件 `release.yml`，npm 只认这个工作流发出的包。
 - 第一次要手动发，因为 Trusted Publisher 要等包存在后才能配置：在 `mcp/` 里运行 `npm publish --access public`（要输两步验证码），再到 npm 的包设置页登记上面两项。在那之前 `npm` 任务只打印一行提示，不算失败。
-- 发布后要同步：设置页 MCP 一节的安装命令（`extension/options.js` 的 `MCP_INSTALL`）、`mcp/README.md` 和 skill 里的安装命令改成 `npx -y moondigest-mcp`。
+- 3.8.0 起设置页、README 和 skill 给的安装命令都是 `npx -y moondigest-mcp@latest`，所以包要先于插件到用户手里：第一次先手动发 npm，再推标签。之后改了 `mcp/` 的版本，推标签时 npm 先发出去，商店审核要几天，顺序自然是对的。
 
 ## 用到的 secret
 

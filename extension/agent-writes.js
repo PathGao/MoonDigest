@@ -193,9 +193,10 @@
   // fn) is how one of that kind is undone, fn(entry, deadline) resolving as undoFav does.
   const undoers = {};
   globalThis.MdgAgentJournal = {
+    // Through the write queue: an entry being undone is never pushed out of the journal meanwhile.
     add: (entry) => {
       const e = { id: MdgTagCore.newTagId("a"), at: Date.now(), ...entry };
-      return journal(e).then(() => e.id);
+      return queued(() => journal(e)).then(() => e.id);
     },
     undoer: (kind, fn) => (undoers[kind] = fn)
   };
@@ -326,8 +327,8 @@
 
   // One run of B站 requests over items, a chunk per request, until the call's time or B站's limit ends it: send(chunk)
   // makes the request (triage-bg.js's handler, as the 分拣台 sends it), then landed(chunk, reply) keeps the local
-  // records. Resolves { done: the items written, failed: those B站 refused (skip, one at a time), stopped?: "TIMEOUT" |
-  // "THROTTLED" }; another error is thrown with .done, the items written before it.
+  // records. Resolves { done: the items written, failed: those B站 said no to (skip, one at a time), stopped?:
+  // "TIMEOUT" | "THROTTLED" }; another error is thrown with .done, the items written before it.
   async function run(items, one, deadline, send, landed, { skip = false } = {}) {
     const size = one ? 1 : 20;
     const gap = one ? 300 : 1000;
@@ -342,8 +343,9 @@
         reply = await send(chunk);
       } catch (e) {
         if (e.code === MdgErrors.CODE.THROTTLED) return { done, failed, stopped: "THROTTLED" };
-        // B站 refused this one video (deleted, say): an undo goes on with the others.
-        if (skip && one && !e.code) {
+        // B站 said no to this one video (deleted, say): an undo goes on with the others. A request that failed (HTTP
+        // 500, no JSON) is not that, and stops the run as any error.
+        if (skip && one && e.refused) {
           failed.push(...chunk);
           continue;
         }
@@ -375,7 +377,7 @@
         const left = chunk.filter((it) => !kept.has(String(res(it))));
         if (!left.length) return;
         await R.patchSnapshotNow(from, { drop: left.map((it) => it.bvid) }, { title: fromName });
-        if (!inTo && chosen.includes(from)) await R.movedNow({ id: from, title: fromName }, left, { id: to, title: toName }, chosen.filter((id) => id !== from));
+        if (!inTo && chosen.includes(from)) await R.movedNow({ id: from, title: fromName }, listed(left), { id: to, title: toName }, chosen.filter((id) => id !== from));
       }));
   }
 
@@ -508,7 +510,7 @@
     const items = await itemsIn(src, bvidsOf(bvids));
     // Already in the target before this call: undo must leave them there. Asked of B站 (one request): a cached list
     // may be behind, and undo would then take out videos the user had there.
-    const there = new Set(await triageFolderIds(dest));
+    const there = new Set(await triageFolderIds(dest, items));
     return favDone({ op: move ? "move" : "copy", from: src, to: dest, had: items.filter((it) => there.has(it.bvid)).map((it) => it.bvid) }, items, (list) => transfer(src, dest, list, move, deadline));
   }
 
@@ -543,10 +545,13 @@
   }
 
   // Cut short, the rest of an undo stays journaled under the same id.
+  // The ones B站 said no to stay journaled with the rest ("REFUSED" when nothing else stopped the run): the user may
+  // make room or log in and undo again, and the record of what was taken is not lost.
   const restOf = (entry, r, items) => {
-    const gone = new Set([...r.done, ...(r.failed || [])].map((it) => it.bvid));
-    const left = items.filter((it) => !gone.has(it.bvid));
-    return { done: r.done.length, ...(r.failed?.length && { failed: r.failed.length }), ...(left.length && { left: left.length, stopped: r.stopped, entry: { ...entry, items: left, n: left.length } }) };
+    const went = new Set(r.done.map((it) => it.bvid));
+    const left = items.filter((it) => !went.has(it.bvid));
+    const failed = r.failed?.length || 0;
+    return { done: r.done.length, ...(failed && { failed }), ...(left.length && { left: left.length, stopped: r.stopped || (failed ? "REFUSED" : undefined), entry: { ...entry, items: left, n: left.length } }) };
   };
   const failRest = (entry, items) => (e) => {
     const went = new Set((e.done || []).map((it) => it.bvid));
@@ -659,13 +664,16 @@
     queue = call.catch(() => {});
     return call;
   };
+  let writes = 0; // B站 writes started so far
   const method = (fn) => (params, deadline = Date.now() + 50_000) =>
     queued(async () => {
       if (Date.now() > deadline) throw fail("The call waited too long behind earlier ones.", "TIMEOUT");
+      if (fn === favWrite || fn === undo) writes++;
       return fn(params && typeof params === "object" ? params : {}, deadline);
     }).then((data) => ({ ok: true, data }), (e) => ({ ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) }));
-  // agent-sync.js saves a folder's list through the same queue: a list read before a write must not be saved after it.
-  globalThis.MdgAgentQueue = queued;
+  // agent-sync.js saves a folder's list through the same queue, and only when no write started since it began reading
+  // (writes): a list read before a write must not be saved after it.
+  globalThis.MdgAgentQueue = Object.assign(queued, { writes: () => writes });
   MdgAgentBridge.addMethods({ triage: method(triage), favWrite: method(favWrite), undo: method(undo), log: method(log), triageSettings: method(triageSettings) });
   // 设置 → MCP and the 分拣台 (U) undo through the same queue, whatever the switch says now: the user takes back what
   // was written while it was on.

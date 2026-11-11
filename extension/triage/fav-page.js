@@ -128,7 +128,6 @@ function followIncluded(changes) {
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
 const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
-let snapshotFollow = 0;
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -154,13 +153,17 @@ function followShared(changes) {
     else delete S.analyses[b];
     changed = true;
   }
-  // The open folder's cached list written elsewhere (an AI tool's 移动 or undo, a background read): the folder opens
-  // again from it, once the writes settle, so no card shows a video that has left.
+  // The open folder's cached list written elsewhere (an Agent's 移动 or undo): the videos that left it leave the page,
+  // so no card acts on one that is gone. Nothing else changes: the selection, filters and U steps are the user's.
   const snap = changes[K.snapshot(S.mediaId)];
-  if (snap && !ownEcho(K.snapshot(S.mediaId), snap)) {
-    clearTimeout(snapshotFollow);
-    const mediaId = S.mediaId;
-    snapshotFollow = setTimeout(() => S.mediaId === mediaId && !fav.state().busy && openFolder(mediaId), 3000);
+  if (snap?.oldValue && snap.newValue && !ownEcho(K.snapshot(S.mediaId), snap)) {
+    const now = new Set(snap.newValue.bvids || []);
+    const left = new Set((snap.oldValue.bvids || []).filter((b) => !now.has(b) && S.itemMap.has(b)));
+    if (left.size) {
+      setItems(S.items.filter((it) => !left.has(it.bvid)));
+      for (const b of left) S.selected.delete(b);
+      changed = true;
+    }
   }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders; in
   // 已出分拣范围 every chosen folder's (最近取消收藏).

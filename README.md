@@ -64,8 +64,7 @@ Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能
 - **MCP**（Claude Code、Cursor、Codex 等）：在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」（用时再开，不用时关掉），再装服务（要 Node 20+）：
 
   ```sh
-  git clone https://github.com/PathGao/MoonDigest.git
-  cd MoonDigest/mcp && npm install && claude mcp add moondigest -- node "$PWD/server.js"
+  claude mcp add moondigest -- npx -y moondigest-mcp@latest
   ```
 
   Cursor、Codex 的配置和注意事项见 [mcp/README.md](mcp/README.md)，设置 → MCP 里也有各客户端的安装命令。插件会自动更新，MCP 服务不会：以前装过的，在 `MoonDigest` 目录里 `git pull` 后重开 agent，才能用上新工具。
