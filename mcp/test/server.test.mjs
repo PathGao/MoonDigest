@@ -146,7 +146,7 @@ test("no extension -> NOT_CONNECTED", async () => {
   const s = await setup();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, true);
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 AI 助手使用我的 B站和 YouTube 账号/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*MoonDigest extension.*允许 Agent使用我的 B站和 YouTube 账号/);
   await s.close();
 });
 
@@ -154,7 +154,7 @@ test("no extension answers NOT_CONNECTED at once, without waiting for one to con
   const s = await setup();
   const started = Date.now();
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 AI 助手使用.*within a minute/);
+  assert.match(r.content[0].text, /^NOT_CONNECTED: .*允许 Agent使用.*within a minute/);
   assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
   await s.close();
 });
@@ -354,6 +354,18 @@ test("collection tools: params pass through; a stopped batch is an error with it
   const calls = ext.messages.filter((m) => m.method).map(({ method, params }) => ({ method, params }));
   assert.deepEqual(calls[0], { method: "collection", params: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C" } });
   assert.deepEqual(calls[1], { method: "collectionWrite", params: { site: "youtube", op: "add", kind: "watch_later", items: ["v1", "v2"], dryRun: false } });
+  ext.ws.close();
+  await s.close();
+});
+
+test("an extension older than the server: its unknown-method answer says to update the extension", async () => {
+  const s = await setup();
+  const ext = fakeExtension(s.bridge.port, { onCall: (m) => ({ ok: false, error: `Unknown method ${m.method}.` }) });
+  await ext.opened;
+  await until(() => s.bridge.connected);
+  const r = await s.client.callTool({ name: "fav_write", arguments: { op: "unfav", from: "11", bvids: ["BV1aaaaaaaaa"] } });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, /^Unknown method favWrite\. The MoonDigest extension in the browser is older than this MCP server.*update the extension/);
   ext.ws.close();
   await s.close();
 });

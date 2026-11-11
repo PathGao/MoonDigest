@@ -92,7 +92,7 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
     await listen();
     if (!wss) throw new CodedError("PORT_IN_USE", portError);
     if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 AI 助手使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; changes to Bilibili favorites and the 分拣台 are recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
+      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; changes to Bilibili favorites and the 分拣台 are recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
     }
     const id = String(nextId++);
     const { ws } = ext;
@@ -550,7 +550,9 @@ export const INSTRUCTIONS = [
 
 function errorResult(err) {
   const code = err.code ? `${err.code}: ` : "";
-  const tail = err.code === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon." : "";
+  const tail = err.code === "THROTTLED" ? " Stop calling MoonDigest for now and tell the user; do not retry soon."
+    // The extension answers a method it does not have this way: it is older than this server.
+    : /^Unknown method /.test(err.message) ? " The MoonDigest extension in the browser is older than this MCP server and does not have this yet: ask the user to update the extension (3.8.0 or later)." : "";
   return { isError: true, content: [{ type: "text", text: `${code}${err.message}${tail}` }] };
 }
 

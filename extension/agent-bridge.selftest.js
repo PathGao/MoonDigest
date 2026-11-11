@@ -163,6 +163,10 @@ check("an added method answers without a tab, before the url check", async () =>
   assert.deepEqual(await rpc(s, "m1", "favorites", { folderId: "11" }), { id: "m1", ok: true, data: { got: { folderId: "11" } } });
   assert.deepEqual(await rpc(s, "m2", "history", {}), { id: "m2", ok: false, error: "off", code: "PERSONAL_DATA_OFF" });
   assert.equal((await rpc(s, "m3", "toString", {})).error, "Unknown method toString.");
+  // A method only an older MCP server asks for: its answer says to update the server.
+  const old = await rpc(s, "m4", "propose", { action: "unfav" });
+  assert.deepEqual([old.ok, old.code], [false, "OUTDATED_MCP"]);
+  assert.match(old.error, /update the MCP server/);
   assert.equal(env.created.length, 0);
   assert.equal(env.sent.length, 0);
 });

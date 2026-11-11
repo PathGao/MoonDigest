@@ -276,16 +276,16 @@
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="mcpAccess">允许 AI 助手使用我的 B站和 YouTube 账号</label><p class="hint">打开后，Claude Code、Cursor、Codex 等 AI 助手能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录：搜索和读视频（字幕、评论、画面）；读你的 B站收藏夹、关注、历史和稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表；改它们：移动、复制、移出收藏夹，新建、改名、删除收藏夹，写分拣台的 AI 判断、保留、备注和标签。把视频加进或移出稍后再看和 YouTube 播放列表。对 B站收藏夹和分拣台的修改记在下面，可以撤销。不含 API Key 和 AI 对话。开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</p></div>
+            <div class="lab"><label class="name" for="mcpAccess">允许 Agent使用我的 B站和 YouTube 账号</label><p class="hint">打开后，Claude Code、Cursor、Codex 等 Agent能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录：搜索和读视频（字幕、评论、画面）；读你的 B站收藏夹、关注、历史和稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表；改它们：移动、复制、移出收藏夹，新建、改名、删除收藏夹，写分拣台的 AI 判断、保留、备注和标签。把视频加进或移出稍后再看和 YouTube 播放列表。对 B站收藏夹和分拣台的修改记在下面，可以撤销。不含 API Key 和 AI 对话。开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</p></div>
             <div class="ctl"><input id="mcpAccess" type="checkbox" class="switch" /></div>
           </div>
           <div class="row">
-            <div class="lab"><span class="name">安装</span><p class="hint">在 AI 助手里添加 MCP 服务，命令里的路径换成你电脑上 MoonDigest 文件夹的位置（先在 <code>mcp</code> 文件夹里运行一次 <code>npm install</code>）。<span id="mcpStatusText"></span></p>
+            <div class="lab"><span class="name">安装</span><p class="hint">在 Agent里添加 MCP 服务，命令里的路径换成你电脑上 MoonDigest 文件夹的位置（先在 <code>mcp</code> 文件夹里运行一次 <code>npm install</code>）。<span id="mcpStatusText"></span></p>
               <ul class="mcp-install" id="mcpInstall"></ul>
             </div>
           </div>
           <div class="row">
-            <div class="lab"><span class="name">AI 助手最近的修改</span><p class="hint">B站上的修改和分拣台里的修改各留最近 100 次。撤销 B站上的修改会在 B站改回去：移走的移回去，移出收藏夹的加回原收藏夹。</p>
+            <div class="lab"><span class="name">Agent最近的修改</span><p class="hint">B站上的修改和分拣台里的修改各留最近 100 次。撤销 B站上的修改会在 B站改回去：移走的移回去，移出收藏夹的加回原收藏夹。</p>
               <ul class="mcp-log" id="mcpLog"></ul>
             </div>
           </div>

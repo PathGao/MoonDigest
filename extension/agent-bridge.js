@@ -179,6 +179,9 @@
   async function handle(method, params, deadline = Date.now() + CALL_BUDGET_MS) {
     if (method === "search") return MdgAgentSearch.search(params, deadline); // agent-search.js, no tab
     if (Object.hasOwn(added, method)) return added[method](params, deadline);
+    // A method this version no longer has: only a moondigest-mcp older than the extension asks for it. Its tools print
+    // the code and the sentence as they are, so the tool reading it can tell the user what to update.
+    if (method === "propose") return { ok: false, code: "OUTDATED_MCP", error: "This moondigest-mcp server is older than the MoonDigest extension: favorites are no longer proposed, they are changed directly (fav_write) and undone (undo). Ask the user to update the MCP server (git pull in their MoonDigest folder, or the newest moondigest-mcp from npm) and restart this MCP client." };
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
     const url = params && typeof params.url === "string" ? MdgAgentSites.canonical(params.url) : null;
     const key = url ? MdgAgentSites.keyOf(url) : null;

@@ -391,7 +391,7 @@ main {
   justify-self: end;
 }
 
-/* MCP: the install commands (one per client, each with 复制) and the AI 助手's changes (each with 撤销). */
+/* MCP: the install commands (one per client, each with 复制) and the Agent's changes (each with 撤销). */
 .mcp-install,
 .mcp-log {
   margin: 8px 0 0;

@@ -68,7 +68,7 @@ const MCP_INSTALL = [
   ["Cursor", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 ~/.cursor/mcp.json"],
   ["Claude 桌面版", `{"mcpServers":{"moondigest":{"command":"node","args":["${MCP_SERVER}"]}}}`, "写进 claude_desktop_config.json"]
 ];
-const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，AI 助手启动 MCP 服务后一分钟内连上。", off: "" };
+const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent启动 MCP 服务后一分钟内连上。", off: "" };
 const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
 
 init();
