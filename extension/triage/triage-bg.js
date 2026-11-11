@@ -1073,6 +1073,18 @@ const TRIAGE_HANDLERS = {
     return { mid, folders: (data?.list || []).filter((f) => f.fav_state === 1).map((f) => ({ id: String(f.id), title: f.title })) };
   },
 
+  // The 分区 of up to TriageUi.ZONE_BATCH videos ([{ bvid, aid }], no 番剧) in one request, which needs no login. Each
+  // one's tid is returned (the page stores it, fav-folders.js fillZones); one B站 leaves out (deleted) gets 0, so it is
+  // not asked again. An empty answer gives none: it may be B站 refusing the batch, not 50 deleted videos.
+  "triage-zones": async ({ items }) => {
+    const list = (Array.isArray(items) ? items : []).filter((it) => triageNumId(it?.aid) && typeof it.bvid === "string").slice(0, TriageUi.ZONE_BATCH);
+    if (!list.length) throw triageError("缺少 items");
+    const data = await triageBiliGet(`${TRIAGE_BILI_API}/medialist/gateway/base/resource/infos?resources=${list.map((it) => `${it.aid}:2`).join(",")}`);
+    if (!Array.isArray(data) || !data.length) return { zones: {} };
+    const tids = new Map(data.map((m) => [String(m.id), Number(m.tid) || 0]));
+    return { zones: Object.fromEntries(list.map((it) => [it.bvid, tids.get(String(it.aid)) || 0])) };
+  },
+
   "triage-analysis-get": async ({ bvids }) => {
     const list = Array.isArray(bvids) ? bvids : [];
     const stored = await chrome.storage.local.get(list.map(MdgLimits.KEYS.triageAnalysis));

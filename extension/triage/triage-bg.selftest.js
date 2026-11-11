@@ -510,9 +510,26 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
     t.chrome = {};
     assert.deepStrictEqual(plain((await ids({ mediaId: 1 })).bvids), ["BV1", "397236:24"]);
-    t.chrome = realChrome;
   }
   assert.deepStrictEqual(["BV1GJ411x7h7", "BV17x411w7KC", "x"].map(vm.runInContext("triageBvToAv", ctx)), ["80433022", "170001", ""]);
+
+  // 分区: one resource/infos request of at most 50 videos; each tid returned, 0 for one B站 left out; an
+  // empty answer gives none; risk control is THROTTLED for the page to wait.
+  {
+    const zonesOf = vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-zones"];
+    const urls = [];
+    t.fetch = async (url) => (urls.push(url), jsonRes({ code: 0, data: [{ id: 1, tid: 129 }, { id: 3, tid: 21 }] })());
+    const asked = Array.from({ length: 60 }, (_, i) => ({ bvid: `BV${i + 1}`, aid: i + 1 }));
+    const got = await zonesOf({ items: asked });
+    const res = new URL(urls[0]).searchParams.get("resources").split(",");
+    assert.deepStrictEqual([new URL(urls[0]).pathname, res.length, res[0]], ["/medialist/gateway/base/resource/infos", 50, "1:2"], "50 at most");
+    assert.deepStrictEqual([got.zones.BV1, got.zones.BV2, got.zones.BV3, Object.keys(got.zones).length], [129, 0, 21, 50]);
+    t.fetch = jsonRes({ code: 0, data: [] });
+    assert.deepStrictEqual(plain((await zonesOf({ items: asked.slice(0, 2) })).zones), {}, "an empty answer marks nothing");
+    t.fetch = async () => ({ ok: false, status: 412, json: async () => ({}) });
+    await assert.rejects(zonesOf({ items: asked.slice(0, 2) }), (e) => e.code === "THROTTLED");
+    await assert.rejects(zonesOf({ items: [{ bvid: "BVx", aid: "1:42" }] }), /缺少 items/);
+  }
 
   // Analysis reads B站 through sites.js and shares the video page's subtitle cache.
   const store = {};
@@ -1120,7 +1137,6 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(plain(await askB({ type: "y-ok" })), { ok: true, x: 1 });
     assert.strictEqual(await askB({ type: "x-ok" }), "unanswered");
     assert.strictEqual(await askB({ type: "constructor" }), "unanswered");
-    t.chrome = realChrome;
   }
 
 console.log("triage-bg selftest: all passed");

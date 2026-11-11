@@ -155,5 +155,35 @@
     return `[[${target}|${oneLine(String(title ?? "").replace(/[|[\]]/g, " ")) || target}]]`;
   }
 
-  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink };
+  // 分区 (pure): B站's top-level zone of an old sub-zone number (tid, from resource/infos; triage-bg.js triage-zones), ""
+  // for none or one not here. The old numbers are frozen, so the table is static: from app.bilibili.com/x/v2/region/index.
+  const ZONE_TIDS = {
+    动画: [1, 24, 25, 27, 47, 86, 210, 253, 257],
+    音乐: [3, 28, 29, 30, 31, 59, 130, 193, 243, 244, 265, 266, 267],
+    游戏: [4, 17, 19, 65, 121, 136, 171, 172, 173],
+    娱乐: [5, 71, 137, 241, 242, 262, 263, 264],
+    电视剧: [11, 185, 187],
+    番剧: [13, 32, 33, 51, 152],
+    舞蹈: [20, 129, 154, 156, 198, 199, 200, 255],
+    生活: [21, 138, 160, 161, 162, 239, 250, 251, 254],
+    鬼畜: [22, 26, 119, 126, 127, 216],
+    电影: [23, 83, 145, 146, 147],
+    知识: [36, 122, 124, 201, 207, 208, 209, 228, 229],
+    纪录片: [37, 177, 178, 179, 180],
+    动物圈: [75, 217, 218, 219, 220, 221, 222],
+    美食: [76, 211, 212, 213, 214, 215],
+    剧情: [85],
+    科技: [95, 188, 230, 231, 232, 233],
+    国创: [153, 167, 169, 170, 195],
+    时尚: [155, 157, 158, 159, 252],
+    运动: [164, 234, 235, 236, 237, 238, 249],
+    国创相关: [168],
+    汽车: [176, 223, 227, 240, 245, 246, 247, 248, 258],
+    影视: [181, 182, 183, 184, 256, 259, 260, 261],
+    资讯: [202, 203, 204, 205, 206]
+  };
+  const ZONES = new Map(Object.entries(ZONE_TIDS).flatMap(([name, tids]) => tids.map((tid) => [tid, name])));
+  const zoneName = (tid) => ZONES.get(Number(tid)) || "";
+
+  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zoneName };
 })();
