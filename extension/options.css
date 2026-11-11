@@ -391,15 +391,34 @@ main {
   justify-self: end;
 }
 
-/* A switch that works only while the one above it is on (允许 Agent 读… under 允许 MCP 连接): indented under it, no rule
-   between them, greyed out while that one is off. */
-.row.sub {
-  padding-top: 0;
-  padding-left: 24px;
-  border-top: 0;
+/* MCP: the install commands (one per client, each with 复制) and the Agent's changes (each with 撤销). */
+.mcp-install,
+.mcp-log {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
 }
 
-.row.sub:has(.switch:disabled) .name {
+.mcp-install li,
+.mcp-log li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.mcp-log li {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.mcp-install code {
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.mcp-log .empty {
   color: var(--muted);
 }
 

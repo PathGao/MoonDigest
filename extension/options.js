@@ -60,6 +60,25 @@ const obsidianTests = MdgCommon.latest();
 // The Obsidian 测试连接 while it runs (setBusy).
 let busyButton = null;
 
+// 设置 → MCP. @latest: npx then takes the newest moondigest-mcp each time the Agent starts, so the server keeps up with
+// the extension without the user updating it.
+const MCP_NPX = "npx -y moondigest-mcp@latest";
+const MCP_JSON = `{"mcpServers":{"moondigest":{"command":"npx","args":["-y","moondigest-mcp@latest"]}}}`;
+const MCP_INSTALL = [
+  ["Claude Code", `claude mcp add moondigest -- ${MCP_NPX}`],
+  ["Codex", `[mcp_servers.moondigest]\ncommand = "npx"\nargs = ["-y", "moondigest-mcp@latest"]`, "写进 ~/.codex/config.toml"],
+  ["Cursor", MCP_JSON, "写进 ~/.cursor/mcp.json"],
+  ["Claude 桌面版", MCP_JSON, "写进 claude_desktop_config.json"]
+];
+// Why an undo stopped with videos left (agent-writes.js restOf): what the user can do about it.
+const MCP_UNDO_STOP = {
+  THROTTLED: "网站在限流，过一会儿再点撤销",
+  NOT_LOGGED_IN: "先在这个浏览器里登录对应的网站，再点撤销",
+  REFUSED: "网站不让加回（多半是视频已被删除，或列表满了），处理后可以再点撤销"
+};
+const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent 启动 MCP 服务后一分钟内连上。", off: "" };
+const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
+
 init();
 
 function init() {
@@ -132,8 +151,7 @@ function init() {
     scheduleSave();
   });
   elements.obsidianEnabled.addEventListener("change", syncObsidianBody);
-  elements.mcpEnabled.addEventListener("change", syncMcpRows);
-  elements.mcpPersonalData.addEventListener("change", syncMcpRows);
+  bindMcp();
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
       closeAllFixedPropertyMenus();
@@ -282,7 +300,6 @@ async function loadSettings() {
   for (const k of SWITCH_KEYS) elements[k].checked = settings[k];
   for (const k of VALUE_KEYS) elements[k].value = String(settings[k] ?? "");
   syncObsidianBody();
-  syncMcpRows();
   renderBiliMarks(settings.biliMarksOff);
   syncSeenRows();
   syncBiliMarks();
@@ -689,16 +706,81 @@ function validateNoteExtras() {
   return { ok: true };
 }
 
-// Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
-// 允许 Agent 读我的收藏… works only over the MCP connection: greyed out while 允许 MCP 连接 is off, keeping its own value.
-// The two write switches (改分拣台, 改我的收藏) hang on both the same way: a write reads first.
-function syncMcpRows() {
-  const mcp = elements.mcpEnabled.checked ? "" : "先打开「允许 MCP 连接」";
-  MdgErrors.setReason(elements.mcpPersonalData, mcp);
-  const read = mcp || (elements.mcpPersonalData.checked ? "" : "先打开「允许 Agent 读我的收藏、关注和历史」");
-  for (const box of [elements.mcpWrites, elements.mcpCollectionWrite]) MdgErrors.setReason(box, read);
+// ---------- MCP ----------
+function renderMcpInstall() {
+  elements.mcpInstall.innerHTML = MCP_INSTALL.map(([name, cmd, where], i) => `<li><span>${escapeHtml(name)}</span><code title="${escapeHtml(where || "")}">${escapeHtml(cmd)}</code><button type="button" class="sm" data-mcp-copy="${i}">复制</button></li>`).join("");
+  elements.mcpInstall.addEventListener("click", async (event) => {
+    const i = event.target.closest?.("[data-mcp-copy]")?.dataset.mcpCopy;
+    if (i == null) return;
+    await navigator.clipboard.writeText(MCP_INSTALL[i][1]).then(() => setStatus(`已复制：${MCP_INSTALL[i][0]}${MCP_INSTALL[i][2] ? "的配置" : "命令"}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
+  });
+}
+// One journaled call (agent-writes.js) in a line.
+function mcpLogLine(e) {
+  const at = MdgCommon.localDate(new Date(e.at), true);
+  if (e.kind === "fav") return `${at} ${MCP_OPS[e.op]} ${e.n} 个：「${e.titles?.from || e.from}」${e.to ? ` → 「${e.titles?.to || e.to}」` : ""}`;
+  if (e.kind === "folder") return `${at} ${MCP_OPS[e.op]}：「${e.before?.title || e.after?.title || e.folder}」${e.op === "folder_rename" ? ` → 「${e.after.title}」` : ""}`;
+  if (e.kind === "collection") return `${at} ${e.op === "add" ? "加进" : "移出"} ${e.n} 个：${e.titles?.from || ""}`;
+  if (e.kind === "scope") return `${at} 取消勾选分拣：「${e.titles?.from || e.dropped?.join("、")}」`;
+  if (e.kind === "criteria") return `${at} 改判断标准：「${e.titles?.from || e.folder}」`;
+  return `${at} 改了 ${e.n} 个视频的分拣结果`;
+}
+function renderMcpLog(log) {
+  const rows = [...(log || [])].reverse();
+  elements.mcpLog.innerHTML = rows.length
+    ? rows.map((e) => `<li><span>${escapeHtml(mcpLogLine(e))}</span><button type="button" class="sm" data-mcp-undo="${escapeHtml(e.id)}">撤销</button></li>`).join("")
+    : `<li class="empty">还没有修改</li>`;
+  syncMcpUndo();
+}
+// A B站 undo too long for one call (B站 takes re-favorites one at a time) answers with what is left: asked again until done.
+let mcpUndoing = false;
+async function undoMcp(button) {
+  const id = button.dataset.mcpUndo;
+  mcpUndoing = true;
+  syncMcpUndo();
+  let n = 0;
+  try {
+    for (;;) {
+      const r = await chrome.runtime.sendMessage({ type: "agent-undo", id }).catch(sendFailed);
+      if (!r?.ok) return setStatus(`撤销失败${n ? `（撤销了 ${n} 个）` : ""}：${MdgErrors.text(r)}`, true);
+      const { left, stopped, skipped } = r.data;
+      n += r.data.n;
+      if (!left && skipped && !n) return setStatus("没有撤销：你之后又改过，保持现在的样子", true);
+      if (!left) return setStatus(`已撤销${skipped ? `，其中 ${skipped} 个你后来又改了，保持不变` : ""}`);
+      // Only the call's time running out is worth asking again at once; the entry keeps what is left.
+      if (stopped === "TIMEOUT") {
+        setStatus(`正在撤销：剩 ${left} 个`, false, true);
+        continue;
+      }
+      return setStatus(`撤销了 ${n} 个，剩 ${left} 个没撤销：${MCP_UNDO_STOP[stopped] || MCP_UNDO_STOP.REFUSED}`, true);
+    }
+  } finally {
+    mcpUndoing = false;
+    syncMcpUndo();
+  }
+}
+// One undo at a time: the others wait, and say so.
+function syncMcpUndo() {
+  for (const b of elements.mcpLog.querySelectorAll("[data-mcp-undo]")) MdgErrors.setReason(b, mcpUndoing ? "正在撤销" : "");
+}
+async function bindMcp() {
+  renderMcpInstall();
+  const key = MdgLimits.KEYS.triageAgentLog;
+  const got = await chrome.storage.local.get([key, "mcpStatus"]);
+  renderMcpLog(got[key]);
+  elements.mcpStatusText.textContent = MCP_STATUS[got.mcpStatus] || "";
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[key]) renderMcpLog(changes[key].newValue);
+    if (changes.mcpStatus) elements.mcpStatusText.textContent = MCP_STATUS[changes.mcpStatus.newValue] || "";
+  });
+  elements.mcpLog.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-mcp-undo]");
+    if (button && !mcpUndoing) undoMcp(button);
+  });
 }
 
+// Note-format settings stay visible (copy and download use them); only Obsidian-specific text hides.
 function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
 }

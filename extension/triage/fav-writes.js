@@ -33,16 +33,14 @@ function patchDecisions(mediaId, patch) {
 }
 // patchDecisions for a fn already running in lockRecords.
 async function patchDecisionsNow(mediaId, patch) {
-  const stored = await storeGet(K.decisions(mediaId), {});
-  const maps = [stored, mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean);
-  for (const d of maps) {
+  for (const d of [mediaId === S.mediaId && S.decisions, S.folderDecisions[mediaId]].filter(Boolean)) {
     for (const [b, v] of Object.entries(patch)) {
       if (v) d[b] = v;
       else if (d === S.decisions) unfavGone(b);
       else delete d[b];
     }
   }
-  await storeSet(K.decisions(mediaId), unfavOnly(stored));
+  await records.patchDecisionsNow(mediaId, patch);
 }
 // 保留 is one list for every folder; a null value deletes. The patch goes onto the page's copy at once and onto the stored
 // list by read-modify-write, so a 保留 another tab set meanwhile stays; the page then takes what was written.
@@ -69,7 +67,7 @@ function unfavGone(bvid) {
 // aid and title let 最近取消收藏 re-favorite the video after it has left the folder list.
 // batch: when the batch 取消收藏 that made it started, so 最近取消收藏 can re-favorite that batch in one go.
 // elsewhere: the video is still in another chosen folder, so B站 pages other than a favorites page do not say 已取消收藏.
-const unfavRecord = (it, at, batch, elsewhere) => ({ action: "unfav", at, aid: it.aid, ...(it.ogv && { ogv: true }), title: it.title, ...(batch && { batch }), ...(elsewhere && { elsewhere }) });
+const unfavRecord = MdgFavRecords.unfavRecord;
 // The videos of chosen folders other than mediaId, by their cached lists. 稍后再看 is not a favorite, so it does not count.
 async function favedElsewhere(mediaId) {
   const others = chosenOtherIds(mediaId).filter((id) => id !== TOVIEW);
@@ -79,13 +77,10 @@ async function favedElsewhere(mediaId) {
 // A chosen folder's fresh full list (saveSnapshot, already in lockRecords) may change where the other folders' 取消收藏
 // videos still are: favorited into it on B站, or taken out of it there. Their elsewhere follows the cached lists.
 async function refreshElsewhereNow(mediaId) {
-  const ids = chosenOtherIds();
-  const targets = ids.filter((id) => id !== String(mediaId));
-  const sources = ids.filter((id) => id !== TOVIEW);
-  const got = await chrome.storage.local.get([...targets.map(K.decisions), ...sources.map(K.snapshot)]);
-  const lists = Object.fromEntries(sources.map((id) => [id, got[K.snapshot(id)]?.bvids || null]));
-  const changed = refreshElsewhere(Object.fromEntries(targets.map((id) => [id, got[K.decisions(id)]])), lists);
-  for (const [id, patch] of Object.entries(changed)) await patchDecisionsNow(id, patch);
+  const changed = (await records.refreshElsewhereNow(mediaId, chosenOtherIds())) || {};
+  for (const [id, patch] of Object.entries(changed)) {
+    for (const d of [id === S.mediaId && S.decisions, S.folderDecisions[id]].filter(Boolean)) Object.assign(d, patch);
+  }
 }
 // 所有收藏夹: still in a chosen folder once it leaves the folders in `gone`.
 const stillIn = (it, gone) => it.folders.some((f) => f !== TOVIEW && !gone.includes(f));
@@ -297,14 +292,12 @@ const fav = {
 
   // The selection bar's and 「按 AI 判断」's batch 取消收藏. It runs to the end even after another folder opens;
   // 所有收藏夹 goes folder by folder.
-  // picked: the folders, already confirmed (an AI tool's proposal), instead of asking.
-  async unfavMany(list, picked = null) {
+  async unfavMany(list) {
     if (!list.length || W.busy()) return;
     const all = S.mediaId === ALL;
-    const folders = picked
-      || (all
-        ? await pickBatchUnfavFolders(list)
-        : (await askConfirm(unfavManyTitle(list.length), UI.confirmList(list.map((it) => it.title)), unfavManyOk(list.length), { danger: true })) ? [String(S.mediaId)] : []);
+    const folders = all
+      ? await pickBatchUnfavFolders(list)
+      : (await askConfirm(unfavManyTitle(list.length), UI.confirmList(list.map((it) => it.title)), unfavManyOk(list.length), { danger: true })) ? [String(S.mediaId)] : [];
     if (!folders.length) return;
     const mediaId = String(S.mediaId);
     const view = S.view.current;
@@ -366,12 +359,11 @@ const fav = {
   },
 
   // 移动 / 复制 (收藏到 from 已出分拣范围) of the selection. It runs to the end even after another folder opens. A new
-  // target folder is made only once this run has the slot. picked: askTransfer's answer, already confirmed (an AI tool's
-  // proposal), instead of asking.
-  async transfer(list, picked = null) {
+  // target folder is made only once this run has the slot.
+  async transfer(list) {
     if (!list.length || W.busy()) return;
     const from = String(S.mediaId);
-    const ask = picked || (await askTransfer(list));
+    const ask = await askTransfer(list);
     if (!ask) return;
     const { how, target } = ask;
     const add = how === "add"; // from 已出分拣范围: no source folder on Bilibili
@@ -478,13 +470,24 @@ const fav = {
 };
 
 // ---------- an AI tool's writes over MCP (agent-writes.js) ----------
-// Each journaled triage is a U step here: the background puts back what is still as the tool left it. A failed undo
-// leaves the entry in the journal (or it is gone), and followAgentLog puts its step back from there.
+// Each journaled call is a U step here: the background undoes it (local results still as the tool left them go back;
+// a B站 write is reversed on B站). A failed or cut-short undo leaves the entry in the journal, and followAgentLog puts
+// its step back from there.
+const AGENT_WHAT = { fav: "对 B站收藏夹的修改", folder: "对 B站收藏夹的修改", collection: "对稍后再看或 YouTube 播放列表的修改", criteria: "对判断标准的修改", scope: "取消的分拣勾选" };
+const agentWhat = (e) => AGENT_WHAT[e.kind] || "修改";
 function agentStep(e) {
+  const local = !["fav", "folder", "collection"].includes(e.kind); // nothing to change back on B站 or YouTube
   return {
     kind: "agent",
     agentId: e.id,
-    ask: e.n > 1 ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"] : null,
+    blocked: local ? undefined : undoBlocked,
+    ask: e.kind === "scope"
+      ? [`撤销 Agent ${agentWhat(e)}？`, `<p>重新勾选「${esc(e.titles?.from || "")}」，放回它的取消收藏记录。</p>`, "撤销"]
+      : e.n > 1
+      ? local
+        ? [`撤销 Agent 的修改？`, `<p>Agent 改了 ${e.n} 个视频的 AI 判断、保留、备注或标签，撤销后改回去；你之后又改过的不动。</p>`, "撤销"]
+        : [`撤销 Agent ${agentWhat(e)}？`, `<p>Agent 动了 ${e.n} 个视频，撤销会在网站上改回去。</p>`, "撤销"]
+      : null,
     undo: async () => {
       const r = await send({ type: "agent-undo", id: e.id });
       if (!r.ok) {
@@ -494,8 +497,19 @@ function agentStep(e) {
         if (log.some((x) => x.id === e.id) && !S.undo.some((s) => s.agentId === e.id)) pushUndo(agentStep(e));
         return "";
       }
-      const { n, skipped } = r.data;
-      return redraw() || `已撤销：Agent 的修改（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）`;
+      const { n, skipped, left, stopped } = r.data;
+      // Cut short: the rest is still journaled under the same id, so its step comes back. Only the call's time running
+      // out is worth another U at once; B站's limit, a lost login or a refusal is said as the failure it is.
+      if (left) pushUndo(agentStep({ ...e, n: left }));
+      if (left && stopped !== "TIMEOUT") {
+        const why = MdgErrors.text({ code: stopped }, "网站不让加回（多半是视频已被删除，或列表满了）");
+        toast(`只撤销了 ${n} 个：${why}。其余 ${left} 个之后可再按 U`, true);
+        return redraw();
+      }
+      if (left) return redraw() || `已撤销 Agent ${agentWhat(e)}中的 ${n} 个视频，还剩 ${left} 个，可再按 U 撤销`;
+      if (e.kind === "criteria") return redraw() || (skipped ? "判断标准你之后改过，没动" : `已撤销：Agent ${agentWhat(e)}`);
+      if (e.kind === "scope") return redraw() || `已撤销：Agent ${agentWhat(e)}`;
+      return redraw() || `已撤销：Agent 的${agentWhat(e)}${local ? `（${n} 个视频${skipped ? `，${skipped} 个你之后改过，没动` : ""}）` : ""}`;
     }
   };
 }
@@ -510,59 +524,11 @@ function followAgentLog(log, tell = true) {
   S.undo = S.undo.filter((s) => s.kind !== "agent" || ids.has(s.agentId));
   for (const e of log.filter((e) => !known.has(e.id) && !S.undo.some((s) => s.agentId === e.id))) pushUndo(agentStep(e));
   S.agentLog = log;
-  const n = log.filter((e) => e.at > agentSeenAt).reduce((sum, e) => sum + e.n, 0);
+  const fresh = log.filter((e) => e.at > agentSeenAt);
+  const n = fresh.filter((e) => e.kind !== "scope").reduce((sum, e) => sum + e.n, 0);
   agentSeenAt = Math.max(agentSeenAt, ...log.map((e) => e.at));
-  if (tell && n) toast(`Agent 改了 ${n} 个视频的分拣结果${UNDO}`);
-}
-
-// Its B站 proposals, oldest first: 查看 opens the proposal's folder and asks. 执行 runs it as the page's own 取消收藏 /
-// 移动 / 复制 would (B站's limits, U), 拒绝 drops it, Esc leaves it waiting.
-const AGENT_VERB = { unfav: UNFAV, move: UI.transferVerb.move, copy: UI.transferVerb.copy };
-// Resolves whether this call took it out of the stored queue: false when another tab already did (or the write failed).
-function dropProposal(id) {
-  let took = false;
-  const edit = (list) => list.filter((p) => p.id !== id || !(took = true));
-  S.agentProposals = S.agentProposals.filter((p) => p.id !== id);
-  return storeEdit(K.agentProposals, [], edit).then((list) => {
-    if (list) S.agentProposals = list;
-    renderStatus();
-    return Boolean(list) && took; // a failed write took nothing: still stored, it must not run
-  });
-}
-// Back at the head of the queue, when it could not run after all.
-function restoreProposal(p) {
-  const edit = (list) => (list.some((x) => x.id === p.id) ? list : [p, ...list]);
-  S.agentProposals = edit(S.agentProposals);
-  return storeEdit(K.agentProposals, [], edit).then((list) => {
-    if (list) S.agentProposals = list;
-    renderStatus();
-  });
-}
-async function reviewProposal() {
-  const p = S.agentProposals[0];
-  if (!p) return;
-  if (W.busy()) return toast(UI.busyText(W.busy()), true);
-  const ticked = S.folders.some((f) => String(f.id) === p.from);
-  if (ticked && String(S.mediaId) !== p.from) await openFolder(p.from);
-  const list = ticked ? p.bvids.map((b) => S.itemMap.get(b)).filter((it) => it?.aid && S.decisions[it.bvid]?.action !== "unfav") : [];
-  const verb = AGENT_VERB[p.action];
-  const gone = p.bvids.length - list.length;
-  const why = !ticked ? `「${folderName(p.from)}」没有勾选分拣` : list.length ? "" : "这些视频已经不在这个收藏夹里了";
-  const body = [
-    p.reason && `<p>理由：${esc(p.reason)}</p>`,
-    UI.confirmList(list.map((it) => it.title)),
-    gone && list.length && `<p class="dialog-hint">另有 ${gone} 个已经不在「${esc(folderName(p.from))}」里，跳过。</p>`,
-    `<p class="dialog-hint">拒绝会删掉这条提议，B站不变。</p>`
-  ].filter(Boolean).join("");
-  const title = `Agent 提议：${verb} ${list.length || p.bvids.length} 个视频${p.to ? `到「${folderName(p.to)}」` : ""}`;
-  const ok = await askConfirm(title, body, `${verb} ${list.length} 个`, { danger: p.action !== "copy", reason: why, cancelText: "拒绝" });
-  if (!ok && el.confirmDialog.returnValue !== "cancel") return;
-  // Taken out of the queue first, so another 分拣台 tab cannot run it too; a batch that started meanwhile puts it back.
-  if (!(await dropProposal(p.id))) return toast("这条提议已在别的分拣台标签页处理", true);
-  if (!ok) return toast("已拒绝 Agent 的提议");
-  if (W.busy()) return restoreProposal(p).then(() => toast(UI.busyText(W.busy()), true));
-  if (p.action === "unfav") await fav.unfavMany(list, [p.from]);
-  else await fav.transfer(list, { how: p.action, target: { id: p.to } });
+  if (tell && n) toast(`Agent 改了 ${n} 个视频${UNDO}`);
+  else if (tell && fresh.length) toast(`Agent 取消了分拣勾选${UNDO}`);
 }
 
 // U undoes the last step of the mode it is pressed in.
@@ -637,33 +603,8 @@ function patchSnapshot(...args) {
   return lockRecords(() => patchSnapshotNow(...args));
 }
 // patchSnapshot for a fn already running in lockRecords.
-async function patchSnapshotNow(mediaId, { add = [], drop = [] }, created = false) {
-  const key = K.snapshot(mediaId);
-  const got = await chrome.storage.local.get([key, K.left]);
-  const snap = got[key];
-  if (!snap && !created) return;
-  const old = snap || { bvids: [], invalid: [], titles: {}, items: [], ids: [], intro: "" };
-  const gone = new Set(drop);
-  const fresh = add.filter((it) => !old.bvids.includes(it.bvid));
-  const added = fresh.map((it) => it.bvid);
-  const keep = (b) => !gone.has(b);
-  // The trail follows this move like a folder diff would: added here forgets this folder, dropped from here adds it.
-  const left = { ...got[K.left] };
-  for (const it of add) forgetLeft(left, it.bvid, String(mediaId));
-  const folder = { id: String(mediaId), title: folderName(mediaId) };
-  const at = Date.now();
-  for (const b of drop) noteLeft(left, b, folder, at);
-  await store({
-    [K.left]: left,
-    [key]: {
-      ...old,
-      bvids: [...added, ...old.bvids.filter(keep)],
-      invalid: [...fresh.filter((it) => it.invalid).map((it) => it.bvid), ...(old.invalid || []).filter(keep)], // as saveSnapshot
-      titles: { ...old.titles, ...Object.fromEntries(fresh.map((it) => [it.bvid, it.title])) },
-      items: [...fresh, ...(old.items || []).filter((it) => keep(it.bvid))],
-      ids: old.ids ? [...added, ...old.ids.filter(keep)] : old.ids
-    }
-  });
+function patchSnapshotNow(mediaId, change, created = false) {
+  return records.patchSnapshotNow(mediaId, change, { created, title: folderName(mediaId) });
 }
 
 // Moved to a folder outside triage: like any video that left every chosen folder, it goes to 已出分拣范围, marked with
@@ -673,13 +614,9 @@ function addMovedToRemoved(...args) {
 }
 // addMovedToRemoved for a fn already running in lockRecords.
 async function addMovedNow(from, items, movedTo) {
-  const others = chosenOtherIds(from);
-  const got = await chrome.storage.local.get([K.removed, K.left, ...others.map(K.snapshot)]);
-  const otherBvids = new Set(others.flatMap((id) => got[K.snapshot(id)]?.bvids || []));
   const at = Date.now();
-  const source = from === REMOVED ? null : { id: from, title: folderName(from) };
-  const { removed, left } = moveToRemoved(got[K.removed] || {}, got[K.left] || {}, items, otherBvids, source, at, movedTo);
-  if (!(await store({ [K.removed]: removed, [K.left]: left }))) return;
+  const removed = await records.movedNow(from === REMOVED ? null : { id: from, title: folderName(from) }, items, movedTo, chosenOtherIds(from));
+  if (!removed) return;
   if (S.mediaId === REMOVED) {
     for (const it of items) {
       const rec = removed[it.bvid];

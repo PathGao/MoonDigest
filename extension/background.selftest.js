@@ -238,6 +238,24 @@ process.on("exit", (code) => {
   await init();
   assert.strictEqual(JSON.stringify(oldUser), once);
 
+  // 3.8's one MCP switch (mcpAccess): on only for someone who had 允许 MCP 连接 and all three switches under it on. One
+  // who had only the connection on never allowed reading the account. The old keys go, so it acts once.
+  for (const [was, on] of [
+    [{ mcpEnabled: true, mcpPersonalData: true, mcpWrites: true, mcpCollectionWrite: true }, true],
+    [{ mcpEnabled: true, mcpPersonalData: true, mcpWrites: false, mcpCollectionWrite: true }, undefined],
+    [{ mcpEnabled: true, mcpPersonalData: true }, undefined],
+    [{ mcpEnabled: true }, undefined],
+    [{ mcpAccess: true }, true], // migrated already
+    // Turned off here after the update, then an older version on another computer wrote its four keys again: stays off.
+    [{ mcpAccess: false, mcpEnabled: true, mcpPersonalData: true, mcpWrites: true, mcpCollectionWrite: true }, false]
+  ]) {
+    const stored = { obsidianEnabled: false, ...was };
+    init = install(stored);
+    await init();
+    await init();
+    assert.deepStrictEqual([stored.mcpAccess, ["mcpEnabled", "mcpPersonalData", "mcpWrites", "mcpCollectionWrite"].filter((k) => k in stored)], [on, []], JSON.stringify(was));
+  }
+
   // The chat port, message by message: fn is the background's listener, disconnect the panel going away.
   ctx.chrome = chrome;
   const openPort = (postMessage) => {

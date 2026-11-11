@@ -89,3 +89,42 @@ jobs:
           run_op -X POST -H "Content-Type: application/zip" --data-binary @"$(ls release/moondigest-*-chrome.zip)" "$api/draft/package"
           poll="$api/operations"
           run_op -X POST -H "Content-Type: application/json" -d "$(jq -n --arg notes "$NOTES" '{notes: $notes}')" "$api"
+
+  # The MCP server (mcp/) goes to npm when its package.json version is not there yet, so a release that did not touch
+  # it publishes nothing. No token: npm trusts this workflow (the package's Trusted Publisher setting names
+  # PathGao/MoonDigest and release.yml). The first version is published by hand, since that setting needs the package
+  # to exist; until then this job only says so.
+  npm:
+    needs: check
+    # Not on a re-run for an old tag: that would publish the tag's old code as a new version.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - run: npm install -g npm@latest
+
+      - name: Publish moondigest-mcp
+        working-directory: mcp
+        run: |
+          version=$(node -p "require('./package.json').version")
+          # Only a 404 means the package is not there; any other failure (the registry down) fails the job.
+          if ! out=$(npm view moondigest-mcp versions --json 2>&1); then
+            if echo "$out" | grep -q E404; then echo "moondigest-mcp is not on npm yet: publish the first version by hand (docs/RELEASE.md)"; exit 0; fi
+            echo "$out"; exit 1
+          fi
+          if echo "$out" | grep -q "\"$version\""; then echo "moondigest-mcp@$version is already on npm"; exit 0; fi
+          npm ci
+          npm test
+          npm publish --access public

@@ -7,14 +7,14 @@ importScripts("agent-sites/youtube.js");
 
 // The agent interface's MCP socket (agent-bridge.js, docs/AGENT.md §2): the local moondigest-mcp server (mcp/) asks
 // for a video, the bridge opens or reuses its tab and asks agent-page.js there. Off until
-// 设置 → MCP → 允许 MCP 连接. At the top level: the alarm that wakes it must find its listener.
-const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpEnabled: value }).mcpEnabled;
+// 设置 → MCP's one switch (mcpAccess). At the top level: the alarm that wakes it must find its listener.
+const mcpOn = (value) => MdgSettings.normalizeSwitches({ mcpAccess: value }).mcpAccess;
 MdgAgentBridge.start({
   extensionVersion: chrome.runtime.getManifest().version,
-  isEnabled: async () => mcpOn((await chrome.storage.sync.get("mcpEnabled")).mcpEnabled),
+  isEnabled: async () => mcpOn((await chrome.storage.sync.get("mcpAccess")).mcpAccess),
   onEnabledChange: (callback) =>
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "sync" && changes.mcpEnabled) callback(mcpOn(changes.mcpEnabled.newValue));
+      if (area === "sync" && changes.mcpAccess) callback(mcpOn(changes.mcpAccess.newValue));
     })
 });
 
@@ -755,6 +755,7 @@ async function initializeSettingsStorage() {
   // A missing toggle means an upgrade from before it existed (or a fresh install, which has no key).
   const { obsidianEnabled: storedObsidianEnabled } = await chrome.storage.sync.get("obsidianEnabled");
   await migrateInitialQuickPrompts();
+  await migrateMcpSwitches();
   await removeDeadStorageKeys();
   const localCurrent = await chrome.storage.local.get(MdgSettings.LOCAL_DEFAULTS);
 
@@ -766,6 +767,19 @@ async function initializeSettingsStorage() {
   if (typeof storedObsidianEnabled !== "boolean") {
     await chrome.storage.sync.set({ obsidianEnabled: Boolean(MdgSettings.normalizeApiKey(localCurrent.obsidianApiKey)) });
   }
+}
+
+// 3.8's one MCP switch (mcpAccess) lets an AI tool read and change the account, which 允许 MCP 连接 (mcpEnabled) did
+// only with the three switches under it. It starts on for someone who had all four on, off for everyone else; the old
+// keys go, so this acts once, and an older version on another computer writing mcpEnabled again turns nothing on here.
+async function migrateMcpSwitches() {
+  const old = ["mcpEnabled", "mcpPersonalData", "mcpWrites", "mcpCollectionWrite"];
+  const got = await chrome.storage.sync.get(old);
+  if (!old.some((k) => k in got)) return;
+  // Only while the new switch was never set: old keys an older version on another computer wrote again decide nothing.
+  const set = "mcpAccess" in (await chrome.storage.sync.get("mcpAccess"));
+  if (!set && old.every((k) => MdgSettings.normalizeSwitches({ mcpAccess: got[k] }).mcpAccess)) await chrome.storage.sync.set({ mcpAccess: got.mcpEnabled });
+  await chrome.storage.sync.remove(old);
 }
 
 // Keys no code reads any more; removing absent keys is a no-op, so this reruns on every install/update.
@@ -1297,13 +1311,21 @@ async function probeAiChatCompletion({ baseUrl, apiKey, model }) {
 // obsidian.js answers write-video-note, export-note and sync-video-note-ai (OBSIDIAN_HANDLERS, registered below): the
 // background is the only writer to Obsidian.
 // follow-core.js (FollowCore) gives follow-bg.js the page's groupsOf, so an UP's groups are read one way on both sides.
-importScripts("obsidian.js", "triage/triage-bg.js", "triage/follow-core.js", "triage/follow-bg.js");
+// triage-core.js and fav-records.js: the 收藏夹's stored records, kept here as the 分拣台 page keeps them (the agent
+// interface's writes and sync).
+importScripts("obsidian.js", "triage/triage-bg.js", "triage/triage-core.js", "triage/fav-records.js", "triage/follow-core.js", "triage/follow-bg.js");
 // The agent interface's personal-data methods (docs/AGENT.md §2) read through triage-bg.js and follow-core.js.
 importScripts("agent-mydata.js");
+importScripts("agent-video.js");
+// Its writes go through triage-bg.js's handlers and keep the 收藏夹's records as the 分拣台 page does (fav-records.js).
+// Before the files below: they journal their own changes through it (MdgAgentJournal).
+importScripts("agent-writes.js");
 // The user's collections on the sites whose adapter has them (docs/AGENT.md §2 collection, collectionWrite).
 importScripts("agent-collections.js");
-// Its 分拣台 writes go through triage-bg.js's helpers too.
-importScripts("agent-writes.js");
+// A numbered grid of video covers from the 分拣台's local copies (docs/AGENT.md §2 covers).
+importScripts("agent-covers.js");
+// Which folders the 分拣台 keeps, and reading their lists without the 分拣台 open.
+importScripts("agent-sync.js");
 
 // A video page's content script (content.js) sends these; the rest come from the extension's own pages.
 triageListen(null, BACKGROUND_HANDLERS, ["get-settings", "save-settings", "open-options", "player-ai-quick-action", "page-player", "fetch-json", "fetch-json-cancel"], (r) => r);

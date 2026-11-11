@@ -300,7 +300,8 @@ const triageNotLoggedIn = () => triageError(MdgErrors.TEXT.biliLogin, "NOT_LOGGE
 function triageCodeError(json, what = "B站返回 ", keep = false) {
   if (json.code === -101) return triageNotLoggedIn();
   if (BILI_RISK_CODES.has(json.code)) return triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED);
-  return triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined);
+  // refused: B站 answered and said no to this request (a deleted video, a full list), unlike a request that failed.
+  return Object.assign(triageError(`${what}${json.code}：${json.message || ""}`, keep ? json.code : undefined), { refused: true });
 }
 function triageBiliData(json) {
   if (json.code !== 0) throw triageCodeError(json);
@@ -622,7 +623,8 @@ async function triageCreatedFolders() {
     folders: [
       // 稍后再看 has no folder cover of its own: use the newest unwatched video's cover, like a folder's first video.
       ...(toview ? [{ id: TRIAGE_TOVIEW, title: MdgErrors.LABEL.watchLater, count: toview.count || 0, ...(toview.list?.[0]?.pic ? { cover: TriageUi.https(toview.list[0].pic) } : {}) }] : []),
-      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover) }))
+      // attr's lowest bit: 1 私密, 0 公开.
+      ...list.map((f) => ({ id: f.id, title: f.title, count: f.media_count, cover: TriageUi.https(f.cover), ...((Number(f.attr) & 1) === 1 && { private: true }) }))
     ]
   };
 }

@@ -38,8 +38,6 @@
   async function list(params, deadline) {
     const { p, adapter, kind } = target(params);
     if (p.cursor != null && (typeof p.cursor !== "string" || p.cursor.length > 4096)) throw fail("cursor must be the cursor a previous list_collection returned.", "BAD_PARAMS");
-    const off = await MdgAgentBridge.switchOff("mcpPersonalData");
-    if (off) throw off;
     const { items, cursor } = await adapter.list({ kind, id: p.id, cursor: p.cursor || "" }, deadline);
     return { site: adapter.id, kind, ...(p.id != null && { id: String(p.id) }), items, cursor };
   }
@@ -48,7 +46,8 @@
   // status: unchanged (already as asked: skipped), would_change (dryRun), done (confirmed by the read after),
   // unconfirmed (sent, but the read after still shows the old state), failed. stopped: the code that ended the batch
   // (THROTTLED, NOT_LOGGED_IN, or TIMEOUT when the call's time ran out); notDone are the items not tried.
-  async function write(params, deadline) {
+  // record: false is the journal's own undo of an earlier write, which makes no new entry.
+  async function write(params, deadline, { record = true } = {}) {
     const { p, adapter, kind, ops } = target(params);
     const op = p.op;
     if (!ops.includes(op)) throw fail(ops.length ? `op must be ${ops.map((o) => `"${o}"`).join(" or ")} for ${kind}.` : `${adapter.id} ${kind} is read only.`, "UNSUPPORTED_KIND");
@@ -56,9 +55,6 @@
     if (!Array.isArray(items) || !items.length || items.length > MAX_ITEMS) throw fail(`items must be 1 to ${MAX_ITEMS} ids.`, "BAD_PARAMS");
     if (!items.every((i) => typeof i === "string" && ITEM.test(i)) || new Set(items).size !== items.length) throw fail("items must be distinct ids.", "BAD_PARAMS");
     const dryRun = p.dryRun === true;
-    // dryRun only reads: the read switch alone.
-    const off = await MdgAgentBridge.switchOff("mcpPersonalData", ...(dryRun ? [] : ["mcpCollectionWrite"]));
-    if (off) throw off;
     const at = { kind, id: p.id };
     const want = op === "add";
     const slot = (item) => [adapter.id, kind, p.id ?? "", item].join("|");
@@ -94,10 +90,16 @@
     // Every item sent may have landed (unconfirmed, or failed after the write went out): undo takes it too, and skips it
     // if it had not, since undo reads each item first.
     const undoItems = items.filter((i) => sent.has(i));
+    // Journaled with the Agent's other changes (agent-writes.js), so 设置 → MCP lists it and undoes it.
+    const where = adapter.id === "bilibili" ? MdgErrors.LABEL.watchLater : kind === "watch_later" ? "YouTube 稍后观看" : `YouTube 播放列表 ${p.id}`;
+    const undoId = record && undoItems.length
+      ? await MdgAgentJournal.add({ kind: "collection", op, n: undoItems.length, site: adapter.id, list: kind, ...(p.id != null && { listId: String(p.id) }), items: undoItems, titles: { from: where } }).catch(() => "")
+      : "";
     return {
       site: adapter.id, op, kind, ...(p.id != null && { id: String(p.id) }), dryRun, results, done,
       notDone: items.slice(results.length),
       ...(stopped && { stopped }),
+      ...(undoId && { undoId }),
       undo: undoItems.length ? { site: adapter.id, op: want ? "remove" : "add", kind, ...(p.id != null && { id: String(p.id) }), items: undoItems } : null
     };
   }
@@ -122,6 +124,14 @@
       (e) => ({ ok: false, error: String(e?.message || e), ...(e?.code ? { code: String(e.code) } : {}) })
     );
   }
+
+  // The reverse write: each item is read first, so one already back is skipped. What did not go through stays journaled.
+  MdgAgentJournal.undoer("collection", async (e, deadline) => {
+    const r = await write({ site: e.site, op: e.op === "add" ? "remove" : "add", kind: e.list, ...(e.listId != null && { id: e.listId }), items: e.items }, deadline, { record: false });
+    const back = new Set(r.results.filter((x) => x.status === "done" || x.status === "unchanged").map((x) => x.item));
+    const left = e.items.filter((i) => !back.has(i));
+    return { done: back.size, ...(left.length && { left: left.length, stopped: r.stopped || "REFUSED", entry: { ...e, items: left, n: left.length } }) };
+  });
 
   MdgAgentBridge.addMethods({
     collection: (params, deadline) => run(list, params, deadline),

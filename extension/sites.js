@@ -504,8 +504,9 @@
             to: biliChapterTime(item?.to ?? item?.end, ms)
           }))
         );
-        // Bilibili hides every subtitle from a request it sees as logged out.
-        return { tracks, chapters, needLogin: !tracks.length && data.need_login_subtitle === true };
+        // Bilibili hides every subtitle from a request it sees as logged out. legacy: player/v2's answer, whose
+        // tracks can be another video's (loadSubtitle drops one that fails the duration check).
+        return { tracks, chapters, needLogin: !tracks.length && data.need_login_subtitle === true, ...(!url.includes("/x/player/wbi/") && { legacy: true }) };
       };
 
       try {
@@ -1389,7 +1390,8 @@
   //   3. YouTube only, when nothing matched (and no limit), the list failed or the video is gated: the watch page's
   //      transcript.
   //   4. Still nothing matching: the first mismatched body, used with its check in `mismatch` (the reader shows
-  //      MdgNote.subtitleMismatchWarning; it is never cached).
+  //      MdgNote.subtitleMismatchWarning; it is never cached), unless its list came from B站's player/v2 (`legacy`):
+  //      then no subtitle, with that as the failure.
   // A limit with nothing usable throws, so the caller waits and tries again. Any other failure (network, timeout,
   // expired link, empty files) leaves no subtitle with `error` and `failure`, its reason without the full stop; B站's
   // logged-out answer leaves `needLogin`. Every reader says it with MdgErrors.subtitleMissing. step(promise) wraps every wait (it sees settled results, never a rejection):
@@ -1411,6 +1413,7 @@
     const got = await list();
     let bundle = got.value || { tracks: [] };
     let tracks = ranked(bundle);
+    let legacy = bundle.legacy; // of the bundle pass.track was listed in
     let pass = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);
     if (tracks.length && (!pass.track || pass.mismatch) && !pass.limited) {
       const again = await list(pass.empty ? { withoutPot: true } : {}, pass.track);
@@ -1420,6 +1423,7 @@
         bundle = again.value;
         tracks = ranked(bundle);
         const next = await loadFirstTrack(site, tracks, ids, io, meta.duration, step);
+        if (next.track) legacy = bundle.legacy;
         pass = next.track ? next : { ...pass, error: next.error || pass.error, limited: next.limited };
       }
     }
@@ -1435,6 +1439,8 @@
         else if (!pass.track && body.length) pass = { ...pass, track, body, mismatch: result };
       }
     }
+    // B站's player/v2 hands out other videos' subtitles at random: one that fails the duration check is not used.
+    if (pass.mismatch && legacy) pass = { ...pass, track: null, error: pass.limited ? pass.error : new Error("旧接口返回的字幕时长对不上，没有采用") };
     if (pass.track) return { track: pass.track, body: pass.body, mismatch: pass.mismatch, bundle, tracks, error: null, failure: "", needLogin: false };
     if (pass.limited) throw pass.error;
     const why = pass.error || got.error || (!tracks.length && meta.gate ? new Error(meta.gate) : null);

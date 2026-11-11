@@ -12,21 +12,6 @@
   const CALL_BUDGET_MS = 55_000; // a call ends before the server's 60 s TIMEOUT, so the server gets its error
   const PAGE_RETRY_MS = 500;
 
-  // The MCP switches the agent interface's methods check (docs/AGENT.md §4): each one's code and sentence.
-  const MCP_SWITCHES = {
-    mcpPersonalData: ["PERSONAL_DATA_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 读我的收藏、关注和历史 (Settings → MCP) in MoonDigest, then call again."],
-    mcpWrites: ["TRIAGE_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 改分拣台 (Settings → MCP) in MoonDigest, then call again."],
-    mcpCollectionWrite: ["COLLECTION_WRITES_OFF", "The user has not allowed this. Ask the user to turn on 设置 → MCP → 允许 Agent 改我的收藏 (Settings → MCP) in MoonDigest, then call again."]
-  };
-  // An Error carrying the code of the first of keys that is off, else null.
-  async function switchOff(...keys) {
-    const on = MdgSettings.normalizeSwitches(await chrome.storage.sync.get(keys));
-    const off = keys.find((k) => !on[k]);
-    if (!off) return null;
-    const [code, message] = MCP_SWITCHES[off];
-    return Object.assign(new Error(message), { code });
-  }
-
   // --- tabs --------------------------------------------------------------------
 
   // The one tab this bridge opened: { tabId, key, pageKey, staleUrl }. pageKey is the key the
@@ -180,21 +165,42 @@
   const added = {};
   const addMethods = (methods) => Object.assign(added, methods);
 
+  // A get the page answered for another video than the one asked (the tab's URL changed before its page did) is asked
+  // again until the deadline. want: the requested video id, null when the URL names none (frame, 番剧 ep…, a path).
+  async function callVideo(target, method, params, deadline, want) {
+    for (;;) {
+      const reply = await callShown(target, method, params, deadline);
+      if (!want || !reply.ok || !reply.data?.videoId || reply.data.videoId === want) return reply;
+      if (Date.now() + PAGE_RETRY_MS > deadline) return { ok: false, code: "TIMEOUT", error: "The tab still showed another video than the one asked for." };
+      await new Promise((r) => setTimeout(r, PAGE_RETRY_MS));
+    }
+  }
+
   async function handle(method, params, deadline = Date.now() + CALL_BUDGET_MS) {
     if (method === "search") return MdgAgentSearch.search(params, deadline); // agent-search.js, no tab
     if (Object.hasOwn(added, method)) return added[method](params, deadline);
+    // A method this version no longer has: only a moondigest-mcp older than the extension asks for it. Its tools print
+    // the code and the sentence as they are, so the tool reading it can tell the user what to update.
+    if (method === "propose") return { ok: false, code: "OUTDATED_MCP", error: "This moondigest-mcp server is older than the MoonDigest extension: favorites are no longer proposed, they are changed directly (fav_write) and undone (undo). Ask the user to open MoonDigest's 设置 → MCP in the browser, add the MCP server again with the command shown there for this client (it has a copy button; it installs the newest from npm, replacing an older local copy), and restart this MCP client." };
     if (method !== "get" && method !== "frame") return { ok: false, error: `Unknown method ${method}.` };
     const url = params && typeof params.url === "string" ? MdgAgentSites.canonical(params.url) : null;
     const key = url ? MdgAgentSites.keyOf(url) : null;
     if (!key) return { ok: false, code: "BAD_URL", error: `Not a page MoonDigest reads. Sites: ${MdgAgentSites.list().map((s) => s.id).join(", ")}.` };
     const site = MdgAgentSites.get(key.split(":")[0]);
+    // agent-video.js reads a Bilibili video without a tab; null for the pages it does not read.
+    const direct = method === "get" && globalThis.MdgAgentVideo ? await MdgAgentVideo.read(url, { brief: params.brief === true }, deadline) : null;
+    if (direct) return direct;
     const { url: _drop, ...rest } = params;
+    const id = key.slice(key.indexOf(":") + 1, key.lastIndexOf(":"));
+    // Only where the path names the video: a 活动页 or list keeps its ?bvid= after the player moves on to another.
+    const named = site.id === "youtube" || /^\/video\//.test(new URL(url).pathname);
+    const want = method === "get" && named && (/^BV[0-9A-Za-z]{10}$/.test(id) || site.id === "youtube") ? id : null;
     const user = await findUserTab(site, key);
-    if (user) return callShown(user, method, rest, deadline);
+    if (user) return callVideo(user, method, rest, deadline, want);
     return inOwnTab(async () => {
       if (Date.now() > deadline) return { ok: false, code: "TIMEOUT", error: "The call waited too long behind earlier ones." };
       const own = await ownTabFor(key, url);
-      const reply = await callShown(own, method, rest, deadline);
+      const reply = await callVideo(own, method, rest, deadline, want);
       if (!own.pageKey && reply.ok) {
         const tab = await chrome.tabs.get(own.tabId).catch(() => null);
         own.pageKey = tab ? MdgAgentSites.keyOf(tab.url || "") : null;
@@ -287,5 +293,5 @@
     Promise.resolve(o.isEnabled()).then(apply, () => apply(false));
   }
 
-  globalThis.MdgAgentBridge = { start, addMethods, switchOff, inSitePage };
+  globalThis.MdgAgentBridge = { start, addMethods, inSitePage };
 })();

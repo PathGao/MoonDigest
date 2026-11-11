@@ -41,7 +41,7 @@ async function start() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, agentProposals, zones] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, zones] = await Promise.all([
     loadTagsAndCriteria(),
     storeGet(K.kept, {}),
     storeGet(K.basket, []),
@@ -53,10 +53,9 @@ async function start() {
     storeGet(K.readAt, {}),
     storeGet(K.aiProposals, {}),
     storeGet(K.agentLog, []),
-    storeGet(K.agentProposals, []),
     storeGet(K.zones, {})
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, agentProposals, zones });
+  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, zones });
   followAgentLog(agentLog, false);
   S.ai.proposals = aiProposals;
   pruneAiProposals();
@@ -128,7 +127,7 @@ function followIncluded(changes) {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {}, agentProposals: [] };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -153,6 +152,18 @@ function followShared(changes) {
     if (c.newValue) S.analyses[b] = c.newValue;
     else delete S.analyses[b];
     changed = true;
+  }
+  // The open folder's cached list written elsewhere (an Agent's 移动 or undo): the videos that left it leave the page,
+  // so no card acts on one that is gone. Nothing else changes: the selection, filters and U steps are the user's.
+  const snap = changes[K.snapshot(S.mediaId)];
+  if (snap?.oldValue && snap.newValue && !ownEcho(K.snapshot(S.mediaId), snap)) {
+    const now = new Set(snap.newValue.bvids || []);
+    const left = new Set((snap.oldValue.bvids || []).filter((b) => !now.has(b) && S.itemMap.has(b)));
+    if (left.size) {
+      setItems(S.items.filter((it) => !left.has(it.bvid)));
+      for (const b of left) S.selected.delete(b);
+      changed = true;
+    }
   }
   // 取消收藏 records: the open folder's, as openFolder builds them; in 所有收藏夹 those of the loaded folders; in
   // 已出分拣范围 every chosen folder's (最近取消收藏).
@@ -410,7 +421,6 @@ function bindEvents() {
     const act = btn.dataset.head;
     if (act === "tags") openAi();
     else if (act === "aiOther") openFolder(otherAiFolder()).then(openAi);
-    else if (act === "agent") reviewProposal();
     else if (act === "stage1") {
       if (!runs.get("stage1")) {
         const list = stage1Pending();

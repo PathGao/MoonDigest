@@ -96,6 +96,7 @@ function makeEnv({ enabled, tabs = [], session = {}, answer = null, commitNow = 
   env.tabs = tabs;
   env.addMethods = (m) => ctx.MdgAgentBridge.addMethods(m);
   env.inSitePage = (...a) => ctx.MdgAgentBridge.inSitePage(...a);
+  env.setVideo = (v) => { ctx.MdgAgentVideo = v; }; // agent-video.js's direct read
   return env;
 }
 
@@ -162,6 +163,10 @@ check("an added method answers without a tab, before the url check", async () =>
   assert.deepEqual(await rpc(s, "m1", "favorites", { folderId: "11" }), { id: "m1", ok: true, data: { got: { folderId: "11" } } });
   assert.deepEqual(await rpc(s, "m2", "history", {}), { id: "m2", ok: false, error: "off", code: "PERSONAL_DATA_OFF" });
   assert.equal((await rpc(s, "m3", "toString", {})).error, "Unknown method toString.");
+  // A method only an older MCP server asks for: its answer says to update the server.
+  const old = await rpc(s, "m4", "propose", { action: "unfav" });
+  assert.deepEqual([old.ok, old.code], [false, "OUTDATED_MCP"]);
+  assert.match(old.error, /设置 → MCP.*command shown there/);
   assert.equal(env.created.length, 0);
   assert.equal(env.sent.length, 0);
 });
@@ -423,6 +428,50 @@ check("a call still queued when the server has given up is dropped", async () =>
   assert.deepEqual([second.ok, second.code], [false, "TIMEOUT"]);
   assert.equal(env.created.length, 1, "B was never loaded");
   assert.equal(env.updated.length, 0);
+});
+
+check("get asks agent-video.js first and opens no tab, even with the video in a user tab; null falls back to the tab; frame never asks it", async () => {
+  const BV = "https://www.bilibili.com/video/BV1xx411c7mD";
+  const env = makeEnv({ enabled: true, tabs: [{ id: 7, url: BV }] });
+  const asked = [];
+  env.setVideo({ read: async (url, opts, deadline) => (asked.push([url, { ...opts }, deadline > Date.now()]), url === BV ? { ok: true, data: { videoId: "BV1xx411c7mD" } } : null) });
+  const s = await openSocket(env);
+  assert.deepEqual(await rpc(s, "1", "get", { url: "https://m.bilibili.com/video/BV1xx411c7mD", brief: true }), { id: "1", ok: true, data: { videoId: "BV1xx411c7mD" } });
+  assert.deepEqual(asked, [[BV, { brief: true }, true]]);
+  assert.deepEqual([env.created.length, env.sent.length], [0, 0]);
+  env.pageReplies.push({ ok: true, data: { at: 5 } });
+  assert.deepEqual((await rpc(s, "2", "frame", { url: BV, at: 5 })).data, { at: 5 });
+  assert.equal(asked.length, 1);
+  env.pageReplies.push({ ok: true, data: { v: "a" } });
+  assert.deepEqual((await call(env, s, "3", A)).data, { v: "a" });
+  assert.deepEqual(asked.at(-1), [A, { brief: false }, true]);
+  assert.equal(env.created.length, 1);
+});
+
+check("a get the tab answered for the previous video is asked again; still another video at the deadline is TIMEOUT", async () => {
+  const env = makeEnv({ enabled: true, commitNow: true });
+  const s = await openSocket(env);
+  env.pageReplies.push({ ok: true, data: { videoId: "bbb" } }, { ok: true, data: { videoId: "aaa" } });
+  assert.deepEqual((await call(env, s, "1", A)).data, { videoId: "aaa" });
+  assert.equal(env.sent.length, 2);
+  // An id the URL does not name as a video id (番剧 ep…) is not compared.
+  env.pageReplies.push({ ok: true, data: { videoId: "BV1xx411c7mD" } });
+  assert.deepEqual((await call(env, s, "2", "https://www.bilibili.com/bangumi/play/ep123")).data, { videoId: "BV1xx411c7mD" });
+
+  const stuck = makeEnv({ enabled: true, commitNow: true, answer: () => ({ ok: true, data: { videoId: "bbb" } }) });
+  const s2 = await openSocket(stuck);
+  s2.receive({ id: "3", method: "get", params: { url: A } });
+  await settle();
+  const realNow = Date.now;
+  Date.now = () => realNow() + 120_000;
+  try {
+    for (let i = 0; i < 3; i++) { stuck.runTimers(); await settle(); }
+  } finally {
+    Date.now = realNow;
+  }
+  const r = s2.out.find((m) => m.id === "3");
+  assert.deepEqual([r.ok, r.code], [false, "TIMEOUT"]);
+  assert.match(r.error, /another video/);
 });
 
 // A site for inSitePage's tests.
