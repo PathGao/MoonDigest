@@ -31,6 +31,7 @@ const K = {
   folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
   videoTags: KEYS.triageVideoTags,
   basket: KEYS.triageBasket,
+  zones: KEYS.triageZones,
   notes: KEYS.triageNotes,
   decisions: KEYS.triageDecisions, // 取消收藏 only: it changes one Bilibili folder
   kept: KEYS.triageKept, // { [bvid]: { action: "keep", at } }: 保留 belongs to the video, so it shows in every folder
@@ -122,6 +123,7 @@ const S = {
   seenCfg: MdgSurfaces.seenConfig(MdgSurfaces.SEEN_DEFAULTS), // 设置页「观看进度 → 封面显示」
   seenPct: {}, // bvid → [percent, view_at] from the history, null when it has none
   noteOpen: new Set(), // empty notes the user opened for editing
+  zones: {}, // K.zones (bvid → B站's tid); fillZones adds the listed videos' missing ones
   settings: {
     // Until triage-settings-get answers: the defaults (TriageUi.NUM_SETTINGS). triageTagLimit: tags per folder, only
     // creating a new one is refused past it; triageAiNewTagMax: new tags one 批量打 may propose.
@@ -177,7 +179,7 @@ const S = {
 const runs = MdgRuns.create({ redraw: () => renderStatus(), hold: (r) => THROTTLES[r.code] || null, sleep: (ms, ok) => sleepWhile(ms, ok) });
 // What runs or waits, in this order on every tab (the first wins), then the finished lines. A run's row is its own;
 // these are mirrored from elsewhere.
-const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "agent", "seen", "seenRead"];
+const PILL = ["group", "stage1", "fav", "write", "load", "check", "sync", "ai", "proposal", "aiOther", "agent", "seen", "seenRead", "zones"];
 runs.put("load", () => loadAllActivity());
 // S.syncing is the view run of the folder being read: one left meanwhile no longer shows it.
 const ownSync = () => Boolean(S.syncing?.alive);
@@ -521,10 +523,13 @@ function verdictOf(it) {
   return { ...v, failed: it.invalid ? "" : a?.status === "error" ? MdgErrors.text(a) : failedCoarse(it) ? S.coarseFailed.get(it.bvid) || MdgErrors.TEXT.unknown : "" };
 }
 
-// Search covers title, uploader, the AI one-liner and points, the note and tag names; every word must match.
+// 分区: B站's top-level zone, at the end of the card's meta line and searched; never a filter (the UP picks it, too coarse).
+const zoneOf = (it) => TriageCore.zoneName(S.zones[it.bvid]);
+
+// Search covers title, uploader, 分区, the AI one-liner and points, the note and tag names; every word must match.
 function searchText(it) {
   const a = S.analyses[it.bvid];
-  return [it.title, it.upper, a?.oneLiner, ...(a?.points || []), S.notes[it.bvid]?.text, ...tagIdsOf(it.bvid).map((id) => tagById(id).name)]
+  return [it.title, it.upper, zoneOf(it), a?.oneLiner, ...(a?.points || []), S.notes[it.bvid]?.text, ...tagIdsOf(it.bvid).map((id) => tagById(id).name)]
     .filter(Boolean)
     .join("\n")
     .toLowerCase();
