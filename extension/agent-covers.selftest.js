@@ -5,9 +5,10 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-// Waits of a second or more (the 8 s image timeout, the time left before a deadline) fire at once and are recorded.
+// Waits of a second or more (the 8 s image timeout, the time left before a deadline) fire after 80 ms and are recorded:
+// well clear of the fake CDN's 3 ms even on Windows, whose timers tick about every 16 ms.
 const waits = [];
-const fastWait = (fn, ms) => (ms >= 1000 ? (waits.push(ms), setTimeout(fn, 5)) : setTimeout(fn, ms));
+const fastWait = (fn, ms) => (ms >= 1000 ? (waits.push(ms), setTimeout(fn, 80)) : setTimeout(fn, ms));
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout: fastWait, clearTimeout, setInterval, clearInterval, AbortController, btoa });
 // The worker's load order up to the helpers agent-covers.js uses, then the file itself with addMethods caught.
 const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
