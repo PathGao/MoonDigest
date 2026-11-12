@@ -124,19 +124,22 @@ const W = MdgWrites.create({
   line: favLine,
   settleMs: globalThis.__TRIAGE_SETTLE_MS // the selftest's; undefined leaves writes.js's 3 s
 });
-// Bilibili takes 稍后再看 (and 收藏到 from 已出分拣范围) one video per request: one per chunk keeps the count exact on a
-// failure. Other folders take 20, a second apart.
-const chunkSize = (one) => (one ? 1 : 20);
-const chunkGap = (one) => (one ? 300 : 1000);
-function chunksOf(items, one, make) {
+// Chunks a second apart. Bilibili takes 10 videos a request where it adds them to a folder (收藏 / 恢复收藏, and 移动 /
+// 复制 out of 稍后再看: resource/batch-deal) or takes them out of 稍后再看, and the worker spaces those requests 3 s
+// apart (triage-bg.js TRIAGE_DEAL_MAX, triageDealPost); its other batch endpoints take 20. Adding to 稍后再看 is one video
+// a request. Each chunk is one request (or one add and one removal), all or nothing, so the count stays exact on a
+// failure.
+const DEAL_MAX = 10;
+function chunksOf(items, size, make) {
   const out = [];
-  for (let i = 0; i < items.length; i += chunkSize(one)) out.push({ ...make(items.slice(i, i + chunkSize(one))), gap: chunkGap(one) });
+  for (let i = 0; i < items.length; i += size) out.push({ ...make(items.slice(i, i + size)), gap: 1000 });
   return out;
 }
-const refavChunk = (f, it) => ({ msg: { type: "triage-refav", mediaId: f, aid: favRes(it) }, keys: [it.bvid], folders: [f], item: favRef(it), gap: chunkGap(true) });
-async function refavDone({ folders: [f], keys: [bvid] }) {
-  bumpCount(f, 1);
-  await patchDecisions(f, { [bvid]: null });
+const refavChunks = (f, items) =>
+  chunksOf(items, f === TOVIEW ? 1 : DEAL_MAX, (its) => ({ msg: { type: "triage-refav", mediaId: f, aids: its.map(favRes) }, keys: its.map((it) => it.bvid), folders: [f], items: its.map(favRef) }));
+async function refavDone({ folders: [f], keys }) {
+  bumpCount(f, keys.length);
+  await patchDecisions(f, Object.fromEntries(keys.map((b) => [b, null])));
   renderStatus();
 }
 // A B站 batch write that failed midway: what went through stays.
@@ -148,7 +151,7 @@ const busyError = (r) => r.error || UI.busyText(r.busy);
 // Re-favorites items ([{ bvid, aid, ogv }]) into mediaId, one per request; the first failure stops it. It changes Bilibili,
 // so it runs to the end even after another folder opens. Returns { n, rest, error }.
 async function refavInto(mediaId, items) {
-  const r = await W.run("refav", REFAV, { verb: REFAV, chunks: items.map((it) => refavChunk(mediaId, it)), folders: [mediaId], meta: { mediaId, verb: REFAV }, onChunk: refavDone });
+  const r = await W.run("refav", REFAV, { verb: REFAV, chunks: refavChunks(mediaId, items), folders: [mediaId], meta: { mediaId, verb: REFAV }, onChunk: refavDone });
   render();
   const went = new Set(r.keys || []);
   return { n: r.done, rest: items.filter((it) => !went.has(it.bvid)), error: busyError(r), stopped: r.stopped };
@@ -156,25 +159,29 @@ async function refavInto(mediaId, items) {
 
 // 所有收藏夹's batch 取消收藏 undone: each video back in every folder it was taken out of, as one run.
 async function refavGone(gone) {
-  const chunks = Object.entries(gone).flatMap(([f, items]) => items.map((it) => refavChunk(f, it)));
+  const chunks = Object.entries(gone).flatMap(([f, items]) => refavChunks(f, items));
+  const went = new Set(); // the chunks that went through: a video taken out of two folders has a chunk in each
   const r = await W.run("refav", REFAV, {
     verb: REFAV,
     chunks,
     folders: [String(S.mediaId)],
     meta: { mediaId: String(S.mediaId), verb: REFAV },
     async onChunk(c) {
+      went.add(c);
       await refavDone(c);
       const [f] = c.folders;
-      const it = S.itemMap.get(c.keys[0]);
-      if (!it?.folders) return;
-      it.folders = [...new Set([...it.folders, f])];
-      it.left = (it.left || []).filter((x) => x !== f);
-      if (S.decisions[it.bvid]?.action === "unfav") unfavGone(it.bvid);
+      for (const bvid of c.keys) {
+        const it = S.itemMap.get(bvid);
+        if (!it?.folders) continue;
+        it.folders = [...new Set([...it.folders, f])];
+        it.left = (it.left || []).filter((x) => x !== f);
+        if (S.decisions[it.bvid]?.action === "unfav") unfavGone(it.bvid);
+      }
     }
   });
   render();
   const rest = {};
-  for (const c of chunks.slice(r.done)) (rest[c.folders[0]] ||= []).push(c.item);
+  for (const c of chunks) if (!went.has(c)) (rest[c.folders[0]] ||= []).push(...c.items);
   return { n: r.done, rest, error: busyError(r), stopped: r.stopped };
 }
 
@@ -305,7 +312,7 @@ const fav = {
     const gone = {}; // folder → the videos taken out of it
     const elsewhere = all ? null : await favedElsewhere(mediaId);
     const chunks = folders.flatMap((f) =>
-      chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map(favRes) }, keys: items.map((it) => it.bvid), folders: [f], items }))
+      chunksOf(all ? list.filter((it) => it.folders.includes(f)) : list, f === TOVIEW ? DEAL_MAX : 20, (items) => ({ msg: { type: "triage-unfav", mediaId: f, aids: items.map(favRes) }, keys: items.map((it) => it.bvid), folders: [f], items }))
     );
     const r = await W.run("unfav", UNFAV_MANY, {
       verb: UNFAV,
@@ -385,7 +392,7 @@ const fav = {
         S.included = await MdgLimits.update(K.included, (stored) => [...new Set([...(stored || []).map(String), meta.to])]);
       }
       const { to, toName } = meta;
-      const chunks = chunksOf(list, add || from === TOVIEW, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map(favRes), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
+      const chunks = chunksOf(list, add || from === TOVIEW ? DEAL_MAX : 20, (items) => ({ msg: { type: "triage-transfer", from: add ? "" : from, to, aids: items.map(favRes), move }, keys: items.map((it) => it.bvid), folders: [from, to], items }));
       return {
         verb,
         chunks,
