@@ -56,6 +56,8 @@ const key32 = "abcdefghijklmnopqrstuvwxyz012345";
 const nav = () => json({ code: 0, data: { isLogin: true, mid: 1000, wbi_img: { img_url: `https://i0/${key32}.png`, sub_url: `https://i0/${key32.split("").reverse().join("")}.png` } } });
 const person = (mid, extra = {}) => ({ mid: Number(mid), uname: `UP${mid}`, face: `f${mid}`, sign: `签名${mid}`, mtime: 100 + Number(mid), tag: null, ...extra });
 const followings = (pages, total) => (u) => json({ code: 0, data: { total, list: pages[Number(u.searchParams.get("pn")) - 1] || [] } });
+// x/relation/stats: { mid: { mid, follower } } for the mids asked; follower(mid) undefined leaves that mid out.
+const statsOf = (follower) => (u) => json({ code: 0, data: Object.fromEntries(u.searchParams.get("mids").split(",").filter((m) => follower(m) !== undefined).map((m) => [m, { mid: Number(m), follower: follower(m) }])) });
 const dyn = (mid, bvid, at) => ({
   modules: { module_author: { mid, name: `UP${mid}`, face: "", pub_ts: at }, module_dynamic: { major: { archive: { bvid, aid: 1, title: `T-${bvid}`, cover: "http://c", duration_text: "1:02:03", stat: { play: "1.5万" } } } } }
 });
@@ -152,7 +154,7 @@ const runSync = async () => {
     const old = now() - 40 * 86400;
     routes = {
       "/x/web-interface/nav": nav,
-      "/x/relation/stat": (u) => json({ code: 0, data: { follower: 10 * Number(u.searchParams.get("vmid")) } }),
+      "/x/relation/stats": statsOf((m) => 10 * Number(m)),
       "/x/relation/followings": followings([[person(1), person(2, { special: 1, tag: [-10, 7] })], [person(3), person(4), person(5), person(6)]], 6),
       "/x/relation/tags": () => json({ code: 0, data: [{ tagid: -10, name: "特别关注", count: 1 }, { tagid: 0, name: "默认分组", count: 5 }, { tagid: 7, name: "数码", count: 1 }] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(2, "BV2", now() - 60)], [dyn(3, "BV3", old)], [dyn(6, "BV6", now())]]),
@@ -203,7 +205,7 @@ const runSync = async () => {
     local = { follow_list: { list: ["1", "2"], followTime: { 1: 1, 2: 2 } } };
     routes = {
       "/x/web-interface/nav": nav,
-      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/stats": statsOf(() => 1),
       "/x/relation/followings": followings([[person(1), person(2)]], 2),
       "/x/relation/tags": () => json({ code: 0, data: [] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[]]),
@@ -220,7 +222,7 @@ const runSync = async () => {
     calls = [];
     routes = {
       "/x/web-interface/nav": nav,
-      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/stats": statsOf(() => 1),
       "/x/relation/followings": followings([[person(1), person(2), person(3)]], 3),
       "/x/relation/tags": () => json({ code: 0, data: [] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[]]),
@@ -251,7 +253,7 @@ const runSync = async () => {
     let throttle = true;
     routes = {
       "/x/web-interface/nav": nav,
-      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/stats": statsOf(() => 1),
       "/x/relation/followings": followings([[person(1), person(2)]], 2),
       "/x/relation/tags": () => json({ code: 0, data: [] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(1, "BVback", now() - 60)]]),
@@ -293,7 +295,7 @@ const runSync = async () => {
     calls = [];
     routes = {
       "/x/web-interface/nav": nav,
-      "/x/relation/stat": () => json({ code: 0, data: { follower: 1 } }),
+      "/x/relation/stats": statsOf(() => 1),
       "/x/relation/followings": followings([[person(2)]], 1),
       "/x/relation/tags": () => json({ code: 0, data: [] }),
       "/x/polymer/web-dynamic/v1/feed/all": feed([[dyn(2, "BVa", now() - 60)], [dyn(2, "BVb", now() - 2 * 86400)], [dyn(2, "BVc", now() - 3 * 86400)]]),
@@ -472,9 +474,9 @@ const runSync = async () => {
     assert.ok(local.follow_jobs.finishedAt);
   }
 
-  // ---------- follower counts: after the statuses, 7-day skip, resume, permanent vs temporary ----------
+  // ---------- follower counts: 20 a request after the statuses, 7-day skip, resume, a mid left out asked next time ----------
   {
-    const stat = (u) => u.searchParams.get("vmid");
+    const stat = (u) => u.searchParams.get("mids");
     local = {
       follow_list: { list: ["1", "2", "3", "4", "5"] },
       follow_last: { at: now(), since: 0, map: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 } }, // everyone in the feed: no arc/search
@@ -483,23 +485,54 @@ const runSync = async () => {
     };
     let statusAtSeen = 0;
     const asked = [];
-    routes["/x/relation/stat"] = (u) => {
+    const ok = statsOf((m) => (m === "5" ? undefined : 100));
+    routes["/x/relation/stats"] = (u) => {
       asked.push(stat(u));
       statusAtSeen ||= local.follow_jobs.statusAt && local.follow_jobs.phase === "stats" ? 1 : 0;
-      if (stat(u) === "4") return json({ code: -404, message: "啥都木有" });
-      if (stat(u) === "5") return json({ code: -500, message: "服务器错误" });
-      return json({ code: 0, data: { follower: 100 } });
+      return ok(u);
     };
     await runSync();
     assert.ok(statusAtSeen, "statusAt is written before the follower counts start");
-    assert.deepStrictEqual(asked, ["2", "3", "4", "5"], "a count younger than 7 days is skipped");
+    assert.deepStrictEqual(asked, ["2,3,4,5"], "one request; a count younger than 7 days is skipped");
     assert.strictEqual(local.follow_stats[1].follower, 7);
     assert.strictEqual(local.follow_stats[2].follower, 100);
-    assert.strictEqual(local.follow_stats[4].code, -404, "a gone account is recorded");
-    assert.ok(!local.follow_stats[5], "a temporary error is not recorded");
+    assert.ok(!local.follow_stats[5], "a mid left out of the answer is not recorded");
     assert.strictEqual(local.follow_jobs.skipped, 1);
+
     assert.match(local.follow_jobs.step, /^$/, "step cleared when finished");
     assert.ok(local.follow_jobs.finishedAt && local.follow_jobs.statusAt);
+
+    // 20 a request; a failed batch (B站 code, not risk control) is skipped as a whole and the rest goes on
+    const many = Array.from({ length: 45 }, (_, i) => String(100 + i));
+    local.follow_list = { list: many };
+    local.follow_last.map = Object.fromEntries(many.map((m) => [m, 1]));
+    local.follow_stats = {};
+    local.follow_jobs = { cursor: { phase: "arc" }, startedAt: now() };
+    asked.length = 0;
+    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), stat(u).startsWith("120,") ? json({ code: -500, message: "服务器错误" }) : statsOf((m) => (m === "141" ? null : 3))(u));
+    await runSync();
+    assert.deepStrictEqual(asked.map((a) => a.split(",").length), [20, 20, 5]);
+    assert.strictEqual(Object.keys(local.follow_stats).length, 24, "a follower that is not a number is not recorded");
+    assert.strictEqual(local.follow_jobs.skipped, 21);
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+
+    // Stopped between two batches: the next run asks only the mids left, 20 a request.
+    local.follow_stats = Object.fromEntries(many.slice(0, 20).map((m) => [m, { follower: 1, at: now() }]));
+    local.follow_jobs = { running: true, phase: "stats", cursor: { phase: "stats" }, startedAt: now() - 60, statusAt: 5 };
+    asked.length = 0;
+    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), statsOf(() => 3)(u));
+    await t.followResume();
+    await vm.runInContext("followRun && followRun.promise", ctx);
+    assert.deepStrictEqual(asked, [many.slice(20, 40).join(","), many.slice(40).join(",")]);
+    assert.deepStrictEqual([local.follow_jobs.done, local.follow_jobs.total], [45, 45]);
+
+    // Every batch refused with B站's own code (say the batch size became too big): the sync says so, not 完成.
+    local.follow_stats = {};
+    local.follow_jobs = { cursor: { phase: "stats" }, startedAt: now() };
+    routes["/x/relation/stats"] = () => json({ code: -400, message: "请求错误" });
+    await runSync();
+    assert.match(local.follow_jobs.error || "", /请求错误/);
+    local.follow_list = { list: ["1", "2", "3", "4", "5"] };
 
     // resume: a killed worker at the stats cursor asks only what is left, and redoes no arc/search
     local.follow_stats = { 1: { follower: 1, at: now() } };
@@ -508,14 +541,14 @@ const runSync = async () => {
     asked.length = 0;
     calls = [];
     let steps = [];
-    routes["/x/relation/stat"] = (u) => (asked.push(stat(u)), steps.push(local.follow_jobs.step), json({ code: 0, data: { follower: 1 } }));
+    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), steps.push(local.follow_jobs.step), statsOf(() => 1)(u));
     await t.followResume();
     await vm.runInContext("followRun && followRun.promise", ctx);
-    assert.deepStrictEqual(asked, ["2", "3", "4", "5"]);
+    assert.deepStrictEqual(asked, ["2,3,4,5"]);
     assert.ok(!calls.some((c) => c.startsWith("space") || c.startsWith("polymer")));
     assert.strictEqual(local.follow_jobs.statusAt, 5, "a resumed stats phase does not touch statusAt");
     // The pill writes done/total after the step: the step has no count of its own.
-    assert.deepStrictEqual([steps[0], steps[1], local.follow_jobs.done, local.follow_jobs.total], ["查粉丝数", "查粉丝数", 5, 5]);
+    assert.deepStrictEqual([steps[0], local.follow_jobs.done, local.follow_jobs.total], ["查粉丝数", 5, 5]);
   }
 
   // ---------- feed page: timeout retried, cache ----------
