@@ -502,7 +502,7 @@ function followGoneRecord(e, empty) {
 
 // 第 4 步：每个关注的人的粉丝数 → follow_stats。x/relation/stats 一次查 FOLLOW_STATS_BATCH 人（21 人 B站 回 -400，
 // 2026-11-12 实测），4000 人 200 个请求。注销的账号和不存在的 mid 也照样给数，所以结果里缺了谁、或整批出错（风控、断网等
-// 字符串码之外的），都算这次没查到，下次再查。7 天内查过的跳过，所以接着跑不重查。
+// 字符串码之外的），都算这次没查到，下次再查；一批都没查到就报出最后那个错，不当作查完了。7 天内查过的跳过，所以接着跑不重查。
 const FOLLOW_STATS_DAYS = 7;
 const FOLLOW_STATS_BATCH = 20;
 async function followStatsPhase(ctx) {
@@ -516,6 +516,8 @@ async function followStatsPhase(ctx) {
   const step = () => `查粉丝数${followSkippedText(skipped)}`;
   await ctx.progress({ phase: "stats", step: step(), done, total: targets.length, skipped });
   const todo = targets.filter((m) => !known(m));
+  let failed = null;
+  let any = false;
   for (let i = 0; i < todo.length; i += FOLLOW_STATS_BATCH) {
     const mids = todo.slice(i, i + FOLLOW_STATS_BATCH);
     let d = {};
@@ -523,15 +525,18 @@ async function followStatsPhase(ctx) {
       d = (await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stats?mids=${mids.join(",")}`))) || {};
     } catch (e) {
       if (typeof e.code === "string") throw e;
+      failed = e;
     }
     const at = followNow();
-    const got = Object.fromEntries(mids.filter((m) => Number.isFinite(Number(d[m]?.follower))).map((m) => [m, { follower: Number(d[m].follower), at }]));
+    const got = Object.fromEntries(mids.filter((m) => typeof d[m]?.follower === "number").map((m) => [m, { follower: d[m].follower, at }]));
     const n = Object.keys(got).length;
     if (n) await followUpdate(["stats"], (st) => ({ stats: { ...st.stats, ...got } }));
+    any ||= n > 0;
     done += n;
     skipped += mids.length - n;
     await ctx.progress({ done, skipped, step: step() });
   }
+  if (failed && !any) throw failed;
 }
 
 const FOLLOW_ALARM = "follow-keepalive";

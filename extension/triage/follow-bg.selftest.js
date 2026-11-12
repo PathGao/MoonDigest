@@ -499,6 +499,9 @@ const runSync = async () => {
     assert.ok(!local.follow_stats[5], "a mid left out of the answer is not recorded");
     assert.strictEqual(local.follow_jobs.skipped, 1);
 
+    assert.match(local.follow_jobs.step, /^$/, "step cleared when finished");
+    assert.ok(local.follow_jobs.finishedAt && local.follow_jobs.statusAt);
+
     // 20 a request; a failed batch (B站 code, not risk control) is skipped as a whole and the rest goes on
     const many = Array.from({ length: 45 }, (_, i) => String(100 + i));
     local.follow_list = { list: many };
@@ -506,14 +509,30 @@ const runSync = async () => {
     local.follow_stats = {};
     local.follow_jobs = { cursor: { phase: "arc" }, startedAt: now() };
     asked.length = 0;
-    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), stat(u).startsWith("120,") ? json({ code: -500, message: "服务器错误" }) : statsOf(() => 3)(u));
+    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), stat(u).startsWith("120,") ? json({ code: -500, message: "服务器错误" }) : statsOf((m) => (m === "141" ? null : 3))(u));
     await runSync();
     assert.deepStrictEqual(asked.map((a) => a.split(",").length), [20, 20, 5]);
-    assert.strictEqual(Object.keys(local.follow_stats).length, 25);
-    assert.strictEqual(local.follow_jobs.skipped, 20);
+    assert.strictEqual(Object.keys(local.follow_stats).length, 24, "a follower that is not a number is not recorded");
+    assert.strictEqual(local.follow_jobs.skipped, 21);
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+
+    // Stopped between two batches: the next run asks only the mids left, 20 a request.
+    local.follow_stats = Object.fromEntries(many.slice(0, 20).map((m) => [m, { follower: 1, at: now() }]));
+    local.follow_jobs = { running: true, phase: "stats", cursor: { phase: "stats" }, startedAt: now() - 60, statusAt: 5 };
+    asked.length = 0;
+    routes["/x/relation/stats"] = (u) => (asked.push(stat(u)), statsOf(() => 3)(u));
+    await t.followResume();
+    await vm.runInContext("followRun && followRun.promise", ctx);
+    assert.deepStrictEqual(asked, [many.slice(20, 40).join(","), many.slice(40).join(",")]);
+    assert.deepStrictEqual([local.follow_jobs.done, local.follow_jobs.total], [45, 45]);
+
+    // Every batch refused with B站's own code (say the batch size became too big): the sync says so, not 完成.
+    local.follow_stats = {};
+    local.follow_jobs = { cursor: { phase: "stats" }, startedAt: now() };
+    routes["/x/relation/stats"] = () => json({ code: -400, message: "请求错误" });
+    await runSync();
+    assert.match(local.follow_jobs.error || "", /请求错误/);
     local.follow_list = { list: ["1", "2", "3", "4", "5"] };
-    assert.match(local.follow_jobs.step, /^$/, "step cleared when finished");
-    assert.ok(local.follow_jobs.finishedAt && local.follow_jobs.statusAt);
 
     // resume: a killed worker at the stats cursor asks only what is left, and redoes no arc/search
     local.follow_stats = { 1: { follower: 1, at: now() } };
