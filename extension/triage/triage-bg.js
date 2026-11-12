@@ -948,20 +948,30 @@ const triageRes = (v) => {
 };
 const triageAids = (v) => (Array.isArray(v) && v.every(triageResOk) ? v : []);
 // Bilibili adds at most this many videos to a folder in one request (resource/batch-deal: 11 add the first 10 and fail
-// with -702, 2026-11-12), and 稍后再看's removal takes as many (toview/del with aids joined by commas). Two adds right after
-// each other are refused with the same -702 and add nothing; 3 s apart both go through (2026-11-12), so a handler's
-// parts and the pages' chunks of them are TRIAGE_DEAL_GAP_MS apart, and a -702 that still comes is B站's limit
-// (THROTTLED: the run waits and sends the same chunk again; adding a video already there changes nothing).
+// with -702, 2026-11-12), and 稍后再看's removal takes as many (toview/del with aids joined by commas). Two batch adds
+// right after each other are refused with the same -702 and add nothing; 3 s apart both go through. So every batch write
+// here, whoever sends it (a page's run, another run started meanwhile, the MCP), waits until TRIAGE_DEAL_GAP_MS after
+// the last one (triageDealPost). A -702 that still comes is asked again once after the gap; a second one is reported as
+// B站 said it. Adding a video already there, or with an aid B站 does not know among the others, still answers 0
+// (2026-11-12), so asking again is safe.
 const TRIAGE_DEAL_MAX = 10;
 const TRIAGE_DEAL_GAP_MS = 3000;
 const TRIAGE_DEAL_BUSY = -702;
 const triageDealParts = (list) => Array.from({ length: Math.ceil(list.length / TRIAGE_DEAL_MAX) }, (_, i) => list.slice(i * TRIAGE_DEAL_MAX, (i + 1) * TRIAGE_DEAL_MAX));
-// Each part after the first waits TRIAGE_DEAL_GAP_MS.
-async function* triageDealPaced(list) {
-  const parts = triageDealParts(list);
-  for (let i = 0; i < parts.length; i++) {
-    if (i) await new Promise((r) => setTimeout(r, TRIAGE_DEAL_GAP_MS));
-    yield parts[i];
+let triageDealAt = 0; // when the last batch write went out; the worker is the only sender
+async function triageDealPost(path, fields) {
+  for (let again = true; ; again = false) {
+    // ponytail: a worker-wide stamp; two writes waiting at once both leave after the same stamp, then the next waits
+    const wait = triageDealAt + TRIAGE_DEAL_GAP_MS - Date.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    triageDealAt = Date.now();
+    try {
+      return await triageBiliPost(path, fields);
+    } catch (e) {
+      if (e.biliCode !== TRIAGE_DEAL_BUSY || !again) throw e;
+    } finally {
+      triageDealAt = Date.now();
+    }
   }
 }
 // One video goes through resource/deal, as before batching: its refusal (稿件不存在…) is that video's, which the MCP's
@@ -971,11 +981,9 @@ const triageDeal = (aids, mediaId) => {
     const { rid, type } = triageRes(aids[0]);
     return triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: mediaId, del_media_ids: "" });
   }
-  return triageBiliPost("/x/v3/fav/resource/batch-deal", { resources: aids.map((a) => triageRes(a).resource).join(","), add_media_ids: mediaId, del_media_ids: "", platform: "web" }).catch((e) => {
-    throw e.biliCode === TRIAGE_DEAL_BUSY ? triageError(MdgErrors.TEXT.biliThrottled, MdgErrors.CODE.THROTTLED) : e;
-  });
+  return triageDealPost("/x/v3/fav/resource/batch-deal", { resources: aids.map((a) => triageRes(a).resource).join(","), add_media_ids: mediaId, del_media_ids: "", platform: "web" });
 };
-const triageToviewDel = (aids) => triageBiliPost("/x/v2/history/toview/del", { aid: aids.map((a) => triageRes(a).rid).join(",") });
+const triageToviewDel = (aids) => triageDealPost("/x/v2/history/toview/del", { aid: aids.map((a) => triageRes(a).rid).join(",") });
 // The inverse of sites.js biliAvToBv; "" for anything that is not a BV id. A type-24 favorite's id is its episode id,
 // so its archive aid comes from the list's (correct) bvid.
 function triageBvToAv(bvid) {
@@ -1140,7 +1148,7 @@ const TRIAGE_HANDLERS = {
     const list = triageAids(aids);
     if (!triageFolderId(mediaId) || !list.length) throw triageError("缺少 mediaId 或 aids");
     if (mediaId === TRIAGE_TOVIEW) {
-      for await (const part of triageDealPaced(list)) await triageToviewDel(part);
+      for (const part of triageDealParts(list)) await triageToviewDel(part);
       return { done: list.length };
     }
     await triageBiliPost("/x/v3/fav/resource/batch-del", {
@@ -1159,7 +1167,7 @@ const TRIAGE_HANDLERS = {
       for (const a of list) await triageBiliPost("/x/v2/history/toview/add", { aid: triageRes(a).rid });
       return {};
     }
-    for await (const part of triageDealPaced(list)) await triageDeal(part, mediaId);
+    for (const part of triageDealParts(list)) await triageDeal(part, mediaId);
     return {};
   },
 
@@ -1175,7 +1183,7 @@ const TRIAGE_HANDLERS = {
     if (!from || from === TRIAGE_TOVIEW) {
       const stayed = [];
       let stayedError = "";
-      for await (const part of triageDealPaced(list)) {
+      for (const part of triageDealParts(list)) {
         await triageDeal(part, to);
         if (move && from) {
           await triageToviewDel(part).catch((e) => {

@@ -311,12 +311,15 @@
       }
       return { ok: true, data: { done: aids.length } };
     },
-    "triage-refav": ({ mediaId, aid }) => {
-      const r = removed.get(`${mediaId}:${aid}`);
-      if (!r) return { ok: false, error: "找不到要恢复的视频" };
-      r.folder.items.splice(Math.min(r.index, r.folder.items.length), 0, r.item);
-      removed.delete(`${mediaId}:${aid}`);
-      return { ok: true, data: { done: 1 } };
+    "triage-refav": ({ mediaId, aid, aids }) => {
+      const list = aids || [aid];
+      const found = list.map((a) => removed.get(`${mediaId}:${a}`));
+      if (found.some((r) => !r)) return { ok: false, error: "找不到要恢复的视频" };
+      for (const [k, r] of found.entries()) {
+        r.folder.items.splice(Math.min(r.index, r.folder.items.length), 0, r.item);
+        removed.delete(`${mediaId}:${list[k]}`);
+      }
+      return { ok: true, data: { done: list.length } };
     },
     "triage-settings-get": () => ({
       ok: true,

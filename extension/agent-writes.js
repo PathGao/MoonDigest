@@ -332,7 +332,7 @@
   // records. Resolves { done: the items written, failed: those B站 said no to (skip, one at a time), stopped?:
   // "TIMEOUT" | "THROTTLED" }; another error is thrown with .done, the items written before it.
   async function run(items, size, deadline, send, landed, { skip = false } = {}) {
-    const gap = size === 1 ? 300 : size === TRIAGE_DEAL_MAX ? TRIAGE_DEAL_GAP_MS : 1000;
+    const gap = size === 1 ? 300 : 1000; // triage-bg.js spaces its batch adds itself (triageDealPost)
     const done = [];
     const failed = [];
     for (let i = 0; i < items.length; i += size) {

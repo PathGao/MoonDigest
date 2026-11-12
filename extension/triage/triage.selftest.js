@@ -3354,7 +3354,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(adds, [["", "2", false, 2]], "up to 10 videos a request");
     assert.strictEqual(busy[0], "收藏", "C625: others wait on 「收藏还在跑」, not 移动/复制");
     assert.deepStrictEqual(plain(store[t.K.removed]), {});
-    assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(960), item(961)], "one chunk: added in the order sent");
+    assert.deepStrictEqual(plain(store[t.K.snapshot("2")].items.slice(0, 2)), [item(960), item(961)], "one chunk, kept in the order sent (B站 lists a batch's videos, all added the same second, in an order of its own; the id check compares sets)");
     assert.strictEqual(toasts.at(-1), "已收藏 2 个到「目标」");
   }
 
