@@ -278,31 +278,11 @@ async function checkCached(run, snap) {
 async function localItems(mediaId) {
   const others = chosenOtherIds(mediaId);
   const got = await chrome.storage.local.get([K.removed, ...others.map(K.snapshot)]);
-  const local = new Map();
-  for (const id of others) for (const item of got[K.snapshot(id)]?.items || []) if (!local.has(item.bvid)) local.set(item.bvid, { item, from: id });
-  for (const [bvid, rec] of Object.entries(got[K.removed] || {})) if (!local.has(bvid)) local.set(bvid, { item: rec.item, from: REMOVED });
-  return local;
+  return TriageCore.heldItems(others.map((id) => [id, got[K.snapshot(id)]?.items]), got[K.removed], REMOVED);
 }
 
-// Changed ids without the full load: removed videos leave the cached list, added ones come from local when MoonDigest
-// already holds them, and only truly new ones are fetched from the newest part of the list. null when an added id is
-// found nowhere (a new favorite deep in the list), so the caller loads the whole folder.
-async function fromCache(mediaId, { snap, ids }, local) {
-  const old = snap.ids || snap.bvids;
-  const oldSet = new Set(old);
-  const added = ids.filter((b) => !oldSet.has(b));
-  const moved = added.filter((b) => local.has(b)).map((b) => local.get(b).item);
-  let head = [];
-  let info = { intro: snap.intro };
-  if (moved.length < added.length) {
-    const r = await send({ type: "triage-folder-items", mediaId, known: [...snap.bvids, ...moved.map((it) => it.bvid)] });
-    if (!r.ok || !r.data.head) return r;
-    head = r.data.items;
-    info = r.data.info || info;
-  }
-  const items = mergeHead(head, [...moved, ...snap.items], old, ids);
-  return items && { ok: true, data: { items, ids, info } };
-}
+// Changed ids without the full load (TriageCore.cachedRead), the newest part of the list read through the worker.
+const fromCache = (mediaId, { snap, ids }, local) => TriageCore.cachedRead(snap, ids, local, (known) => send({ type: "triage-folder-items", mediaId, known }));
 
 // A folder being written (fav.state().writing: a batch on it, or a write a moment ago) is not read; a read asked for
 // meanwhile runs once it settles.
@@ -488,6 +468,7 @@ async function checkRemoved(run) {
   while (runs.busy("check") && alive()) await sleepWhile(50, () => true);
   let i = 0;
   let cur = null; // the step in flight: a failure names its folder
+  let skipped = false; // a chosen folder being written was not checked: a video re-favorited there is still listed
   const r = await runs.run("check", {
     total: ids.length,
     gap: 300,
@@ -495,7 +476,7 @@ async function checkRemoved(run) {
     line: (d, t) => `核对收藏夹 ${d}/${t}`,
     next: () => (i < ids.length ? { id: ids[i++] } : null),
     // A folder being written is checked next time; its list is changing now.
-    act: (step) => ((cur = step), fav.state().writing(step.id) ? { ok: true } : send({ type: "triage-folder-ids", mediaId: step.id })),
+    act: (step) => ((cur = step), fav.state().writing(step.id) ? ((skipped = true), { ok: true }) : send({ type: "triage-folder-ids", mediaId: step.id })),
     async done(step, x) {
       if (!alive() || !x.data) return;
       await dropRemoved(x.data.bvids);
@@ -507,18 +488,24 @@ async function checkRemoved(run) {
     S.removedCheck.error = `${checkFailed(cur.id, r.error)}${RETRY_REFRESH}`;
     return render();
   }
-  await checkWhere(run);
+  await checkWhere(run, { allChecked: !skipped });
   if (alive() && !S.removedCheck.error) S.removedCheck = null;
   render();
 }
 
-// Asks Bilibili, per video, which folders hold it (not invalid ones: those are known, and records too old to have an aid
-// are left as they are). Only folders not chosen count; one in a chosen folder is taken out by the next id check.
-async function checkWhere(run) {
+// Where each video is now (not invalid ones: those are known, and records too old to have an aid are left as they are).
+// Only folders not chosen count; one in a chosen folder is taken out by the next id check. When every chosen folder was
+// checked (allChecked), the folders not chosen are read one id list each where that is fewer requests
+// (checkWhereByFolder); Bilibili is asked per video which folders hold it for the rest.
+async function checkWhere(run, { allChecked = false } = {}) {
   if (!run.alive) return;
-  const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
+  let list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
   const alive = () => run.alive;
   const found = {};
+  if (allChecked && list.length > 1) {
+    list = await checkWhereByFolder(run, list, found);
+    if (!list) return noteWhere(found);
+  }
   let mid; // who is logged in, asked once per check (the first answer carries it)
   let i = 0;
   let cur = null; // the step in flight: a failure names its video
@@ -542,7 +529,53 @@ async function checkWhere(run) {
     }
   });
   if (r.error && alive()) S.removedCheck.error = `核对《${shortTitle(cur.it)}》的收藏状态失败：${r.error}${RETRY_REFRESH}`;
+  await noteWhere(found);
+}
 
+// checkWhere by the folders not chosen (B站's folder list read again: one made or deleted since the page opened counts,
+// 稍后再看 does not), when reading their id lists is fewer requests than asking per video. The first such folder holding a
+// video is where it is shown; a video in none is in no folder, except a 番剧 one (an old record may lack the episode id
+// its id list is matched by). Returns the videos still to ask per video, all of them when this way is not taken, or null
+// when the check stopped (a failure, or another view opened).
+async function checkWhereByFolder(run, list, found) {
+  const alive = () => run.alive;
+  const r = await send({ type: "triage-folders" });
+  if (!alive()) return null;
+  if (!r.ok) return list;
+  const others = (r.data.folders || []).filter((f) => String(f.id) !== TOVIEW && !S.included.includes(String(f.id)));
+  if (others.length + 1 >= list.length) return list;
+  const want = new Map(list.map((it) => [it.bvid, it]));
+  let i = 0;
+  let cur = null;
+  const read = await runs.run("check", {
+    total: others.length,
+    gap: 300,
+    alive,
+    line: (d, t) => `核对其他收藏夹 ${d}/${t}`,
+    next: () => (i < others.length ? { f: others[i++] } : null),
+    act: (step) => ((cur = step), send({ type: "triage-folder-ids", mediaId: String(step.f.id) })),
+    done({ f }, x) {
+      if (!alive() || !x.data) return;
+      for (const b of x.data.bvids) {
+        const it = want.get(b);
+        if (it && !(b in found)) found[b] = it.inFolder = { id: String(f.id), title: f.title };
+      }
+      render();
+    }
+  });
+  if (!alive()) return null;
+  if (read.error) {
+    S.removedCheck.error = `${checkFailed(String(cur.f.id), read.error)}${RETRY_REFRESH}`;
+    return null;
+  }
+  const left = list.filter((it) => !(it.bvid in found));
+  for (const it of left) if (!it.ogv) found[it.bvid] = it.inFolder = null;
+  render();
+  return left.filter((it) => it.ogv);
+}
+
+// Stores where checkWhere found the videos ({ bvid: { id, title } | null }) into their 已出分拣范围 records.
+async function noteWhere(found) {
   await lockRecords(async () => {
     const rec = await storeGet(K.removed, {});
     const hit = Object.keys(found).filter((b) => rec[b]);
