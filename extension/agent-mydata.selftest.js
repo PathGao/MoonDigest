@@ -11,7 +11,7 @@ const gaps = [];
 const fastGap = (fn, ms) => (ms > 0 && ms <= 1000 ? (gaps.push(ms), setImmediate(fn)) : setTimeout(fn, ms));
 const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTimeout: fastGap, clearTimeout, setInterval, clearInterval, AbortController });
 const order = [...fs.readFileSync(path.join(__dirname, "background.js"), "utf8").matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
-assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js"), "agent-mydata.js loads after the triage helpers it uses");
+assert.ok(order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-core.js") && order.indexOf("agent-mydata.js") > order.indexOf("triage/follow-bg.js"), "agent-mydata.js loads after the triage helpers it uses");
 let M = null;
 for (const file of order) {
   if (file === "agent-mydata.js") ctx.MdgAgentBridge = { addMethods: (m) => (M ??= m) };
@@ -59,7 +59,7 @@ ctx.fetch = async (url, init = {}) => {
 };
 const READS = new Set([
   "/x/web-interface/nav", "/x/v3/fav/folder/created/list", "/x/v2/history/toview/web", "/x/v2/history/toview",
-  "/x/v3/fav/resource/list", "/x/relation/followings", "/x/relation/tags", "/x/web-interface/history/cursor"
+  "/x/v3/fav/resource/list", "/x/relation/tag", "/x/relation/tags", "/x/web-interface/history/cursor"
 ]);
 const ok = (data) => () => json({ code: 0, data });
 const baseRoutes = () => ({
@@ -71,10 +71,8 @@ const baseRoutes = () => ({
     { type: 2, id: 77, bvid: "BV1remote001", title: "远程视频", upper: { name: "UPr", mid: 8 }, duration: 61, fav_time: 1700000100, attr: 0, intro: "" },
     { type: 12, id: 1, title: "音频不列" }
   ] })(),
-  "/x/relation/followings": ok({ total: 2, list: [
-    { mid: 1, uname: "甲", sign: "写 Rust", tag: [5], special: 0 },
-    { mid: 2, uname: "乙", sign: "", tag: null, special: 1 }
-  ] }),
+  // A group's members: 2 is in 特别关注 and in none of their own groups, so in 默认分组 too (listed twice, counted once).
+  "/x/relation/tag": (u) => ok({ "-10": [{ mid: 2, uname: "乙", sign: "", tag: null, special: 1 }], 0: [{ mid: 2, uname: "乙", sign: "", tag: null, special: 1 }], 5: [{ mid: 1, uname: "甲", sign: "写 Rust", tag: [5], special: 0 }] }[u.searchParams.get("tagid")] || [])(),
   "/x/relation/tags": ok([{ tagid: 0, name: "默认分组" }, { tagid: 5, name: "编程" }, { tagid: -10, name: "特别关注" }]),
   "/x/web-interface/history/cursor": ok({ cursor: { max: 999, view_at: 1700000500, business: "archive" }, list: [
     { title: "看过的", author_name: "UPh", view_at: 1700000600, progress: -1, duration: 300, history: { business: "archive", bvid: "BV1hist00001" } },
@@ -183,14 +181,18 @@ check("follows: the synced list with groups and UP 标签, query on it", async (
   assert.deepStrictEqual((await M.follows({ query: "硬核" })).data.items.map((u) => u.mid), ["1"]);
 });
 
-check("follows without a synced list: one B站 page and the group names; query ignored", async () => {
-  const r = await M.follows({ query: "x" });
-  assert.deepStrictEqual(plain(r.data), { source: "bilibili", queryIgnored: true, total: 2, page: 1, hasMore: false, items: [
-    { mid: "1", name: "甲", sign: "写 Rust", groups: ["编程"] },
-    { mid: "2", name: "乙", sign: "", groups: ["特别关注", "默认分组"] }
+check("follows without a synced list: B站's list read whole by group, as the 分拣台 reads it; query works", async () => {
+  const r = await M.follows({});
+  // In B站's group order: no follow time comes with a group's members.
+  assert.deepStrictEqual(plain(r.data), { source: "bilibili", total: 2, page: 1, hasMore: false, items: [
+    { mid: "2", name: "乙", sign: "", groups: ["特别关注", "默认分组"] },
+    { mid: "1", name: "甲", sign: "写 Rust", groups: ["编程"] }
   ] });
-  assert.deepStrictEqual(fetched.map((f) => new URL(f.url).pathname), ["/x/web-interface/nav", "/x/relation/followings", "/x/relation/tags"]);
-  assert.strictEqual(new URL(fetched[1].url).searchParams.get("ps"), "50");
+  assert.deepStrictEqual(fetched.map((f) => { const u = new URL(f.url); return u.pathname + (u.searchParams.has("tagid") ? `#${u.searchParams.get("tagid")}` : ""); }), ["/x/relation/tags", "/x/relation/tag#0", "/x/relation/tag#5", "/x/relation/tag#-10"]);
+  assert.strictEqual(new URL(fetched[1].url).searchParams.get("ps"), "500");
+  fetched.length = 0;
+  assert.deepStrictEqual(plain((await M.follows({ query: "rust" })).data.items.map((u) => u.mid)), ["1"]);
+  assert.strictEqual(fetched.length, 0, "a second call within minutes pages the list already read");
 });
 
 check("history: one page, cursor round trip", async () => {

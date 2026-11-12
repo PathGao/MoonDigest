@@ -18,6 +18,7 @@
 //
 // 同步分三步，每步做完记进 follow_jobs.cursor；跑着时开 1 分钟的 follow-keepalive 闹钟，worker 被杀后由它叫醒、从游标接着跑：
 // 1 list：拉我的全部关注 → follow_list / follow_people；和上次比，消失的人进 follow_unfollowed（source "bili"），只在拉全时判断。
+//   已有完整名单时按分组读（followListByGroups），人数对不上再逐页读 followings。
 //   第一次同步每拉一页就先写进 follow_list（partial: true），界面不用等拉完。
 // 2 feed：视频动态往回翻过 followSlowDays 天 → follow_last（谁最近发过、最近 3 个标题），翻完才写，翻到一半的每页存进 follow_last_wip，界面边翻边读。6 小时内翻过就跳过。
 // 3 arc：动态里没出现的人逐个 arc/search（约 1 秒 1 个）→ follow_content；已有记录且不早于 follow_last.since 的跳过。
@@ -318,6 +319,64 @@ const followSyncStep = (event, fields) =>
 
 // ===== 同步 =====
 
+const followFollowingsUrl = (vmid, pn) => `${FOLLOW_API}/x/relation/followings?${followQuery({ vmid, pn, ps: 50, order: "desc" })}`;
+
+// One followed UP 主 (an item of followings or of a group's members) into fresh and people; seen ones are left as they are.
+function followAddPerson(fresh, people, x) {
+  const mid = String(x.mid);
+  if (people[mid]) return;
+  fresh.list.push(mid);
+  if (x.mtime) fresh.followTime[mid] = Number(x.mtime);
+  if (x.special === 1 || (x.tag || []).includes(FOLLOW_SPECIAL)) fresh.special[mid] = 1;
+  const groups = (x.tag || []).filter((t) => t > 0);
+  if (groups.length) fresh.groups[mid] = groups;
+  people[mid] = { mid, name: x.uname || "", face: x.face || "", sign: String(x.sign || "").slice(0, 60), ov: x.official_verify?.desc || "" };
+}
+
+// 按分组读全部关注：x/relation/tag 一页给 500 人，每个分组读到不满一页为止。分进自己分组的人不在默认分组里，
+// 所有分组合起来就是全部关注（2026-11-12 实测），按 mid 去重。4000 人约 10 个请求，逐页读 followings 要 80 个。
+// 分组成员不带关注时间（fresh.followTime 为空）。同步的第 1 步和 MCP 的 get_follows（agent-mydata.js）都用它。
+// get 是调用方的请求包装（同步的 ctx.get 能被停止打断），onPage(已读人数) 每读一页调一次，getData(url) 发请求：同步走关注的队列
+// （限流时整队暂停重试），MCP 传自己的（限流直接报 THROTTLED，不超过一次调用的时限）。
+const FOLLOW_GROUP_PS = 500;
+async function followReadGroups(get, onPage = async () => {}, getData = followGetData) {
+  const fresh = { list: [], followTime: {}, special: {}, groups: {} };
+  const people = {};
+  const tags = await get(() => getData(`${FOLLOW_API}/x/relation/tags`));
+  for (const g of Array.isArray(tags) ? tags : []) {
+    // ponytail: 20 页 = 10000 人，超过 B站 5000 人的关注上限
+    for (let pn = 1; pn <= 20; pn++) {
+      const page = (await get(() => getData(`${FOLLOW_API}/x/relation/tag?${followQuery({ tagid: g.tagid, pn, ps: FOLLOW_GROUP_PS })}`))) || [];
+      for (const x of page) followAddPerson(fresh, people, x);
+      await onPage(fresh.list.length);
+      if (page.length < FOLLOW_GROUP_PS) break;
+    }
+  }
+  return { fresh, people, tags };
+}
+
+// 已有完整名单时第 1 步按分组读（followReadGroups）。关注时间：新关注的人排在 followings 最前面，从第 1 页读到某页没有新人为止；
+// 旧人沿用存着的。合起来的人数和 followings 的总数对不上（读的时候关注有变化，或分组接口少给了），返回 null，由调用方逐页整份重读。
+async function followListByGroups(ctx, vmid, stored) {
+  const { fresh, people, tags } = await followReadGroups(ctx.get, (done) => ctx.progress({ done }));
+  const old = new Set(stored.list || []);
+  let total = 0;
+  for (let pn = 1; pn <= 100; pn++) {
+    const j = await ctx.get(() => followAgain(() => followGetJson(followFollowingsUrl(vmid, pn)), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
+    if (j.code !== 0) throw followCodeError(j, "读取关注列表失败：");
+    const page = j.data?.list || [];
+    if (pn === 1) total = Number(j.data?.total) || 0;
+    const news = page.filter((x) => !old.has(String(x.mid)));
+    for (const x of news) if (x.mtime) fresh.followTime[String(x.mid)] = Number(x.mtime);
+    if (!news.length) break;
+  }
+  if (fresh.list.length !== total) return null;
+  for (const m of fresh.list) if (!fresh.followTime[m] && stored.followTime?.[m]) fresh.followTime[m] = stored.followTime[m];
+  fresh.list.sort((a, b) => (fresh.followTime[b] || 0) - (fresh.followTime[a] || 0));
+  Object.assign(fresh, { complete: true, total });
+  return { fresh, people, tags };
+}
+
 // The sync's run (MdgCommon.latest): followStart starts the next, followStop ends it; followRun is the sync going on.
 const followLife = MdgCommon.latest();
 let followRun = null; // { run, promise }
@@ -330,33 +389,24 @@ async function followSyncJob(ctx) {
     await ctx.progress({ phase: "list", step: "", done: 0, total: 0, cursor: c });
     const nav = (await get(() => followGetJson(`${FOLLOW_API}/x/web-interface/nav`))).data || {};
     if (!nav.isLogin || !nav.mid) throw triageNotLoggedIn();
-    const fresh = { list: [], followTime: {}, special: {}, groups: {} };
-    const people = {};
-    let total = 0;
+    const stored = (await MdgLimits.followGet(["list"])).list;
+    const showPages = !stored || stored.partial;
+    const byGroups = showPages ? null : await followListByGroups(ctx, nav.mid, stored);
+    const fresh = byGroups?.fresh || { list: [], followTime: {}, special: {}, groups: {} };
+    const people = byGroups?.people || {};
+    let total = byGroups?.fresh.total || 0;
     // A total that moves between pages (a follow or unfollow on B站 meanwhile) shifts the pages: someone may fall
     // between two of them, so the read is not complete and nobody missing from it counts as unfollowed.
     let shifted = false;
-    const stored = (await MdgLimits.followGet(["list"])).list;
-    const showPages = !stored || stored.partial;
     // ponytail: 100 页 = 5000 人，B站 关注上限也是这个数
-    for (let pn = 1; pn <= 100; pn++) {
-      const url = `${FOLLOW_API}/x/relation/followings?${followQuery({ vmid: nav.mid, pn, ps: 50, order: "desc" })}`;
-      const j = await get(() => followAgain(() => followGetJson(url), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
+    for (let pn = 1; !byGroups && pn <= 100; pn++) {
+      const j = await get(() => followAgain(() => followGetJson(followFollowingsUrl(nav.mid, pn)), (j) => pn === 1 && j.code === 0 && !j.data?.list?.length));
       if (j.code !== 0) throw followCodeError(j, "读取关注列表失败：");
       const page = j.data?.list || [];
       const pageTotal = Number(j.data?.total) || 0;
       if (pn > 1 && pageTotal !== total) shifted = true;
       total = pageTotal;
-      for (const x of page) {
-        const mid = String(x.mid);
-        if (people[mid]) continue;
-        fresh.list.push(mid);
-        if (x.mtime) fresh.followTime[mid] = Number(x.mtime);
-        if (x.special === 1 || (x.tag || []).includes(FOLLOW_SPECIAL)) fresh.special[mid] = 1;
-        const groups = (x.tag || []).filter((t) => t > 0);
-        if (groups.length) fresh.groups[mid] = groups;
-        people[mid] = { mid, name: x.uname || "", face: x.face || "", sign: String(x.sign || "").slice(0, 60), ov: x.official_verify?.desc || "" };
-      }
+      for (const x of page) followAddPerson(fresh, people, x);
       if (showPages) {
         await followUpdate(["list", "people", "unfollowed", "tags"], (s) => {
           const live = new Set((s.tags || []).map((t) => t.id));
@@ -372,7 +422,7 @@ async function followSyncJob(ctx) {
     fresh.complete = !shifted && fresh.list.length >= total;
     fresh.total = total;
     // B站 关注分组 names. 0 默认分组 and -10 特别关注 are B站's fixed ones; the page names them itself.
-    const tags = await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
+    const tags = byGroups ? byGroups.tags : await get(() => followGetData(`${FOLLOW_API}/x/relation/tags`));
     const groups = (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || ""), count: Number(g.count) || 0 }));
     let changes = null;
     await followUpdate(["list", "people", "unfollowed", "tag_map", "tags"], (s) => {

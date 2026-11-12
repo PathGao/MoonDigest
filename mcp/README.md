@@ -29,7 +29,7 @@ MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──
   - 不带参数：收藏夹列表和读取进度。
   - `include` / `exclude`：勾选、取消勾选收藏夹。取消勾选的后果：下次打开分拣台时，这个收藏夹的本地副本和取消收藏记录会被删除，不在其他勾选收藏夹里的视频进「已出分拣范围」；AI 判断、保留、备注和标签都留着。取消勾选有撤销记录：`undo` 会重新勾选并放回取消收藏记录，副本要再同步一次。
   - `start: true`：在扩展后台读取勾选的收藏夹（或 `folders` 指定的几个），不需要打开分拣台。调用立刻返回，再不带参数调用一次看进度。视频没有增减的收藏夹只花一次请求。B站 限流时读取停下，结果里写明。扩展后台被浏览器重启后，没读完的不会接着读，要再 `start` 一次。
-- `get_follows({ page?, query?, raw? })`：关注的 UP 主，每页 50 个，带关注分组和你的 UP 标签。分拣台的「关注」刷新过就读本地的关注列表，`query` 能用；没刷新过就从 B站 读一页，`query` 不生效，结果里会写明。
+- `get_follows({ page?, query?, raw? })`：关注的 UP 主，每页 50 个，带关注分组和你的 UP 标签。分拣台的「关注」刷新过就读本地的关注列表；没刷新过就按关注分组从 B站 读整份名单（和分拣台刷新同一种读法，3 分钟内翻页不再读 B站）。两种情况 `query` 都能用。
 - `get_history({ cursor?, raw? })`：观看历史，从新到旧，每次 30 条，把返回的 `cursor` 传回去读更早的。
 
 `get_favorites`、`get_follows`、`get_history` 同一时间只跑一个，两次之间隔 1 秒。
@@ -169,7 +169,7 @@ Read your own Bilibili data:
   - No parameters: the folder list and the progress of a read.
   - `include` / `exclude`: tick and untick folders. What unticking costs: the next time the 分拣台 is open, that folder's local copy and its 取消收藏 records are removed, and its videos that are in no other ticked folder go to 已出分拣范围; AI verdicts, 保留, notes and tags stay. An untick is recorded: `undo` ticks the folder again and puts its 取消收藏 records back; its copy needs another sync.
   - `start: true`: reads the ticked folders (or those in `folders`) in the extension's background, without the 分拣台 open. The call answers at once; call again with no parameters for the progress. A folder whose videos did not change costs one request. Rate limiting stops the read, and the result says so. If the browser restarts the extension's background, the rest is not read: `start` again.
-- `get_follows({ page?, query?, raw? })`: the UP 主 you follow, 50 a page, with follow groups and your UP tags. Read from the 分拣台's follow list when it has one (then `query` works); otherwise one page from Bilibili, where `query` is not applied and the result says so.
+- `get_follows({ page?, query?, raw? })`: the UP 主 you follow, 50 a page, with follow groups and your UP tags. Read from the 分拣台's follow list when it has one; otherwise Bilibili's whole list, read by follow group as the 分拣台's refresh reads it (paging within 3 minutes does not read Bilibili again). `query` works either way.
 - `get_history({ cursor?, raw? })`: watch history, newest first, 30 a call. Pass the returned `cursor` back for older items.
 
 `get_favorites`, `get_follows` and `get_history` run one at a time, a second apart.
