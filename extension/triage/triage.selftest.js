@@ -2309,6 +2309,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const { aid: _, ...noAid } = item(5);
     store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3), BV4: rec(4, { invalid: true }), BV5: { item: noAid, at: 5 } };
     t.S.included = ["A", "B"];
+    const allWas = t.S.allFolders;
+    t.S.allFolders = []; // the folder list not read: asked per video
     t.S.view.current++; // earlier checks still running stop
     handlers["triage-folder-ids"] = () => ({ ok: true, data: { bvids: [] } });
     const asked = [];
@@ -2359,6 +2361,27 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.strictEqual(t.S.removedCheck, null, "went on to the end, no red line");
     delete handlers["triage-fav-where"];
     t.S.removedCheck = null;
+
+    // More videos than folders not chosen: each such folder's id list is read once instead, nobody asked per video.
+    // In one of them is 在未勾选收藏夹 (the first that has it), in none 已取消收藏; a failed folder keeps the rest unknown.
+    t.S.allFolders = [{ id: "A", title: "甲" }, { id: "B", title: "乙" }, { id: "X", title: "外" }, { id: "Y", title: "另" }];
+    store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3) };
+    const read = [];
+    handlers["triage-fav-where"] = () => assert.fail("asked per video");
+    handlers["triage-folder-ids"] = ({ mediaId }) => (read.push(mediaId), { ok: true, data: { bvids: { X: ["BV1"], Y: ["BV1", "BV3"] }[mediaId] || [] } });
+    await t.openRemoved();
+    await until(() => !t.S.removedCheck);
+    assert.deepStrictEqual(read, ["A", "B", "X", "Y"], "the chosen folders' check, then each folder not chosen once");
+    assert.deepStrictEqual(plain(Object.fromEntries(Object.entries(store[t.K.removed]).map(([b, r]) => [b, r.inFolder]))), { BV1: { id: "X", title: "外" }, BV2: null, BV3: { id: "Y", title: "另" } });
+    store[t.K.removed] = { BV1: rec(1), BV2: rec(2), BV3: rec(3) };
+    handlers["triage-folder-ids"] = ({ mediaId }) => (mediaId === "Y" ? { ok: false, error: "offline" } : { ok: true, data: { bvids: mediaId === "X" ? ["BV1"] : [] } });
+    await t.openRemoved();
+    await until(() => t.S.removedCheck?.error);
+    assert.ok(t.S.removedCheck.error.includes("offline"), t.S.removedCheck.error);
+    assert.deepStrictEqual(plain(Object.fromEntries(Object.entries(store[t.K.removed]).map(([b, r]) => [b, r.inFolder]))), { BV1: { id: "X", title: "外" } }, "a check cut short marks nobody 已取消收藏");
+    delete handlers["triage-fav-where"];
+    t.S.removedCheck = null;
+    t.S.allFolders = allWas;
   }
 
   // Opt-in folders: a new user starts with none; someone who already triaged keeps every folder.

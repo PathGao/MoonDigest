@@ -548,7 +548,7 @@ check("sync lists the folders with 私密, ticked and how many videos its copy h
   for (const p of [{ include: ["99"] }, { include: ["11"], exclude: ["11"] }, { include: "11" }]) assert.strictEqual((await M.sync(p)).code, "BAD_PARAMS");
 });
 
-check("start reads in the background: a changed folder is read whole and saved as the 分拣台 saves it, an unchanged one costs one request, a new one gets its copy", async () => {
+check("start reads in the background: a changed folder is read and saved as the 分拣台 saves it, an unchanged one costs one request, a new one gets its copy", async () => {
   syncRoutes();
   local[K.triageIncludedFolders] = ["11", "22", "33"];
   const started = await M.sync({ start: true });
@@ -557,6 +557,26 @@ check("start reads in the background: a changed folder is read whole and saved a
   assert.deepStrictEqual([done.job.read, done.job.unchanged, done.job.done, plain(done.job.partial)], [2, 1, 3, []]);
   assert.deepStrictEqual([local[K.triageSnapshot("11")].bvids, local[K.triageSnapshot("11")].title, local[K.triageSnapshot("22")].bvids, local[K.triageSnapshot("33")].bvids], [[A, B, C], "新名", [C], [B]]);
   assert.deepStrictEqual(plain(done.folders.map((f) => f.synced ?? 0)), [0, 3, 1, 1]);
+});
+
+check("a changed folder reads only the difference, as the 分拣台 page does: a video held in another chosen folder's copy costs no list read, a new one only the newest page", async () => {
+  syncRoutes();
+  local[K.triageSnapshot("33")] = { ...local[K.triageSnapshot("33")], bvids: [B, C], ids: [B, C], items: [vid(B, 2), vid(C, 3)] };
+  const lists = [];
+  const list = routes["/x/v3/fav/resource/list"];
+  routes["/x/v3/fav/resource/list"] = (q) => (lists.push(q.get("pn")), list(q));
+  await M.sync({ start: true, folders: ["11"] });
+  const done = await idle();
+  assert.deepStrictEqual([done.job.read, lists], [1, []], "C came from 33's copy");
+  assert.deepStrictEqual(plain([...local[K.triageSnapshot("11")].bvids].sort()), [A, B, C].sort());
+  // A favorite MoonDigest holds nowhere: the newest pages are read until one holds nothing new, not the whole folder.
+  const D = "BV1ddddddddd";
+  routes["/x/v3/fav/resource/ids"] = (q) => ({ code: 0, data: (q.get("media_id") === "11" ? [D, A, B, C] : [B]).map((b) => ({ type: 2, bvid: b })) });
+  routes["/x/v3/fav/resource/list"] = (q) => (lists.push(q.get("pn")), { code: 0, data: { has_more: true, medias: (q.get("pn") === "1" ? [D, A] : [B, C]).map((b, i) => ({ type: 2, id: i + 1, bvid: b, title: b, attr: 0 })) } });
+  await M.sync({ start: true, folders: ["11"] });
+  await idle();
+  assert.deepStrictEqual(lists, ["1", "2"], "page 2 holds no new video: the rest is the copy");
+  assert.deepStrictEqual(plain([...local[K.triageSnapshot("11")].bvids].sort()), [A, B, C, D].sort());
 });
 
 check("a read B站 cuts short is not saved; B站's limit stops the run and says so; a folder not ticked is not read", async () => {
