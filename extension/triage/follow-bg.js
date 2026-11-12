@@ -25,7 +25,7 @@
 //   一个视频都没有的再查 x/space/upstat 的视频播放量（views）：大于 0 是发过视频、现在全没了（投稿已清空）；查不到就不记 views，下次再查。
 //   投稿已清空的人又有了视频（UP 回归：动态里出现或这次查到）记进 follow_jobs.posted。
 //   follow_jobs.cur 是正在查的人。做完写 follow_jobs.statusAt：更新状态已齐，界面不用等第 4 步。
-// 4 stats：每个关注的人的粉丝数（x/relation/stat）→ follow_stats；7 天内查过的跳过。
+// 4 stats：每个关注的人的粉丝数（x/relation/stats，一次 20 人）→ follow_stats；7 天内查过的跳过。
 // 所有 GET 共用一个队列（间隔 1–1.5 秒），30 秒没回应算断网；风控（412、429、-352/-412/-799/-509）整队暂停 90 秒重试，第三次报 THROTTLED。
 // 被风控拦过之后放慢：之后 10 分钟间隔改成 3 秒，再被拦就从那时重新算（follow_jobs.slowUntil，界面写「B站限流变慢」）。
 // follow_jobs.state 是同步的阶段（idle / running / holding / stopped / failed / done），每次写入走 follow-core.js 的 SYNC_STEPS 表（followSyncStep）：
@@ -546,15 +546,18 @@ async function followSyncJob(ctx) {
   await followStatsPhase(ctx);
 }
 
-// 一个 UP 主的请求失败了（查投稿、粉丝数）：THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下整个同步；账号没了记下来
+// 查一个 UP 主的投稿失败了：THROTTLED / NETWORK / STOPPED / NOT_LOGGED_IN 停下整个同步；账号没了记下来
 // （empty 加上 B站 的码）；其他（WBI -403、HTTP 5xx…）是暂时的，返回 null：不记，下次再查。
 function followGoneRecord(e, empty) {
   if (typeof e.code === "string") throw e;
   return FOLLOW_GONE_CODES.has(e.code) ? { code: e.code, ...empty } : null;
 }
 
-// 第 4 步：每个关注的人的粉丝数（x/relation/stat，一人一次）→ follow_stats。7 天内查过的跳过，所以接着跑不重查。
+// 第 4 步：每个关注的人的粉丝数 → follow_stats。x/relation/stats 一次查 FOLLOW_STATS_BATCH 人（21 人 B站 回 -400，
+// 2026-11-12 实测），4000 人 200 个请求。注销的账号和不存在的 mid 也照样给数，所以结果里缺了谁、或整批出错（风控、断网等
+// 字符串码之外的），都算这次没查到，下次再查；一批都没查到就报出最后那个错，不当作查完了。7 天内查过的跳过，所以接着跑不重查。
 const FOLLOW_STATS_DAYS = 7;
+const FOLLOW_STATS_BATCH = 20;
 async function followStatsPhase(ctx) {
   const s = await MdgLimits.followGet(["list", "stats"]);
   const have = s.stats || {};
@@ -565,24 +568,28 @@ async function followStatsPhase(ctx) {
   // The pill adds done/total itself.
   const step = () => `查粉丝数${followSkippedText(skipped)}`;
   await ctx.progress({ phase: "stats", step: step(), done, total: targets.length, skipped });
-  for (const mid of targets) {
-    if (known(mid)) continue;
-    let rec;
+  const todo = targets.filter((m) => !known(m));
+  let failed = null;
+  let any = false;
+  for (let i = 0; i < todo.length; i += FOLLOW_STATS_BATCH) {
+    const mids = todo.slice(i, i + FOLLOW_STATS_BATCH);
+    let d = {};
     try {
-      const d = await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stat?vmid=${mid}`));
-      rec = { follower: Number(d?.follower) || 0 };
+      d = (await ctx.get(() => followGetData(`${FOLLOW_API}/x/relation/stats?mids=${mids.join(",")}`))) || {};
     } catch (e) {
-      rec = followGoneRecord(e, { follower: 0 });
-      if (!rec) {
-        skipped++;
-        await ctx.progress({ skipped, step: step() });
-        continue;
-      }
+      if (typeof e.code === "string") throw e;
+      failed = e;
     }
-    await followUpdate(["stats"], (st) => ({ stats: { ...st.stats, [mid]: { ...rec, at: followNow() } } }));
-    done++;
-    await ctx.progress({ done, step: step() });
+    const at = followNow();
+    const got = Object.fromEntries(mids.filter((m) => typeof d[m]?.follower === "number").map((m) => [m, { follower: d[m].follower, at }]));
+    const n = Object.keys(got).length;
+    if (n) await followUpdate(["stats"], (st) => ({ stats: { ...st.stats, ...got } }));
+    any ||= n > 0;
+    done += n;
+    skipped += mids.length - n;
+    await ctx.progress({ done, skipped, step: step() });
   }
+  if (failed && !any) throw failed;
 }
 
 const FOLLOW_ALARM = "follow-keepalive";

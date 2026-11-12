@@ -120,6 +120,36 @@
     const old = new Set(oldIds);
     return ids.every((b) => old.has(b) || got.has(b)) ? items : null;
   }
+  // bvid → { item, from } for the videos MoonDigest already holds (pure): the other chosen folders' cached lists
+  // ([[folderId, items]], from: its id), then 已出分拣范围's records (from: removedFrom).
+  function heldItems(lists, removed, removedFrom) {
+    const local = new Map();
+    for (const [id, items] of lists) for (const item of items || []) if (!local.has(item.bvid)) local.set(item.bvid, { item, from: id });
+    for (const [bvid, rec] of Object.entries(removed || {})) if (!local.has(bvid)) local.set(bvid, { item: rec.item, from: removedFrom });
+    return local;
+  }
+  // Changed ids without the full load, for the 分拣台 page and the Agent's sync (agent-sync.js): removed videos leave the
+  // cached list (snap), added ones come from local (heldItems) when MoonDigest already holds them, and only truly new
+  // ones are read from the newest part of the list: readHead(known) answers like the triage-folder-items message with
+  // known, { ok, data: { items, head?, info } } or a failure. That answer is returned as it is when it is not a head
+  // (a failure, or the whole folder read); null when an added id is found nowhere (a new favorite deep in the list), so
+  // the caller loads the whole folder.
+  async function cachedRead(snap, ids, local, readHead) {
+    const old = snap.ids || snap.bvids;
+    const oldSet = new Set(old);
+    const added = ids.filter((b) => !oldSet.has(b));
+    const moved = added.filter((b) => local.has(b)).map((b) => local.get(b).item);
+    let head = [];
+    let info = { intro: snap.intro };
+    if (moved.length < added.length) {
+      const r = await readHead([...snap.bvids, ...moved.map((it) => it.bvid)]);
+      if (!r.ok || !r.data.head) return r;
+      head = r.data.items;
+      info = r.data.info || info;
+    }
+    const items = mergeHead(head, [...moved, ...snap.items], old, ids);
+    return items && { ok: true, data: { items, ids, info } };
+  }
   // A 取消收藏's elsewhere (pure): still in a chosen folder other than its own. lists = { folderId: bvids, or null while
   // the folder has no full list cached }, the chosen folders but 稍后再看; byFolder = { folderId: decisions }. Returns
   // { folderId: { bvid: record } } of the records whose elsewhere changes. A video in no known list stays as recorded
@@ -185,5 +215,5 @@
   const ZONES = new Map(Object.entries(ZONE_TIDS).flatMap(([name, tids]) => tids.map((tid) => [tid, name])));
   const zoneName = (tid) => ZONES.get(Number(tid)) || "";
 
-  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zoneName };
+  globalThis.TriageCore = { refavorited, mergeFolderItems, updateRemoved, moveToRemoved, inferFrom, forgetLeft, noteLeft, keepInvalidInfo, idsChanged, mergeHead, heldItems, cachedRead, refreshElsewhere, unfavOnly, mdLinkText, oneLine, mdLink, wikiLink, zoneName };
 })();

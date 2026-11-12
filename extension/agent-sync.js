@@ -13,17 +13,31 @@
   // In memory: a restarted worker has no read running.
   let job = null;
 
-  // One folder: unchanged when B站's id list still equals the copy's (one request), else read whole and saved. A list
-  // B站 cut short is not saved: a partial list must not pass for the folder.
+  // The worker's triage-folder-items as the page's send() answers it.
+  const folderItems = async (mediaId, known) => ({ ok: true, data: await TRIAGE_HANDLERS["triage-folder-items"]({ mediaId, known }) });
+
+  // One folder: unchanged when B站's id list still equals the copy's (one request). Changed, only the difference is read
+  // when it can be, as the 分拣台 page does (TriageCore.cachedRead: videos MoonDigest holds elsewhere, then the newest
+  // pages), else the folder is read whole. Saved either way; a list B站 cut short is not: a partial list must not pass for
+  // the folder.
   async function readFolder(id, title) {
     const writes = MdgAgentQueue.writes();
     const key = K.triageSnapshot(id);
     const old = (await chrome.storage.local.get(key))[key];
+    let r = null;
+    let ids = null;
     if (old && id !== TRIAGE_TOVIEW) {
-      const ids = await triageFolderIds(id);
+      ids = await triageFolderIds(id);
       if (!TriageCore.idsChanged(old.ids || old.bvids || [], ids)) return "unchanged";
     }
-    const r = await TRIAGE_HANDLERS["triage-folder-items"]({ mediaId: id });
+    // A copy without items, or from before the intro was kept, is read whole, as the page reads it (openCached).
+    if (ids && old.items && old.intro !== undefined) {
+      const others = (await included()).filter((f) => f !== id);
+      const got = await chrome.storage.local.get([K.triageRemoved, ...others.map(K.triageSnapshot)]);
+      const local = TriageCore.heldItems(others.map((f) => [f, got[K.triageSnapshot(f)]?.items]), got[K.triageRemoved], "removed");
+      r = (await TriageCore.cachedRead(old, ids, local, (known) => folderItems(id, known)))?.data || null;
+    }
+    r ||= (await folderItems(id)).data;
     if (r.partial) return "partial";
     const items = TriageCore.keepInvalidInfo(r.items, old?.items);
     // Saved in the Agent's write queue, and not at all when a write started while this was reading: the list may be from
