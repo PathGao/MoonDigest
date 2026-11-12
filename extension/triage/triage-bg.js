@@ -946,6 +946,20 @@ const triageRes = (v) => {
   return { rid, type: Number(type), resource: `${rid}:${type}` };
 };
 const triageAids = (v) => (Array.isArray(v) && v.every(triageResOk) ? v : []);
+// Bilibili adds at most this many videos to a folder in one request (resource/batch-deal: 11 add the first 10 and fail
+// with -702, 2026-11-12), and 稍后再看's removal takes as many (toview/del with aids joined by commas).
+const TRIAGE_DEAL_MAX = 10;
+const triageDealParts = (list) => Array.from({ length: Math.ceil(list.length / TRIAGE_DEAL_MAX) }, (_, i) => list.slice(i * TRIAGE_DEAL_MAX, (i + 1) * TRIAGE_DEAL_MAX));
+// One video goes through resource/deal, as before batching: its refusal (稿件不存在…) is that video's, which the MCP's
+// undo, adding one at a time, goes on past.
+const triageDeal = (aids, mediaId) => {
+  if (aids.length === 1) {
+    const { rid, type } = triageRes(aids[0]);
+    return triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: mediaId, del_media_ids: "" });
+  }
+  return triageBiliPost("/x/v3/fav/resource/batch-deal", { resources: aids.map((a) => triageRes(a).resource).join(","), add_media_ids: mediaId, del_media_ids: "", platform: "web" });
+};
+const triageToviewDel = (aids) => triageBiliPost("/x/v2/history/toview/del", { aid: aids.map((a) => triageRes(a).rid).join(",") });
 // The inverse of sites.js biliAvToBv; "" for anything that is not a BV id. A type-24 favorite's id is its episode id,
 // so its archive aid comes from the list's (correct) bvid.
 function triageBvToAv(bvid) {
@@ -1110,7 +1124,7 @@ const TRIAGE_HANDLERS = {
     const list = triageAids(aids);
     if (!triageFolderId(mediaId) || !list.length) throw triageError("缺少 mediaId 或 aids");
     if (mediaId === TRIAGE_TOVIEW) {
-      for (const a of list) await triageBiliPost("/x/v2/history/toview/del", { aid: triageRes(a).rid });
+      for (const part of triageDealParts(list)) await triageToviewDel(part);
       return { done: list.length };
     }
     await triageBiliPost("/x/v3/fav/resource/batch-del", {
@@ -1121,35 +1135,36 @@ const TRIAGE_HANDLERS = {
     return { done: list.length };
   },
 
-  "triage-refav": async ({ mediaId, aid }) => {
-    if (!triageFolderId(mediaId) || !triageResOk(aid)) throw triageError("缺少 mediaId 或 aid");
+  // aids (or one aid) back into mediaId: a folder takes TRIAGE_DEAL_MAX a request, 稍后再看 one.
+  "triage-refav": async ({ mediaId, aid, aids }) => {
+    const list = triageAids(aids ?? [aid]);
+    if (!triageFolderId(mediaId) || !list.length) throw triageError("缺少 mediaId 或 aid");
     if (mediaId === TRIAGE_TOVIEW) {
-      await triageBiliPost("/x/v2/history/toview/add", { aid: triageRes(aid).rid });
+      for (const a of list) await triageBiliPost("/x/v2/history/toview/add", { aid: triageRes(a).rid });
       return {};
     }
-    const { rid, type } = triageRes(aid);
-    await triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: mediaId, del_media_ids: "" });
+    for (const part of triageDealParts(list)) await triageDeal(part, mediaId);
     return {};
   },
 
   // 移动 / 复制 to another folder (never 稍后再看); without from, just 收藏 into it (videos from 已出分拣范围).
-  // From 稍后再看 or nowhere there is no batch endpoint: add one by one, then remove. The page sends one video per
-  // request from 稍后再看. A removal that B站 limits is thrown as it is: the run waits and sends the same video again (the
-  // add is idempotent). Any other failed removal is not undone and not a failure: the video is in the target and still
-  // in 稍后再看, answered as stayed (its aids) with the reason, so the page shows it copied rather than moved.
+  // From 稍后再看 or nowhere there is no move endpoint: add (TRIAGE_DEAL_MAX a request), then take them out of 稍后再看
+  // in one request; the page sends that many per chunk. A removal that B站 limits is thrown as it is: the run waits and
+  // sends the same chunk again (the add is idempotent). Any other failed removal is not undone and not a failure: the
+  // videos are in the target and still in 稍后再看, answered as stayed (their aids) with the reason, so the page shows
+  // them copied rather than moved.
   "triage-transfer": async ({ from, to, aids, move }) => {
     const list = triageAids(aids);
     if (!triageNumId(to) || (from && !triageFolderId(from)) || String(from) === String(to) || !list.length) throw triageError("缺少目标或 aids");
     if (!from || from === TRIAGE_TOVIEW) {
       const stayed = [];
       let stayedError = "";
-      for (const aid of list) {
-        const { rid, type } = triageRes(aid);
-        await triageBiliPost("/x/v3/fav/resource/deal", { rid, type, add_media_ids: to, del_media_ids: "" });
+      for (const part of triageDealParts(list)) {
+        await triageDeal(part, to);
         if (move && from) {
-          await triageBiliPost("/x/v2/history/toview/del", { aid: rid }).catch((e) => {
+          await triageToviewDel(part).catch((e) => {
             if (e.code === MdgErrors.CODE.THROTTLED) throw e;
-            stayed.push(aid);
+            stayed.push(...part);
             stayedError = e.message;
           });
         }

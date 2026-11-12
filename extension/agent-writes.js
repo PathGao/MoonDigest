@@ -325,13 +325,14 @@
     return bvids.map((b) => by.get(b));
   }
 
-  // One run of B站 requests over items, a chunk per request, until the call's time or B站's limit ends it: send(chunk)
+  // One run of B站 requests over items, a chunk of size per request (20 for a folder's batch endpoints, TRIAGE_DEAL_MAX
+  // where B站 adds to a folder or takes out of 稍后再看, 1 for 稍后再看's add), until the call's time or B站's limit ends
+  // it: send(chunk)
   // makes the request (triage-bg.js's handler, as the 分拣台 sends it), then landed(chunk, reply) keeps the local
   // records. Resolves { done: the items written, failed: those B站 said no to (skip, one at a time), stopped?:
   // "TIMEOUT" | "THROTTLED" }; another error is thrown with .done, the items written before it.
-  async function run(items, one, deadline, send, landed, { skip = false } = {}) {
-    const size = one ? 1 : 20;
-    const gap = one ? 300 : 1000;
+  async function run(items, size, deadline, send, landed, { skip = false } = {}) {
+    const gap = size === 1 ? 300 : 1000;
     const done = [];
     const failed = [];
     for (let i = 0; i < items.length; i += size) {
@@ -345,7 +346,7 @@
         if (e.code === MdgErrors.CODE.THROTTLED) return { done, failed, stopped: "THROTTLED" };
         // B站 said no to this one video (deleted, say): an undo goes on with the others. A request that failed (HTTP
         // 500, no JSON) is not that, and stops the run as any error.
-        if (skip && one && e.refused) {
+        if (skip && size === 1 && e.refused) {
           failed.push(...chunk);
           continue;
         }
@@ -363,7 +364,7 @@
   // 移动 / 复制 from → to, records kept as the 分拣台's transfer keeps them. Resolves run's result.
   async function transfer(from, to, items, move, deadline) {
     const [fromName, toName] = [await titleOf(from), await titleOf(to)];
-    return run(items, from === TOVIEW, deadline,
+    return run(items, from === TOVIEW ? TRIAGE_DEAL_MAX : 20, deadline,
       (chunk) => TRIAGE_HANDLERS["triage-transfer"]({ from, to, aids: chunk.map(res), move }),
       (chunk, reply) => R.lock(async () => {
         const chosen = await chosenIds();
@@ -383,7 +384,7 @@
 
   // Out of a folder with no 取消收藏 record (a 复制 undone): the cached list just loses them.
   const remove = (folder, items, deadline) =>
-    run(items, folder === TOVIEW, deadline,
+    run(items, folder === TOVIEW ? TRIAGE_DEAL_MAX : 20, deadline,
       (chunk) => TRIAGE_HANDLERS["triage-unfav"]({ mediaId: folder, aids: chunk.map(res) }),
       (chunk) => R.lock(() => R.patchSnapshotNow(folder, { drop: chunk.map((it) => it.bvid) })));
 
@@ -394,14 +395,15 @@
     const others = chosen.filter((id) => id !== folder && id !== TOVIEW);
     const got = await chrome.storage.local.get(others.map(K.triageSnapshot));
     const elsewhere = new Set(others.flatMap((id) => got[K.triageSnapshot(id)]?.bvids || []));
-    return run(items, folder === TOVIEW, deadline,
+    return run(items, folder === TOVIEW ? TRIAGE_DEAL_MAX : 20, deadline,
       (chunk) => TRIAGE_HANDLERS["triage-unfav"]({ mediaId: folder, aids: chunk.map(res) }),
       (chunk) => chosen.includes(folder) && R.lock(() => R.patchDecisionsNow(folder, Object.fromEntries(chunk.map((it) => [it.bvid, R.unfavRecord(it, Date.now(), batch, elsewhere.has(it.bvid))])))));
   }
 
-  // Back into the folder, one per request (B站 has no batch for it); its 取消收藏 record goes.
+  // Back into the folder, one per request, so a video B站 refuses (deleted, say) is skipped and the others go on; its
+  // 取消收藏 record goes.
   const refav = (folder, items, deadline) =>
-    run(items, true, deadline,
+    run(items, 1, deadline,
       ([it]) => TRIAGE_HANDLERS["triage-refav"]({ mediaId: folder, aid: res(it) }),
       ([it]) => R.lock(async () => {
         await R.patchDecisionsNow(folder, { [it.bvid]: null });
@@ -567,7 +569,7 @@
     const old = op === "move" ? items.filter((it) => had.has(it.bvid)) : [];
     // 稍后再看 takes no 移动: each goes back into it, then out of the target.
     if (op === "move" && from === TOVIEW) {
-      const r = await run(items, true, deadline,
+      const r = await run(items, 1, deadline,
         async ([it]) => {
           await TRIAGE_HANDLERS["triage-refav"]({ mediaId: TOVIEW, aid: res(it) });
           if (!had.has(it.bvid)) await TRIAGE_HANDLERS["triage-unfav"]({ mediaId: to, aids: [res(it)] });

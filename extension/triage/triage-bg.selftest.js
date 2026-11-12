@@ -817,7 +817,19 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.fetch = realFetch;
     calls.length = 0;
     await H["triage-transfer"]({ from: "", to: "2", aids: [10, 11], move: false });
-    assert.deepStrictEqual(calls.splice(0).map((c) => c[0]), ["/x/v3/fav/resource/deal", "/x/v3/fav/resource/deal"]);
+    assert.deepStrictEqual(calls.splice(0), [["/x/v3/fav/resource/batch-deal", { resources: "10:2,11:2", add_media_ids: "2", del_media_ids: "", platform: "web", csrf: "csrf" }]], "several videos added in one request");
+    // B站 adds at most 10 a request (11 add the first 10 and fail): 12 go as 10, then the last 2; 稍后再看's removal
+    // follows each add with the same videos.
+    const twelve = Array.from({ length: 12 }, (_, i) => 100 + i);
+    await H["triage-transfer"]({ from: "toview", to: "2", aids: twelve, move: true });
+    assert.deepStrictEqual(calls.splice(0).map(([p, f]) => [p, (f.resources || f.aid).split(",").length]), [
+      ["/x/v3/fav/resource/batch-deal", 10], ["/x/v2/history/toview/del", 10], ["/x/v3/fav/resource/batch-deal", 2], ["/x/v2/history/toview/del", 2]
+    ]);
+    await H["triage-unfav"]({ mediaId: "toview", aids: twelve.slice(0, 11) });
+    await H["triage-refav"]({ mediaId: "1", aids: twelve.slice(0, 3) });
+    assert.deepStrictEqual(calls.splice(0).map(([p, f]) => [p, (f.resources || f.aid).split(",").length]), [
+      ["/x/v2/history/toview/del", 10], ["/x/v2/history/toview/del", 1], ["/x/v3/fav/resource/batch-deal", 3]
+    ]);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "toview", aids: [10], move: true }), /缺少目标/);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "1", aids: [10], move: true }), /缺少目标/);
     // C528: an id that is not digits never reaches B站's form fields (an aid "10:2,99" would add a resource).
@@ -868,8 +880,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
       ["/x/v3/fav/resource/deal", "714816118:42"],
       ["/x/v3/fav/folder/created/list-all", "714816118:42"],
       ["/x/v3/fav/folder/created/list-all", "10:2"],
-      ["/x/v2/history/toview/del", "714816118"],
-      ["/x/v2/history/toview/del", "10"],
+      ["/x/v2/history/toview/del", "714816118,10"],
       ["/x/v2/history/toview/add", "714816118"],
       ["/x/v3/fav/resource/deal", "714816118:42"],
       ["/x/v2/history/toview/del", "714816118"]
