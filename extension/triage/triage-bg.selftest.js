@@ -830,6 +830,12 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     assert.deepStrictEqual(calls.splice(0).map(([p, f]) => [p, (f.resources || f.aid).split(",").length]), [
       ["/x/v2/history/toview/del", 10], ["/x/v2/history/toview/del", 1], ["/x/v3/fav/resource/batch-deal", 3]
     ]);
+    // -702 to a batch add is B站's limit (two adds too close together add nothing): THROTTLED, so the run waits and
+    // sends the same chunk again.
+    const plainFetch = t.fetch;
+    t.fetch = async (url, opts) => (/batch-deal/.test(url) ? { ok: true, status: 200, json: async () => ({ code: -702, message: "请求频率过高，请稍后再试" }) } : plainFetch(url, opts));
+    await assert.rejects(H["triage-refav"]({ mediaId: "1", aids: [10, 11] }), (e) => e.code === "THROTTLED");
+    t.fetch = plainFetch;
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "toview", aids: [10], move: true }), /缺少目标/);
     await assert.rejects(H["triage-transfer"]({ from: "1", to: "1", aids: [10], move: true }), /缺少目标/);
     // C528: an id that is not digits never reaches B站's form fields (an aid "10:2,99" would add a resource).

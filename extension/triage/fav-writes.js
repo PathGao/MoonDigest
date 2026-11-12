@@ -124,15 +124,15 @@ const W = MdgWrites.create({
   line: favLine,
   settleMs: globalThis.__TRIAGE_SETTLE_MS // the selftest's; undefined leaves writes.js's 3 s
 });
-// Chunks a second apart. Bilibili takes 10 videos a request where it adds them to a folder (收藏 / 恢复收藏, and 移动 /
-// 复制 out of 稍后再看: resource/batch-deal; 11 add the first 10 and fail, 2026-11-12) or takes them out of 稍后再看;
-// its other batch endpoints take 20. Adding to 稍后再看 is one video a request. Each chunk is one request (or one add and
-// one removal), all or nothing, so the count stays exact on a failure.
+// Bilibili takes 10 videos a request where it adds them to a folder (收藏 / 恢复收藏, and 移动 / 复制 out of 稍后再看:
+// resource/batch-deal) or takes them out of 稍后再看, those requests 3 s apart (triage-bg.js TRIAGE_DEAL_MAX, _GAP_MS);
+// its other batch endpoints take 20, a second apart. Adding to 稍后再看 is one video a request. Each chunk is one request
+// (or one add and one removal), all or nothing, so the count stays exact on a failure.
 const DEAL_MAX = 10;
-const CHUNK_GAP = 1000;
+const DEAL_GAP = 3000;
 function chunksOf(items, size, make) {
   const out = [];
-  for (let i = 0; i < items.length; i += size) out.push({ ...make(items.slice(i, i + size)), gap: CHUNK_GAP });
+  for (let i = 0; i < items.length; i += size) out.push({ ...make(items.slice(i, i + size)), gap: size === DEAL_MAX ? DEAL_GAP : 1000 });
   return out;
 }
 const refavChunks = (f, items) =>
