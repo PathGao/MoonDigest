@@ -392,6 +392,7 @@ const runSync = async () => {
     // a later sync reads by group: one page of members, followings page 1 for the total, nothing written midway
     routes["/x/relation/tags"] = () => json({ code: 0, data: [{ tagid: -10, count: 0 }, { tagid: 0, count: 3 }] });
     routes["/x/relation/followings"] = ok;
+    local.follow_list.followTime[3] = 7; // 3 is not on followings page 1: its stored time stays
     const writes = [];
     const set = t.chrome.storage.local.set;
     t.chrome.storage.local.set = async (o) => ("follow_list" in o && writes.push(o.follow_list.list.length), set(o));
@@ -399,9 +400,20 @@ const runSync = async () => {
     await runSync();
     t.chrome.storage.local.set = set;
     assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
-    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/")), ["relation/tags", "relation/tag#1", "relation/tag#1", "relation/followings#1"]);
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/")), ["relation/tags", "relation/tag#1", "relation/followings#1"], "an empty group is not read; page 1 has nobody new");
     assert.deepStrictEqual(writes, [3], "the list is written once, when read whole");
-    assert.deepStrictEqual(plain(local.follow_list.list), ["3", "2", "1"]);
+    assert.deepStrictEqual(plain(local.follow_list.followTime), { 1: 101, 2: 102, 3: 7 }, "times from followings page 1, else the stored one");
+    assert.deepStrictEqual(plain(local.follow_list.list), ["2", "1", "3"]);
+
+    // A group's page 1 empty although it has members (risk control): asked again, not taken as nobody.
+    let empties = 1;
+    const members = groupMembers;
+    routes["/x/relation/tag"] = (u) => (empties-- > 0 ? json({ code: 0, data: [] }) : members(u));
+    calls = [];
+    await runSync();
+    delete routes["/x/relation/tag"];
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/tag#")), ["relation/tag#1", "relation/tag#1"]);
+    assert.strictEqual(calls.filter((c) => c.startsWith("relation/followings")).length, 1, "the second answer is whole: no page-by-page read");
     assert.ok(local.follow_list.complete);
 
     // members and followings disagree on the count (a follow meanwhile): read followings page by page

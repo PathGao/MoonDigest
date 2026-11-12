@@ -333,20 +333,23 @@ function followAddPerson(fresh, people, x) {
   people[mid] = { mid, name: x.uname || "", face: x.face || "", sign: String(x.sign || "").slice(0, 60), ov: x.official_verify?.desc || "" };
 }
 
-// 按分组读全部关注：x/relation/tag 一页给 500 人，每个分组读到不满一页为止。分进自己分组的人不在默认分组里，
-// 所有分组合起来就是全部关注（2026-11-12 实测），按 mid 去重。4000 人约 10 个请求，逐页读 followings 要 80 个。
-// 分组成员不带关注时间（fresh.followTime 为空）。同步的第 1 步和 MCP 的 get_follows（agent-mydata.js）都用它。
-// get 是调用方的请求包装（同步的 ctx.get 能被停止打断），onPage(已读人数) 每读一页调一次，getData(url) 发请求：同步走关注的队列
-// （限流时整队暂停重试），MCP 传自己的（限流直接报 THROTTLED，不超过一次调用的时限）。
+// 按分组读全部关注：x/relation/tag 一页给 500 人，每个分组读到不满一页为止，x/relation/tags 说没人的分组不读。分进自己分组的人
+// 不在默认分组里，所有分组合起来就是全部关注（2026-11-12 实测），按 mid 去重。4000 人约 10 个请求，逐页读 followings 要 80 个。
+// 分组成员不带关注时间（fresh.followTime 为空）。读全没有，由调用方拿 followings 的总数核对（followListByGroups，MCP 的 follows）。
+// 同步的第 1 步和 MCP 的 get_follows（agent-mydata.js）都用它。get 是调用方的请求包装（同步的 ctx.get 能被停止打断），
+// onPage(已读人数) 每读一页调一次，getData(url) 发请求：同步走关注的队列（限流时整队暂停 90 秒重试），MCP 传自己的（限流直接报 THROTTLED）。
 const FOLLOW_GROUP_PS = 500;
 async function followReadGroups(get, onPage = async () => {}, getData = followGetData) {
   const fresh = { list: [], followTime: {}, special: {}, groups: {} };
   const people = {};
   const tags = await get(() => getData(`${FOLLOW_API}/x/relation/tags`));
   for (const g of Array.isArray(tags) ? tags : []) {
+    if (!(Number(g.count) > 0)) continue;
     // ponytail: 20 页 = 10000 人，超过 B站 5000 人的关注上限
     for (let pn = 1; pn <= 20; pn++) {
-      const page = (await get(() => getData(`${FOLLOW_API}/x/relation/tag?${followQuery({ tagid: g.tagid, pn, ps: FOLLOW_GROUP_PS })}`))) || [];
+      const url = `${FOLLOW_API}/x/relation/tag?${followQuery({ tagid: g.tagid, pn, ps: FOLLOW_GROUP_PS })}`;
+      // 有人的分组第 1 页回空，可能是风控：等一下再问一次（followAgain）。
+      const page = (await get(() => followAgain(() => getData(url), (p) => pn === 1 && !p?.length))) || [];
       for (const x of page) followAddPerson(fresh, people, x);
       await onPage(fresh.list.length);
       if (page.length < FOLLOW_GROUP_PS) break;
@@ -355,8 +358,9 @@ async function followReadGroups(get, onPage = async () => {}, getData = followGe
   return { fresh, people, tags };
 }
 
-// 已有完整名单时第 1 步按分组读（followReadGroups）。关注时间：新关注的人排在 followings 最前面，从第 1 页读到某页没有新人为止；
-// 旧人沿用存着的。合起来的人数和 followings 的总数对不上（读的时候关注有变化，或分组接口少给了），返回 null，由调用方逐页整份重读。
+// 已有完整名单时第 1 步按分组读（followReadGroups）。关注时间：新关注的人排在 followings 最前面，从第 1 页读到某页没有新人为止，
+// 读到的人都用 followings 的时间（取关后又关注的人排在前面，时间也更新）；没读到的沿用存着的。合起来的人数和 followings 的总数
+// 对不上（读的时候关注有变化，或分组接口少给了），返回 null，由调用方逐页整份重读。
 async function followListByGroups(ctx, vmid, stored) {
   const { fresh, people, tags } = await followReadGroups(ctx.get, (done) => ctx.progress({ done }));
   const old = new Set(stored.list || []);
@@ -366,9 +370,8 @@ async function followListByGroups(ctx, vmid, stored) {
     if (j.code !== 0) throw followCodeError(j, "读取关注列表失败：");
     const page = j.data?.list || [];
     if (pn === 1) total = Number(j.data?.total) || 0;
-    const news = page.filter((x) => !old.has(String(x.mid)));
-    for (const x of news) if (x.mtime) fresh.followTime[String(x.mid)] = Number(x.mtime);
-    if (!news.length) break;
+    for (const x of page) if (x.mtime) fresh.followTime[String(x.mid)] = Number(x.mtime);
+    if (!page.some((x) => !old.has(String(x.mid)))) break;
   }
   if (fresh.list.length !== total) return null;
   for (const m of fresh.list) if (!fresh.followTime[m] && stored.followTime?.[m]) fresh.followTime[m] = stored.followTime[m];

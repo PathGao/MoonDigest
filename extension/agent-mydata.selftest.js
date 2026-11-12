@@ -59,7 +59,7 @@ ctx.fetch = async (url, init = {}) => {
 };
 const READS = new Set([
   "/x/web-interface/nav", "/x/v3/fav/folder/created/list", "/x/v2/history/toview/web", "/x/v2/history/toview",
-  "/x/v3/fav/resource/list", "/x/relation/tag", "/x/relation/tags", "/x/web-interface/history/cursor"
+  "/x/v3/fav/resource/list", "/x/relation/tag", "/x/relation/followings", "/x/relation/tags", "/x/web-interface/history/cursor"
 ]);
 const ok = (data) => () => json({ code: 0, data });
 const baseRoutes = () => ({
@@ -73,7 +73,11 @@ const baseRoutes = () => ({
   ] })(),
   // A group's members: 2 is in 特别关注 and in none of their own groups, so in 默认分组 too (listed twice, counted once).
   "/x/relation/tag": (u) => ok({ "-10": [{ mid: 2, uname: "乙", sign: "", tag: null, special: 1 }], 0: [{ mid: 2, uname: "乙", sign: "", tag: null, special: 1 }], 5: [{ mid: 1, uname: "甲", sign: "写 Rust", tag: [5], special: 0 }] }[u.searchParams.get("tagid")] || [])(),
-  "/x/relation/tags": ok([{ tagid: 0, name: "默认分组" }, { tagid: 5, name: "编程" }, { tagid: -10, name: "特别关注" }]),
+  "/x/relation/followings": ok({ total: 2, list: [
+    { mid: 1, uname: "甲", sign: "写 Rust", tag: [5], special: 0 },
+    { mid: 2, uname: "乙", sign: "", tag: null, special: 1 }
+  ] }),
+  "/x/relation/tags": ok([{ tagid: 0, name: "默认分组", count: 1 }, { tagid: 5, name: "编程", count: 1 }, { tagid: -10, name: "特别关注", count: 1 }, { tagid: 6, name: "空", count: 0 }]),
   "/x/web-interface/history/cursor": ok({ cursor: { max: 999, view_at: 1700000500, business: "archive" }, list: [
     { title: "看过的", author_name: "UPh", view_at: 1700000600, progress: -1, duration: 300, history: { business: "archive", bvid: "BV1hist00001" } },
     { title: "直播", author_name: "主播", view_at: 1700000550, progress: 0, duration: 0, uri: "https://live.bilibili.com/1", history: { business: "live" } }
@@ -181,6 +185,13 @@ check("follows: the synced list with groups and UP 标签, query on it", async (
   assert.deepStrictEqual((await M.follows({ query: "硬核" })).data.items.map((u) => u.mid), ["1"]);
 });
 
+check("follows without a synced list: groups short of followings' total fall back to one followings page, not kept", async () => {
+  routes["/x/relation/followings"] = ok({ total: 3, list: [{ mid: 1, uname: "甲", sign: "写 Rust", tag: [5], special: 0 }] });
+  const r = await M.follows({ query: "x" });
+  assert.deepStrictEqual(plain(r.data), { source: "bilibili", queryIgnored: true, total: 3, page: 1, hasMore: false, items: [{ mid: "1", name: "甲", sign: "写 Rust", groups: ["编程"] }] });
+  // not kept: the next check (followings whole again) reads the groups again
+});
+
 check("follows without a synced list: B站's list read whole by group, as the 分拣台 reads it; query works", async () => {
   const r = await M.follows({});
   // In B站's group order: no follow time comes with a group's members.
@@ -188,12 +199,13 @@ check("follows without a synced list: B站's list read whole by group, as the �
     { mid: "2", name: "乙", sign: "", groups: ["特别关注", "默认分组"] },
     { mid: "1", name: "甲", sign: "写 Rust", groups: ["编程"] }
   ] });
-  assert.deepStrictEqual(fetched.map((f) => { const u = new URL(f.url); return u.pathname + (u.searchParams.has("tagid") ? `#${u.searchParams.get("tagid")}` : ""); }), ["/x/relation/tags", "/x/relation/tag#0", "/x/relation/tag#5", "/x/relation/tag#-10"]);
+  assert.deepStrictEqual(fetched.map((f) => { const u = new URL(f.url); return u.pathname + (u.searchParams.has("tagid") ? `#${u.searchParams.get("tagid")}` : ""); }), ["/x/relation/tags", "/x/relation/tag#0", "/x/relation/tag#5", "/x/relation/tag#-10", "/x/web-interface/nav", "/x/relation/followings"], "an empty group is not read; followings' total checks the list is whole");
   assert.strictEqual(new URL(fetched[1].url).searchParams.get("ps"), "500");
   fetched.length = 0;
   assert.deepStrictEqual(plain((await M.follows({ query: "rust" })).data.items.map((u) => u.mid)), ["1"]);
   assert.strictEqual(fetched.length, 0, "a second call within minutes pages the list already read");
 });
+
 
 check("history: one page, cursor round trip", async () => {
   const r = await M.history({});
