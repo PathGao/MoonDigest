@@ -48,7 +48,7 @@ t.fetch = async (url, init = {}) => {
   }
   const u = new URL(url);
   calls.push(u.pathname.replace(/^\/x\//, "") + (u.searchParams.get("mid") ? `#${u.searchParams.get("mid")}` : u.searchParams.has("pn") ? `#${u.searchParams.get("pn")}` : u.searchParams.has("offset") ? `#${u.searchParams.get("offset") || "0"}` : ""));
-  const r = routes[u.pathname];
+  const r = routes[u.pathname] || (u.pathname === "/x/relation/tag" && routes["/x/relation/followings"] && groupMembers);
   if (!r) throw new Error(`no route ${u.pathname}`);
   return r(u);
 };
@@ -58,6 +58,23 @@ const person = (mid, extra = {}) => ({ mid: Number(mid), uname: `UP${mid}`, face
 const followings = (pages, total) => (u) => json({ code: 0, data: { total, list: pages[Number(u.searchParams.get("pn")) - 1] || [] } });
 // x/relation/stats: { mid: { mid, follower } } for the mids asked; follower(mid) undefined leaves that mid out.
 const statsOf = (follower) => (u) => json({ code: 0, data: Object.fromEntries(u.searchParams.get("mids").split(",").filter((m) => follower(m) !== undefined).map((m) => [m, { mid: Number(m), follower: follower(m) }])) });
+// A group's members as B站's x/relation/tag gives them, from the test's followings: 0 默认分组 is everyone in none of their
+// own groups, -10 特别关注 the special ones; no mtime, ps per page.
+const groupMembers = async (u) => {
+  const all = [];
+  for (let pn = 1; pn <= 100; pn++) {
+    const l = (await (await routes["/x/relation/followings"](new URL(`https://api.bilibili.com/x/relation/followings?pn=${pn}`))).json()).data?.list || [];
+    if (!l.length) break;
+    all.push(...l);
+  }
+  const id = Number(u.searchParams.get("tagid"));
+  const ps = Number(u.searchParams.get("ps"));
+  const pn = Number(u.searchParams.get("pn"));
+  const tags = (x) => x.tag || [];
+  const inIt = (x) => (id === 0 ? !tags(x).some((t) => t > 0) : id === -10 ? x.special === 1 || tags(x).includes(-10) : tags(x).includes(id));
+  const members = all.filter(inIt).map(({ mtime, ...x }) => x);
+  return json({ code: 0, data: members.slice((pn - 1) * ps, pn * ps) });
+};
 const dyn = (mid, bvid, at) => ({
   modules: { module_author: { mid, name: `UP${mid}`, face: "", pub_ts: at }, module_dynamic: { major: { archive: { bvid, aid: 1, title: `T-${bvid}`, cover: "http://c", duration_text: "1:02:03", stat: { play: "1.5万" } } } } }
 });
@@ -170,13 +187,16 @@ const runSync = async () => {
     const j = local.follow_jobs;
     assert.strictEqual(j.state, "done", j.error);
     assert.ok(j.finishedAt && !j.error, j.error);
-    assert.deepStrictEqual(plain(local.follow_list.list), ["1", "2", "3", "4", "5", "6"]);
+    // A stored list is read by group: newest follow first, the follow times of the new ones from followings.
+    assert.deepStrictEqual(plain(local.follow_list.list), ["6", "5", "4", "3", "2", "1"]);
+    assert.deepStrictEqual(plain(local.follow_list.followTime), { 1: 101, 2: 102, 3: 103, 4: 104, 5: 105, 6: 106 });
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/tag#") || c.startsWith("relation/followings")), ["relation/tag#1", "relation/tag#1", "relation/tag#1", "relation/followings#1", "relation/followings#2", "relation/followings#3"]);
     assert.deepStrictEqual(plain(local.follow_list.special), { 2: 1 });
     assert.deepStrictEqual(plain(local.follow_list.groups), { 2: [7] });
     assert.deepStrictEqual(plain(local.follow_groups), [{ id: 7, name: "数码", count: 1 }], "B站 分组 names stored, 默认分组 and 特别关注 left out");
     assert.strictEqual(calls.filter((c) => c === "relation/tags").length, 1, "group names fetched once per sync");
     assert.strictEqual(local.follow_unfollowed[9].source, "bili");
-    assert.deepStrictEqual([plain(local.follow_jobs.changes.added), plain(local.follow_jobs.changes.removed)], [["2", "3", "4", "5", "6"], ["9"]], "the sync's changes reach follow_jobs");
+    assert.deepStrictEqual([plain(local.follow_jobs.changes.added), plain(local.follow_jobs.changes.removed)], [["6", "5", "4", "3", "2"], ["9"]], "the sync's changes reach follow_jobs");
     assert.deepStrictEqual(plain(local.follow_unfollowed[9].tagIds), ["t1"]);
     assert.ok(!local.follow_tag_map[9] && local.follow_tag_map[1], "the vanished account's tags moved into the record");
     assert.strictEqual(local.follow_people[2].name, "UP2");
@@ -185,7 +205,7 @@ const runSync = async () => {
     assert.deepStrictEqual(Object.keys(local.follow_last.map).sort(), ["2", "3"]);
     assert.strictEqual(local.follow_last.since, old);
     // arc/search only for followings missing from the feed and without a fresh record: 1, 5, 6
-    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#5", "space/wbi/arc/search#6"]);
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#6", "space/wbi/arc/search#5", "space/wbi/arc/search#1"]);
     assert.strictEqual(local.follow_content[1].count, 3);
     assert.strictEqual(local.follow_content[5].code, -404, "a gone account is recorded");
     assert.ok(!local.follow_content[6], "a temporary error is not recorded");
@@ -197,7 +217,7 @@ const runSync = async () => {
     routes["/x/space/wbi/arc/search"] = () => arcOk(2);
     await runSync();
     assert.ok(!calls.some((c) => c.startsWith("polymer")), "fresh feed skipped");
-    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#1", "space/wbi/arc/search#6"]);
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("space")), ["space/wbi/arc/search#6", "space/wbi/arc/search#1"]);
   }
 
   // ---------- logged out mid-sync: B站's -101 stops it as NOT_LOGGED_IN in the one sentence, never as 暂时没查到 ----------
@@ -371,10 +391,41 @@ const runSync = async () => {
     assert.ok(!local.follow_list.partial && local.follow_list.complete, "the full read replaces it");
     assert.strictEqual(local.follow_jobs.changes, null, "a first sync shows no changes");
 
-    // a later sync keeps the stored list until the full read
-    sizes.length = 0;
+    // a later sync reads by group: one page of members, followings page 1 for the total, nothing written midway
+    routes["/x/relation/tags"] = () => json({ code: 0, data: [{ tagid: -10, count: 0 }, { tagid: 0, count: 3 }] });
+    routes["/x/relation/followings"] = ok;
+    local.follow_list.followTime[3] = 7; // 3 is not on followings page 1: its stored time stays
+    const writes = [];
+    const set = t.chrome.storage.local.set;
+    t.chrome.storage.local.set = async (o) => ("follow_list" in o && writes.push(o.follow_list.list.length), set(o));
+    calls = [];
     await runSync();
-    assert.deepStrictEqual(sizes.map(([l]) => l.length), [3, 3]);
+    t.chrome.storage.local.set = set;
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/")), ["relation/tags", "relation/tag#1", "relation/followings#1"], "an empty group is not read; page 1 has nobody new");
+    assert.deepStrictEqual(writes, [3], "the list is written once, when read whole");
+    assert.deepStrictEqual(plain(local.follow_list.followTime), { 1: 101, 2: 102, 3: 7 }, "times from followings page 1, else the stored one");
+    assert.deepStrictEqual(plain(local.follow_list.list), ["2", "1", "3"]);
+
+    // A group's page 1 empty although it has members (risk control): asked again, not taken as nobody.
+    let empties = 1;
+    const members = groupMembers;
+    routes["/x/relation/tag"] = (u) => (empties-- > 0 ? json({ code: 0, data: [] }) : members(u));
+    calls = [];
+    await runSync();
+    delete routes["/x/relation/tag"];
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/tag#")), ["relation/tag#1", "relation/tag#1"]);
+    assert.strictEqual(calls.filter((c) => c.startsWith("relation/followings")).length, 1, "the second answer is whole: no page-by-page read");
+    assert.ok(local.follow_list.complete);
+
+    // members and followings disagree on the count (a follow meanwhile): read followings page by page
+    routes["/x/relation/tag"] = (u) => json({ code: 0, data: u.searchParams.get("tagid") === "0" ? [person(1), person(2)] : [] });
+    calls = [];
+    await runSync();
+    delete routes["/x/relation/tag"];
+    assert.ok(!local.follow_jobs.error, local.follow_jobs.error);
+    assert.deepStrictEqual(calls.filter((c) => c.startsWith("relation/followings")), ["relation/followings#1", "relation/followings#1", "relation/followings#2"]);
+    assert.deepStrictEqual(plain(local.follow_list.list), ["1", "2", "3"], "nobody lost: the page-by-page read is the list");
   }
 
   // ---------- partial followings: nobody marked gone ----------

@@ -1,6 +1,6 @@
 // MoonDigest's agent interface, docs/AGENT.md §2: the user's own Bilibili data (favorites, 稍后再看, follows, watch
 // history) for the MCP server, read only. Only GETs, through triage-bg.js's B站 channel (triageBiliGet), one call at a
-// time, one page per call (稍后再看 and the 分拣台's local copies are read whole, then paged).
+// time, one page per call (稍后再看, the follow list and the 分拣台's local copies are read whole, then paged).
 // The worker loads it after triage-bg.js and follow-core.js, whose helpers it uses.
 (() => {
   const K = MdgLimits.KEYS;
@@ -128,20 +128,67 @@
     groups: FollowCore.groupNames(FollowCore.groupsOf(String(mid), D), D)
   });
 
-  // The 关注 the 分拣台 synced (with UP 标签; query searches name, sign, groups and tags), else B站's list a page at a time.
+  // B站's whole follow list, read by group as the 分拣台's 刷新 reads it (follow-bg.js followReadGroups), and followings'
+  // total to check it is whole: its requests GAP_MS apart, through this file's channel (B站 risk control is THROTTLED at
+  // once, as for every other call). A whole list is kept FOLLOWS_KEEP_MS, so paging through it reads B站 once; one short of
+  // the total is not, the next call reads again.
+  // ponytail: one request a group with members, plus one per 500 more; past ~45 groups a call outruns agent-bridge.js's budget
+  const FOLLOWS_KEEP_MS = 3 * 60 * 1000;
+  let followsRead = null; // { at, promise }
+  function biliFollows() {
+    if (!followsRead || Date.now() - followsRead.at > FOLLOWS_KEEP_MS) {
+      let last = 0;
+      const spaced = async (url) => {
+        const wait = last + GAP_MS - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        try {
+          return await triageBiliGet(url);
+        } finally {
+          last = Date.now();
+        }
+      };
+      const promise = (async () => {
+        const got = await followReadGroups((call) => call(), undefined, spaced);
+        const first = await spaced(`${API}/x/relation/followings?vmid=${await triageMid()}&pn=1&ps=${FOLLOW_PAGE}&order=desc`);
+        return { ...got, total: Number(first?.total) || 0 };
+      })();
+      const read = { at: Date.now(), promise };
+      const drop = () => followsRead === read && (followsRead = null);
+      read.promise.then((r) => r.fresh.list.length !== r.total && drop(), drop);
+      followsRead = read;
+    }
+    return followsRead.promise;
+  }
+
+  // The 关注 the 分拣台 synced (with UP 标签), else B站's list read whole; query searches name, sign, groups (and tags).
   async function follows({ page, query }) {
     const pn = pageOf(page);
     const q = typeof query === "string" ? query.trim() : "";
     const D = await MdgLimits.followGet(["list", "people", "groups", "tags", "tag_map"]);
+    let rows;
+    let source = "local";
     if (D.list?.list?.length && !D.list.partial) {
       const names = new Map((D.tags || []).map((t) => [t.id, t.name]));
-      const rows = D.list.list.map((mid) => {
+      rows = D.list.list.map((mid) => {
         const tags = FollowCore.liveTags(mid, { map: D.tag_map, tags: D.tags || [] }).map((t) => names.get(t)).filter(Boolean);
         return { ...upRow(mid, D.people?.[mid], D), ...(tags.length && { tags }) };
       });
-      const hit = q ? rows.filter((r) => matches(q, [r.name, r.sign, ...r.groups, ...(r.tags || [])])) : rows;
-      return { source: "local", ...slice(hit, pn, FOLLOW_PAGE) };
+    } else {
+      const { fresh, people, tags, total } = await biliFollows();
+      // Not the whole list (a group read short, or a follow meanwhile): one page of followings, as before, rather than
+      // a list missing people. The 分拣台's 刷新 falls back the same way.
+      if (fresh.list.length !== total) return followingsPage(pn, q);
+      rows = fresh.list.map((mid) => upRow(mid, people[mid], { list: fresh, groups: groupsOf(tags) }));
+      source = "bilibili";
     }
+    const hit = q ? rows.filter((r) => matches(q, [r.name, r.sign, ...r.groups, ...(r.tags || [])])) : rows;
+    return { source, ...slice(hit, pn, FOLLOW_PAGE) };
+  }
+
+  const groupsOf = (tags) => (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || "") }));
+
+  // One page of B站's followings with the group names; query not applied.
+  async function followingsPage(pn, q) {
     const mid = await triageMid();
     const data = await triageBiliGet(`${API}/x/relation/followings?vmid=${mid}&pn=${pn}&ps=${FOLLOW_PAGE}&order=desc`);
     const tags = await triageBiliGet(`${API}/x/relation/tags`);
@@ -151,7 +198,7 @@
         special: Object.fromEntries(list.filter((x) => x.special === 1 || (x.tag || []).includes(TriageUi.FOLLOW_SPECIAL)).map((x) => [String(x.mid), 1])),
         groups: Object.fromEntries(list.map((x) => [String(x.mid), (x.tag || []).filter((t) => t > 0)]))
       },
-      groups: (Array.isArray(tags) ? tags : []).filter((g) => g.tagid > 0).map((g) => ({ id: g.tagid, name: String(g.name || "") }))
+      groups: groupsOf(tags)
     };
     const total = Number(data?.total) || 0;
     return {

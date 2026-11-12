@@ -434,7 +434,7 @@ const TOOLS = [
   },
   {
     name: "get_follows",
-    description: "Read-only: the UP 主 the user follows on Bilibili, with their follow groups and the user's MoonDigest UP tags, 50 a page. query searches name, sign, groups and tags once MoonDigest has synced the follow list (otherwise it is ignored and the result says so). Page sparingly.",
+    description: "Read-only: the UP 主 the user follows on Bilibili, with their follow groups and the user's MoonDigest UP tags, 50 a page. query searches name, sign, groups and, once MoonDigest has synced the follow list, tags. Page sparingly.",
     inputSchema: {
       type: "object",
       properties: {
