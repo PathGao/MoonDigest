@@ -25,9 +25,13 @@
     const key = K.triageSnapshot(id);
     const old = (await chrome.storage.local.get(key))[key];
     let r = null;
+    let ids = null;
     if (old && id !== TRIAGE_TOVIEW) {
-      const ids = await triageFolderIds(id);
+      ids = await triageFolderIds(id);
       if (!TriageCore.idsChanged(old.ids || old.bvids || [], ids)) return "unchanged";
+    }
+    // A copy without items, or from before the intro was kept, is read whole, as the page reads it (openCached).
+    if (ids && old.items && old.intro !== undefined) {
       const others = (await included()).filter((f) => f !== id);
       const got = await chrome.storage.local.get([K.triageRemoved, ...others.map(K.triageSnapshot)]);
       const local = TriageCore.heldItems(others.map((f) => [f, got[K.triageSnapshot(f)]?.items]), got[K.triageRemoved], "removed");

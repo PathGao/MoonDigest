@@ -561,6 +561,7 @@ check("start reads in the background: a changed folder is read and saved as the 
 
 check("a changed folder reads only the difference, as the 分拣台 page does: a video held in another chosen folder's copy costs no list read, a new one only the newest page", async () => {
   syncRoutes();
+  local[K.triageSnapshot("11")].intro = ""; // a copy from before the intro was kept is read whole, as the page does
   local[K.triageSnapshot("33")] = { ...local[K.triageSnapshot("33")], bvids: [B, C], ids: [B, C], items: [vid(B, 2), vid(C, 3)] };
   const lists = [];
   const list = routes["/x/v3/fav/resource/list"];

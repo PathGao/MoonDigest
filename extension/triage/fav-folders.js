@@ -468,6 +468,7 @@ async function checkRemoved(run) {
   while (runs.busy("check") && alive()) await sleepWhile(50, () => true);
   let i = 0;
   let cur = null; // the step in flight: a failure names its folder
+  let skipped = false; // a chosen folder being written was not checked: a video re-favorited there is still listed
   const r = await runs.run("check", {
     total: ids.length,
     gap: 300,
@@ -475,7 +476,7 @@ async function checkRemoved(run) {
     line: (d, t) => `核对收藏夹 ${d}/${t}`,
     next: () => (i < ids.length ? { id: ids[i++] } : null),
     // A folder being written is checked next time; its list is changing now.
-    act: (step) => ((cur = step), fav.state().writing(step.id) ? { ok: true } : send({ type: "triage-folder-ids", mediaId: step.id })),
+    act: (step) => ((cur = step), fav.state().writing(step.id) ? ((skipped = true), { ok: true }) : send({ type: "triage-folder-ids", mediaId: step.id })),
     async done(step, x) {
       if (!alive() || !x.data) return;
       await dropRemoved(x.data.bvids);
@@ -487,23 +488,24 @@ async function checkRemoved(run) {
     S.removedCheck.error = `${checkFailed(cur.id, r.error)}${RETRY_REFRESH}`;
     return render();
   }
-  await checkWhere(run);
+  await checkWhere(run, { allChecked: !skipped });
   if (alive() && !S.removedCheck.error) S.removedCheck = null;
   render();
 }
 
 // Where each video is now (not invalid ones: those are known, and records too old to have an aid are left as they are).
-// Only folders not chosen count; one in a chosen folder is taken out by the next id check. The cheaper of two ways:
-// each folder not chosen's whole id list, one request a folder (checkWhereByFolder), or Bilibili asked per video which
-// folders hold it.
-async function checkWhere(run) {
+// Only folders not chosen count; one in a chosen folder is taken out by the next id check. When every chosen folder was
+// checked (allChecked), the folders not chosen are read one id list each where that is fewer requests
+// (checkWhereByFolder); Bilibili is asked per video which folders hold it for the rest.
+async function checkWhere(run, { allChecked = false } = {}) {
   if (!run.alive) return;
-  const list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
-  const others = S.allFolders.filter((f) => !S.included.includes(String(f.id)));
-  // The folder list not read yet (empty: 默认收藏夹 always exists) says nothing about where a video is.
-  if (S.allFolders.length && list.length > others.length) return checkWhereByFolder(run, list, others);
+  let list = S.items.filter((it) => it.aid && kindOf(it) !== "invalid");
   const alive = () => run.alive;
   const found = {};
+  if (allChecked && list.length > 1) {
+    list = await checkWhereByFolder(run, list, found);
+    if (!list) return noteWhere(found);
+  }
   let mid; // who is logged in, asked once per check (the first answer carries it)
   let i = 0;
   let cur = null; // the step in flight: a failure names its video
@@ -530,15 +532,22 @@ async function checkWhere(run) {
   await noteWhere(found);
 }
 
-// checkWhere one folder not chosen at a time: its id list says which of these videos it holds (the first such folder is
-// the one shown). Read to the end, a video in none of them is in no folder; a check cut short leaves those as they were.
-async function checkWhereByFolder(run, list, others) {
+// checkWhere by the folders not chosen (B站's folder list read again: one made or deleted since the page opened counts,
+// 稍后再看 does not), when reading their id lists is fewer requests than asking per video. The first such folder holding a
+// video is where it is shown; a video in none is in no folder, except a 番剧 one (an old record may lack the episode id
+// its id list is matched by). Returns the videos still to ask per video, all of them when this way is not taken, or null
+// when the check stopped (a failure, or another view opened).
+async function checkWhereByFolder(run, list, found) {
   const alive = () => run.alive;
+  const r = await send({ type: "triage-folders" });
+  if (!alive()) return null;
+  if (!r.ok) return list;
+  const others = (r.data.folders || []).filter((f) => String(f.id) !== TOVIEW && !S.included.includes(String(f.id)));
+  if (others.length + 1 >= list.length) return list;
   const want = new Map(list.map((it) => [it.bvid, it]));
-  const found = {};
   let i = 0;
   let cur = null;
-  const r = await runs.run("check", {
+  const read = await runs.run("check", {
     total: others.length,
     gap: 300,
     alive,
@@ -554,12 +563,15 @@ async function checkWhereByFolder(run, list, others) {
       render();
     }
   });
-  if (r.error && alive()) S.removedCheck.error = `${checkFailed(String(cur.f.id), r.error)}${RETRY_REFRESH}`;
-  else if (alive()) {
-    for (const [b, it] of want) if (!(b in found)) found[b] = it.inFolder = null;
-    render();
+  if (!alive()) return null;
+  if (read.error) {
+    S.removedCheck.error = `${checkFailed(String(cur.f.id), read.error)}${RETRY_REFRESH}`;
+    return null;
   }
-  await noteWhere(found);
+  const left = list.filter((it) => !(it.bvid in found));
+  for (const it of left) if (!it.ogv) found[it.bvid] = it.inFolder = null;
+  render();
+  return left.filter((it) => it.ogv);
 }
 
 // Stores where checkWhere found the videos ({ bvid: { id, title } | null }) into their 已出分拣范围 records.
