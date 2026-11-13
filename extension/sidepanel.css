@@ -351,7 +351,6 @@ body {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: var(--shadow-float);
   overflow: hidden;
 }
 
