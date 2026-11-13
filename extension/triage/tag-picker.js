@@ -150,12 +150,6 @@
   });
   // After a reopen the dialog is open again: that close was handled.
   dlg.addEventListener("close", () => !dlg.open && close());
-  // The modal's backdrop is the dialog element too; only a point outside its box counts.
-  dlg.addEventListener("click", (e) => {
-    if (e.target !== dlg) return;
-    const r = dlg.getBoundingClientRect();
-    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) close();
-  });
   // The popover: a click elsewhere or into the player (the window loses focus) closes it.
   document.addEventListener("click", (e) => cur?.opts.anchor && !dlg.contains(e.target) && close(), true);
   addEventListener("blur", () => cur?.opts.anchor && close());

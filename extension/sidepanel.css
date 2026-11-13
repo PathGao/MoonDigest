@@ -1334,6 +1334,8 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 
 #spInput {
   flex: 1;
+  /* Grows with the text, between min-height and max-height. */
+  field-sizing: content;
   min-height: 94px;
   max-height: 320px;
   /* Room on the right for the send button that sits inside the box. */

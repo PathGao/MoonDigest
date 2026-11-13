@@ -140,7 +140,6 @@ async function init() {
   // A conversation was drawn when it was shown; the empty state shows what the payload brought.
   if (state.view().bound) updateContextChip();
   else renderInitialState();
-  autosizeInput();
   initCompleted = true;
   await consumePendingPlayerAiQuickAction();
 }
@@ -152,9 +151,6 @@ function bindEvents() {
       e.preventDefault();
       sendMessage();
     }
-  });
-  els.input.addEventListener("input", () => {
-    autosizeInput();
   });
   turnSpacer.className = "sp-turn-spacer";
   turnSpacer.setAttribute("aria-hidden", "true");
@@ -306,12 +302,6 @@ function bindEvents() {
       void handlePlayerAiQuickActionRequest(changes[PLAYER_AI_QUICK_ACTION_STORAGE_KEY].newValue);
     }
   });
-}
-
-// Grows with the text; sidepanel.css's min-height and max-height bound it.
-function autosizeInput() {
-  els.input.style.height = "auto";
-  els.input.style.height = `${els.input.scrollHeight}px`;
 }
 
 // What the shown conversation is about, in the words 正在加载原…信息 and 读取原…失败 use.
@@ -507,7 +497,6 @@ async function refreshProvidersAndPrefsAfterExternalChange() {
   const summary = summaryPrompt(state.view().context);
   if (previousSummary && summary && els.input.value.trim() === previousSummary.trim()) {
     els.input.value = summary;
-    autosizeInput();
   }
   if (state.view().streaming) {
     return;
@@ -592,7 +581,6 @@ function fillPrompt(prompt) {
   if (!els.input.value.trim()) {
     els.input.value = prompt;
   }
-  autosizeInput();
   els.input.focus();
   const end = els.input.value.length;
   els.input.setSelectionRange(end, end);
@@ -658,7 +646,7 @@ async function runEffect(effect) {
       if (typed && effect.from !== effect.to) drafts.set(effect.from, typed);
       els.input.value = drafts.get(effect.to) || "";
       drafts.delete(effect.to);
-      return autosizeInput();
+      return;
     }
     case "fill":
       return fillPrompt(effect.prompt);
@@ -669,7 +657,6 @@ async function runEffect(effect) {
       return;
     }
     case "focus":
-      autosizeInput();
       return els.input?.focus?.();
     case "previous":
       return setPreviousVideoConversation(effect.id);
@@ -1537,9 +1524,6 @@ function updateSidepanelLayoutState() {
   const useCompactInput = Boolean(context && context.isVideoContext === false && pageReason(context) && !messages.length && !pinned);
   document.body.classList.toggle("sp-non-video-context", useCompactInput);
   syncSendUi();
-  if (els.input) {
-    autosizeInput();
-  }
 }
 
 let refreshingContext = false;
@@ -1813,12 +1797,10 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
       if (!drafts.get(draftKey)) drafts.set(draftKey, text);
     } else if (typed && !els.input.value.trim()) {
       els.input.value = text;
-      autosizeInput();
     }
   };
   if (typed) {
     els.input.value = "";
-    autosizeInput();
   }
   const hidden = [suggestionsNode, ...els.messages.querySelectorAll(".sp-center-error"), ...replaces].filter((node) => node && !node.hidden);
   for (const node of hidden) node.hidden = true;

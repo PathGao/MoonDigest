@@ -120,15 +120,8 @@
     dialog.className = "mdg-overwrite";
     dialog.innerHTML = html;
     fill(dialog);
-    // A click outside is a press and a release both on the backdrop: a text selection dragged out of the box ends
-    // with a click on the dialog too, and must not close it.
-    let downOutside = false;
-    dialog.addEventListener("pointerdown", (event) => (downOutside = event.target === dialog));
-    dialog.addEventListener("click", (event) => {
-      if (downOutside && event.target === dialog) {
-        dialog.close("");
-      }
-    });
+    // A click outside closes it (returnValue stays "", 取消); a text selection dragged out of the box does not.
+    dialog.closedBy = "any";
     document.body.appendChild(dialog);
     dialog.showModal();
     return new Promise((resolve) => {
