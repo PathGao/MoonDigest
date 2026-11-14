@@ -112,8 +112,7 @@ function bindEvents() {
       setStatus(MdgErrors.TEXT.noNoteYet, true);
       return;
     }
-    const r = await MdgNoteActions.run("copy", { note: payload });
-    setStatus(r.text, !r.ok);
+    showResult(el.copyBtn, await MdgNoteActions.run("copy", { note: payload }));
   });
 
   el.downloadBtn.addEventListener("click", async () => {
@@ -135,7 +134,7 @@ function bindEvents() {
     }
     // Named like the note (date prefix setting, 分 P), only the extension differs.
     MdgDownload.text(payload.filename.replace(/\.md$/, `.${format}`), content, "text/plain;charset=utf-8");
-    setStatus(`已下载 ${format.toUpperCase()}`);
+    showResult(el.downloadBtn, { ok: true, flash: MdgErrors.LABEL.flashDownloaded, text: `${MdgErrors.LABEL.flashDownloaded} ${format.toUpperCase()}` });
   });
 
   el.mdBtn.addEventListener("click", async () => {
@@ -146,8 +145,7 @@ function bindEvents() {
       return;
     }
     // Named like the note 写入 Obsidian writes (date prefix setting, 分 P): the content script builds it.
-    const r = await MdgNoteActions.run("download", { note: payload });
-    setStatus(r.text, !r.ok);
+    showResult(el.mdBtn, await MdgNoteActions.run("download", { note: payload }));
   });
 
   el.sendBtn.addEventListener("click", async () => {
@@ -368,6 +366,12 @@ function setStatus(text, isError = false, busy = false, action = null) {
   if (action) el.status.append(Object.assign(document.createElement("button"), { type: "button", className: "link", textContent: action.label, onclick: action.run }));
   el.status.classList.toggle("is-error", Boolean(isError));
   el.status.setAttribute("aria-busy", String(busy));
+}
+
+// A copy or download that was done says so on its button (MdgFlash), and the status line has nothing left to say.
+function showResult(button, r) {
+  if (r.flash && MdgFlash.show(button, r.flash, r.text)) setStatus("");
+  else setStatus(r.text, !r.ok);
 }
 
 // Shared busy look from tokens.css: disabled, spinner, and the label (if any) says 「…中」 until done.

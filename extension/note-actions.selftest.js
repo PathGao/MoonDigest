@@ -42,7 +42,8 @@ const plain = (r) => JSON.parse(JSON.stringify(r));
     const r = await run(kind, { request, send: bg.send, dialogs: dialogs("open", "", log) });
     assert.deepStrictEqual(bg.sent, ["export-note,-,-,r", "export-note,open,-,r"]);
     assert.deepStrictEqual(log, [`page,u,true,true,${verb}`]);
-    assert.deepStrictEqual(plain(r), { ok: true, done: true, text: kind === "copy" ? T.copied : T.downloaded, remedies: [] });
+    // flash: the word its button shows; a write (below), a cancel and a failure have none and show text.
+    assert.deepStrictEqual(plain(r), { ok: true, done: true, text: kind === "copy" ? T.copied : T.downloaded, remedies: [], flash: kind === "copy" ? "已复制" : "已下载" });
   }
   // K16: one sentence for 下载 .md, on every entry.
   assert.strictEqual(T.downloaded, "已下载 .md");
@@ -104,20 +105,20 @@ const plain = (r) => JSON.parse(JSON.stringify(r));
   // K10: nothing to export says which exit had nothing.
   for (const [kind, want] of [["copy", T.nothingToCopy], ["download", T.nothingToDownload], ["write", T.nothingToWrite]]) {
     const r = await run(kind, { request, send: fail({ ok: false, error: T.nothingToWrite, code: "NOTE_EMPTY" }) });
-    assert.deepStrictEqual([r.ok, r.text, [...r.remedies]], [false, want, []], kind);
+    assert.deepStrictEqual([r.ok, r.text, [...r.remedies], r.flash], [false, want, [], undefined], kind);
   }
   // The clipboard refused: 复制失败：无法访问剪贴板, never Chrome's English, with or without words.
   for (const message of ["", "Failed to execute 'writeText' on 'Clipboard': Document is not focused."]) {
     ctx.navigator.clipboard.writeText = async () => { throw Object.assign(new Error(message), { name: "NotAllowedError", code: 0 }); };
     const r = await run("copy", { note: { markdown: "x" } });
-    assert.deepStrictEqual([r.text, r.code], [`${T.copyFailed}：${T.noClipboard}`, undefined], message);
+    assert.deepStrictEqual([r.text, r.code, r.flash], [`${T.copyFailed}：${T.noClipboard}`, undefined, undefined], message);
   }
   // The extension reloaded under the video page: its own sentence.
   assert.strictEqual((await run("write", { request, send: async () => { throw new Error("Extension context invalidated."); } })).text, T.reloaded);
 
   // A note the entry built: no message, copied or downloaded as is.
   saved.length = 0;
-  assert.deepStrictEqual(plain(await run("download", { note: { filename: "D.md", markdown: "# D" }, send: () => assert.fail("no send") })), { ok: true, done: true, text: T.downloaded, remedies: [] });
+  assert.deepStrictEqual(plain(await run("download", { note: { filename: "D.md", markdown: "# D" }, send: () => assert.fail("no send") })), { ok: true, done: true, text: T.downloaded, remedies: [], flash: "已下载" });
   assert.deepStrictEqual(saved, [["D.md", "# D"]]);
 
   // build: 摘读记录's zip asks nothing and downloads nothing; a failed reply rejects.

@@ -163,6 +163,10 @@
     copyMd: "复制 Markdown",
     downloadMd: "下载 .md",
     writeObsidian: "写入 Obsidian",
+    // What a copy or download button says for a moment after it worked (MdgFlash); the whole sentence is TEXT.copied /
+    // TEXT.downloaded.
+    flashCopied: "已复制",
+    flashDownloaded: "已下载",
     toSettings: "去设置",
     // PAGE_GRANT's button (action grantPage): the side panel and the popup ask for every http(s) site (grantPages).
     grantPage: "允许读取网页",

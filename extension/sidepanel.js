@@ -2097,7 +2097,7 @@ function renderAssistantMessage(node, raw) {
       <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
     </svg><span>${MdgErrors.LABEL.copyMd}</span>
   `;
-  copyBtn.addEventListener("click", () => void copyMarkdown(pasteReadyRaw));
+  copyBtn.addEventListener("click", () => void copyMarkdown(pasteReadyRaw, copyBtn));
   actions.appendChild(copyBtn);
 
   node.appendChild(actions);
@@ -2171,8 +2171,10 @@ async function autoSyncConversation(conversationId) {
 }
 
 // An export's result in the notice: done or cancelled briefly, a write's path longer; a failure red, and when not set up
-// or a wrong key with 去设置, staying until the next notice (a closed Obsidian gets the red line only).
-function showNoteResult(r, doneMs = NOTICE_SHORT_MS) {
+// or a wrong key with 去设置, staying until the next notice (a closed Obsidian gets the red line only). A copy or
+// download that was done says so on button instead (MdgFlash).
+function showNoteResult(r, doneMs = NOTICE_SHORT_MS, button = null) {
+  if (r.flash && MdgFlash.show(button, r.flash, r.text)) return;
   if (r.ok) return showConversationContextNotice(r.text, r.done ? doneMs : NOTICE_SHORT_MS);
   const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
   showConversationContextNotice(r.text, settings ? 0 : NOTICE_LONG_MS, { error: true, action: settings });
@@ -2205,17 +2207,18 @@ function hideSyncStatus() {
 }
 
 // With no conversation the menu's items are disabled (syncExportButtons); what can fail is building the note.
+// The menu closes on the click, so 导出对话, the button left in sight, says 已复制 / 已下载.
 async function downloadCurrentConversation() {
-  showNoteResult(await runNoteAction("download"));
+  showNoteResult(await runNoteAction("download"), NOTICE_SHORT_MS, els.exportBtn);
 }
 
 async function copyCurrentConversationMarkdown() {
-  showNoteResult(await runNoteAction("copy"));
+  showNoteResult(await runNoteAction("copy"), NOTICE_SHORT_MS, els.exportBtn);
 }
 
-// A reply's own 复制 Markdown: 已复制 Markdown, or the failure in red, as the export menu's.
-async function copyMarkdown(text) {
-  showNoteResult(await MdgNoteActions.run("copy", { note: { markdown: text } }));
+// A reply's own 复制 Markdown: 已复制 on it, or the failure in red, as the export menu's.
+async function copyMarkdown(text, button) {
+  showNoteResult(await MdgNoteActions.run("copy", { note: { markdown: text } }), NOTICE_SHORT_MS, button);
 }
 
 // The background (write-video-note) decides where the conversation goes: the video note's AI 问答 section, a note it

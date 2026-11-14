@@ -625,7 +625,6 @@ function bindEvents() {
   // A download leaves the page as it was, so the 导出 menu would stay open over it.
   el.tools.addEventListener("click", (e) => e.target.closest("button") && el.tools.hidePopover());
   document.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
-  el.toast.addEventListener("click", () => (el.toast.hidden = true));
 
   UI.bindSync(syncEls());
   el.bannerClose.addEventListener("click", () => (el.banner.hidden = true));

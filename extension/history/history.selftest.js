@@ -58,7 +58,7 @@ const ctx = vm.createContext({
   clearTimeout,
   window: { scrollY: 0, scrollTo() {} },
   // No #tagPicker: tag-picker.js loads its pure half, and the test stands in for the picker's open (TagPicker.open below).
-  document: { getElementById: (id) => (id === "tagPicker" ? null : node(id)), addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null, querySelector: () => null },
+  document: { getElementById: (id) => (id === "tagPicker" ? null : node(id)), addEventListener: (t, f) => ((L.document ||= {})[t] ||= []).push(f), activeElement: null, querySelector: () => null, createElement: () => ({ setAttribute() {} }), body: { append() {} } },
   chrome: {
     runtime: { id: "test", sendMessage: async () => ({}) },
     tabs: { getCurrent: async () => ({ id: 1 }) },
@@ -95,7 +95,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     ctx.TagDialogs.ai.open = () => opened++;
     L.filters.click.forEach((h) => h({ target: { closest: () => ({ dataset: { f: "ai" } }) } }));
     await pause(20);
-    assert.deepStrictEqual([opened, els.status.textContent], [0, "还没有摘读记录"]);
+    assert.deepStrictEqual([opened, els.toast.textContent], [0, "还没有摘读记录"]);
     assert.ok(els.selectAllSlot.innerHTML.includes('disabled title="这里没有列出记录"'), els.selectAllSlot.innerHTML);
     ctx.TagDialogs.ai.open = realOpen;
     Object.assign(store, kept);
@@ -303,7 +303,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await wait(350);
   els.list.querySelectorAll = realQsa;
   assert.deepStrictEqual([ask.disabled, ask.title, ask.attrs["aria-description"]], [true, ctx.MdgErrors.TEXT.notVideo, ctx.MdgErrors.TEXT.notVideo]);
-  assert.deepStrictEqual([btn("md")[0], els.status.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
+  assert.deepStrictEqual([btn("md")[0], els.toast.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
   // Out of the selection bar, 清空全部 still clears every conversation, not the selected one.
   assert.strictEqual(store.mdg_ai_conversations_v1.length, 0, "the unselected record's conversation is gone too");
   ctx.chrome.storage.local.set = async () => {};
@@ -318,7 +318,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await wait(350);
 
   // 写入 Obsidian: one write-video-note with the entry's newest conversation; ask → the dialog → the same request with
-  // the mode, and the background's words; 取消 sends nothing again and says so, not red.
+  // the mode, and the background's words; 取消 sends nothing again and says so, not red. Both go to the toast, and the
+  // status line's 正在写入 Obsidian… is cleared.
   const sent = [];
   let choice = "";
   ctx.chrome.runtime.sendMessage = async (m) => (sent.push(m), m.mode ? { ok: true, path: "p.md", kind: "full", text: "已写入 Obsidian：p.md" } : { ok: true, ask: true, path: "p.md", hasAiSection: true, fullReason: "整篇覆盖要先打开视频页" });
@@ -328,11 +329,11 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   const target = { dataset: { act: "obsidian" }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : target) };
   const click = async () => ((sent.length = 0), (L.list.click || []).forEach((f) => f({ target })), await wait(50));
   await click();
-  assert.deepStrictEqual([sent.length, els.status.textContent, red], [1, "已取消写入 Obsidian，原笔记未被覆盖。", false]);
+  assert.deepStrictEqual([sent.length, els.toast.textContent, els.status.textContent, red], [1, "已取消写入 Obsidian，原笔记未被覆盖。", "", false]);
   assert.strictEqual(sent[0].conversation.messages[0].content, XSS[0]);
   choice = "full";
   await click();
-  assert.deepStrictEqual([sent.map((m) => m.mode), els.status.textContent], [[undefined, "full"], "已写入 Obsidian：p.md"]);
+  assert.deepStrictEqual([sent.map((m) => m.mode), els.toast.textContent, els.status.textContent], [[undefined, "full"], "已写入 Obsidian：p.md", ""]);
   // askPage (a web page with no note, not open): the page dialog first; its choice goes along with every later send.
   let pageChoice = "";
   const writeSend = ctx.chrome.runtime.sendMessage;
@@ -340,10 +341,10 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   ctx.MdgOverwriteDialog.choosePage = async (url) => (url === "https://example.com/x" ? pageChoice : "wrong");
   await click();
   // K11: no note yet, so no 「原笔记未被覆盖」.
-  assert.deepStrictEqual([sent.length, els.status.textContent], [1, "已取消写入 Obsidian"], "取消 sends nothing again");
+  assert.deepStrictEqual([sent.length, els.toast.textContent], [1, "已取消写入 Obsidian"], "取消 sends nothing again");
   pageChoice = "own";
   await click();
-  assert.deepStrictEqual([sent.map((m) => [m.pageChoice, m.mode]), els.status.textContent], [[[undefined, undefined], ["own", undefined], ["own", "full"]], "已写入 Obsidian：q.md"]);
+  assert.deepStrictEqual([sent.map((m) => [m.pageChoice, m.mode]), els.toast.textContent], [[[undefined, undefined], ["own", undefined], ["own", "full"]], "已写入 Obsidian：q.md"]);
   ctx.chrome.runtime.sendMessage = writeSend;
   // Not set up or a wrong key (OBSIDIAN): 去设置 after the red line, the settings page only on its click. A closed
   // Obsidian (OBSIDIAN_DOWN) gets the red line only.
@@ -366,16 +367,23 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     ctx.chrome.runtime.sendMessage = writeSend;
     ctx.document.createElement = realCreate;
     delete els.status.append;
+    // The red line goes once something works, whatever it was: the toast says that result, the line no longer does.
+    for (const f of L.clearAll.click) await f({});
+    assert.deepStrictEqual([els.toast.textContent, els.status.textContent, red], ["已清空全部 AI 对话", "", false]);
+    onChanged({ mdg_ai_conversations_v1: {} }, "local");
+    await wait(350);
   }
 
   // B5: each entry offers 复制 Markdown, then 下载 .md, then 写入 Obsidian (hidden while Obsidian is off), like elsewhere.
   const at = (act) => html.indexOf(`data-act="${act}"`);
   assert.ok(at("copy") > 0 && at("copy") < at("md"), "复制 Markdown comes before 下载 .md");
   assert.match(html, /data-act="copy">复制 Markdown</);
+  // The button clicked, on the page (MdgFlash shows 已复制 / 已下载 on it).
   const act = async (name) => {
-    const t = { dataset: { act: name }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : t) };
+    const t = { isConnected: true, getAttribute: () => null, dataset: { act: name }, closest: (s) => (s === ".entry" ? { dataset: { key: "a" } } : s === "dialog" ? null : t) };
     (L.list.click || []).forEach((f) => f({ target: t }));
     await wait(20);
+    return t;
   };
   // 复制 and 下载 give the note 写入 Obsidian writes: export-note with the newest conversation, asked about with the
   // button's verb when the page is not open; what comes back is copied or downloaded as is.
@@ -387,9 +395,10 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   const verbs = [];
   ctx.MdgOverwriteDialog.choosePage = async (url, video, own, verb) => (verbs.push([url, video, own, verb].join()), pageAnswer);
   ctx.navigator = { clipboard: { writeText: async (text) => (copied = text) } };
-  await act("copy");
+  const copyBtn = await act("copy");
   assert.deepStrictEqual([copied, exported.map((m) => [m.type, m.pageChoice || "-"].join()), exported[0].conversation.messages[0].content], ["---\nopen", ["export-note,-", "export-note,open"], XSS[0]]);
-  assert.deepStrictEqual([els.status.textContent, red], ["已复制 Markdown", false]);
+  // 已复制 on the button; the last write's red line is over, and the status line never holds the 已复制.
+  assert.deepStrictEqual([copyBtn.dataset.flash, els.status.textContent, red], ["已复制", "", false]);
   // J26: the record deleted while the dialog is open: nothing is sent again or copied, and the line says so, not red.
   {
     const keep = [...store.mdg_ai_conversations_v1];
@@ -404,7 +413,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     exported.length = 0;
     await act("copy");
     await wait(400);
-    assert.deepStrictEqual([copied, exported.length, els.status.textContent, red], [null, 1, "记录已删除，未复制。", false]);
+    assert.deepStrictEqual([copied, exported.length, els.toast.textContent, red], [null, 1, "记录已删除，未复制。", false]);
     store.mdg_ai_conversations_v1 = keep;
     onChanged({ mdg_ai_conversations_v1: {} }, "local");
     await wait(350);
@@ -416,7 +425,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await act("md");
   pageAnswer = "";
   await act("md");
-  assert.deepStrictEqual([downloaded, verbs, els.status.textContent], [[["a.md", "---\nopen"]], ["https://example.com/x,true,true,复制", "https://example.com/x,true,true,下载", "https://example.com/x,true,true,下载"], "已取消下载"]);
+  assert.deepStrictEqual([downloaded, verbs, els.toast.textContent], [[["a.md", "---\nopen"]], ["https://example.com/x,true,true,复制", "https://example.com/x,true,true,下载", "https://example.com/x,true,true,下载"], "已取消下载"]);
   ctx.MdgDownload = realDownload;
   pageAnswer = "open";
   // B4: failures are red: a copy, and opening the side panel from 继续问.
@@ -432,7 +441,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     const reload = async () => (onChanged({ mdg_ai_conversations_v1: {} }, "local"), await wait(350));
     const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
     const on = async (key, name, extra = {}) => {
-      const t = { dataset: { act: name }, ...extra, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      const t = { dataset: { act: name }, ...extra, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : sel === "dialog" ? null : t) };
       (L.list.click || []).forEach((f) => f({ target: t }));
       await wait(20);
     };
@@ -545,7 +554,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(20);
     settle.ok();
     await wait(20);
-    assert.ok(!html.includes('data-key="new"') && els.status.textContent === "已删除 1 条记录的 AI 对话");
+    assert.ok(!html.includes('data-key="new"') && els.toast.textContent === "已删除 1 条记录的 AI 对话");
     // 清空全部 too: the list is empty before the write ends.
     for (const f of L.clearAll.click) void f({});
     await wait(20);
@@ -637,7 +646,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     const reload = async () => (onChanged({ [MARKS]: {} }, "local"), await wait(350));
     const entry = (key) => html.split("<article").find((a) => a.includes(`data-key="${key}"`)) || "";
     const on = async (key, name) => {
-      const t = { dataset: { act: name }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      const t = { dataset: { act: name }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : sel === "dialog" ? null : t) };
       (L.list.click || []).forEach((f) => f({ target: t }));
       await wait(20);
     };
@@ -720,7 +729,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     const chip = { dataset: { untag: tag.id }, closest: (sel) => (sel === ".entry" ? { dataset: { key: pageKey } } : chip) };
     L.list.click.forEach((f) => f({ target: chip }));
     await wait(20);
-    assert.deepStrictEqual(plain([store[MARKS].items[pageKey], els.status.textContent]), [null, "已去掉「读过」 · U 撤销"]);
+    assert.deepStrictEqual(plain([store[MARKS].items[pageKey], els.toast.textContent]), [null, "已去掉「读过」 · U 撤销"]);
     press("u");
     await wait(20);
     assert.deepStrictEqual(plain(store[MARKS].items[pageKey].tags), [tag.id], "U puts it back");
@@ -783,7 +792,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     assert.ok(!entry(pageKey) && entry(videoKey), html);
     press("u");
     await wait(20);
-    assert.ok(entry(pageKey) && els.status.textContent === "已撤销：去掉「读过」", els.status.textContent);
+    assert.ok(entry(pageKey) && els.toast.textContent === "已撤销：去掉「读过」", els.toast.textContent);
     await filter(`tag:${tag.id}`);
     // 未打标签 / 已打标签 head the tag row as on the 分拣台, by the record's own tags; the tag row's 全部 clears them,
     // the 状态 row's 全部 does not.
@@ -922,7 +931,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     writes = 0;
     await ad.apply();
     assert.deepStrictEqual(plain([writes, store[MARKS].tags.length, store[MARKS].items[videoKey].tags.length]), [1, 50, 1], "one of the two new tags fits");
-    assert.match(els.status.textContent, /1 个新标签没有建/);
+    assert.match(els.toast.textContent, /1 个新标签没有建/);
 
     // A tag deleted while the run waits for the AI: the proposal naming it is dropped, not kept for 应用.
     await reset();
@@ -1186,7 +1195,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     onChanged({ mdg_ai_conversations_v1: {}, [MARKS]: {} }, "local");
     await wait(350);
     const star = async () => {
-      const t = { dataset: { act: "star" }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : t) };
+      const t = { dataset: { act: "star" }, closest: (sel) => (sel === ".entry" ? { dataset: { key } } : sel === "dialog" ? null : t) };
       L.list.click.forEach((f) => f({ target: t }));
       await wait(50);
     };
@@ -1227,7 +1236,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   }
   // B7: several entries download as one zip, one note per record, dated by the local day and time, not UTC. Each is the
   // record's note (export-note) without a dialog: one whose page is not open is its AI 笔记 (pageChoice own), one that
-  // cannot be built is this page's AI 笔记, and the status line counts both.
+  // cannot be built is this page's AI 笔记, and the toast counts both; the status line's 正在打包 is cleared.
   const saved = [];
   ctx.MdgDownload = { ...ctx.MdgDownload, text: (name, data, type) => saved.push(name, type, Buffer.from(data).toString()) };
   const choices = [];
@@ -1240,8 +1249,9 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   ctx.Date = RealDate;
   const count = choices.length;
   assert.strictEqual(count, 3, "three records selected");
-  assert.deepStrictEqual([saved[0], saved[1], [...new Set(choices)], els.status.textContent], ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", ["export-note,own"], `已下载 ${count} 条记录，1 条没打开页面，放的是 AI 笔记，${count - 1} 条生成不了笔记，放的是 AI 笔记`]);
+  assert.deepStrictEqual([saved[0], saved[1], [...new Set(choices)], els.toast.textContent], ["MoonDigest摘读记录-2026-10-14-0730.zip", "application/zip", ["export-note,own"], `已下载 ${count} 条记录，1 条没打开页面，放的是 AI 笔记，${count - 1} 条生成不了笔记，放的是 AI 笔记`]);
   assert.ok(saved[2].includes("页面.md") && saved[2].includes("# 网页笔记") && saved[2].includes("【AI笔记】"), saved[2]);
+  assert.strictEqual(els.status.textContent, "", "正在打包 is over");
 
   console.log("history selftest: all passed");
 })().catch((e) => {

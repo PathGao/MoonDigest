@@ -1,5 +1,5 @@
-// Extension-page helpers (need document): saving text as a file, and the 该笔记已存在 dialog of the side panel and
-// 摘读记录 (the video page draws its own copy: content.js confirmOverwriteNote).
+// Extension-page helpers (need document): saving text as a file, the 该笔记已存在 dialog of the side panel and
+// 摘读记录 (the video page draws its own copy: content.js confirmOverwriteNote), and a button's 已复制 / 已下载.
 (() => {
   if (globalThis.MdgDownload) {
     return;
@@ -133,4 +133,41 @@
   }
 
   globalThis.MdgOverwriteDialog = Object.freeze({ choose, choosePage });
+})();
+
+(() => {
+  if (globalThis.MdgFlash) {
+    return;
+  }
+
+  const MS = 1500;
+  const timers = new WeakMap();
+  const lives = new WeakMap();
+
+  // A copy or download button says word (已复制, 已下载) for MS. tokens.css draws the word over the button's own content
+  // ([data-flash]), which stays in place: the width does not move, and nothing is put back, so a second click while it
+  // shows only restarts the time. A screen reader does not read a button's text changing, so text, the whole sentence,
+  // goes to a hidden live region. False when the button is gone (redrawn) or busy: nothing shown, the entry shows text.
+  function show(button, word, text) {
+    if (!button?.isConnected || button.getAttribute("aria-busy") === "true") return false;
+    button.dataset.flash = word;
+    clearTimeout(timers.get(button));
+    timers.set(button, setTimeout(() => delete button.dataset.flash, MS));
+    // Inside an open modal dialog the rest of the page is inert, so the region goes in the dialog.
+    const host = button.closest?.("dialog") ?? document.body;
+    let live = lives.get(host);
+    if (!live?.isConnected) {
+      live = document.createElement("div");
+      live.className = "visually-hidden";
+      live.setAttribute("role", "status");
+      host.append(live);
+      lives.set(host, live);
+    }
+    // Emptied, then filled on the next turn: a live region added or set to the same words just now is not announced.
+    live.textContent = "";
+    setTimeout(() => (live.textContent = text), 50);
+    return true;
+  }
+
+  globalThis.MdgFlash = Object.freeze({ show });
 })();

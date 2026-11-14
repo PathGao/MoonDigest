@@ -16,14 +16,18 @@
   const FAILED = { copy: MdgErrors.TEXT.copyFailed, download: MdgErrors.TEXT.downloadFailed, write: MdgErrors.TEXT.obsidianFailed };
   const EMPTY = { copy: MdgErrors.TEXT.nothingToCopy, download: MdgErrors.TEXT.nothingToDownload, write: MdgErrors.TEXT.nothingToWrite };
   const DONE = { copy: MdgErrors.TEXT.copied, download: MdgErrors.TEXT.downloaded };
+  // A write's result says where it went or what it skipped, so it is never a button's word (DESIGN 通用交互).
+  const FLASH = { copy: MdgErrors.LABEL.flashCopied, download: MdgErrors.LABEL.flashDownloaded };
 
   // kind: "copy" | "download" | "write".
   // request(): the note's fields { ref, conversation?, page? }, read again at each send (may return a promise); or
   // note: { filename, markdown } the entry built itself (popup, 一篇摘录, a side panel reply): copied or downloaded as is.
   // send(message): the background's reply (default chrome.runtime.sendMessage). isStale(): after a dialog, why the
   // entry no longer wants this note ("" goes on). dialogs: { choose, choosePage }, default MdgOverwriteDialog.
-  // Resolves { ok, done, text, remedies, code?, reason? }: done false is nothing done (取消, switched), not red;
+  // Resolves { ok, done, text, remedies, flash?, code?, reason? }: done false is nothing done (取消, switched), not red;
   // ok false is a failure, text its whole line, remedies MdgErrors.remedies(code) and reason the words after 「：」.
+  // flash: a copy or download that was done, the word its button shows (MdgFlash.show); without the button the entry
+  // shows text instead.
   async function run(kind, { request, note, send = (m) => chrome.runtime.sendMessage(m), isStale = () => "", dialogs = globalThis.MdgOverwriteDialog } = {}) {
     try {
       const resp = note || (await resolve(kind, request, send, isStale, dialogs));
@@ -31,7 +35,7 @@
       // Any refusal says noClipboard, not Chrome's English ("Document is not focused"); no cause, its code is a DOMException's.
       if (kind === "copy") await navigator.clipboard.writeText(resp.markdown).catch(() => Promise.reject(new Error(MdgErrors.TEXT.noClipboard)));
       if (kind === "download") MdgDownload.text(resp.filename, resp.markdown);
-      return { ok: true, done: true, text: DONE[kind] || resp.text, remedies: [] };
+      return { ok: true, done: true, text: DONE[kind] || resp.text, remedies: [], ...(FLASH[kind] && { flash: FLASH[kind] }) };
     } catch (error) {
       const code = error?.cause?.code;
       if (MdgErrors.reloaded(error)) return { ok: false, done: false, text: MdgErrors.TEXT.reloaded, remedies: [], reason: MdgErrors.TEXT.reloaded };

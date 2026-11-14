@@ -83,6 +83,7 @@ async function exportDigest(how) {
   if (how !== "obsidian") {
     // Copied or downloaded as every other note is (MdgNoteActions); written through triage-export, which never asks.
     const r = await MdgNoteActions.run(how, { note: { filename, markdown } });
+    if (r.flash && MdgFlash.show(how === "copy" ? el.writeCopyBtn : el.writeMdBtn, r.flash, r.text)) return;
     el.writeProgress.textContent = r.text;
     el.writeProgress.classList.toggle("fail-text", !r.ok);
   } else {

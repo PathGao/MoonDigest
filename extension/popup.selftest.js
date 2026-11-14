@@ -10,11 +10,11 @@ assert.ok(source.includes("(async () => {})().catch("), "harness strips the page
 const button = () => {
   const attrs = {};
   const on = {};
-  return { disabled: false, title: "", dataset: {}, attrs, on, kids: [], append(...n) { this.kids.push(...n); }, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
+  return { isConnected: true, disabled: false, title: "", dataset: {}, attrs, on, kids: [], append(...n) { this.kids.push(...n); }, addEventListener: (t, f) => (on[t] = f), classList: { toggle() {} }, getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] };
 };
-const body = { classes: new Set() };
+const body = { classes: new Set(), append() {} };
 body.classList = { add: (c) => body.classes.add(c), toggle() {} };
-const ctx = vm.createContext({ URL, setTimeout, AbortController, document: { getElementById: button, body, createElement: () => ({}) }, chrome: { runtime: { sendMessage: async () => ({ ok: true }) }, tabs: { query: async () => [] } } });
+const ctx = vm.createContext({ URL, setTimeout, clearTimeout, AbortController, document: { getElementById: button, body, createElement: () => ({ setAttribute() {} }) }, chrome: { runtime: { sendMessage: async () => ({ ok: true }) }, tabs: { query: async () => [] } } });
 // The scripts popup.html loads before popup.js, read from the page so the test cannot load a different set.
 const scripts = [...fs.readFileSync(path.join(__dirname, "popup.html"), "utf8").matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]);
 assert.strictEqual(scripts.pop(), "./popup.js", "popup.js loads last");
@@ -78,6 +78,8 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   ctx.ensurePayload = async () => ({ title: "标题", srt: "1", filename: "2026-10-14-标题-P2-第二集.md" });
   await ctx.el.downloadBtn.on.click();
   assert.deepStrictEqual(saved, ["2026-10-14-标题-P2-第二集.md", "2026-10-14-标题-P2-第二集.srt"]);
+  // Each says 已下载 on its own button, not in the status line.
+  assert.deepStrictEqual([ctx.el.mdBtn.dataset.flash, ctx.el.downloadBtn.dataset.flash, ctx.el.status.textContent], ["已下载", "已下载", ""]);
   // The format is the settings read when the popup opened (settingsLoad), not read again.
   vm.runInContext('settingsLoad = Promise.resolve({ downloadFormat: "txt" })', ctx);
   ctx.ensurePayload = async () => ({ title: "标题", srt: "1", txt: "字幕", filename: "a.md" });
@@ -127,7 +129,7 @@ setTimeout(() => (async () => {
   ctx.bindEvents = bindEvents;
   ctx.bindEvents();
   await ctx.el.copyBtn.on.click();
-  assert.deepStrictEqual([copied, ctx.el.status.textContent], [[answer.content], T.copied]);
+  assert.deepStrictEqual([copied, ctx.el.copyBtn.dataset.flash, ctx.el.status.textContent], [[answer.content], "已复制", ""]);
   await ctx.el.mdBtn.on.click();
   assert.deepStrictEqual(saved, [["一篇文章.md", answer.content]]);
   // 写入 Obsidian writes that note through write-video-note; an existing note asks here, like the side panel.

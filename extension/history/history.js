@@ -161,7 +161,7 @@ const tagStore = MdgTagStore.create({
   hardCap: "摘读记录的标签",
   newTagMax: () => AI.settings.newTagMax,
   confirm: (...a) => UI.askConfirm(...a),
-  say: (text, error) => setStatus(text, error),
+  say: (text, error) => (error ? setStatus(text, true) : sayDone(text)),
   changed: () => render(),
   tagGone: (id) => tagFilter.delete(id),
   setProposal: (p) => setAiProposal(p),
@@ -218,8 +218,11 @@ const AI = { excluded: new Set(), history: [], proposal: null, settings: normAi(
 let recentFilter = false;
 // The proposal waits for 应用 in storage too, so a reload keeps it (as 关注's). Cleared by writing null under the same
 // key lock, so a save still queued cannot land after the clear and bring an applied proposal back.
+const AI_PENDING = "AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议";
 function setAiProposal(p) {
   AI.proposal = p;
+  // Applied, discarded or stale: nothing is left to confirm.
+  if (!p) clearStatus(AI_PENDING);
   MdgLimits.update(AI_PROPOSAL, () => p || null).catch(() => {});
 }
 async function clearRecent() {
@@ -343,7 +346,7 @@ const aiTags = {
 // Why ✦ AI 打标签 cannot open: no record to tag and nothing running or pending, as 收藏夹's in an empty folder.
 const aiReason = (all = groupByVideo(conversations)) => (aiRunning() || AI.proposal || all.some(readingKey) ? "" : NO_RECORDS);
 async function openAi() {
-  if (aiReason()) return setStatus(aiReason());
+  if (aiReason()) return UI.toast(aiReason());
   if (!aiRunning()) AI.history = (await chrome.storage.local.get(AI_HISTORY))[AI_HISTORY] || [];
   await aiSettings();
   TagDialogs.ai.open(aiTags);
@@ -388,14 +391,14 @@ async function runAi({ instruction, scope, allowRemove }) {
   if (r.error) setStatus(r.proposal ? last : UI.aiTagsFailed(last), true, aiRemedy(r));
   // The dialog shows the result; the last batch's line is over.
   else if (open) return setStatus("");
-  else if (r.proposal) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
+  else if (r.proposal) setStatus(AI_PENDING);
   else setStatus(UI.aiTagsFailed(last), true);
 }
 
 // What a run's stop offers, as the 分拣台's banner: 授权 for a missing access permission, 去设置 for a setup error.
 function aiRemedy({ error, code }) {
   const access = MdgErrors.grantOrigin(error, code);
-  if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && setStatus(MdgErrors.TEXT.granted) };
+  if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && sayDone(MdgErrors.TEXT.granted) };
   return MdgRuns.aiSettingsCode(code) ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
 }
 
@@ -542,7 +545,7 @@ async function closeNote() {
   editing = null;
   clearTimeout(noteTimer);
   try {
-    if ((await writeNote(open)) || open.saved || open.failed) setStatus(draft.trim() ? "备注已保存" : "备注已删除");
+    if ((await writeNote(open)) || open.saved || open.failed) sayDone(draft.trim() ? "备注已保存" : "备注已删除");
   } catch (error) {
     setStatus(`保存备注失败：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
@@ -642,8 +645,23 @@ function render() {
 }
 
 
-// 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
+// The line keeps what is still going on or waits for the user: 「正在…」 (aria-busy grays it, tokens.css) until its
+// result, a failure, a reminder (按 I 确认建议). A one-off result goes to the toast (UI.toast) or onto its button
+// (MdgFlash) instead, so the line never holds an old 已复制 (DESIGN 通用交互).
 // error: a failure the user must handle (red); action: { label, run }, its remedy button after the text.
+// Clears the line if it still says text: something in progress or a reminder that is over.
+function clearStatus(text) {
+  if (text && els.status.textContent === text) setStatus("");
+}
+// Something worked: the red line goes, as it did when the line itself said every result, and the toast says what.
+let statusFailed = false;
+function clearFailure() {
+  if (statusFailed) setStatus("");
+}
+function sayDone(text) {
+  clearFailure();
+  UI.toast(text);
+}
 function setStatus(text, error = false, action = null, busy = text.startsWith("正在")) {
   els.status.textContent = text;
   if (action) {
@@ -651,6 +669,7 @@ function setStatus(text, error = false, action = null, busy = text.startsWith("�
     els.status.append(" ", btn);
   }
   els.status.classList.toggle("is-error", error);
+  statusFailed = error;
   if (busy) els.status.setAttribute("aria-busy", "true");
   else els.status.removeAttribute("aria-busy");
 }
@@ -706,7 +725,7 @@ async function removeConversations(keep, done, unselect = []) {
     await load();
     return setStatus(`${MdgErrors.TEXT.deleteFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
-  setStatus(done);
+  sayDone(done);
 }
 
 async function deleteGroups(keys) {
@@ -724,24 +743,30 @@ function noteRequest(group) {
 }
 
 // 复制, 下载 and 写入 Obsidian of one record (kind copy / download / write) through MdgNoteActions: the note 写入
-// Obsidian writes, asked about the same way when its page is not open. The status line says the result; not set up or
-// a wrong key adds 去设置, opened only on its click (a closed Obsidian only gets the red line).
-// The record deleted while a dialog was open: nothing is done, and the line says so (as the side panel's 对话已切换).
+// Obsidian writes, asked about the same way when its page is not open. A failure stays on the status line, and not set
+// up or a wrong key adds 去设置, opened only on its click (a closed Obsidian only gets the red line); a copy or download
+// says 已复制 / 已下载 on button; anything else (a write's path, 已取消…) goes to the toast.
+// The record deleted while a dialog was open: nothing is done, and the toast says so (as the side panel's 对话已切换).
 const RECORD_GONE = { copy: MdgErrors.TEXT.recordGoneCopy, download: MdgErrors.TEXT.recordGoneDownload, write: MdgErrors.TEXT.recordGoneWrite };
-async function runNoteAction(group, kind) {
+async function runNoteAction(group, kind, button = null) {
   const r = await MdgNoteActions.run(kind, { request: () => noteRequest(group), isStale: () => (groupByVideo(conversations).some((g) => g.key === group.key) ? "" : RECORD_GONE[kind]) });
-  const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
-  setStatus(r.text, !r.ok, settings);
+  if (!r.ok) {
+    const settings = r.remedies.includes("settings") ? { label: MdgErrors.LABEL.toSettings, run: () => chrome.runtime.openOptionsPage() } : null;
+    return setStatus(r.text, true, settings);
+  }
+  if (r.flash && MdgFlash.show(button, r.flash, r.text)) return clearFailure();
+  sayDone(r.text);
 }
 
-const copyGroup = (group) => runNoteAction(group, "copy");
+const copyGroup = (group, button) => runNoteAction(group, "copy", button);
 
 // One record: its note, asked about as 复制. Several go into one zip without a dialog or a tab opened: a record whose note
-// needs its page that no tab shows gets its AI 笔记 (pageChoice own), and the status line counts them.
-async function downloadGroups(groups) {
+// needs its page that no tab shows gets its AI 笔记 (pageChoice own), and the toast counts them.
+async function downloadGroups(groups, button) {
+  const packing = `正在打包 ${groups.length} 条记录…`;
   try {
-    if (groups.length === 1) return await runNoteAction(groups[0], "download");
-    setStatus(`正在打包 ${groups.length} 条记录…`);
+    if (groups.length === 1) return await runNoteAction(groups[0], "download", button);
+    setStatus(packing);
     const notes = [];
     let noPage = 0;
     let failed = 0;
@@ -760,7 +785,8 @@ async function downloadGroups(groups) {
     const used = new Set();
     const files = notes.map((n) => ({ name: MdgDownload.uniqueName(used, n.filename), text: n.markdown }));
     MdgDownload.text(`MoonDigest摘读记录-${MdgCommon.localDate(new Date(), true)}.zip`, MdgDownload.zipStored(files), "application/zip");
-    setStatus([`已下载 ${groups.length} 条记录`, noPage && `${noPage} 条没打开页面，放的是 AI 笔记`, failed && `${failed} 条生成不了笔记，放的是 AI 笔记`].filter(Boolean).join("，"));
+    clearStatus(packing);
+    sayDone([`${MdgErrors.LABEL.flashDownloaded} ${groups.length} 条记录`, noPage && `${noPage} 条没打开页面，放的是 AI 笔记`, failed && `${failed} 条生成不了笔记，放的是 AI 笔记`].filter(Boolean).join("，"));
   } catch (error) {
     setStatus(`${MdgErrors.TEXT.downloadFailed}：${error?.message || MdgErrors.TEXT.unknown}`, true);
   }
@@ -777,6 +803,7 @@ async function saveToObsidian(group) {
     await runNoteAction(group, "write");
   } finally {
     writing.delete(group.key);
+    if (!writing.size) clearStatus(MdgErrors.TEXT.obsidianWriting);
     render();
   }
 }
@@ -836,8 +863,8 @@ els.list.addEventListener("click", (event) => {
   const group = groupByVideo(conversations).find((g) => g.key === key);
   const act = target.dataset.act;
   if (target.dataset.untag && group) void tagStore.untag(readingKey(group), target.dataset.untag);
-  else if (act === "copy" && group) void copyGroup(group);
-  else if (act === "md" && group) void downloadGroups([group]);
+  else if (act === "copy" && group) void copyGroup(group, target);
+  else if (act === "md" && group) void downloadGroups([group], target);
   else if (act === "obsidian" && group) void saveToObsidian(group);
   else if (act === "delete") void deleteGroups([key]);
   else if (act === "summary") {
@@ -888,9 +915,10 @@ els.list.addEventListener("focusout", (event) => {
 });
 UI.bindSearch(els.search, () => render());
 els.selbar.addEventListener("click", (event) => {
-  const act = event.target.closest("[data-sel]")?.dataset.sel;
+  const button = event.target.closest("[data-sel]");
+  const act = button?.dataset.sel;
   const picks = visibleGroups().filter((g) => selected.has(g.key));
-  if (act === "md") void downloadGroups(picks);
+  if (act === "md") void downloadGroups(picks, button);
   else if (act === "tags") openPicker(picks);
   else if (act === "delete") void deleteGroups(picks.map((g) => g.key));
   else if (act === "clear") {
@@ -948,7 +976,7 @@ async function openSettings() {
 settingsDialog.addEventListener("close", async () => {
   // Only the fields changed since the dialog opened, over what is stored now: a setting imported meanwhile keeps its value.
   const patch = UI.changedFields(settingsFields(), settingsShown);
-  if (Object.keys(patch).length && (await saveAiSettings({ ...(await aiSettings()), ...patch }))) setStatus(MdgErrors.TEXT.settingsSaved);
+  if (Object.keys(patch).length && (await saveAiSettings({ ...(await aiSettings()), ...patch }))) sayDone(MdgErrors.TEXT.settingsSaved);
 });
 // AI conversations only: triage analyses and notes are other features' data and stay. A starred record's are kept too
 // (星标 keeps a record with its conversations); its own 删除 AI 对话 still deletes them.
