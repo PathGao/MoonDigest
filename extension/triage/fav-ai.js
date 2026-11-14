@@ -120,7 +120,7 @@ const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalys
 async function analyzeOne(bvid, force, { crit, ctx, ai }) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx, aiProviderId: ai.aiProviderId, thinking: ai.thinking });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx, aiProviderId: ai.aiProviderId, thinking: ai.thinking, search: ai.search });
   S.analyzing.delete(bvid);
   render();
   return r;

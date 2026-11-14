@@ -1429,7 +1429,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.folderAi = { J: { providerId: "ds", thinking: false, search: true } };
     t.S.titleRes = {};
     await t.runStage1();
-    assert.deepStrictEqual([sent.at(-1).aiProviderId, sent.at(-1).thinking], ["ds", false]);
+    assert.deepStrictEqual([sent.at(-1).aiProviderId, sent.at(-1).thinking, sent.at(-1).search], ["ds", false, undefined], "标题粗看 never asks for 联网核实");
     t.S.folderAi = {};
     t.S.coarseFailed.clear();
     await t.runStage1();
@@ -1440,7 +1440,42 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.mediaId = "all";
     assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), {});
     t.S.mediaId = "J";
-    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "ds", thinking: true });
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "ds", thinking: true, search: false });
+    // 联网核实 on, on a platform that has it: a 细看 made without it is old (按新标准重新细看); one made with it, a folder
+    // with it off, or a platform without it, is not. The 细看 request carries it.
+    {
+      const done = (extra) => ({ status: "done", verdict: "keep", criteria: "", ...extra });
+      t.S.analyses = { BV500: done({}) };
+      const staleWith = (rec) => ((t.S.folderAi = rec ? { J: rec } : {}), plain(t.staleFine().map((it) => it.bvid)));
+      assert.deepStrictEqual(
+        [staleWith({ providerId: "ds", thinking: false, search: true }), staleWith({ providerId: "ds", thinking: false, search: false }), staleWith({ providerId: "zp", thinking: false, search: true }), staleWith(null)],
+        [["BV500"], [], [], []]
+      );
+      t.S.analyses.BV500 = done({ search: true });
+      assert.deepStrictEqual(staleWith({ providerId: "ds", thinking: false, search: true }), []);
+      t.S.analyses = {};
+      handlers["triage-analyze"] = () => ({ ok: true, data: done({ search: true }) });
+      await vm.runInContext("analyzeOne", ctx)("BV500", true, vm.runInContext("judgeOf", ctx)(t.S.itemMap.get("BV500")));
+      assert.deepStrictEqual([sent.at(-1).type, sent.at(-1).search, sent.at(-1).aiProviderId], ["triage-analyze", true, "ds"]);
+      // Saving with 联网核实 just turned on asks to redo the 细看 made without it; turning it off, or saving it on again, does not.
+      const asked = [];
+      const realAsk = t.askConfirm;
+      t.askConfirm = async (title) => (asked.push(title), false);
+      t.S.analyses = { BV500: done({}) };
+      t.S.folderCriteria = {};
+      const save = async (rec, next) => {
+        open(rec);
+        vm.runInContext(`Object.assign(critAi, ${JSON.stringify(next)})`, ctx);
+        await t.saveCriteria();
+      };
+      await save({ providerId: "ds", thinking: false, search: false }, { search: true });
+      await save({ providerId: "ds", thinking: false, search: true }, { search: true });
+      await save({ providerId: "ds", thinking: false, search: true }, { search: false });
+      assert.deepStrictEqual(asked, ["联网核实打开了"]);
+      t.askConfirm = realAsk;
+      delete handlers["triage-analyze"];
+      t.S.analyses = {};
+    }
     delete ctx.localStorage;
     t.S.coarseFailed.clear();
     Object.assign(t.S, { titleRes: {}, folderCriteria: {}, folderAi: {} });

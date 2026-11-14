@@ -366,6 +366,53 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(t.triageChat([], 100, true), (e) => e.code === "AI_TIMEOUT");
   assert.ok(Date.now() - started >= 55, "thinking uses the longer timeout");
 
+  // 联网核实: the search tool and its line in the prompt go only with 细看's search on a platform that has it; the other
+  // combinations, and 标题粗看 and AI 打标签 whatever they carry, send neither. It waits as long as thinking does.
+  {
+    t.loadAiProviders = async () => [
+      { id: "ds", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash" },
+      { id: "zp", baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm" }
+    ];
+    t.loadAiProviderKeys = async () => ({ ds: "k", zp: "k" });
+    let body;
+    t.fetch = async (_, init) => ((body = JSON.parse(init.body)), { ok: true, json: async () => ({ choices: [{ message: { content: "[]" } }] }) });
+    const sends = async (search, id) => {
+      const r = await t.triageChat([{ role: "system", content: "S" }, { role: "user", content: "U" }], 100, false, id, search);
+      return [Boolean(body.tools), body.messages[0].content.includes("联网"), r.search];
+    };
+    assert.deepStrictEqual(plain([await sends(true, "ds"), await sends(true, "zp"), await sends(false, "ds"), await sends(false, "zp")]), [[true, true, true], [false, false, false], [false, false, false], [false, false, false]]);
+    assert.deepStrictEqual(plain(body.messages[1]), { role: "user", content: "U" });
+    await sends(true, "ds");
+    assert.deepStrictEqual(plain(body.tools), [{ type: "deepseek_web_search" }]);
+    assert.ok(!("response_format" in body), "the search tool takes no response_format");
+    const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+    t.chrome = { storage: { sync: { get: async (d) => d }, local: { set: async () => {} } } };
+    await H["triage-classify-titles"]({ items: [{ bvid: "BV1", title: "t" }], aiProviderId: "ds", search: true }).catch(() => {});
+    assert.ok(!body.tools, "标题粗看 never searches");
+    t.fetch = async (_, init) => ((body = JSON.parse(init.body)), { ok: true, json: async () => ({ choices: [{ message: { content: '{"new_tags":[],"items":[]}' } }] }) });
+    await H["triage-ai-command"]({ instruction: "x", items: [{ bvid: "BV1", title: "t" }], tags: [], aiProviderId: "ds", search: true });
+    assert.ok(!body.tools, "AI 打标签 never searches");
+    // A searching request has the thinking timeout.
+    t.fetch = (url, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+    const began = Date.now();
+    await assert.rejects(t.triageChat([{ role: "system", content: "S" }], 100, false, "ds", true), (e) => e.code === "AI_TIMEOUT");
+    assert.ok(Date.now() - began >= 55, "联网核实 waits as long as thinking");
+    // Moderation stopped the answer: a sentence of its own, not a format error.
+    t.fetch = async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: "" }, finish_reason: "content_filter" }] }) });
+    await assert.rejects(t.triageChat([{ role: "system", content: "S" }], 100, false, "ds", true), (e) => e.message === "AI 平台的内容审核拦下了这次回复" && e.code === undefined);
+    // 细看 records whether it searched.
+    const was = t.MdgSites;
+    t.MdgSites = { ...was, SITES: { bilibili: { fetchMeta: async () => ({ title: "T", description: "", author: "A", duration: 60, uploadDate: "", tname: "", tags: [] }), fetchComments: async () => [] } }, loadSubtitle: async () => ({ body: [] }) };
+    const stored = {};
+    t.chrome = { storage: { sync: { get: async (d) => d }, local: { get: async () => ({}), set: async (o) => Object.assign(stored, o) } } };
+    t.fetch = async (_, init) => ((body = JSON.parse(init.body)), { ok: true, json: async () => ({ choices: [{ message: { content: '{"one_liner":"x","points":["a","b","c"],"verdict":"keep","reason":"r"}' } }] }) });
+    const analyzed = async (msg) => plain(await H["triage-analyze"]({ bvid: "BV9", force: true, ...msg }));
+    assert.deepStrictEqual([(await analyzed({ aiProviderId: "ds", search: true })).search, (await analyzed({ aiProviderId: "zp", search: true })).search, (await analyzed({ aiProviderId: "ds" })).search], [true, undefined, undefined]);
+    t.MdgSites = was;
+    t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
+    t.loadAiProviderKeys = async () => ({ p: "k", a: "k", b: "k" });
+  }
+
   // Interval 0 is a valid user choice; only invalid values fall back to the default.
   const settingsWith = async (stored) => {
     t.chrome = { storage: { sync: { get: async (d) => ({ ...d, ...stored }) } } };

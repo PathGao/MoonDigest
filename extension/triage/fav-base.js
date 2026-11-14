@@ -211,11 +211,12 @@ const criteria = () => criteriaFor(S.mediaId);
 const homeOf = (it) => (S.mediaId === ALL ? S.folders.map((f) => String(f.id)).find((id) => it?.folders?.includes(id)) : String(S.mediaId));
 // What the AI is told about a folder; its 判断标准 is relative to this.
 const folderContext = (id = S.mediaId) => ({ title: folderName(id), intro: S.folderIntro[id] || "" });
-// The fields a request about a folder carries: its own platform and 开启思考 (folderAi). None without a record, and none in
-// 所有收藏夹 for now: the background then takes the side panel's pick (sendRaw) and 开启思考's old global value.
+// The fields a request about a folder carries: its own platform, 开启思考 and 联网核实 (folderAi; only 字幕细看 sends search).
+// None without a record, and none in 所有收藏夹 for now: the background then takes the side panel's pick (sendRaw),
+// 开启思考's old global value and no search.
 const aiReq = (id) => {
   const r = S.mediaId === ALL ? null : S.folderAi[id];
-  return r ? { aiProviderId: r.providerId, thinking: r.thinking } : {};
+  return r ? { aiProviderId: r.providerId, thinking: r.thinking, search: r.search } : {};
 };
 // A folder's AI as its requests run, the background's fallbacks included: the platform (its own, else the side panel's
 // pick, else the first enabled), gone when its own was deleted or disabled; thinking, the switch as stored, and thinkingOn,
@@ -238,7 +239,19 @@ const judgeOf = (it) => {
 const isStale = (r, crit = criteria()) => Boolean(r) && (r.criteria ?? crit) !== crit;
 const judged = () => S.mediaId && S.mediaId !== REMOVED;
 const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "coarse") && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
-const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "fine") && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
+// 联网核实 on for the folder and possible on its platform (none in 所有收藏夹 for now): a 细看 made without it is old too,
+// redone like one made under another 判断标准. Turning it off makes none old.
+const searchWanted = (id) => {
+  if (S.mediaId === ALL) return false;
+  const a = folderAiOf(id);
+  return a.search && Boolean(a.provider?.caps.search);
+};
+const staleFineOf = (it) => {
+  const a = S.analyses[it.bvid];
+  const home = homeOf(it);
+  return isStale(a, criteriaFor(home)) || (Boolean(a) && !a.search && searchWanted(home));
+};
+const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "fine") && staleFineOf(it)) : []);
 
 const $ = (id) => document.getElementById(id);
 

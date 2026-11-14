@@ -176,6 +176,10 @@ const TRIAGE_TITLE_PROMPT = [
   '[{"i": 序号, "verdict": "keep|drop|unsure", "reason": "≤20字", "confidence": "high|low"}]'
 ].join("\n");
 
+// 联网核实: the line triageChat adds to the system prompt when it sends the search tool.
+const TRIAGE_SEARCH_PROMPT = "你可以联网搜索。只在需要核实视频内容是否过时或有误时搜索，次数尽量少；回复格式不变。";
+const TRIAGE_FILTERED = "AI 平台的内容审核拦下了这次回复";
+
 // folder 是 { title, intro }，criteria 是这个收藏夹的判断标准；都可以为空
 function triageWithCriteria(system, criteria, folder) {
   const text = String(criteria ?? "").trim();
@@ -664,7 +668,7 @@ async function triageAiSettings({ aiProviderId, thinking } = {}) {
   };
 }
 
-async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thinking }) {
+async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thinking, search }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = MdgLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
@@ -689,7 +693,8 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thin
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
   const ai = await triageAiSettings({ aiProviderId, thinking });
-  const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
+  const chat = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId, search === true);
+  const { content, model } = chat;
   const analysis = {
     bvid,
     status: "done",
@@ -701,7 +706,9 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thin
     ...triageParseLlm(content),
     model,
     analyzedAt: Date.now(),
-    criteria: String(criteria ?? "").trim()
+    criteria: String(criteria ?? "").trim(),
+    // Made with 联网核实: a folder that has it on redoes the 细看 made without it (fav-base.js staleFine).
+    ...(chat.search ? { search: true } : {})
   };
   await chrome.storage.local.set({ [cacheKey]: analysis });
   return analysis;
@@ -770,22 +777,26 @@ async function triageProvider(providerId = "") {
   return enabled.find((p) => p.id === providerId) || enabled[0] || null;
 }
 
-// 单次 AI 请求的超时（毫秒）。思考模式慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
+// 单次 AI 请求的超时（毫秒）。思考和联网核实慢得多；两档都要短于 MV3 单个消息事件约 5 分钟的上限
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
 // providerId: the folder's platform or the side panel's pick, as the pages send aiProviderId (收藏夹's sendRaw, fav-*.js);
 // unset or no longer enabled, the first enabled one, as in the side panel.
-async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
+// search: 联网核实 (字幕细看 only), sent only where the platform has it (aiCaps): DeepSeek's server searches within this one
+// request and answers in the same format. Resolves { content, model, search } (search: whether it was sent).
+async function triageChat(messages, maxTokens, thinking = false, providerId = "", search = false) {
   const provider = await triageProvider(providerId);
   if (!provider) throw triageError(MdgErrors.TEXT.aiNone, MdgErrors.CODE.AI_SETUP);
   const apiKey = (await loadAiProviderKeys())[provider.id];
   const problem = aiProviderProblem(provider, apiKey);
   if (problem) throw triageError(problem.text, problem.code);
   const { baseUrl } = provider; // normalized by loadAiProviders
-  const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages };
+  const web = search && aiCaps(provider).search;
+  const said = web ? [{ ...messages[0], content: `${messages[0].content}\n\n${TRIAGE_SEARCH_PROMPT}` }, ...messages.slice(1)] : messages;
+  const body = { model: provider.model, stream: false, temperature: 0.3, max_tokens: maxTokens, messages: said, ...(web && { tools: [{ type: "deepseek_web_search" }] }) };
 
-  const ms = TRIAGE_AI_TIMEOUT_MS[thinking ? "thinking" : "normal"];
+  const ms = TRIAGE_AI_TIMEOUT_MS[thinking || web ? "thinking" : "normal"];
   return triageRace(ms, () => triageError(MdgErrors.aiTimeout(ms), "AI_TIMEOUT"), async (signal) => {
     // 思考 token 计入 max_tokens；默认关（DeepSeek 实测 30 标题 3s/815 token，开则约 19s/4579 token）
     const res = await postChat({ baseUrl, apiKey, signal, thinking }, body).catch(async () => {
@@ -797,7 +808,9 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
     const choice = json.choices?.[0];
     // Cut at the output limit, with or without a partial answer: the page offers 调大输出上限.
     if (choice?.finish_reason === "length") throw triageError(MdgErrors.TEXT.aiTruncated, "AI_TRUNCATED");
-    return { content: choice?.message?.content, model: provider.model };
+    // The platform's moderation stopped the answer (content is then empty): this video's failure, said as that.
+    if (choice?.finish_reason === "content_filter") throw triageError(TRIAGE_FILTERED);
+    return { content: choice?.message?.content, model: provider.model, search: Boolean(web) };
   });
 }
 

@@ -281,7 +281,8 @@ function renderListHeader(list) {
   // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
   const redoBtn = (act, step, all) => {
     const { label, why, verb } = redoOf(step);
-    return all ? headBtn(act, label, "", why, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+    const unsearched = step === "fine" && searchWanted(String(S.mediaId)) ? "，或细看时没有联网核实" : "";
+    return all ? headBtn(act, label, "", why, "", `这些视频是按旧的判断标准${verb}的${unsearched}`, false, true) : "";
   };
   const sel = selectedIn(list).length;
   // A selection, listed or not, decides alone: no AI-verdict batches beside it (all hidden: its buttons say why).

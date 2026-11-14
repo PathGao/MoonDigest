@@ -206,6 +206,7 @@ function setFolderAi(id, rec) {
 
 async function saveCriteria() {
   const changed = el.criteriaInput.value.trim() !== criteria();
+  const searchWas = searchWanted(String(S.mediaId));
   // No platform to pick: nothing to record, the folder keeps following the side panel.
   const ai = critAi?.providerId && { providerId: critAi.providerId, thinking: critAi.thinking, search: critAi.search };
   await Promise.all([setCriteria([[S.mediaId, el.criteriaInput.value]]), ai && setFolderAi(String(S.mediaId), ai)]);
@@ -214,7 +215,7 @@ async function saveCriteria() {
   // selection first, one batch), disabled with the same why when that has none. While an AI step runs it could not
   // start, so a toast says what to do once it ends instead of a dialog that can only be cancelled.
   const stale = staleCoarse().length;
-  if (!changed || !stale) return;
+  if (!changed || !stale) return askSearchRedo(searchWas);
   if (aiBusyStep()) return toast(`有 ${stale} 个视频是按旧标准粗看的，等${aiBusyStep()}跑完，点「按新标准重新粗看」就能更新`);
   const open = redoCoarseOpen();
   const { batch, label, why } = redoOf("coarse");
@@ -226,6 +227,19 @@ async function saveCriteria() {
     { reason: why }
   );
   if (ok) runStage1(batch, true);
+}
+
+// 联网核实 just turned on (and possible on the folder's platform) leaves the 细看 made without it old: asked as a changed
+// 判断标准 asks for 粗看, with 细看完成's own redo button.
+async function askSearchRedo(searchWas) {
+  const stale = staleFine().length;
+  if (searchWas || !searchWanted(String(S.mediaId)) || !stale) return;
+  if (aiBusyStep()) return toast(`有 ${stale} 个视频细看时没有联网核实，等${aiBusyStep()}跑完，点「按新标准重新细看」就能更新`);
+  const open = redoFineListed();
+  const { batch, label, why } = redoOf("fine");
+  const shown = open.length < stale ? `（当前筛选下列出 ${open.length} 个）` : "";
+  const ok = await askConfirm("联网核实打开了", `<p>「细看完成」里有 ${stale} 个视频细看时没有联网核实${shown}，要按新标准重新细看吗？</p>`, label, { reason: why });
+  if (ok) startGroup(batch.map((it) => it.bvid), true);
 }
 
 // 所有收藏夹 has no one 判断标准: before a 粗看 or 细看 run it lists each folder the run touches, with its videos and its
