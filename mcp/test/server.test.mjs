@@ -281,6 +281,7 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   assert.ok(hub, "no new hub");
   // The old hub is still finishing its call; a session with nothing in flight is already on the new one.
   assert.match((await settle(bystander.call("get", {}))).message, /^No browser extension is connected/);
+  assert.equal(await Promise.race([inFlight, sleep(0)]), undefined, "the old hub's call had already finished");
   assert.deepEqual(await inFlight, { data: "slow" });
   await Promise.race([old.closed, sleep(2000)]);
   assert.equal(oldClosed, true, "old hub still running");
