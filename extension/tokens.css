@@ -198,6 +198,24 @@ button[aria-busy="true"]:disabled { opacity: 0.7; cursor: progress; }
 @media (prefers-reduced-motion: reduce) {
   [aria-busy="true"]::before { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
+/* Done: MdgFlash sets data-flash="已复制" on a copy or download button for a moment. The word covers the button's own
+   content, which keeps its place (hidden, not removed), so the width does not change; a busy button shows its 「…中」.
+   The important beats a page's own button colors (hover, ids), which would show the hidden text through. */
+button[data-flash]:not([aria-busy="true"]) { position: relative; color: transparent !important; }
+button[data-flash]:not([aria-busy="true"]) > * { visibility: hidden; }
+button[data-flash]:not([aria-busy="true"])::after {
+  content: attr(data-flash) / "";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  color: var(--ok);
+  font-weight: 600;
+}
+/* Read by a screen reader, not shown: MdgFlash's live region. */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* The bunny-eared 月团 silhouette (docs/design/icon-v4-bunny), painted in the current text color; pages set color and size. */
 .brand-mark {

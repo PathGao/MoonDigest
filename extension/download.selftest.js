@@ -36,6 +36,52 @@ const D = ctx.MdgOverwriteDialog;
 const text = (d) => d.innerHTML.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const last = () => dialogs[dialogs.length - 1];
 
+// MdgFlash: a copy or download button says 已复制 for a moment, on a clock the test drives.
+{
+  let now = 0;
+  const timers = new Map();
+  let nextId = 1;
+  const tick = (ms) => {
+    now += ms;
+    for (const [id, t] of [...timers].sort((a, b) => a[1].at - b[1].at)) if (t.at <= now && timers.delete(id)) t.fn();
+  };
+  const added = [];
+  const doc = {
+    body: { append: (n) => added.push(Object.assign(n, { isConnected: true })) },
+    createElement: () => ({ attrs: {}, textContent: "", setAttribute(k, v) { this.attrs[k] = v; } })
+  };
+  const fctx = vm.createContext({ document: doc, setTimeout: (fn, ms) => (timers.set(nextId, { fn, at: now + ms }), nextId++), clearTimeout: (id) => timers.delete(id) });
+  fctx.globalThis = fctx;
+  vm.runInContext(read("download.js"), fctx);
+  const { show } = fctx.MdgFlash;
+  const button = (attrs = {}) => ({ isConnected: true, dataset: {}, getAttribute: (k) => attrs[k] ?? null });
+  const b = button();
+  assert.strictEqual(show(b, "已复制", "已复制 Markdown"), true);
+  assert.strictEqual(b.dataset.flash, "已复制");
+  tick(50);
+  const live = added[0];
+  assert.deepStrictEqual([added.length, live.attrs.role, live.textContent], [1, "status", "已复制 Markdown"], "a screen reader hears the whole sentence");
+  // A second click while it shows: the time starts again, and the word never becomes the button's own content.
+  tick(1000);
+  show(b, "已复制", "已复制 Markdown");
+  tick(1000);
+  assert.strictEqual(b.dataset.flash, "已复制", "still showing 1 s after the second click");
+  tick(500);
+  assert.strictEqual(b.dataset.flash, undefined, "back to its own content");
+  assert.strictEqual(added.length, 1, "one live region for the page");
+  // Busy (setBusy's 「…中」) or redrawn away: nothing shown, false, so the entry shows the sentence its own way.
+  const busy = button({ "aria-busy": "true" });
+  const gone = Object.assign(button(), { isConnected: false });
+  assert.deepStrictEqual([show(busy, "已下载", "已下载 .md"), busy.dataset.flash, show(gone, "已下载", "已下载 .md"), show(null, "已下载", "x")], [false, undefined, false, false]);
+  // A busy button that is idle again flashes.
+  assert.strictEqual(show(button({ "aria-busy": "false" }), "已下载", "已下载 .md"), true);
+  // In an open modal dialog (一篇摘录) the page behind is inert, so the live region goes inside the dialog.
+  const inDialog = [];
+  const dialog = { append: (n) => inDialog.push(Object.assign(n, { isConnected: true })) };
+  show(Object.assign(button(), { closest: () => dialog }), "已复制", "已复制 Markdown");
+  assert.deepStrictEqual([inDialog.length, added.length], [1, 1]);
+}
+
 (async () => {
   // Three kinds of note, one set of words; the default (autofocus) button is never 整篇覆盖.
   D.choose("a.md", { hasAiSection: true });

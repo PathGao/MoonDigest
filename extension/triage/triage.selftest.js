@@ -4232,6 +4232,17 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.navigator = { clipboard: { writeText: async () => { throw new Error("没有权限"); } } };
       await t.exportDigest("copy");
       assert.ok(t.el.writeProgress.textContent === "复制失败：无法访问剪贴板，点一下页面再试" && cls.has("fail-text"), "copy failure in red");
+      // A copy that works says 已复制 on its button, and the line under it is empty.
+      const copyBtn = t.el.writeCopyBtn;
+      t.el.writeCopyBtn = { isConnected: true, dataset: {}, getAttribute: () => null };
+      const body = t.document.body;
+      Object.assign(t.document, { createElement: () => ({ setAttribute() {} }), body: { ...body, append() {} } });
+      t.navigator = { clipboard: { writeText: async () => {} } };
+      await t.exportDigest("copy");
+      assert.deepStrictEqual([t.el.writeCopyBtn.dataset.flash, t.el.writeProgress.textContent], ["已复制", ""]);
+      t.el.writeCopyBtn = copyBtn;
+      delete t.document.createElement;
+      t.document.body = body;
       handlers["triage-export"] = (m) => ({ ok: true, data: { path: `库/${m.filename}`, text: `已写入 Obsidian：库/${m.filename}` } });
       await t.exportDigest("obsidian");
       assert.ok(/^已写入 Obsidian：库\/B站摘录-/.test(t.el.writeProgress.textContent) && !cls.has("fail-text"), t.el.writeProgress.textContent);

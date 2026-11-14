@@ -244,7 +244,7 @@ const el = {};
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "favSel", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "basketClearBtn", "toast", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
+  "basketList", "basketClearBtn", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
   "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
@@ -400,7 +400,6 @@ function setBusy(btn, text) {
   else btn.removeAttribute("aria-busy");
 }
 
-let toastTimer = 0;
 let noteTimer = 0;
 const notePending = new Set(); // bvids whose note waits for noteTimer
 // Each pending note goes through MdgLimits.saveVideoNote (fresh read, this one entry, write), so notes the side panel
@@ -413,14 +412,8 @@ async function flushNotes() {
     if (!noteTimer) notePending.delete(b); // typing again meanwhile keeps it pending
   }
 }
-// An error stays until the next toast or a click on it; anything else goes after 6 s.
 function toast(text, error = false) {
-  el.toast.textContent = text;
-  el.toast.classList.toggle("error", error);
-  el.toast.title = error ? "点一下关闭" : "";
-  el.toast.hidden = false;
-  clearTimeout(toastTimer);
-  if (!error) toastTimer = setTimeout(() => (el.toast.hidden = true), 6000);
+  UI.toast(text, error);
 }
 
 // The confirm dialog is shared.js's, as 摘读记录's (a function here so the tests can stand in for it).

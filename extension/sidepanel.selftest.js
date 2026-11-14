@@ -322,8 +322,8 @@ const tick = () => new Promise((r) => setImmediate(r));
       const ask = ["export-note,-,BV1xx411c7mD,这个视频", "export-note,open,BV1xx411c7mD,这个视频"];
       assert.deepStrictEqual(await run(ctx.copyCurrentConversationMarkdown, () => "open"), ask);
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => "open"), ask);
-      // K16: 下载 .md says so here too, as on every entry.
-      assert.deepStrictEqual(shown.at(-1), [ctx.MdgErrors.TEXT.downloaded, undefined]);
+      // The menu closes on the click: 导出对话, the button left in sight, says 已下载, and no notice says it again.
+      assert.deepStrictEqual([shown.length, vm.runInContext("els.exportBtn.dataset.flash", ctx)], [0, "已下载"]);
       assert.deepStrictEqual([copied, saved, asked.map((a) => a.join())], [["# 视频笔记"], [["V.md", "# 视频笔记"]], ["u,true,true,复制", "u,true,true,下载"]]);
       assert.deepStrictEqual(await run(ctx.downloadCurrentConversation, () => ""), [ask[0]]);
       assert.deepStrictEqual([saved.length, shown.at(-1)], [1, ["已取消下载", undefined]]);
@@ -1107,10 +1107,12 @@ const tick = () => new Promise((r) => setImmediate(r));
     ctx.navigator.clipboard = { writeText: async () => { throw new Error(""); } };
     await ctx.copyMarkdown("x");
     assert.strictEqual(ctx.MdgErrors.messageOf(new Error("")), "未知错误");
-    // C350: a reply's 复制 Markdown says 已复制 Markdown, like the export menu's.
+    // C350: a reply's 复制 Markdown says 已复制 on itself, like the export menu's; without the button, the notice says it.
     ctx.navigator.clipboard = { writeText: async () => {} };
+    const replyCopy = stubEl();
+    await ctx.copyMarkdown("x", replyCopy);
     await ctx.copyMarkdown("x");
-    assert.deepStrictEqual(notices, [["复制失败：无法访问剪贴板，点一下页面再试", true], ["已复制 Markdown", false]]);
+    assert.deepStrictEqual([replyCopy.dataset.flash, notices], ["已复制", [["复制失败：无法访问剪贴板，点一下页面再试", true], ["已复制 Markdown", false]]]);
     delete ctx.navigator.clipboard;
     [ctx.showConversationContextNotice, ctx.chrome.runtime.sendMessage] = prev;
   }
