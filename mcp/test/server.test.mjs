@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { spawn, execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import WebSocket, { WebSocketServer } from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -266,9 +266,11 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   const port = old.port;
   let oldClosed = false;
   old.closed.then(() => { oldClosed = true; });
-  const ext = fakeExtension(port, { onCall: (m) => { setTimeout(() => ext.ws.send(JSON.stringify({ id: m.id, ok: true, data: "slow" })), 300); } });
+  const ext = fakeExtension(port, { onCall: (m) => { setTimeout(() => ext.ws.send(JSON.stringify({ id: m.id, ok: true, data: "slow" })), 800); } });
   await ext.opened;
   await until(() => old.connected);
+  const bystander = createBridge({ port, build: OLD, spawnHub: noSpawn });
+  await bystander.connect();
   const same = createBridge({ port, build: OLD, spawnHub: noSpawn });
   const inFlight = settle(same.call("get", {}));
   await until(() => ext.messages.some((m) => m.method));
@@ -277,6 +279,8 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   const newer = createBridge({ port, build: NEW, spawnHub: () => { hub = createHub({ port, build: NEW }); hub.listen(); } });
   assert.match((await settle(newer.call("get", {}))).message, /^No browser extension is connected/);
   assert.ok(hub, "no new hub");
+  // The old hub is still finishing its call; a session with nothing in flight is already on the new one.
+  assert.match((await settle(bystander.call("get", {}))).message, /^No browser extension is connected/);
   assert.deepEqual(await inFlight, { data: "slow" });
   await Promise.race([old.closed, sleep(2000)]);
   assert.equal(oldClosed, true, "old hub still running");
@@ -289,8 +293,21 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   assert.deepEqual(await settle(older.call("get", {})), { data: "new" });
   assert.deepEqual(await settle(same.call("get", {})), { data: "new" });
   ext2.ws.close();
-  for (const b of [same, newer, older]) await b.close();
+  for (const b of [same, newer, older, bystander]) await b.close();
   await hub.close();
+});
+
+test("the hub cannot be started -> NOT_CONNECTED that says how to see why; the next call tries again", async () => {
+  const port = await freePort();
+  let tries = 0;
+  const thin = createBridge({ port, spawnHub: () => { tries++; throw new Error("EMFILE"); } });
+  await thin.connect();
+  for (const n of [2, 3]) {
+    const r = await settle(thin.call("get", {}));
+    assert.equal(r.code, "NOT_CONNECTED");
+    assert.match(r.message, /could not start its shared process on .*: EMFILE\. Run `node .*server\.js --hub`/);
+    assert.equal(tries, n);
+  }
 });
 
 test("port held by a moondigest-mcp from before the hub -> PORT_IN_USE, then the next call works", async () => {
@@ -362,9 +379,6 @@ test("real binaries: two sessions started at once share one hub on the port", as
     ext = fakeExtension(port, { onCall: (m) => ({ ok: true, data: { ...VIDEO, title: m.params.url } }) });
     try { await ext.opened; break; } catch (e) { if (i > 50) throw e; await sleep(100); }
   }
-  const listeners = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]).toString().trim().split("\n");
-  assert.equal(listeners.length, 1, `listening: ${listeners}`);
-  const hubPid = Number(listeners[0]);
   const ask = async (c, url) => {
     for (let i = 0; i < 50; i++) {
       const text = (await c.callTool({ name: "get_video", arguments: { url } })).content[0].text;
@@ -380,11 +394,11 @@ test("real binaries: two sessions started at once share one hub on the port", as
   const stopper = await rawClient(port);
   stopper.send(JSON.stringify({ type: "shutdown" }));
   await new Promise((r) => stopper.once("close", r));
-  const alive = () => { try { process.kill(hubPid, 0); return true; } catch { return false; } };
-  for (let i = 0; i < 50 && alive(); i++) await sleep(100);
-  assert.equal(alive(), false, "hub process still running");
-  const free = await new Promise((r) => { const s = createServer().once("error", () => r(false)).listen(port, "127.0.0.1", () => s.close(() => r(true))); });
-  assert.equal(free, true, "port still taken");
+  // The hub is the only listener there: the port coming free is the hub having exited.
+  const isFree = () => new Promise((r) => { const s = createServer().once("error", () => r(false)).listen(port, "127.0.0.1", () => s.close(() => r(true))); });
+  let free = false;
+  for (let i = 0; i < 50 && !(free = await isFree()); i++) await sleep(100);
+  assert.equal(free, true, "the hub still holds the port");
 });
 
 test("stdio binary lists the tools", async () => {

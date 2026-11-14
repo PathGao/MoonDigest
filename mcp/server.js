@@ -11,7 +11,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 const SELF = fileURLToPath(import.meta.url);
 // npm extracts every version with the same mtime; a local checkout's edits bump it.
 const BUILD = { version: VERSION, mtime: statSync(SELF).mtimeMs };
@@ -109,7 +109,7 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
       let msg;
       try { msg = JSON.parse(String(raw)); } catch { return; }
       if (msg.type === "hello") { send(ws, { type: "welcome", build }); return; }
-      if (msg.type === "shutdown") { stop(ws); return; }
+      if (msg.type === "shutdown") { stop(); return; }
       if (msg.id == null || !msg.method) return;
       const fail = (code, error) => send(ws, { id: msg.id, ok: false, code, error });
       if (state !== "running") { fail("NOT_CONNECTED", STOPPED); return; }
@@ -133,12 +133,14 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
   }
 
   // A newer thin wants the port: free it at once, let the calls in flight finish, then close.
-  function stop(requester) {
+  function stop() {
     if (state !== "running") return;
     state = "stopping";
     clearTimeout(idle);
     wss.close();
-    requester.close();
+    // Clients with nothing in flight go now, so their next call dials the new hub instead of waiting here.
+    const busy = new Set([...pending.values()].map((p) => p.client));
+    for (const ws of clients) if (!busy.has(ws)) ws.close();
     settle();
   }
 
@@ -210,10 +212,18 @@ export function createBridge({
         failure = new CodedError("PORT_IN_USE", `Port ${port} is used by another program, most likely a moondigest-mcp from before the shared-process change that another MCP client session is still running. Close that session (or stop that process: \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` shows it). The next call picks the port up.`);
         return null;
       }
-      if (!spawned) { spawned = true; spawnHub(); }
+      if (!spawned) {
+        spawned = true;
+        try { spawnHub(); } catch (err) { return cannotStart(`: ${err.message}`); }
+      }
       await new Promise((res) => setTimeout(res, 100));
     }
-    failure = new CodedError("NOT_CONNECTED", `moondigest-mcp could not start its shared process on ${host}:${port}.`);
+    return cannotStart("");
+  }
+
+  function cannotStart(why) {
+    // The hub's own output goes nowhere when a thin spawns it.
+    failure = new CodedError("NOT_CONNECTED", `moondigest-mcp could not start its shared process on ${host}:${port}${why}. Run \`node ${SELF} --hub\` in a terminal to see its error.`);
     return null;
   }
 
