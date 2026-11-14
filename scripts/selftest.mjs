@@ -10,8 +10,13 @@ const tests = ["", "triage", "history", "agent-sites"].flatMap((dir) =>
   fs.readdirSync(path.join(ext, dir)).filter((f) => f.endsWith(".selftest.js")).sort().map((f) => path.join(ext, dir, f))
 );
 for (const test of tests) {
-  if (spawnSync(process.execPath, [test], { stdio: "inherit" }).status !== 0) {
-    console.error(`failed: ${path.relative(ext, test)}`);
+  const run = spawnSync(process.execPath, [test], { stdio: ["inherit", "pipe", "inherit"], encoding: "utf8" });
+  process.stdout.write(run.stdout);
+  // Node exits 0 when a test is left awaiting something that never comes, so a test has passed only once it says so
+  // on its last line.
+  const said = /\b(ok|passed|checked)\b/.test(run.stdout.trimEnd().split("\n").pop());
+  if (run.status !== 0 || !said) {
+    console.error(`failed: ${path.relative(ext, test)}${run.status === 0 ? " (it stopped before its last line)" : ""}`);
     process.exit(1);
   }
 }
