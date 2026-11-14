@@ -1353,6 +1353,101 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([t.S.titleRes.BV500.reason, t.S.titleRes.BV500.criteria], ["新理由", "新标准"], "the new result replaces it");
   Object.assign(t.S, { titleRes: {}, folderCriteria: {} });
 
+  // 判断标准's AI side (L2): the platform is the folder's own, the fallback (side panel's pick), a gone one, or none; each
+  // switch on or off, on a platform that can or cannot do it.
+  {
+    const ds = { id: "ds", name: "DeepSeek", model: "deepseek-flash", note: "自己的", caps: { thinking: true, search: true } };
+    const zp = { id: "zp", name: "智谱 GLM", model: "glm", caps: { thinking: true, search: false } };
+    const oa = { id: "oa", name: "OpenAI 兼容", model: "gpt", caps: { thinking: false, search: false } };
+    const was = { providers: t.S.settings.aiPlatforms, thinking: t.S.settings.triageThinking };
+    Object.assign(t.S.settings, { aiPlatforms: [ds, zp, oa], triageThinking: true });
+    ctx.localStorage = { getItem: (k) => (k === "mdg_ai_selected_provider" ? "zp" : null) };
+    const draft = () => plain(vm.runInContext("critAi", ctx));
+    const open = (rec) => {
+      t.S.folderAi = rec ? { J: rec } : {};
+      t.el.criteriaInput = { value: "", focus() {} };
+      t.openCriteria();
+      return draft();
+    };
+    const sw = (box, hint) => [t.el[box].checked, t.el[box].disabled, t.el[hint].textContent];
+    const KEPT = "已开启的设置保留，换回支持的平台后生效";
+    // No record: the side panel's pick and 开启思考's old global value, no 联网核实; 智谱 cannot search, so that one is off.
+    assert.deepStrictEqual(open(null), { providerId: "zp", thinking: true, search: false, gone: false });
+    assert.match(t.el.critAiList.innerHTML, /<span>思考<\/span><span>联网<\/span>/);
+    assert.match(t.el.critAiList.innerHTML, /value="zp" checked/);
+    assert.ok(t.el.critAiList.innerHTML.includes('自己的<small>DeepSeek · deepseek-flash</small>') && t.el.critAiList.innerHTML.includes(">智谱 GLM · glm<"), "备注名 on top, 「平台 · 模型」 under it; without one, the option text alone");
+    assert.deepStrictEqual(sw("critThinking", "critThinkingHint"), [true, false, "判断更细，但慢得多、token 多几倍。"]);
+    assert.deepStrictEqual(sw("critSearch", "critSearchHint"), [false, true, "智谱 GLM · glm不支持联网"]);
+    assert.strictEqual(t.el.critSearch.title, "智谱 GLM · glm不支持联网", "the reason is on the switch too");
+    assert.strictEqual(t.el.critAiNote.hidden, true);
+    // Its own record on a platform that can do neither: both off, both kept on, and said so.
+    assert.deepStrictEqual(open({ providerId: "oa", thinking: true, search: true }), { providerId: "oa", thinking: true, search: true, gone: false });
+    assert.deepStrictEqual(sw("critThinking", "critThinkingHint"), [true, true, `OpenAI 兼容 · gpt不支持开关思考。${KEPT}`]);
+    assert.deepStrictEqual(sw("critSearch", "critSearchHint"), [true, true, `OpenAI 兼容 · gpt不支持联网。${KEPT}`]);
+    // On one that can: both on and free.
+    open({ providerId: "ds", thinking: false, search: true });
+    assert.deepStrictEqual([sw("critThinking", "critThinkingHint").slice(0, 2), sw("critSearch", "critSearchHint")[1]], [[false, false], false]);
+    // Its own platform deleted or disabled: the first enabled one, as the background falls back, with a note.
+    assert.deepStrictEqual(open({ providerId: "gone", thinking: true, search: false }), { providerId: "ds", thinking: true, search: false, gone: true });
+    assert.deepStrictEqual([t.el.critAiNote.hidden, t.el.critAiNote.textContent], [false, "原来选的 AI 平台已删除或停用，现在用「自己的」。"]);
+    // The drafted platform deleted on the settings page while the dialog is open: the same fallback, said the same way.
+    open({ providerId: "ds", thinking: true, search: false });
+    t.S.settings.aiPlatforms = [zp, oa];
+    vm.runInContext("renderCritAi()", ctx);
+    assert.deepStrictEqual([draft().providerId, draft().gone, t.el.critAiNote.hidden], ["zp", true, false]);
+    // One platform: no columns to compare.
+    t.S.settings.aiPlatforms = [zp];
+    open(null);
+    assert.ok(!t.el.critAiList.innerHTML.includes("crit-th") && !t.el.critAiList.innerHTML.includes('class="cap'), t.el.critAiList.innerHTML);
+    // None: the list says so with 去设置, the switches are off with that reason, and 保存 records no platform.
+    t.S.settings.aiPlatforms = [];
+    assert.strictEqual(open(null).providerId, "");
+    assert.deepStrictEqual([t.el.critAiList.innerHTML, t.el.critAiNone.hidden], ["", false], "the list says 没有启用的 AI 平台 with 去设置");
+    assert.deepStrictEqual([t.el.critThinking.disabled, t.el.critSearch.disabled, t.el.critSearch.title], [true, true, "没有启用的 AI 平台"]);
+    assert.strictEqual(t.el.critThinkingHint.textContent, "没有启用的 AI 平台", "nothing to switch back to: no 「换回支持的平台后生效」");
+    await t.saveCriteria();
+    assert.deepStrictEqual(plain(store[t.K.folderAi] || {}), {});
+    // 保存 writes the dialog's three as this folder's record by read-modify-write: another tab's folder stays.
+    t.S.settings.aiPlatforms = [ds, zp, oa];
+    open(null);
+    vm.runInContext('Object.assign(critAi, { providerId: "ds", search: true })', ctx);
+    store[t.K.folderAi] = { K: { providerId: "zp", thinking: false, search: false } };
+    await t.saveCriteria();
+    assert.deepStrictEqual(plain(store[t.K.folderAi]), { K: { providerId: "zp", thinking: false, search: false }, J: { providerId: "ds", thinking: true, search: true } });
+    // A changed platform or switch is not a changed 判断标准: no 重新粗看 is offered.
+    t.S.titleRes.BV500 = { verdict: "keep", criteria: "" };
+    const asked = [];
+    const realAsk = t.askConfirm;
+    t.askConfirm = async (title) => (asked.push(title), false);
+    open({ providerId: "ds", thinking: true, search: true });
+    vm.runInContext('Object.assign(critAi, { providerId: "zp", thinking: false })', ctx);
+    await t.saveCriteria();
+    assert.deepStrictEqual(asked, []);
+    t.askConfirm = realAsk;
+    // Requests: the folder's own platform and 开启思考; without a record exactly what they were (the side panel's pick only).
+    handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: {} } });
+    t.S.folderAi = { J: { providerId: "ds", thinking: false, search: true } };
+    t.S.titleRes = {};
+    await t.runStage1();
+    assert.deepStrictEqual([sent.at(-1).aiProviderId, sent.at(-1).thinking], ["ds", false]);
+    t.S.folderAi = {};
+    t.S.coarseFailed.clear();
+    await t.runStage1();
+    assert.deepStrictEqual(Object.keys(plain(sent.at(-1))).sort(), ["aiProviderId", "criteria", "folder", "items", "type"]);
+    assert.strictEqual(sent.at(-1).aiProviderId, "zp");
+    // 所有收藏夹 keeps today's behavior for now: no folder's record goes with its requests.
+    t.S.folderAi = { J: { providerId: "ds", thinking: true, search: false } };
+    t.S.mediaId = "all";
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), {});
+    t.S.mediaId = "J";
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "ds", thinking: true });
+    delete ctx.localStorage;
+    t.S.coarseFailed.clear();
+    Object.assign(t.S, { titleRes: {}, folderCriteria: {}, folderAi: {} });
+    Object.assign(t.S.settings, { aiPlatforms: was.providers, triageThinking: was.thinking });
+    delete handlers["triage-classify-titles"];
+  }
+
   // 移动/复制 is offered for a selection in any tab, 未分析 too.
   openFake("Z", [item(700)]);
   t.S.tab = "none";
@@ -2899,12 +2994,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     Object.assign(t, { askConfirm: async () => true });
     Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, loadAll: null });
   }
-  for (const thinkingToggle of [false, true]) {
-    t.S.settings.thinkingToggle = thinkingToggle;
-    t.handleAiError("模型输出被截断", "AI_TRUNCATED");
-    assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), thinkingToggle, "only a platform with the thinking switch is told to turn it off");
+  // Turning thinking off is offered only when the open folder thinks on a platform that can switch it (判断标准).
+  {
+    const was = { mediaId: t.S.mediaId, folderAi: t.S.folderAi, providers: t.S.settings.aiPlatforms };
+    t.S.mediaId = "TF";
+    t.S.settings.aiPlatforms = [{ id: "ds", name: "DeepSeek", model: "m", caps: { thinking: true, search: false } }, { id: "oa", name: "OpenAI", model: "g", caps: { thinking: false, search: false } }];
+    for (const [rec, want] of [[null, false], [{ providerId: "ds", thinking: true }, true], [{ providerId: "ds", thinking: false }, false], [{ providerId: "oa", thinking: true }, false]]) {
+      t.S.folderAi = rec ? { TF: { ...rec, search: false } } : {};
+      t.handleAiError("模型输出被截断", "AI_TRUNCATED");
+      assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), want, JSON.stringify(rec));
+    }
+    Object.assign(t.S, { mediaId: was.mediaId, folderAi: was.folderAi });
+    t.S.settings.aiPlatforms = was.providers;
   }
-  t.S.settings.thinkingToggle = false;
   // C553: a cut 细看 answer names 细看's own limit; 粗看 and AI 打标签 share 粗看's.
   assert.ok(t.el.bannerText.textContent.includes("调大粗看输出上限"), t.el.bannerText.textContent);
   t.el.banner.hidden = true;
@@ -4110,14 +4212,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await wait();
     assert.deepStrictEqual(texts(), { BV1: "中文字", BV2: "侧边栏的", BV3: "视频记录的" });
     t.render = realRender;
-    // 开启思考 follows the platform the side panel picks now: opening 收藏夹设置 asks the background again.
-    handlers["triage-settings-get"] = () => ({ ok: true, data: { thinkingToggle: true } });
-    t.S.settings.thinkingToggle = false;
-    t.openSettings();
-    await wait();
-    assert.deepStrictEqual([t.S.settings.thinkingToggle, t.el.thinkingRow.hidden], [true, false], "the switch follows the platform in use");
-    delete handlers["triage-settings-get"];
-    t.el.settingsDialog.close?.();
     // a background re-render waits while a note is composing, and runs on compositionend.
     t.S.items = [];
     t.document.activeElement = { closest: (s) => (s.split(", ").includes("[data-note]") ? note : null) };

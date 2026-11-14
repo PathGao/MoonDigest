@@ -606,6 +606,36 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 .form-error { margin: 4px 0 0; color: var(--danger); font-size: var(--fs-xs); }
 .confirm-body ul { margin: 0; padding-left: 18px; }
+/* 判断标准: the criteria on the left, as tall as the column; the folder's AI platform and its two switches on the right. The
+   list stops at about five rows and scrolls inside, so the switches stay in view. */
+dialog.crit-dialog { width: min(780px, calc(100% - 32px)); }
+.crit-cols { display: grid; gap: 16px 20px; }
+@media (min-width: 640px) { .crit-cols { grid-template-columns: minmax(0, 1fr) 300px; } }
+.crit-left, .crit-right { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.crit-left textarea { flex: 1; min-height: 200px; }
+dialog .crit-head { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.crit-list { display: grid; gap: 2px; max-height: 236px; margin: 0 -8px; overflow-y: auto; }
+.crit-opt { display: grid; grid-template-columns: 16px minmax(0, 1fr) 34px 34px; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); }
+.crit-list.one .crit-opt { grid-template-columns: 16px minmax(0, 1fr); }
+dialog label.crit-opt { font-size: var(--fs-sm); color: var(--text); cursor: pointer; }
+label.crit-opt:has(input:checked) { background: var(--action-bg); box-shadow: inset 0 0 0 1px var(--action-border); }
+.crit-opt input { margin: 0; }
+.crit-opt .nm { min-width: 0; line-height: 1.35; overflow-wrap: anywhere; }
+.crit-opt small { display: block; overflow: hidden; color: var(--muted); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.crit-opt .cap { color: var(--text-2); font-size: var(--fs-xs); text-align: center; transition: color 0.12s, opacity 0.12s; }
+.crit-opt .cap.x { color: var(--faint); }
+.crit-th { position: sticky; top: 0; z-index: 1; padding-top: 0; padding-bottom: 0; background: var(--surface); color: var(--faint); font-size: var(--fs-xs); }
+/* Pointing at a switch brings out its column in the list. */
+.crit-right:has([data-cap="thinking"]:hover) .cap.t:not(.x), .crit-right:has([data-cap="search"]:hover) .cap.n:not(.x) { color: var(--text); font-weight: 600; }
+.crit-right:has([data-cap="thinking"]:hover) .cap.n, .crit-right:has([data-cap="search"]:hover) .cap.t { opacity: 0.35; }
+.crit-switch { display: flex; align-items: center; gap: 12px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.crit-switch > div { flex: 1; min-width: 0; }
+dialog .crit-switch .name { color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
+.crit-switch .dialog-meta.warn { color: var(--warn); }
+/* The platform cannot do it: greyed out; one left on stays visibly on, striped, for when a platform that can comes back. */
+.crit-switch input.switch:disabled { background: var(--border); cursor: not-allowed; }
+.crit-switch input.switch:disabled:checked { background: repeating-linear-gradient(135deg, var(--border-strong) 0 3px, var(--border) 3px 6px); }
+
 /* 所有收藏夹's runs: each folder's 判断标准 under its name. */
 .crit-row { display: grid; gap: 4px; margin-top: 8px; }
 .help-cols { display: grid; gap: 24px 32px; }

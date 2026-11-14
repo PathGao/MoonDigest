@@ -125,12 +125,58 @@ function renderViewerTags() {
 const tagPlaying = () => S.viewer?.folders?.length && openPicker(S.viewing, "#viewerTags .tag-plus", S.viewer);
 
 // ---------- 判断标准 ----------
+// The dialog's AI side: the folder's platform, 开启思考 and 联网核实 as drafted while it is open ({ providerId, thinking,
+// search, gone }); 保存 writes them as the folder's own record (folderAi), whatever they were before.
+let critAi = null;
+const CAP_TEXT = {
+  thinking: { hint: "判断更细，但慢得多、token 多几倍。", no: "不支持开关思考" },
+  search: { hint: "字幕细看时查内容是否过时或有误，每个视频约多 2 分钱、更慢。标题粗看不联网。", no: "不支持联网" }
+};
+const KEPT_ON = "已开启的设置保留，换回支持的平台后生效";
+
 function openCriteria() {
   el.criteriaTitle.textContent = `判断标准 ·「${folderName(S.mediaId)}」`;
   el.criteriaInput.value = criteria();
+  const a = folderAiOf(String(S.mediaId));
+  critAi = { providerId: a.provider?.id || "", thinking: a.thinking, search: a.search, gone: a.gone };
+  renderCritAi();
   el.criteriaDialog.returnValue = "";
   el.criteriaDialog.showModal();
   el.criteriaInput.focus();
+}
+
+// The platform list (one radio per enabled platform; 思考 and 联网 columns only when there is a choice; none: 去设置), the note when
+// the folder's own platform is gone, and each switch: off with the reason where the picked platform cannot do it, a
+// stored on kept and shown on.
+function renderCritAi() {
+  const list = S.settings.aiPlatforms;
+  // The drafted platform went away while the dialog was open (deleted on the settings page): the background's fallback.
+  if (list.length && !list.some((p) => p.id === critAi.providerId)) Object.assign(critAi, { providerId: list[0].id, gone: true });
+  const pick = list.find((p) => p.id === critAi.providerId) || null;
+  const label = (p) => MdgSettings.aiProviderLabel(p);
+  el.critAiNote.hidden = !critAi.gone;
+  el.critAiNote.textContent = critAi.gone && pick ? `原来选的 AI 平台已删除或停用，现在用「${label(pick)}」。` : "";
+  const cols = list.length > 1;
+  const cap = (on, cls) => `<span class="cap ${cls}${on ? "" : " x"}">${on ? "支持" : "—"}</span>`;
+  el.critAiList.classList.toggle("one", !cols);
+  el.critAiNone.hidden = list.length > 0;
+  el.critAiList.innerHTML =
+    (cols ? '<div class="crit-opt crit-th" aria-hidden="true"><span></span><span></span><span>思考</span><span>联网</span></div>' : "") +
+    list
+      .map((p) => {
+        const sub = p.note ? `<small>${esc([p.name, p.model].filter(Boolean).join(" · "))}</small>` : "";
+        const caps = cols ? cap(p.caps.thinking, "t") + cap(p.caps.search, "n") : "";
+        const says = `${p.caps.thinking ? "支持" : "不支持"}开关思考，${p.caps.search ? "支持" : "不支持"}联网`;
+        return `<label class="crit-opt"><input type="radio" name="critAi" value="${esc(p.id)}"${p.id === critAi.providerId ? " checked" : ""} aria-description="${esc(says)}" /><span class="nm">${esc(label(p))}${sub}</span>${caps}</label>`;
+      })
+      .join("");
+  for (const [kind, box, hint] of [["thinking", el.critThinking, el.critThinkingHint], ["search", el.critSearch, el.critSearchHint]]) {
+    const why = !pick ? MdgErrors.TEXT.aiNone : pick.caps[kind] ? "" : `${label(pick)}${CAP_TEXT[kind].no}`;
+    box.checked = critAi[kind];
+    MdgErrors.setReason(box, why);
+    hint.textContent = why ? `${why}${pick && critAi[kind] ? `。${KEPT_ON}` : ""}` : CAP_TEXT[kind].hint;
+    hint.classList.toggle("warn", Boolean(why));
+  }
 }
 
 // These folders' 判断标准 ([[id, text]]; an empty text removes it), on the page's copy at once and on the stored map by
@@ -149,9 +195,20 @@ function setCriteria(pairs) {
   });
 }
 
+// One folder's AI record set, on the page's copy at once and on the stored map by read-modify-write, as setCriteria.
+function setFolderAi(id, rec) {
+  const apply = (m) => ((m[id] = rec), m);
+  apply(S.folderAi);
+  return storeEdit(K.folderAi, {}, apply).then((m) => {
+    if (m) S.folderAi = m;
+  });
+}
+
 async function saveCriteria() {
   const changed = el.criteriaInput.value.trim() !== criteria();
-  await setCriteria([[S.mediaId, el.criteriaInput.value]]);
+  // No platform to pick: nothing to record, the folder keeps following the side panel.
+  const ai = critAi?.providerId && { providerId: critAi.providerId, thinking: critAi.thinking, search: critAi.search };
+  await Promise.all([setCriteria([[S.mediaId, el.criteriaInput.value]]), ai && setFolderAi(String(S.mediaId), ai)]);
   render();
   // Asked whenever 粗看完成 has stale ones, filters or not. Its button is row 3's 按新标准重新粗看 (listed ones, the
   // selection first, one batch), disabled with the same why when that has none. While an AI step runs it could not

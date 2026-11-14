@@ -1172,6 +1172,13 @@ function supportsThinkingToggle(baseUrl) {
   return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
 }
 
+// What a platform can do in 分拣台's requests, said only here (the page draws it from triage-settings-get): 开启思考 where
+// it takes the thinking switch; 联网核实 only on DeepSeek's deepseek-flash, the one model its web search tool serves.
+function aiCaps(provider) {
+  const baseUrl = String(provider?.baseUrl || "");
+  return { thinking: supportsThinkingToggle(baseUrl), search: /^https:\/\/api\.deepseek\.com(\/|$)/i.test(baseUrl) && provider?.model === "deepseek-flash" };
+}
+
 // The one OpenAI-compatible request every AI call sends (the side panel's streamChat, 测试连接, 分拣台's triageChat): POST
 // to chat/completions with the key as Bearer (a key pasted with its 「Bearer 」, saved before that was dropped, too).
 // Thinking is off unless asked, on the platforms that think by default.

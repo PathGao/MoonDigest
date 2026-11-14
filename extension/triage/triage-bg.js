@@ -653,16 +653,18 @@ function triageMaxTokens(kind, itemCount, { triageThinking, triageTitleMaxTokens
   return TriageUi.autoMaxTokens(kind, itemCount, triageThinking);
 }
 
-async function triageAiSettings() {
+// thinking: the open folder's own 开启思考 (folderAi), kept only where its platform takes the switch (aiCaps). A folder
+// without a record sends none: the global triageThinking, whose switch is gone, is that fallback and nothing else.
+async function triageAiSettings({ aiProviderId, thinking } = {}) {
   const s = await chrome.storage.sync.get({ triageThinking: false, triageTitleMaxTokens: null, triageAnalyzeMaxTokens: null });
   return {
-    triageThinking: s.triageThinking === true,
+    triageThinking: typeof thinking === "boolean" ? thinking && aiCaps(await triageProvider(aiProviderId)).thinking : s.triageThinking === true,
     triageTitleMaxTokens: TriageUi.numSetting("maxTokens", s.triageTitleMaxTokens),
     triageAnalyzeMaxTokens: TriageUi.numSetting("maxTokens", s.triageAnalyzeMaxTokens)
   };
 }
 
-async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
+async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thinking }) {
   if (!bvid) throw triageError("缺少 bvid");
   const cacheKey = MdgLimits.KEYS.triageAnalysis(bvid);
   if (!force) {
@@ -686,7 +688,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId }) {
   }
   const comments = subtitle ? "" : (await site.fetchComments(ref, m, TRIAGE_BILI_IO, TriageUi.DEEP_COMMENTS).catch(() => [])).map((c, i) => `${i + 1}. ${c.message}`).join("\n");
 
-  const ai = await triageAiSettings();
+  const ai = await triageAiSettings({ aiProviderId, thinking });
   const { content, model } = await triageChat(triageBuildMessages({ ...meta, subtitleNeedLogin: got.needLogin, subtitleFailure: got.failure }, subtitle, comments, criteria, folder), triageMaxTokens("analyze", 1, ai), ai.triageThinking, aiProviderId);
   const analysis = {
     bvid,
@@ -761,8 +763,8 @@ function aiProviderProblem(provider, apiKey) {
   return null;
 }
 
-// The platform 分拣台's AI requests go to: the side panel's pick (aiProviderId), else the first enabled one. 开启思考
-// (triage-settings-get) asks the same, so the switch shows exactly when the requests would carry it.
+// The platform 分拣台's AI requests go to (aiProviderId: the folder's own from folderAi, else the side panel's pick), else
+// the first enabled one. The page falls back the same way to draw 判断标准 (fav-tags.js folderAiOf).
 async function triageProvider(providerId = "") {
   const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
   return enabled.find((p) => p.id === providerId) || enabled[0] || null;
@@ -772,7 +774,7 @@ async function triageProvider(providerId = "") {
 const TRIAGE_AI_TIMEOUT_MS = { normal: 120000, thinking: 240000 };
 
 // 非流式 chat/completions，只取 message.content（忽略 reasoning_content）
-// providerId: the platform picked at the top of the side panel, which the pages send as aiProviderId (收藏夹's sendRaw, fav-*.js);
+// providerId: the folder's platform or the side panel's pick, as the pages send aiProviderId (收藏夹's sendRaw, fav-*.js);
 // unset or no longer enabled, the first enabled one, as in the side panel.
 async function triageChat(messages, maxTokens, thinking = false, providerId = "") {
   const provider = await triageProvider(providerId);
@@ -799,10 +801,10 @@ async function triageChat(messages, maxTokens, thinking = false, providerId = ""
   });
 }
 
-async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
+async function triageClassifyTitles({ items, criteria, folder, aiProviderId, thinking }) {
   const list = (Array.isArray(items) ? items : []).filter((it) => it && it.bvid);
   if (!list.length) throw triageError("缺少 items");
-  const ai = await triageAiSettings();
+  const ai = await triageAiSettings({ aiProviderId, thinking });
   const system = triageWithCriteria(TRIAGE_TITLE_PROMPT, criteria, folder);
   const user = list.map((it, idx) => triageTitleLine(it, idx + 1)).join("\n");
   const { content, model } = await triageChat(
@@ -830,12 +832,12 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId }) {
 // 协作打标签：只返回提案，不缓存。提示里让 AI 新建至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小），多出的照样返回
 // 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit, and so does 摘读记录. 开启思考 and
 // 粗看输出上限 are 收藏夹设置's: 关注设置 and 摘读记录设置 have neither, so their runs think off with the automatic cap.
-async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId }, unit = TRIAGE_AI_UNIT) {
+async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId, thinking }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
   const list = (Array.isArray(items) ? items : []).filter(triageItemId);
   if (!list.length) throw triageError("缺少 items");
-  const ai = unit === TRIAGE_AI_UNIT ? await triageAiSettings() : { triageThinking: false, triageTitleMaxTokens: null };
+  const ai = unit === TRIAGE_AI_UNIT ? await triageAiSettings({ aiProviderId, thinking }) : { triageThinking: false, triageTitleMaxTokens: null };
   const opts = { maxNewTags: TriageUi.numSetting("newTagMax", maxNewTags), allowRemove: allowRemove === true };
   const { content } = await triageChat(
     triageBuildCommandMessages({ instruction: text, tags, items: list, ...opts, unit }),
@@ -1212,9 +1214,9 @@ const TRIAGE_HANDLERS = {
     return { id: data.id, title: data.title || name };
   },
 
-  "triage-settings-get": async ({ aiProviderId } = {}) => {
+  "triage-settings-get": async () => {
     const s = await chrome.storage.sync.get(TRIAGE_SETTINGS_DEFAULTS);
-    const provider = typeof loadAiProviders === "function" ? await triageProvider(aiProviderId).catch(() => null) : null;
+    const providers = typeof loadAiProviders === "function" ? await loadAiProviders().catch(() => []) : [];
     return {
       triageIntervalSec: TriageUi.numSetting("interval", s.triageIntervalSec),
       triageFineBatchSize: TriageUi.numSetting("fineBatch", s.triageFineBatchSize),
@@ -1226,9 +1228,8 @@ const TRIAGE_HANDLERS = {
       triageAiNewTagMax: TriageUi.numSetting("newTagMax", s.triageAiNewTagMax),
       triageAiRemoveTags: s.triageAiRemoveTags === true,
       triageAiBatchSize: TriageUi.numSetting("aiBatch", s.triageAiBatchSize),
-      // 开启思考 only reaches these platforms (triageChat), so the page shows the switch only when the platform the
-      // requests go to (triageProvider) is one of them.
-      thinkingToggle: supportsThinkingToggle(provider?.baseUrl)
+      // The enabled platforms 判断标准 offers, with what each can do (aiCaps): the page draws them, it does not judge.
+      aiPlatforms: providers.filter((p) => p.enabled !== false).map((p) => ({ id: p.id, name: p.name, model: p.model, note: p.note, caps: aiCaps(p) }))
     };
   },
 

@@ -80,8 +80,8 @@ function coverHtml(it) {
 }
 
 async function loadTagsAndCriteria() {
-  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria]);
-  return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {} };
+  const got = await chrome.storage.local.get([K.tags, K.videoTags, K.folderCriteria, K.folderAi]);
+  return { tags: got[K.tags] || [], videoTags: got[K.videoTags] || {}, folderCriteria: got[K.folderCriteria] || {}, folderAi: got[K.folderAi] || {} };
 }
 
 // The chosen folders other than exceptId, the ones whose cached lists keep a video out of 已出分拣范围. 稍后再看 missing

@@ -28,4 +28,4 @@ YouTube 短时间内收到太多请求时会暂时拒绝。插件会稍等重试
 在 Obsidian 社区插件里装好 **Local REST API with MCP**，打开 **Enable Non-encrypted (HTTP) Server**（地址一般是 `http://127.0.0.1:27123`），复制 API Key，填进设置页「Obsidian」一节，打开「启用写入 Obsidian」，点「测试连接」。
 
 **侧边栏的回答有没有用「思考」？**
-用 DeepSeek、智谱和 Kimi 时，侧边栏对话和测试连接会关闭思考。分拣台是否思考由设置里的「开启思考」开关决定。
+用 DeepSeek、智谱和 Kimi 时，侧边栏对话和测试连接会关闭思考。分拣台是否思考由每个收藏夹判断标准里的「开启思考」决定。

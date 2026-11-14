@@ -10,8 +10,8 @@ const ctx = vm.createContext({ TextEncoder, URL, URLSearchParams, console, setTi
 const bg = fs.readFileSync(path.join(__dirname, "../background.js"), "utf8");
 const order = [...bg.matchAll(/importScripts\(([^)]*)\)/g)].flatMap((m) => m[1].match(/"[^"]+"/g).map((f) => JSON.parse(f)));
 for (const file of order.slice(0, order.indexOf("triage/triage-bg.js") + 1)) vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8"), ctx);
-// background.js owns supportsThinkingToggle and postChat; lift just those.
-for (const name of ["supportsThinkingToggle", "postChat"]) {
+// background.js owns supportsThinkingToggle, aiCaps and postChat; lift just those.
+for (const name of ["supportsThinkingToggle", "aiCaps", "postChat"]) {
   const at = bg.indexOf(`function ${name}(`);
   vm.runInContext(bg.slice(at, bg.indexOf("\n}\n", at) + 2), ctx);
 }
@@ -294,8 +294,13 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     await t.triageChat([], 100, false);
     assert.deepStrictEqual(sent.thinking, on ? { type: "disabled" } : undefined, url);
     t.chrome = { storage: { sync: { get: async (d) => d } } };
-    assert.strictEqual((await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).thinkingToggle, on, url);
+    assert.strictEqual((await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).aiPlatforms[0].caps.thinking, on, url);
   }
+  // 联网核实: only DeepSeek's deepseek-flash, the one model its web search serves.
+  assert.deepStrictEqual(
+    [["https://api.deepseek.com/v1", "deepseek-flash"], ["https://api.deepseek.com", "deepseek-flash"], ["https://api.deepseek.com/v1", "deepseek-chat"], ["https://open.bigmodel.cn/api/paas/v4", "deepseek-flash"], ["https://api.deepseek.com.evil.test/v1", "deepseek-flash"]].map(([baseUrl, model]) => t.aiCaps({ baseUrl, model }).search),
+    [true, true, false, false, false]
+  );
   // The platform picked in the side panel (aiProviderId from the page) answers; a missing or disabled pick falls back to the
   // first enabled one, as the side panel does.
   {
@@ -307,10 +312,35 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
     t.fetch = async (url) => ({ ok: true, json: async () => ({ choices: [{ message: { content: url } }] }) });
     const host = async (id) => (await t.triageChat([], 100, false, id)).content.split("/")[2];
     assert.deepStrictEqual([await host("b"), await host(""), await host("gone"), await host("off")], ["b.test", "a.test", "a.test", "a.test"]);
-    // C6: 开启思考 shows by the platform the requests go to, not by the first one.
-    t.loadAiProviders = async () => [{ id: "a", baseUrl: "https://api.openai.com/v1" }, { id: "b", baseUrl: "https://api.deepseek.com/v1" }];
-    const toggle = async (msg) => (await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"](msg)).thinkingToggle;
-    assert.deepStrictEqual([await toggle({ aiProviderId: "b" }), await toggle({}), await toggle({ aiProviderId: "gone" })], [true, false, false]);
+    // 判断标准 lists every enabled platform with what it can do; the page draws that and judges nothing itself.
+    t.loadAiProviders = async () => [
+      { id: "a", name: "OpenAI 兼容", model: "gpt", note: "", baseUrl: "https://api.openai.com/v1" },
+      { id: "off", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", enabled: false },
+      { id: "b", name: "DeepSeek", model: "deepseek-flash", note: "自己的", baseUrl: "https://api.deepseek.com/v1" }
+    ];
+    assert.deepStrictEqual(plain((await vm.runInContext("TRIAGE_HANDLERS", ctx)["triage-settings-get"]()).aiPlatforms), [
+      { id: "a", name: "OpenAI 兼容", model: "gpt", note: "", caps: { thinking: false, search: false } },
+      { id: "b", name: "DeepSeek", model: "deepseek-flash", note: "自己的", caps: { thinking: true, search: true } }
+    ]);
+    // 开启思考: a folder's own (thinking sent) only where its platform takes it; without one, the old global value as is.
+    const thinks = async (msg, stored) => {
+      t.chrome = { storage: { sync: { get: async (d) => ({ ...d, triageThinking: stored }) } } };
+      return (await t.triageAiSettings(msg)).triageThinking;
+    };
+    assert.deepStrictEqual(
+      [await thinks({ aiProviderId: "b", thinking: true }, false), await thinks({ aiProviderId: "b", thinking: false }, true), await thinks({ aiProviderId: "a", thinking: true }, false), await thinks({ aiProviderId: "a" }, true), await thinks({}, false)],
+      [true, false, false, true, false]
+    );
+    // End to end: a 粗看 with the folder's record goes to its platform with thinking on; without one, as before.
+    {
+      const bodies = [];
+      t.fetch = async (url, init) => (bodies.push([url.split("/")[2], JSON.parse(init.body).thinking]), { ok: true, json: async () => ({ choices: [{ message: { content: "[]" } }] }) });
+      t.chrome = { storage: { sync: { get: async (d) => d }, local: { set: async () => {} } } };
+      const H = vm.runInContext("TRIAGE_HANDLERS", ctx);
+      await H["triage-classify-titles"]({ items: [{ bvid: "BV1", title: "t" }], aiProviderId: "b", thinking: true }).catch(() => {});
+      await H["triage-classify-titles"]({ items: [{ bvid: "BV1", title: "t" }], aiProviderId: "a" }).catch(() => {});
+      assert.deepStrictEqual(plain(bodies), [["api.deepseek.com", { type: "enabled" }], ["api.openai.com", null]]);
+    }
   }
   t.loadAiProviders = async () => [{ id: "p", baseUrl: "https://ai.test", model: "m" }];
 
