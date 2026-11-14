@@ -4,6 +4,7 @@
 // extension's socket and relays every thin's calls, so all sessions can use the tools at once.
 import { realpathSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import WebSocket, { WebSocketServer } from "ws";
 // Low-level Server keeps the tool schemas as plain JSON Schema, so zod is not a dependency.
@@ -20,7 +21,9 @@ const CALL_TIMEOUT_MS = 60_000;
 const PING_MS = 20_000;
 const IDLE_MS = 10 * 60_000;
 const NO_EXTENSION = "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; every change is recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.";
-const STOPPED = "The shared moondigest-mcp process stopped before answering, so the call may or may not have run. For a write, look at undo with list: true before repeating it. The next call starts the shared process again.";
+const UNKNOWN_OUTCOME = "The call may or may not have run: for a write, look at undo with list: true before repeating it.";
+const STOPPED = `The shared moondigest-mcp process stopped before answering. ${UNKNOWN_OUTCOME} The next call starts the shared process again.`;
+const LEAVING = "The shared moondigest-mcp process is exiting and did not pass this call to the browser. Call again: the next call uses a new one.";
 
 class CodedError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -75,8 +78,8 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
     }, pingMs);
     ws.on("message", (raw) => {
       me.lastSeen = Date.now();
-      let msg;
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      const msg = parse(raw);
+      if (!msg) return;
       if (msg.type === "hello") {
         me.hello = msg;
         return;
@@ -95,7 +98,7 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
       ext = null;
       for (const p of pending.values()) {
         clearTimeout(p.timer);
-        send(p.client, { id: p.clientId, ok: false, code: "NOT_CONNECTED", error: "The browser extension disconnected before answering." });
+        send(p.client, { id: p.clientId, ok: false, code: "NOT_CONNECTED", error: `The browser extension disconnected before answering. ${UNKNOWN_OUTCOME}` });
       }
       pending.clear();
       settle();
@@ -106,18 +109,18 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
   function onClient(ws) {
     clients.add(ws);
     ws.on("message", (raw) => {
-      let msg;
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      const msg = parse(raw);
+      if (!msg) return;
       if (msg.type === "hello") { send(ws, { type: "welcome", build }); return; }
       if (msg.type === "shutdown") { stop(); return; }
       if (msg.id == null || !msg.method) return;
       const fail = (code, error) => send(ws, { id: msg.id, ok: false, code, error });
-      if (state !== "running") { fail("NOT_CONNECTED", STOPPED); return; }
+      if (state !== "running") { fail("NOT_CONNECTED", LEAVING); return; }
       if (!ext?.hello) { fail("NOT_CONNECTED", NO_EXTENSION); return; }
       const id = String(nextId++);
       const timer = setTimeout(() => {
         pending.delete(id);
-        fail("TIMEOUT", `The extension did not answer "${msg.method}" within ${Math.round(callTimeoutMs / 1000)} s.`);
+        fail("TIMEOUT", `The extension did not answer "${msg.method}" within ${Math.round(callTimeoutMs / 1000)} s. ${UNKNOWN_OUTCOME}`);
         settle();
       }, callTimeoutMs);
       pending.set(id, { client: ws, clientId: msg.id, timer });
@@ -138,9 +141,9 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
     state = "stopping";
     clearTimeout(idle);
     wss.close();
-    // Clients with nothing in flight go now, so their next call dials the new hub instead of waiting here.
+    // No client stays for new calls: an idle one is closed, a busy one is told, and both dial the new hub next.
     const busy = new Set([...pending.values()].map((p) => p.client));
-    for (const ws of clients) if (!busy.has(ws)) ws.close();
+    for (const ws of clients) busy.has(ws) ? send(ws, { type: "stopping" }) : ws.close();
     settle();
   }
 
@@ -174,8 +177,11 @@ export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CAL
 
 export function createBridge({
   port = PORT, host = "127.0.0.1", build = BUILD,
+  // Past the hub's own TIMEOUT: only a hub that is stuck gets here.
+  callTimeoutMs = CALL_TIMEOUT_MS + 5_000,
   spawnHub = () => {
-    const child = spawn(process.execPath, [SELF, "--hub"], { detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env, MOONDIGEST_MCP_PORT: String(port) } });
+    // cwd: Windows locks a running process's directory, and this one outlives the session that started it.
+    const child = spawn(process.execPath, [SELF, "--hub"], { detached: true, stdio: "ignore", windowsHide: true, cwd: homedir(), env: { ...process.env, MOONDIGEST_MCP_PORT: String(port) } });
     child.on("error", () => {});
     child.unref();
   },
@@ -183,7 +189,8 @@ export function createBridge({
   let conn = { state: "idle" }; // | { state: "connecting", promise } | { state: "open", ws }
   let failure = null;           // why the last connect found no hub
   let nextId = 1;
-  const pending = new Map();
+  const pending = new Map();    // id -> { resolve, reject, ws, timer }
+  const socks = new Set();      // the open hub socket, plus stopping hubs still answering
   const url = `ws://${host}:${port}/client`;
 
   function connect() {
@@ -204,21 +211,28 @@ export function createBridge({
       if (r.ws) {
         if (!newer(build, r.build)) return r.ws;
         // The hub runs older code: it frees the port on shutdown, and the next dial starts this build's hub.
-        await new Promise((res) => { r.ws.once("close", res); send(r.ws, { type: "shutdown" }); });
+        const left = await new Promise((res) => {
+          const t = setTimeout(() => res(false), 3_000);
+          r.ws.once("close", () => { clearTimeout(t); res(true); });
+          send(r.ws, { type: "shutdown" });
+        });
+        if (!left) return r.ws; // it will not go: an older hub beats a session that hangs
         spawned = false;
         continue;
       }
-      if (!r.refused) {
-        failure = new CodedError("PORT_IN_USE", `Port ${port} is used by another program, most likely a moondigest-mcp from before the shared-process change that another MCP client session is still running. Close that session (or stop that process: \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` shows it). The next call picks the port up.`);
-        return null;
-      }
-      if (!spawned) {
+      if (!r.refused && !r.retry) return portInUse();
+      if (r.refused && !spawned) {
         spawned = true;
         try { spawnHub(); } catch (err) { return cannotStart(`: ${err.message}`); }
       }
       await new Promise((res) => setTimeout(res, 100));
     }
-    return cannotStart("");
+    return spawned ? cannotStart("") : portInUse();
+  }
+
+  function portInUse() {
+    failure = new CodedError("PORT_IN_USE", `Port ${port} is used by another program, most likely a moondigest-mcp from before the shared-process change that another MCP client session is still running. Close that session (or stop that process: \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` shows it). The next call picks the port up.`);
+    return null;
   }
 
   function cannotStart(why) {
@@ -227,39 +241,49 @@ export function createBridge({
     return null;
   }
 
-  // { ws, build } for a hub, { refused: true } for a free port, {} for anything else on it.
+  // { ws, build } for a hub, { refused } for a free port, { retry } for a hub that went away during the
+  // handshake (it was stopping or exiting), {} for another program.
   function dial() {
     return new Promise((resolve) => {
       const ws = new WebSocket(url);
+      let opened = false;
       const done = (r) => { clearTimeout(timer); resolve(r); };
       const timer = setTimeout(() => { ws.terminate(); done({}); }, 2_000);
-      ws.on("error", (err) => done({ refused: err.code === "ECONNREFUSED" }));
+      ws.on("error", (err) => done(err.code === "ECONNREFUSED" ? { refused: true } : { retry: true }));
       ws.once("unexpected-response", (req) => { req.destroy(); done({}); });
-      ws.once("close", () => done({}));
-      ws.once("open", () => send(ws, { type: "hello", build }));
+      ws.once("close", () => done(opened ? { retry: true } : {}));
+      ws.once("open", () => { opened = true; send(ws, { type: "hello", build }); });
       ws.once("message", (raw) => {
-        let msg = {};
-        try { msg = JSON.parse(String(raw)); } catch {}
-        if (msg.type === "welcome") done({ ws, build: msg.build });
+        const msg = parse(raw);
+        if (msg?.type === "welcome") done({ ws, build: msg.build });
         else { ws.terminate(); done({}); }
       });
     });
   }
 
   function adopt(ws) {
+    socks.add(ws);
     ws.on("message", (raw) => {
-      let msg;
-      try { msg = JSON.parse(String(raw)); } catch { return; }
+      const msg = parse(raw);
+      if (!msg) return;
+      // Its answers in flight still arrive here; new calls dial the hub that replaces it.
+      if (msg.type === "stopping") { if (conn.ws === ws) conn = { state: "idle" }; return; }
       const p = pending.get(msg.id);
       if (!p) return;
       pending.delete(msg.id);
+      clearTimeout(p.timer);
       if (msg.ok) p.resolve(msg.data);
       else p.reject(new CodedError(msg.code || "", msg.error || "The extension reported an error."));
     });
     ws.on("close", () => {
+      socks.delete(ws);
       if (conn.ws === ws) conn = { state: "idle" };
-      for (const p of pending.values()) p.reject(new CodedError("NOT_CONNECTED", STOPPED));
-      pending.clear();
+      for (const [id, p] of pending) {
+        if (p.ws !== ws) continue;
+        pending.delete(id);
+        clearTimeout(p.timer);
+        p.reject(new CodedError("NOT_CONNECTED", STOPPED));
+      }
     });
   }
 
@@ -269,15 +293,20 @@ export function createBridge({
     const id = String(nextId++);
     const { ws } = conn;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new CodedError("TIMEOUT", `The shared moondigest-mcp process did not answer "${method}" within ${Math.round(callTimeoutMs / 1000)} s. ${UNKNOWN_OUTCOME}`));
+        // It is stuck: drop it, so the next call dials again.
+        if (conn.ws === ws) conn = { state: "idle" };
+        ws.terminate();
+      }, callTimeoutMs);
+      pending.set(id, { resolve, reject, ws, timer });
       send(ws, { id, method, params });
     });
   }
 
   async function close() {
-    if (conn.state !== "open") return;
-    const { ws } = conn;
-    await new Promise((r) => { ws.once("close", r); ws.close(); });
+    await Promise.all([...socks].map((ws) => new Promise((r) => { ws.once("close", r); ws.close(); })));
   }
 
   return { connect, call, close, url };
@@ -288,6 +317,14 @@ function newer(a, b) {
   const x = a.version.split(".").map(Number), y = String(b?.version ?? "0").split(".").map(Number);
   for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
   return a.mtime > (b?.mtime ?? 0);
+}
+
+// null for a frame that is not a JSON object: `null` and `1` parse without throwing.
+function parse(raw) {
+  try {
+    const msg = JSON.parse(String(raw));
+    return msg && typeof msg === "object" ? msg : null;
+  } catch { return null; }
 }
 
 function send(ws, msg) {

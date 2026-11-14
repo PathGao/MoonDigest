@@ -266,7 +266,8 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   const port = old.port;
   let oldClosed = false;
   old.closed.then(() => { oldClosed = true; });
-  const ext = fakeExtension(port, { onCall: (m) => { setTimeout(() => ext.ws.send(JSON.stringify({ id: m.id, ok: true, data: "slow" })), 800); } });
+  let release;
+  const ext = fakeExtension(port, { onCall: (m) => { release = () => ext.ws.send(JSON.stringify({ id: m.id, ok: true, data: "slow" })); } });
   await ext.opened;
   await until(() => old.connected);
   const bystander = createBridge({ port, build: OLD, spawnHub: noSpawn });
@@ -281,7 +282,9 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   assert.ok(hub, "no new hub");
   // The old hub is still finishing its call; a session with nothing in flight is already on the new one.
   assert.match((await settle(bystander.call("get", {}))).message, /^No browser extension is connected/);
-  assert.equal(await Promise.race([inFlight, sleep(0)]), undefined, "the old hub's call had already finished");
+  // So is the session whose call the old hub is still finishing, for its next call.
+  assert.match((await settle(same.call("get", {}))).message, /^No browser extension is connected/);
+  release();
   assert.deepEqual(await inFlight, { data: "slow" });
   await Promise.race([old.closed, sleep(2000)]);
   assert.equal(oldClosed, true, "old hub still running");
@@ -295,6 +298,94 @@ test("a newer thin replaces an older hub after its calls in flight; an older thi
   assert.deepEqual(await settle(same.call("get", {})), { data: "new" });
   ext2.ws.close();
   for (const b of [same, newer, older, bystander]) await b.close();
+  await hub.close();
+});
+
+// A stand-in for the hub: welcomes a thin, then does what onMessage says.
+async function fakeHub({ build = { version: "99.0.0", mtime: 0 }, onConnection = () => true, onMessage = () => {} } = {}) {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await new Promise((r) => wss.once("listening", r));
+  let n = 0;
+  wss.on("connection", (ws) => {
+    if (!onConnection(ws, ++n)) return;
+    ws.on("message", (raw) => {
+      const msg = JSON.parse(String(raw));
+      if (msg.type === "hello") ws.send(JSON.stringify({ type: "welcome", build }));
+      else onMessage(ws, msg);
+    });
+  });
+  return { port: wss.address().port, close: () => { for (const c of wss.clients) c.terminate(); return new Promise((r) => wss.close(r)); } };
+}
+
+test("frames that are not JSON objects are ignored on both sockets", async () => {
+  const s = await setup();
+  const ext = fakeExtension(s.hub.port, { onCall: () => ({ ok: true, data: VIDEO }) });
+  await ext.opened;
+  await until(() => s.hub.connected);
+  const raw = await rawClient(s.hub.port);
+  for (const frame of ["null", "1", "[1]", "{", "\"x\""]) { raw.send(frame); ext.ws.send(frame); }
+  await sleep(50);
+  const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
+  assert.equal(r.isError, undefined);
+  raw.close();
+  ext.ws.close();
+  await s.close();
+});
+
+test("a call that reaches a hub on its way out is answered as not passed on", async () => {
+  const hub = createHub({ port: 0 });
+  await hub.listen();
+  const ext = fakeExtension(hub.port);
+  await ext.opened;
+  await until(() => hub.connected);
+  const busy = await rawClient(hub.port);
+  const answers = [];
+  busy.on("message", (raw) => answers.push(JSON.parse(String(raw))));
+  busy.send(JSON.stringify({ id: "1", method: "get", params: {} }));
+  await until(() => ext.messages.some((m) => m.method));
+  (await rawClient(hub.port)).send(JSON.stringify({ type: "shutdown" }));
+  await until(() => answers.some((m) => m.type === "stopping"));
+  busy.send(JSON.stringify({ id: "2", method: "favWrite", params: {} }));
+  await until(() => answers.some((m) => m.id === "2"));
+  const refused = answers.find((m) => m.id === "2");
+  assert.equal(refused.code, "NOT_CONNECTED");
+  assert.match(refused.error, /did not pass this call to the browser\. Call again/);
+  assert.equal(ext.messages.filter((m) => m.method).length, 1);
+  busy.close();
+  ext.ws.close();
+  await hub.close();
+});
+
+test("a hub that never answers -> TIMEOUT that says the call may have run; the next call dials again", async () => {
+  const stuck = await fakeHub();
+  const thin = createBridge({ port: stuck.port, callTimeoutMs: 100, spawnHub: noSpawn });
+  const r = await settle(thin.call("favWrite", {}));
+  assert.equal(r.code, "TIMEOUT");
+  assert.match(r.message, /^The shared moondigest-mcp process did not answer "favWrite" within .*may or may not have run/);
+  await stuck.close();
+  const hub = createHub({ port: stuck.port });
+  await hub.listen();
+  assert.match((await settle(thin.call("get", {}))).message, /^No browser extension is connected/);
+  await thin.close();
+  await hub.close();
+});
+
+test("an older hub that ignores shutdown is used rather than waited on forever", async () => {
+  const deaf = await fakeHub({ build: { version: "0.0.1", mtime: 0 }, onMessage: (ws, m) => { if (m.method) ws.send(JSON.stringify({ id: m.id, ok: true, data: "old" })); } });
+  const thin = createBridge({ port: deaf.port, spawnHub: noSpawn });
+  assert.deepEqual(await settle(thin.call("get", {})), { data: "old" });
+  await thin.close();
+  await deaf.close();
+});
+
+test("a hub that drops a thin during the handshake is dialed again, not reported as another program", async () => {
+  const hub = await fakeHub({
+    onConnection: (ws, n) => { if (n === 1) ws.close(); return n > 1; },
+    onMessage: (ws, m) => ws.send(JSON.stringify({ id: m.id, ok: true, data: "second dial" })),
+  });
+  const thin = createBridge({ port: hub.port, spawnHub: noSpawn });
+  assert.deepEqual(await settle(thin.call("get", {})), { data: "second dial" });
+  await thin.close();
   await hub.close();
 });
 
@@ -339,7 +430,7 @@ test("port held by a moondigest-mcp from before the hub -> PORT_IN_USE, then the
   await hub.close();
 });
 
-test("a client gone mid-call: the late answer is dropped, others go on, the hub can still stop at once", async () => {
+test("a client gone mid-call: others go on, and its call does not hold the hub's stop", async () => {
   const hub = createHub({ port: 0, callTimeoutMs: 5000 });
   await hub.listen();
   const calls = [];
@@ -374,8 +465,9 @@ test("real binaries: two sessions started at once share one hub on the port", as
   const port = await freePort();
   const env = { ...process.env, MOONDIGEST_MCP_PORT: String(port) };
   const clients = [new Client({ name: "a", version: "0" }), new Client({ name: "b", version: "0" })];
-  await Promise.all(clients.map((c) => c.connect(new StdioClientTransport({ command: process.execPath, args: [SERVER], env }))));
   let ext;
+  try {
+  await Promise.all(clients.map((c) => c.connect(new StdioClientTransport({ command: process.execPath, args: [SERVER], env }))));
   for (let i = 0; ; i++) {
     ext = fakeExtension(port, { onCall: (m) => ({ ok: true, data: { ...VIDEO, title: m.params.url } }) });
     try { await ext.opened; break; } catch (e) { if (i > 50) throw e; await sleep(100); }
@@ -390,11 +482,16 @@ test("real binaries: two sessions started at once share one hub on the port", as
   const [a, b] = await Promise.all([ask(clients[0], "https://a.example/"), ask(clients[1], "https://b.example/")]);
   assert.match(a, /^Title: https:\/\/a\.example\//);
   assert.match(b, /^Title: https:\/\/b\.example\//);
-  ext.ws.close();
-  for (const c of clients) await c.close();
-  const stopper = await rawClient(port);
-  stopper.send(JSON.stringify({ type: "shutdown" }));
-  await new Promise((r) => stopper.once("close", r));
+  } finally {
+    // A failure above must not leave the detached hub running.
+    ext?.ws.close();
+    for (const c of clients) await c.close().catch(() => {});
+    const stopper = await rawClient(port).catch(() => null);
+    if (stopper) {
+      stopper.send(JSON.stringify({ type: "shutdown" }));
+      await new Promise((r) => stopper.once("close", r));
+    }
+  }
   // The hub is the only listener there: the port coming free is the hub having exited.
   const isFree = () => new Promise((r) => { const s = createServer().once("error", () => r(false)).listen(port, "127.0.0.1", () => s.close(() => r(true))); });
   let free = false;
