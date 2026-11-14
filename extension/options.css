@@ -58,7 +58,7 @@ input[type="password"],
 select {
   width: 100%;
   min-width: 0;
-  height: 34px;
+  height: var(--control-h);
   padding: 0 10px;
 }
 
@@ -68,7 +68,7 @@ select {
 
 input[type="number"] {
   width: 72px;
-  height: 34px;
+  height: var(--control-h);
   padding: 0 8px;
 }
 
@@ -275,10 +275,10 @@ h1 .brand-mark {
   text-decoration: none;
 }
 
-.toc a[aria-current="true"],
-.toc a[aria-current="true"] .ico {
-  background: var(--action-bg);
-  color: var(--link);
+.toc a[aria-current="true"] {
+  background: var(--surface-muted);
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -308,9 +308,9 @@ main {
   align-items: center;
   gap: 10px;
   margin: 0;
-  padding: 6px 10px;
+  padding: 6px 23px;
   border: 1px solid var(--danger-border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   background: var(--danger-bg);
   color: var(--danger);
   font-size: var(--fs-sm);
@@ -322,7 +322,7 @@ main {
 
 .noai {
   margin: 0;
-  padding: 12px 16px;
+  padding: 12px 24px;
   border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--text-2);
@@ -456,8 +456,7 @@ input.switch:disabled {
 .kind-tabs {
   display: flex;
   gap: 32px;
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
+  margin-top: var(--space-4);
   border-bottom: 1px solid var(--border);
 }
 
@@ -676,7 +675,8 @@ details.adv[open] > summary::before {
   margin-bottom: 8px;
 }
 
-.ai-provider-row :is(input, select) {
+.ai-provider-row :is(input, select),
+.ai-provider-test {
   height: var(--control-h);
   font-size: var(--fs-sm);
 }
@@ -855,8 +855,12 @@ details.adv[open] > summary::before {
 }
 
 /* Obsidian */
+.guide-box + .row {
+  border-top: 0;
+}
+
 .guide-box {
-  margin: 4px 0 8px;
+  margin: 4px 0 var(--space-3);
   padding: 10px 16px;
   border-radius: var(--radius-md);
   background: var(--bg);
@@ -916,15 +920,31 @@ details.adv[open] > summary::before {
   color: var(--text);
 }
 
+/* The Obsidian key with 测试连接 beside it; the answer goes under the key's name. */
 .test-line {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: var(--fs-sm);
+  gap: var(--space-2);
+}
+
+.test-line .key {
+  flex: 1;
+  min-width: 0;
+}
+
+.test-line button {
+  height: var(--control-h);
+}
+
+.test-result {
   color: var(--ok);
 }
 
-.test-line [data-error="true"] {
+.test-result:empty {
+  display: none;
+}
+
+.test-result[data-error="true"] {
   color: var(--danger);
 }
 
@@ -954,6 +974,11 @@ button.var .mono {
 }
 
 /* Data */
+/* In a row the row's own padding is the gap below. */
+.row table.data {
+  margin-bottom: 0;
+}
+
 table.data {
   width: 100%;
   margin: 4px 0 20px;

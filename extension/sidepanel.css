@@ -346,9 +346,9 @@ body {
 
 .sp-prev {
   flex-shrink: 0;
-  margin: 8px 14px 6px;
+  margin: var(--space-3) var(--space-3) 0;
   padding-left: 2px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
@@ -488,7 +488,7 @@ body {
 .sp-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 14px 14px;
+  padding: var(--space-3) var(--space-3) 14px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -693,9 +693,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: flex;
   justify-content: flex-start;
   gap: 4px;
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
+  margin-top: var(--space-2);
 }
 
 .sp-msg-copy-btn {
@@ -876,9 +874,16 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   font-size: var(--fs-xs);
 }
 
+/* A reply that failed before its first word: the error box stands alone, without the bubble around it. */
+.sp-msg-assistant:has(> .sp-msg-error:first-child) {
+  background: none;
+  padding: 0;
+}
+
 .sp-grant-btn {
   margin-top: 6px;
   padding: 6px 10px;
+  border-radius: var(--radius-sm);
   font-size: var(--fs-xs);
 }
 
@@ -1158,7 +1163,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   grid-template-columns: minmax(0, 1fr) 24px;
   gap: 6px;
   align-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: var(--surface-muted);
   padding: 4px;
@@ -1201,7 +1206,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   align-items: baseline;
   gap: 4px;
   min-width: 0;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   line-height: 1.35;
 }
 
@@ -1217,11 +1222,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   flex: 0 0 auto;
   white-space: nowrap;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .sp-history-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.3;
   color: var(--muted);
   white-space: nowrap;

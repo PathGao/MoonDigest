@@ -4,15 +4,19 @@ body { padding: 14px 16px 0; }
 .rec-head, .records { max-width: 1200px; margin: 0 auto; }
 
 /* ---------- the head: one white card as the 分拣台's, rows split by its thin rules (DESIGN 视觉设计 · 分拣台) ---------- */
-.rec-head { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05); }
+.rec-head { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .rec-head > * { padding: 8px 16px; }
 .rec-head > * + * { border-top: 1px solid var(--border); }
 .rec-row1 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding-block: 12px; }
 /* The search and 清空全部 wrap as one, so the rule never starts a line. */
 .rec-find { display: flex; align-items: center; gap: 12px; margin-left: auto; }
-.status { color: var(--muted); font-size: var(--fs-xs); }
+.status { display: inline-flex; align-items: baseline; gap: 5px; color: var(--ok); font-size: var(--fs-xs); font-weight: 600; }
 .status:empty { display: none; }
-.status.is-error { color: var(--danger); }
+.status::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; transform: translateY(-1px); }
+.status[aria-busy="true"] { border: 0; background: none; font-weight: 400; }
+.status[aria-busy="true"]::before { width: 0.9em; height: 0.9em; margin: 0; background: none; transform: translateY(0.1em); }
+.status.is-error { padding: 3px var(--space-2); border: 1px solid var(--danger-border); border-radius: var(--radius-sm); background: var(--danger-bg); color: var(--danger); font-weight: 400; }
+.status.is-error::before { content: none; }
 /* 清空全部 AI 对话: red text, no frame, a thin rule between it and the search. */
 .rec-row1 .danger { position: relative; margin-left: 9px; border-color: transparent; background: none; color: var(--danger); }
 .rec-row1 .danger:hover { background: var(--danger-bg); }
@@ -70,13 +74,13 @@ summary { cursor: pointer; color: var(--text-2); font-size: var(--fs-xs); }
 
 /* Two rows of two equal columns, right-aligned: 继续问 and 复制 Markdown beside the title, 下载 .md and 写入 Obsidian beside
    the meta line. */
-.entry-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-left: 8px; }
+.entry-acts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-left: 8px; }
 .entry-acts button { width: 100%; }
 /* The 「查看 N 轮问答」 line under the body and the buttons, 删除 AI 对话 at its right end (red text, no frame) and staying
    on that line when the 问答 open. */
 .entry > .qa { grid-row: 2; grid-column: 2 / -1; display: flex; align-items: flex-start; gap: 8px; }
 .qa > details { flex: 1; min-width: 0; }
-.qa > [data-act="delete"] { margin-top: -1px; color: var(--danger); }
+.qa > [data-act="delete"] { height: 22px; color: var(--danger); font-size: var(--fs-xs); }
 .qa > [data-act="delete"]:hover { background: var(--danger-bg); color: var(--danger); }
 /* 继续问 is each card's main action: a gray fill with plain text (buttons never use blue text, DESIGN 视觉设计 · 颜色). */
 button.ask { background: var(--field-bg); }
@@ -91,7 +95,7 @@ button:disabled:has(> .write-label [aria-busy="true"]) { opacity: 0.7; cursor: p
   .rec-find { flex: 1 1 320px; min-width: 0; }
   .rec-find .search { flex: 1 1 auto; width: auto; min-width: 0; }
   /* The buttons go under the body, from its left edge, so nothing squeezes the title. */
-  .entry-acts { grid-row: 3; grid-column: 2; justify-self: start; margin: 10px 0 0; }
+  .entry-acts { grid-row: 3; grid-column: 2; justify-self: start; margin: var(--space-2) 0 0; }
 }
 @media (max-width: 600px) {
   body { padding: 8px 8px 0; }

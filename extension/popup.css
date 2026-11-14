@@ -340,7 +340,6 @@ body {
 }
 
 .props {
-  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
   padding: var(--space-2);
