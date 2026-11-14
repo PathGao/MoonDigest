@@ -18,34 +18,65 @@
     "按章节整理视频内容",
     "生成带时间戳的笔记"
   ]);
+  // The two layers say different things, so editing one is never undone by the other: the system prompt is how every
+  // answer is written (form, times, honesty), the summary prompt is what a summary contains. Neither repeats the other.
   const SYSTEM_PROMPT = [
-    "你是一名专业的视频内容分析助手。",
-    "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-    "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-    "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
-    "自动过滤广告、废话和重复表达。",
-    "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-    "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+    "你是视频内容助手，依据字幕和评论回答。",
+    "1. 直接回答，不写开场白和结束语，不复述字幕，不输出思考过程或 think 标签。",
+    "2. 简短：只写最重要的，细节留给追问。",
+    "3. 分层：内容多于一段时用「## 小标题」分段，小标题开头加一个贴切的 Emoji；段内用短列表，每条以加粗的关键词开头，只说一件事。视频比较多个对象时，每一段都按对象分条：一个对象一条，以对象名开头，不按比较项分条；数字多的比较用表格。不用引用块和分隔线。",
+    "4. 时间：每条来自视频的要点以它在字幕里的时间开头，写成「- 09:15 **关键词**：说明」，按对象分条时也一样，一条综合了多处内容就写最主要那一处的时间；小标题末尾写这一部分开始的时间，写成「## 📷 小标题 03:30」，小标题写了时间，下面每一条仍然写自己的时间。评测、对比、教程类视频按主题组织时也要写。表格里不写时间。时间不加括号、反引号或代码块，不编造字幕里没有的时间。",
+    "5. 跳过广告、寒暄和重复内容。",
+    "6. 区分事实、数据和作者观点。字幕和评论里没有的，可以用你自己的知识补充或指出视频的错误，但要单独标明「AI 补充」，不写时间；拿不准的不写。"
   ].join("\n");
-  // An earlier version's default system prompt, word for word: a stored copy reads as today's (normalizeAiSystemPrompt).
-  const LEGACY_SYSTEM_PROMPT = [
-    "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-    "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-    "回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。",
-    "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-    "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
-  ].join("\n");
+  const SUMMARY_PROMPT = "总结这期视频，依次写：一句话结论、每个部分的要点（一个部分一个小标题）、值得记住的数据、可执行的建议。";
 
   // The web-page set of the three AI texts (2026-10-21, DESIGN): a page has its main text, no subtitles, comments or times.
   const WEB_PRESET_PROMPTS = Object.freeze(["列出文中的关键论据", "解释文中的专业概念", "提炼可执行的建议", "生成适合笔记的摘要"]);
   const WEB_SYSTEM_PROMPT = [
-    "你是一名专业的阅读助手。",
-    "基于网页正文提炼高价值信息，不要复述原文，不要输出思考过程或 think 标签。",
-    "优先输出：主题与核心观点、关键论据与事实、逻辑链路与重要结论、可执行建议。",
-    "回答应结构化、信息密度高、便于收藏和复习，可适当使用列表和表格。",
-    "忽略导航、广告、评论区和与正文无关的内容。",
-    "正文没有写到的不要猜测或编造；区分文中的事实、数据、推测与作者观点。"
+    "你是阅读助手，依据网页正文回答。",
+    "1. 直接回答，不写开场白和结束语，不复述原文，不输出思考过程或 think 标签。",
+    "2. 简短：只写最重要的，细节留给追问。",
+    "3. 分层：内容多于一段时用「## 小标题」分段，小标题开头加一个贴切的 Emoji；段内用短列表，每条以加粗的关键词开头，只说一件事。文章比较多个对象时，每一段都按对象分条：一个对象一条，以对象名开头，不按比较项分条；数字多的比较用表格。不用引用块和分隔线。",
+    "4. 忽略导航、广告、评论区和与正文无关的内容。",
+    "5. 区分事实、数据和作者观点。正文里没有的，可以用你自己的知识补充或指出文中的错误，但要单独标明「AI 补充」；拿不准的不写。"
   ].join("\n");
+  const WEB_SUMMARY_PROMPT = "总结这篇网页，依次写：一句话结论、每个部分的要点（一个部分一个小标题）、值得记住的数据、可执行的建议。";
+
+  // Every default an earlier version shipped, word for word. The settings page saves all its fields, so a user who never
+  // edited one still has that version's text stored: it reads as today's default (currentDefault).
+  const OLD_DEFAULTS = Object.freeze({
+    aiSystemPrompt: [
+      [
+        "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
+        "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
+        "回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。",
+        "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
+        "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+      ].join("\n"),
+      [
+        "你是一名专业的视频内容分析助手。",
+        "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
+        "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
+        "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
+        "自动过滤广告、废话和重复表达。",
+        "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
+        "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+      ].join("\n")
+    ],
+    playerAiQuickPrompt: ["整理这期视频的内容，输出结构化总结。", "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。"],
+    webAiSystemPrompt: [
+      [
+        "你是一名专业的阅读助手。",
+        "基于网页正文提炼高价值信息，不要复述原文，不要输出思考过程或 think 标签。",
+        "优先输出：主题与核心观点、关键论据与事实、逻辑链路与重要结论、可执行建议。",
+        "回答应结构化、信息密度高、便于收藏和复习，可适当使用列表和表格。",
+        "忽略导航、广告、评论区和与正文无关的内容。",
+        "正文没有写到的不要猜测或编造；区分文中的事实、数据、推测与作者观点。"
+      ].join("\n")
+    ],
+    webAiSummaryPrompt: ["整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。"]
+  });
 
   // 看到多少算看完了 (%): the range and default every reader takes (background, B站 pages, 分拣台, settings page).
   const SEEN_THRESHOLD = Object.freeze({ min: 1, max: 100, def: 80 });
@@ -70,7 +101,7 @@
     includeCoverInNote: true,
     includeAiChatInNote: true,
     enablePlayerAiQuickAction: true,
-    playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
+    playerAiQuickPrompt: SUMMARY_PROMPT,
     includeTimestampInBody: true,
     showBiliTriageBadges: true,
     showBiliUpTags: true,
@@ -97,7 +128,7 @@
     aiSystemPrompt: SYSTEM_PROMPT,
     aiPresetPrompts: PRESET_PROMPTS,
     webAiSystemPrompt: WEB_SYSTEM_PROMPT,
-    webAiSummaryPrompt: "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
+    webAiSummaryPrompt: WEB_SUMMARY_PROMPT,
     webAiPresetPrompts: WEB_PRESET_PROMPTS
   });
   const LOCAL_DEFAULTS = Object.freeze({ obsidianApiKey: "" });
@@ -200,7 +231,8 @@
 
   const normalizeSubtitleLang = (value) => (MdgCommon.SUBTITLE_LANGS[value] ? value : "auto");
   const str = (value) => (typeof value === "string" ? value : "");
-  const normalizeAiSystemPrompt = (value) => (str(value).trim() === LEGACY_SYSTEM_PROMPT ? DEFAULTS.aiSystemPrompt : str(value).trim());
+  const currentDefault = (key, value) => (OLD_DEFAULTS[key].includes(value) ? DEFAULTS[key] : value);
+  const normalizeAiSystemPrompt = (value) => currentDefault("aiSystemPrompt", str(value).trim());
 
   // Every on/off setting (a boolean in DEFAULTS), by its default: default on stays on unless stored false, default off
   // is on only when stored true. A non-boolean (an imported file's "true") never flips a switch away from its default.
@@ -217,7 +249,7 @@
     const merged = normalizeSwitches(settings);
     merged.downloadFormat = normalizeDownloadFormat(merged.downloadFormat);
     merged.youtubeSubtitleLang = normalizeSubtitleLang(merged.youtubeSubtitleLang);
-    merged.playerAiQuickPrompt = normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt);
+    merged.playerAiQuickPrompt = currentDefault("playerAiQuickPrompt", normalizePlayerAiQuickPrompt(merged.playerAiQuickPrompt));
     // The settings table's cells turned off (bili-surfaces.js); options.js and badges.js drop cells that do not exist.
     merged.biliMarksOff = Array.isArray(merged.biliMarksOff) ? merged.biliMarksOff.filter((c) => typeof c === "string") : [];
     merged.seenShow = normalizeSeenShow(merged.seenShow);
@@ -230,8 +262,8 @@
     merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
     merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
     merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
-    merged.webAiSystemPrompt = str(merged.webAiSystemPrompt).trim();
-    merged.webAiSummaryPrompt = normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt);
+    merged.webAiSystemPrompt = currentDefault("webAiSystemPrompt", str(merged.webAiSystemPrompt).trim());
+    merged.webAiSummaryPrompt = currentDefault("webAiSummaryPrompt", normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt));
     merged.webAiPresetPrompts = normalizeAiPresetPrompts(merged.webAiPresetPrompts);
     return merged;
   }
