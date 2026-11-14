@@ -348,10 +348,16 @@ try {
   }
   step = YOUTUBE;
   const yt = await open(YOUTUBE, 10000);
+  // From GitHub's runners YouTube may serve the page without a video to read ("Sign in to confirm you're not a bot"),
+  // and the side panel shows a conversation only once it has read the active tab's video.
+  const played = await evaluate(yt, `(document.querySelector("#movie_player")?.getPlayerResponse?.()?.playabilityStatus?.status || "none") + " " + location.href + " " + JSON.stringify(document.title)`);
+  const noVideo = !String(played).startsWith("OK ");
+  if (noVideo) console.log(`smoke: YouTube served no video here (${played}); the side panel's seed check skipped`);
   for (const { page, count } of DATA_PAGES) {
+    if (noVideo && page === "sidepanel.html") continue;
     step = `${page} (seeded)`;
     const t = await open(`chrome-extension://${id}/${page}`, 0, true);
-    if (!(await until(t, `!!document.querySelector(${JSON.stringify(count)})`, 10000))) errors.push(`${step}: the seeded data drew no ${count}`);
+    if (!(await until(t, `!!document.querySelector(${JSON.stringify(count)})`, 10000))) errors.push(`${step}: the seeded data drew no ${count} (${String(await evaluate(t, "document.body.innerText")).replace(/\s+/g, " ").slice(0, 200)})`);
     await close(t);
   }
   await close(yt);

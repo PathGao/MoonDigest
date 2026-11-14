@@ -111,14 +111,10 @@ const last = () => dialogs[dialogs.length - 1];
   assert.strictEqual(text(last()), "该笔记已存在 整篇覆盖会替换全部内容： 整篇覆盖 取消", "a note without an AI 问答 section");
   last().close("");
 
-  // C150: a click outside closes it; a selection dragged from the box out to the backdrop does not.
-  const picked = D.choose("f.md");
-  last().fire("pointerdown", {});
-  last().fire("click", "self");
-  assert.ok(last().open, "drag out of the box");
-  last().fire("pointerdown", "self");
-  last().fire("click", "self");
-  assert.strictEqual(await picked, "");
+  // C150: a click outside closes it, which the browser does for closedBy "any".
+  D.choose("f.md");
+  assert.strictEqual(last().closedBy, "any");
+  last().close("");
 
   // K23: a write says 写, never 存.
   D.choosePage("https://example.com/x", false, true, "写");
