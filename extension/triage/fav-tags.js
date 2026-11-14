@@ -130,7 +130,7 @@ const tagPlaying = () => S.viewer?.folders?.length && openPicker(S.viewing, "#vi
 let critAi = null;
 const CAP_TEXT = {
   thinking: { hint: "判断更细，但慢得多、token 多几倍。", no: "不支持开关思考" },
-  search: { hint: "字幕细看时查内容是否过时或有误，每个视频约多 2 分钱、更慢。标题粗看不联网。", no: "不支持联网" }
+  search: { hint: "字幕细看时查内容是否过时或有误，按搜索次数另外计费、更慢。标题粗看不联网。", no: "不支持联网" }
 };
 const KEPT_ON = "已开启的设置保留，换回支持的平台后生效";
 
