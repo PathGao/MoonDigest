@@ -1500,8 +1500,8 @@ const tick = () => new Promise((r) => setImmediate(r));
     Object.assign(ctx, keep);
   }
 
-  {
-    // An answer's timestamps become jump buttons, outside links, code and buttons; the text around them stays.
+  // The page's text nodes for linkifyAssistantTimestamps; returns what puts the document back.
+  const withTextNodes = (texts) => {
     class Text {
       constructor(text, parent = { closest: () => null }) {
         Object.assign(this, { textContent: text, parentElement: parent });
@@ -1512,15 +1512,20 @@ const tick = () => new Promise((r) => setImmediate(r));
     }
     ctx.Text = Text;
     ctx.NodeFilter = { SHOW_TEXT: 4 };
-    const nodes = [new Text("看 1:15 和 1:02:03 两处"), new Text("没有时间"), new Text("12:00", { closest: () => ({}) })];
+    const nodes = texts.map((t) => (Array.isArray(t) ? new Text(...t) : new Text(t)));
     Object.assign(ctx.document, {
       createTreeWalker: () => ({ i: -1, nextNode() { return ++this.i < nodes.length; }, get currentNode() { return nodes[this.i]; } }),
       createDocumentFragment: () => ({ parts: [], append(p) { this.parts.push(p); } }),
       createTextNode: (text) => new Text(text)
     });
+    return { nodes, restore: () => { for (const k of ["createTreeWalker", "createDocumentFragment", "createTextNode", "Text", "NodeFilter"]) delete (k in ctx.document ? ctx.document : ctx)[k]; } };
+  };
+  {
+    // An answer's timestamps become jump buttons, outside links, code and buttons; the text around them stays.
+    const { nodes, restore } = withTextNodes(["看 1:15 和 1:02:03 两处", "没有时间", ["12:00", { closest: () => ({}) }]]);
     ctx.linkifyAssistantTimestamps({});
     assert.deepStrictEqual(nodes.map((n) => n.replaced), [["看 ", "[1:15]", " 和 ", "[1:02:03]", " 两处"], undefined, undefined]);
-    for (const k of ["createTreeWalker", "createDocumentFragment", "createTextNode", "Text", "NodeFilter"]) delete (k in ctx.document ? ctx.document : ctx)[k];
+    restore();
   }
 
   // Re-attach: a conversation shown again while the reply it left still streams in this panel takes the reply back as
@@ -1596,8 +1601,15 @@ const tick = () => new Promise((r) => setImmediate(r));
     await ctx.act({ type: "ORPHANS", replies: [{ conversationId: "orphan1", promptIndex: 0 }] });
     assert.deepStrictEqual([JSON.parse(JSON.stringify(sent)), view().turn], [[{ action: "attach", conversationId: "orphan1" }], "streaming"]);
     ctx.window.requestAnimationFrame = (f) => (f(), 0);
-    listener({ type: "token", data: "后" });
+    // The times are jump buttons while the reply streams, not only once it ends.
+    const streamed = withTextNodes(["后 1:15"]);
+    const roots = [];
+    const realWalker = ctx.document.createTreeWalker;
+    ctx.document.createTreeWalker = (root, ...rest) => (roots.push(root), realWalker(root, ...rest));
+    listener({ type: "token", data: "后 1:15" });
+    assert.deepStrictEqual(roots, [bubble], "the reply's own node is searched");
     assert.ok(bubble.innerHTML.includes("后"), "a token from now on shows");
+    assert.deepStrictEqual(streamed.nodes[0].replaced, ["后 ", "[1:15]"]);
     await ctx.act({ type: "STOP" });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(sent.at(-1))), { action: "stop" });
     listener({ type: "done" });
@@ -1622,6 +1634,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     listener({ type: "token", data: "x" });
     listener({ type: "done" });
     await tick();
+    streamed.restore();
     assert.deepStrictEqual([saves, view().saved.find((c) => c.id === "orphan2").updatedAt, vm.runInContext("detachedStreams", ctx).has("orphan2")], [0, 3, false]);
     ctx.saveConversations = realSave;
     [ctx.chrome.runtime.connect, ctx.hydratePinnedConversationContext, ctx.appendAssistantPlaceholder, ctx.renderAssistantMessage] = prev;

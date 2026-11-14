@@ -100,9 +100,32 @@ assert.strictEqual(S.DEFAULTS.seenThreshold, def);
 assert.deepStrictEqual([-5, "", " ", null, undefined, "x", min - 1, min - 0.6, min, 42.6, "42", max + 50].map(S.normalizeSeenThreshold), [def, def, def, def, def, def, def, def, min, 43, 42, max]);
 
 // The default prompts are written only in settings.js (dev mocks may seed their own).
-const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n").find((line) => line.includes("Emoji")), S.DEFAULTS.webAiSummaryPrompt, ...S.DEFAULTS.webAiPresetPrompts, S.DEFAULTS.webAiSystemPrompt.split("\n")[0]];
+const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.DEFAULTS.aiSystemPrompt.split("\n")[0], S.DEFAULTS.webAiSummaryPrompt, ...S.DEFAULTS.webAiPresetPrompts, S.DEFAULTS.webAiSystemPrompt.split("\n")[0]];
 for (const t of texts) {
   for (const file of sources) assert.ok(!read(file).includes(t), `${file} writes 「${t}」 itself`);
+}
+// A stored copy of a default an earlier version shipped reads as today's; an edited one stays (C: the settings page saves
+// every field, so an untouched prompt is stored too).
+{
+  const OLD = {
+    aiSystemPrompt: "你是一名专业的视频内容分析助手。\n基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。\n优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。\n回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。\n自动过滤广告、废话和重复表达。\n信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。\n输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。",
+    playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。",
+    webAiSystemPrompt: "你是一名专业的阅读助手。\n基于网页正文提炼高价值信息，不要复述原文，不要输出思考过程或 think 标签。\n优先输出：主题与核心观点、关键论据与事实、逻辑链路与重要结论、可执行建议。\n回答应结构化、信息密度高、便于收藏和复习，可适当使用列表和表格。\n忽略导航、广告、评论区和与正文无关的内容。\n正文没有写到的不要猜测或编造；区分文中的事实、数据、推测与作者观点。",
+    webAiSummaryPrompt: "整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。"
+  };
+  const keys = Object.keys(OLD);
+  const read = (stored) => keys.map((k) => S.normalizeSyncSettings({ ...S.DEFAULTS, ...stored })[k]);
+  const now = keys.map((k) => S.DEFAULTS[k]);
+  assert.deepStrictEqual(read(OLD), now);
+  const FIRST = {
+    aiSystemPrompt: "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。\n优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。\n回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。\n信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。\n输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。",
+    playerAiQuickPrompt: "整理这期视频的内容，输出结构化总结。"
+  };
+  assert.deepStrictEqual(read({ ...OLD, ...FIRST }), now, "the first version's two video prompts too");
+  assert.deepStrictEqual(read(Object.fromEntries(keys.map((k) => [k, ` ${OLD[k]}\n`]))), now, "spaces around it do not make it an edit");
+  const edited = Object.fromEntries(keys.map((k) => [k, `${OLD[k]}用英文回答。`]));
+  assert.deepStrictEqual(read(edited), keys.map((k) => edited[k]));
+  for (const k of keys) assert.ok(!now.includes(OLD[k]), `${k}: today's default is new`);
 }
 assert.deepStrictEqual([...S.normalizeAiPresetPrompts([" a ", "", "a", 5, null, ...Array.from({ length: 20 }, (_, i) => `q${i}`)])].slice(0, 3), ["a", "5", "q0"]);
 assert.strictEqual(S.normalizeAiPresetPrompts(Array.from({ length: 20 }, (_, i) => `q${i}`)).length, S.MAX_PRESET_PROMPTS);

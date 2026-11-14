@@ -1923,6 +1923,8 @@ function scheduleStreamRender(stream) {
   stream.frame = window.requestAnimationFrame(() => {
     stream.frame = 0;
     stream.node.innerHTML = renderMarkdown(stream.raw) + '<span class="sp-msg-cursor"></span>';
+    // As the finished answer (renderAssistantMessage): the times are buttons already, so they do not change width at the end.
+    if (!state.view().nonVideo) linkifyAssistantTimestamps(stream.node);
   });
 }
 
@@ -2303,6 +2305,20 @@ function linkifyAssistantTimestamps(root) {
     node.replaceWith(fragment);
   });
 }
+
+// A streaming frame redraws the answer, so a press on a time can end on the button that replaced it, and no click
+// fires: the release on a time of the same text jumps then.
+let pressedTime = null;
+els.messages.addEventListener("pointerdown", (event) => {
+  pressedTime = event.target.closest?.(".sp-timestamp-link") || null;
+});
+els.messages.addEventListener("pointerup", (event) => {
+  const released = event.target.closest?.(".sp-timestamp-link");
+  if (released && pressedTime && !pressedTime.isConnected && released.textContent === pressedTime.textContent) {
+    void jumpToAssistantTimestamp(MdgCommon.parseTimestamp(released.textContent), released.textContent);
+  }
+  pressedTime = null;
+});
 
 // A newer click takes over: an older jump still loading the page neither seeks nor says anything.
 const jumps = MdgCommon.latest();
