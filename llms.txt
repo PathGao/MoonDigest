@@ -1,0 +1,20 @@
+# MoonDigest · 月团视频摘读
+
+> 一个浏览器扩展，用 AI 帮你读完、整理 B站和 YouTube 视频及网页，生成字幕、总结、标签和摘读记录，数据全部保存在本地浏览器。
+
+Chrome 及 Chromium 内核浏览器扩展，从 Chrome 应用商店或 GitHub Releases 的 zip 包安装。使用时需在设置里配置 AI 平台（DeepSeek、智谱 GLM、Kimi 等 OpenAI 兼容接口）的 API Key，并登录 B站 字幕功能才能使用。主要功能分三部分：观看和下载字幕、AI 总结与追问，分拣台用 AI 判断收藏夹视频值得保留还是清理，摘读记录可搜索并导出 Markdown 或写入 Obsidian。代理可通过 skill 或 MCP 借浏览器登录态读取视频字幕、章节、评论，以及搜索和修改收藏夹、播放列表等。
+
+## Docs
+
+- [MoonDigest · 月团视频摘读](https://raw.githubusercontent.com/PathGao/MoonDigest/main/README.md): 安装步骤、AI 平台配置、读理记三块功能，以及 agent 借浏览器登录拿字幕与操作 B站收藏的说明。
+- [常见问题](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/FAQ.md): 常见的字幕抓取失败、B站限流、网页读取、授权弹窗、YouTube 限制等问题的原因和解决办法。
+- [隐私与数据](https://raw.githubusercontent.com/PathGao/MoonDigest/main/PRIVACY.md): 数据的本地存储位置、插件连接范围、MCP 授权后 agent 能读写哪些内容及撤销机制。
+- [MoonDigest agent interface v1](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/AGENT.md): Agent 驱动插件的界面消息协议 skills/moondigest/SKILL.md 和本地 MCP 服务的各项工具与撤销安全模型。
+- [MoonDigest 工程约定](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/ARCHITECTURE.md): Token 的三份拷贝、分拣台共用组件 TriageUi 等代码只写一份的工程约定。
+- [MoonDigest 设计规范](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/DESIGN.md): 界面术语表、产品决策和视觉设计规则，以及文案在 errors.js 文字表中的维护方式。
+- [发版](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/RELEASE.md): 改版本号、推 vX.Y.Z 标签触发 release.yml 打包上传双商店，以及 moondigest-mcp 的 npm 发版、Trusted Publisher 和所需 secret。
+- [B站分拣台](https://raw.githubusercontent.com/PathGao/MoonDigest/main/docs/TRIAGE.md): 分拣收藏夹视频：AI 按判断标准给出值得留/可清理/拿不准，打标签、批量保留或取消收藏、无字幕筛选与重看。
+
+## Optional
+
+- [参与开发](https://raw.githubusercontent.com/PathGao/MoonDigest/main/CONTRIBUTING.md): PR 提交规则、中文或英文提交信息、load-order、conventions 等自检脚本，以及用真 Chrome 跑 scripts/smoke.mjs 冒烟测试。
