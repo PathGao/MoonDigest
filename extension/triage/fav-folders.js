@@ -73,13 +73,10 @@ function coverHtml(it) {
   const faint = !seen && known && S.seenCfg.mark;
   const label = seenWords(known, seen);
   const mark = seen ? `<span class="seen-veil">${label}</span><span class="seen-tag">${label}</span>` : faint ? `<span class="seen-tag faint">${label}</span>` : "";
-  // Once the user has decided, their decision replaces the AI's verdict label; the AI's reason and summary stay.
-  const v = isProcessed(it.bvid) ? { verdict: "none" } : verdictOf(it);
-  const tag = S.analyzing.has(it.bvid) ? `<span class="cover-tag running">${ANALYZING}</span>` : VERDICTS[v.verdict] ? `<span class="cover-tag ${v.verdict}" title="${esc(v.reason)}">${VERDICTS[v.verdict]}</span>` : "";
   const dur = it.duration ? `<span class="cover-dur">${fmtDuration(it.duration)}</span>` : "";
   // A real link for right-click 在新标签页中打开 and ⌘-click; a plain click selects the card. Out of the tab order: the title
   // is the same link for the keyboard, and the title is what plays.
-  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${tag}${dur}${mark}${p ? `<span class="seen-bar" title="${label}"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
+  return `<a class="cover-wrap${seen ? " seen" : ""}" href="${esc(videoUrl(it.bvid))}" tabindex="-1" aria-hidden="true">${pic}${dur}${mark}${p ? `<span class="seen-bar" title="${label}"><i style="width:${Math.max(p, 2)}%"></i></span>` : ""}</a>`;
 }
 
 async function loadTagsAndCriteria() {

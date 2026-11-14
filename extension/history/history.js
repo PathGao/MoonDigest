@@ -299,7 +299,8 @@ function aiProviderId() {
   }
 }
 const RECENT_CHECK = "在记录上逐个看，不对的按 T 或点「+ 标签」改";
-const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text));
+// A batch's line (「AI 正在处理第 1 批…」, a wait) does not start with 正在 but is still in progress.
+const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text, false, null, true));
 const aiTags = {
   who: "记录",
   sees: `标题、是视频还是网页、现有标签和你与 AI 的对话（问和答，每条记录最多 ${UI.READING_AI_CHARS} 字）；没有对话的记录看分拣台的 AI 总结和备注`,
@@ -385,7 +386,8 @@ async function runAi({ instruction, scope, allowRemove }) {
   const last = r.errors.at(-1);
   // A stop for a setup or access error says so with its remedy, the dialog open or not, as the 分拣台's banner.
   if (r.error) setStatus(r.proposal ? last : UI.aiTagsFailed(last), true, aiRemedy(r));
-  else if (open) return;
+  // The dialog shows the result; the last batch's line is over.
+  else if (open) return setStatus("");
   else if (r.proposal) setStatus("AI 打标签已完成，按 I 或点「✦ AI 打标签」确认建议");
   else setStatus(UI.aiTagsFailed(last), true);
 }
@@ -642,14 +644,14 @@ function render() {
 
 // 「正在…」 lines are in progress: aria-busy grays them (tokens.css) until the result replaces them.
 // error: a failure the user must handle (red); action: { label, run }, its remedy button after the text.
-function setStatus(text, error = false, action = null) {
+function setStatus(text, error = false, action = null, busy = text.startsWith("正在")) {
   els.status.textContent = text;
   if (action) {
     const btn = Object.assign(document.createElement("button"), { type: "button", className: "act-btn", textContent: action.label, onclick: action.run });
     els.status.append(" ", btn);
   }
   els.status.classList.toggle("is-error", error);
-  if (text.startsWith("正在")) els.status.setAttribute("aria-busy", "true");
+  if (busy) els.status.setAttribute("aria-busy", "true");
   else els.status.removeAttribute("aria-busy");
 }
 

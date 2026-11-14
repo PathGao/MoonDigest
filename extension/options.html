@@ -279,12 +279,12 @@
             <div class="lab"><label class="name" for="mcpAccess">允许 Agent 使用我的 B站和 YouTube 账号</label><p class="hint">打开后，Claude Code、Cursor、Codex 等 Agent 能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录：搜索和读视频（字幕、评论、画面）；读你的 B站收藏夹、关注、历史和稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表；改它们：移动、复制、移出收藏夹，新建、改名、删除收藏夹，写分拣台的 AI 判断、保留、备注和标签。把视频加进或移出稍后再看和 YouTube 播放列表。每次修改都记在下面，可以撤销。不含 API Key 和 AI 对话。开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</p></div>
             <div class="ctl"><input id="mcpAccess" type="checkbox" class="switch" /></div>
           </div>
-          <div class="row">
+          <div class="row wide">
             <div class="lab"><span class="name">安装</span><p class="hint">在 Agent 里添加 MCP 服务，要先装好 Node 20 或更高版本。这样装的服务每次随 Agent 启动取最新版。Agent 说 MCP 服务比插件旧时（以前按本地文件夹装的会这样），用这里的命令重新添加一次，再重启 Agent。<span id="mcpStatusText"></span></p>
               <ul class="mcp-install" id="mcpInstall"></ul>
             </div>
           </div>
-          <div class="row">
+          <div class="row wide">
             <div class="lab"><span class="name">Agent 最近的修改</span><p class="hint">B站和 YouTube 上的修改留最近 100 次，分拣台里的修改另留最近 100 次。撤销 B站上的修改会在 B站改回去：移走的移回去，移出收藏夹的加回原收藏夹。</p>
               <ul class="mcp-log" id="mcpLog"></ul>
             </div>
@@ -317,17 +317,16 @@
               <div class="ctl"><input id="obsidianApiBaseUrl" type="text" placeholder="http://127.0.0.1:27123" /></div>
             </div>
             <div class="row">
-              <div class="lab"><label class="name" for="obsidianApiKey">Local REST API Key</label></div>
-              <div class="ctl key">
-                <input id="obsidianApiKey" type="password" placeholder="从插件设置里复制" autocomplete="off" />
-                <span id="obsidianKeyTag" class="keytag" hidden>已保存</span>
+              <div class="lab">
+                <label class="name" for="obsidianApiKey">Local REST API Key</label>
+                <p id="obsidianTestResult" class="hint test-result" role="status"></p>
               </div>
-            </div>
-            <div class="row">
-              <div class="lab"></div>
               <div class="ctl test-line">
+                <div class="key">
+                  <input id="obsidianApiKey" type="password" placeholder="从插件设置里复制" autocomplete="off" />
+                  <span id="obsidianKeyTag" class="keytag" hidden>已保存</span>
+                </div>
                 <button id="testConnectionBtn" class="sm" type="button" title="用填好的地址和 Key 连一次 Obsidian 的 Local REST API">测试连接</button>
-                <span id="obsidianTestResult" role="status"></span>
               </div>
             </div>
             <div class="row">
