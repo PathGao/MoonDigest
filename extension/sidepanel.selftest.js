@@ -1139,6 +1139,13 @@ const tick = () => new Promise((r) => setImmediate(r));
     ctx.chrome.runtime.sendMessage = async (m) => (m.type === "ai-providers-list" ? { ok: true, providers: [] } : settings);
     await ctx.loadProvidersAndPrefs();
     assert.strictEqual(els.modelSelect.title, "没有启用的 AI 平台");
+    // Each option reads as its 备注名, else 「平台 · 模型」 (MdgSettings.aiProviderLabel).
+    const two = [{ id: "a", name: "DeepSeek", model: "deepseek-flash", note: "自己的", enabled: true }, { id: "b", name: "智谱 GLM", model: "glm", enabled: true }];
+    ctx.chrome.runtime.sendMessage = async (m) => (m.type === "ai-providers-list" ? { ok: true, providers: two } : settings);
+    ctx.localStorage = { getItem: () => "" };
+    await ctx.loadProvidersAndPrefs();
+    delete ctx.localStorage;
+    assert.deepStrictEqual([...els.modelSelect.innerHTML.matchAll(/<option[^>]*>([^<]*)</g)].map((m) => m[1]), ["自己的", "智谱 GLM · glm"]);
     ctx.chrome.runtime.sendMessage = realSend;
     vm.runInContext("providers = [{}]; settingsReadFailed = false", ctx);
   }

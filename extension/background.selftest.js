@@ -175,6 +175,7 @@ process.on("exit", (code) => {
     const src = ["background.js", "triage/triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
     assert.strictEqual(src.match(/await hostPermissionError\(/g).length, 1, "hostPermissionError is asked only in aiFetchError");
     assert.strictEqual(ctx.normalizeAiProvider({ id: "x", baseUrl: " https://ai.test/v1// " }).baseUrl, "https://ai.test/v1", "a saved platform's address is trimmed");
+  assert.deepStrictEqual([ctx.normalizeAiProvider({ id: "x", note: " 自己的 " }).note, ctx.normalizeAiProvider({ id: "x" }).note], ["自己的", ""], "a saved platform keeps its 备注名");
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };
@@ -1064,11 +1065,11 @@ process.on("exit", (code) => {
   assert.deepStrictEqual(syncLeft, { triageCriteria: "全局" });
 
   // Settings file: everything in sync (收藏夹 and 关注 included), never a key, even one an older version left in sync.
-  const exportSync = { noteFolder: "X", triageFineBatchSize: 20, follow_ai_settings: { batchSize: 7 }, aiProviders: [{ id: "p", apiKey: "sk-old" }], obsidianApiKey: "leak" };
+  const exportSync = { noteFolder: "X", triageFineBatchSize: 20, follow_ai_settings: { batchSize: 7 }, aiProviders: [{ id: "p", note: "自己的", apiKey: "sk-old" }], obsidianApiKey: "leak" };
   ctx.chrome = { runtime: { getManifest: () => ({ version: "9" }) }, storage: { sync: area(exportSync), local: area({ obsidianApiKey: "k", aiProviderKeys: { p: "sk" }, triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" }, triage_sort: { 11: "pub" }, triage_tags: [] }) } };
   const file = JSON.parse(JSON.stringify(await ctx.exportSettings()));
   assert.deepStrictEqual([file.kind, file.extensionVersion, file.settings.triageFineBatchSize, file.settings.follow_ai_settings], ["settings", "9", 20, { batchSize: 7 }]);
-  assert.deepStrictEqual(file.settings.aiProviders, [{ id: "p" }]);
+  assert.deepStrictEqual(file.settings.aiProviders, [{ id: "p", note: "自己的" }], "a platform's 备注名 goes with it");
   assert.ok(!/sk|leak|"k"/.test(JSON.stringify(file)), "no keys in the file");
   assert.deepStrictEqual(file.local, { triage_included_folders: ["11", "toview"], triage_folder_criteria: { 11: "只留菜谱" } }, "the 分拣台's folder choice and 判断标准; no sort, no data");
 
@@ -1080,6 +1081,9 @@ process.on("exit", (code) => {
   const old = { ...file, settings: { ...file.settings, aiInitialQuickPrompts: ["旧"], obsidianApiKey: "x", aiProviders: [{ id: "p", apiKey: "sk-file" }] } };
   await ctx.importSettings(old);
   assert.ok(!JSON.stringify(importSync).includes("sk-file") && importSync.aiProviders?.[0]?.id === "p", "a provider's key in the file stays out of sync");
+  await ctx.importSettings(file);
+  assert.strictEqual(ctx.normalizeAiProvider(importSync.aiProviders[0]).note, "自己的", "the 备注名 comes back with an imported file");
+  await ctx.importSettings(old);
   assert.deepStrictEqual([importSync.noteFolder, importSync.triageFineBatchSize, importSync.follow_ai_settings], ["X", 20, { batchSize: 7 }]);
   assert.ok(!("stray" in importSync) && !("aiInitialQuickPrompts" in importSync) && !("obsidianApiKey" in importSync));
   assert.ok(importSync.aiPresetPrompts.includes("旧"));

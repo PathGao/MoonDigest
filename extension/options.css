@@ -664,7 +664,7 @@ details.adv[open] > summary::before {
 
 .ai-provider-row {
   display: grid;
-  grid-template-columns: 136px minmax(150px, 1fr) 150px 150px 96px minmax(30px, max-content);
+  grid-template-columns: 124px 112px minmax(130px, 1fr) 140px 140px 96px minmax(30px, max-content);
   gap: 8px;
   align-items: center;
 }
@@ -711,6 +711,10 @@ details.adv[open] > summary::before {
   margin: -2px 0 0;
   color: var(--warn);
   font-size: var(--fs-sm);
+}
+
+.prov > .hint {
+  margin: 0 0 10px;
 }
 
 .ai-later {

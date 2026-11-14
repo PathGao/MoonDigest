@@ -935,6 +935,7 @@ function normalizeAiProvider(item) {
     id,
     presetId: String(item.presetId || "custom"),
     name: String(item.name || "").trim() || MdgErrors.LABEL.customAi,
+    note: String(item.note || "").trim(),
     baseUrl: MdgSettings.trimBaseUrl(item.baseUrl),
     model: String(item.model || "").trim(),
     temperature: typeof item.temperature === "number" ? item.temperature : 0.7,
