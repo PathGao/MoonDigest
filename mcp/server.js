@@ -1,56 +1,70 @@
 #!/usr/bin/env node
 // MoonDigest's MCP server: MCP tools over stdio, the extension's socket per docs/AGENT.md §2.
-import { realpathSync } from "node:fs";
+// Each MCP client session runs its own copy (thin); one shared `--hub` process holds the port and the
+// extension's socket and relays every thin's calls, so all sessions can use the tools at once.
+import { realpathSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 // Low-level Server keeps the tool schemas as plain JSON Schema, so zod is not a dependency.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
+const VERSION = "0.1.2";
+const SELF = fileURLToPath(import.meta.url);
+// npm extracts every version with the same mtime; a local checkout's edits bump it.
+const BUILD = { version: VERSION, mtime: statSync(SELF).mtimeMs };
+const PORT = process.env.MOONDIGEST_MCP_PORT ? Number(process.env.MOONDIGEST_MCP_PORT) : 47823;
 const CALL_TIMEOUT_MS = 60_000;
 const PING_MS = 20_000;
+const IDLE_MS = 10 * 60_000;
+const NO_EXTENSION = "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; every change is recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.";
+const STOPPED = "The shared moondigest-mcp process stopped before answering, so the call may or may not have run. For a write, look at undo with list: true before repeating it. The next call starts the shared process again.";
 
 class CodedError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
-// --- extension socket ---------------------------------------------------------
+// --- hub: the one process on the port -----------------------------------------
 
-export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(process.env.MOONDIGEST_MCP_PORT) : 47823, host = "127.0.0.1", callTimeoutMs = CALL_TIMEOUT_MS, pingMs = PING_MS } = {}) {
-  let wss = null;          // set while listening
-  let listening = null;    // promise of the current listen attempt
-  let portError = "";
-  let ext = null;          // { ws, hello }
+export function createHub({ port = PORT, host = "127.0.0.1", callTimeoutMs = CALL_TIMEOUT_MS, pingMs = PING_MS, idleMs = IDLE_MS, build = BUILD } = {}) {
+  let wss = null;
+  let state = "running";     // running | stopping | closed
+  let ext = null;            // { ws, hello, lastSeen }
+  const clients = new Set();
+  const pending = new Map(); // hub id -> { client, clientId, timer }; the hub's own ids, so two clients' never collide
   let nextId = 1;
-  const pending = new Map();
+  let idle = null;
+  let markClosed;
+  const closed = new Promise((r) => { markClosed = r; });
 
   function listen() {
-    if (wss) return Promise.resolve();
-    if (listening) return listening;
-    listening = new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const server = new WebSocketServer({
         host, port,
-        verifyClient: ({ origin }) => typeof origin === "string" && origin.startsWith("chrome-extension://"),
+        verifyClient: ({ origin, req }) => req.url === "/"
+          ? typeof origin === "string" && origin.startsWith("chrome-extension://")
+          // A browser always sends Origin on a WebSocket handshake, so no web page can be a client.
+          : req.url === "/client" && req.headers.origin === undefined,
       });
       server.once("listening", () => {
-        wss = server; listening = null; portError = "";
-        server.on("connection", onConnection);
+        wss = server;
+        port = server.address().port;
+        server.on("connection", (ws, req) => (req.url === "/client" ? onClient : onExtension)(ws));
+        armIdle();
         resolve();
       });
-      server.once("error", (err) => {
-        listening = null;
-        portError = err.code === "EADDRINUSE"
-          ? `Port ${port} is used by another program, most likely another moondigest-mcp started by a different MCP client. The browser extension connects to only one of them. Close the other MCP client (or its moondigest-mcp) and call again; this server takes the port over on the next call.`
-          : `moondigest-mcp could not listen on ${host}:${port}: ${err.message}`;
-        server.close();
-        resolve();
-      });
+      server.once("error", (err) => { server.close(); reject(err); });
     });
-    return listening;
   }
 
-  function onConnection(ws) {
+  function armIdle() {
+    clearTimeout(idle);
+    idle = setTimeout(() => { if (!clients.size) finish(); }, idleMs);
+  }
+
+  function onExtension(ws) {
     if (ext) { ws.close(4001, "another extension is already connected"); return; }
     const me = { ws, hello: null, lastSeen: Date.now() };
     ext = me;
@@ -72,51 +86,198 @@ export function createBridge({ port = process.env.MOONDIGEST_MCP_PORT ? Number(p
       if (!p) return;
       pending.delete(msg.id);
       clearTimeout(p.timer);
-      if (msg.ok) p.resolve(msg.data);
-      else p.reject(new CodedError(msg.code || "", msg.error || "The extension reported an error."));
+      send(p.client, { ...msg, id: p.clientId });
+      settle();
     });
     ws.on("close", () => {
       clearInterval(ping);
       if (ext !== me) return;
       ext = null;
-      for (const [id, p] of pending) {
+      for (const p of pending.values()) {
         clearTimeout(p.timer);
-        p.reject(new CodedError("NOT_CONNECTED", "The browser extension disconnected before answering."));
-        pending.delete(id);
+        send(p.client, { id: p.clientId, ok: false, code: "NOT_CONNECTED", error: "The browser extension disconnected before answering." });
       }
+      pending.clear();
+      settle();
     });
     ws.on("error", () => {});
   }
 
-  async function call(method, params) {
-    await listen();
-    if (!wss) throw new CodedError("PORT_IN_USE", portError);
-    if (!ext?.hello) {
-      throw new CodedError("NOT_CONNECTED", "No browser extension is connected. Ask the user to open the browser that has the MoonDigest extension and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号 (MoonDigest's Settings → MCP; the one switch, it lets you read and change their Bilibili and YouTube through MoonDigest; every change is recorded and undoable). If it is already on, the extension connects within a minute (it retries once a minute): try again then.");
-    }
-    const id = String(nextId++);
-    const { ws } = ext;
-    return new Promise((resolve, reject) => {
+  function onClient(ws) {
+    clients.add(ws);
+    ws.on("message", (raw) => {
+      let msg;
+      try { msg = JSON.parse(String(raw)); } catch { return; }
+      if (msg.type === "hello") { send(ws, { type: "welcome", build }); return; }
+      if (msg.type === "shutdown") { stop(ws); return; }
+      if (msg.id == null || !msg.method) return;
+      const fail = (code, error) => send(ws, { id: msg.id, ok: false, code, error });
+      if (state !== "running") { fail("NOT_CONNECTED", STOPPED); return; }
+      if (!ext?.hello) { fail("NOT_CONNECTED", NO_EXTENSION); return; }
+      const id = String(nextId++);
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new CodedError("TIMEOUT", `The extension did not answer "${method}" within ${Math.round(callTimeoutMs / 1000)} s.`));
+        fail("TIMEOUT", `The extension did not answer "${msg.method}" within ${Math.round(callTimeoutMs / 1000)} s.`);
+        settle();
       }, callTimeoutMs);
-      pending.set(id, { resolve, reject, timer });
+      pending.set(id, { client: ws, clientId: msg.id, timer });
+      send(ext.ws, { id, method: msg.method, params: msg.params });
+    });
+    ws.on("close", () => {
+      clients.delete(ws);
+      for (const [id, p] of pending) if (p.client === ws) { clearTimeout(p.timer); pending.delete(id); }
+      if (!clients.size && state === "running") armIdle();
+      settle();
+    });
+    ws.on("error", () => {});
+  }
+
+  // A newer thin wants the port: free it at once, let the calls in flight finish, then close.
+  function stop(requester) {
+    if (state !== "running") return;
+    state = "stopping";
+    clearTimeout(idle);
+    wss.close();
+    requester.close();
+    settle();
+  }
+
+  function settle() {
+    if (state === "stopping" && !pending.size) finish();
+  }
+
+  function finish() {
+    if (state === "closed") return closed;
+    state = "closed";
+    clearTimeout(idle);
+    for (const p of pending.values()) clearTimeout(p.timer);
+    pending.clear();
+    const socks = [...clients, ...(ext ? [ext.ws] : [])];
+    Promise.all([
+      wss && new Promise((r) => wss.close(r)),
+      ...socks.map((ws) => new Promise((r) => { ws.once("close", r); ws.close(); })),
+    ]).then(() => markClosed());
+    return closed;
+  }
+
+  return {
+    listen, closed,
+    close: finish,
+    get port() { return port; },
+    get connected() { return !!ext?.hello; },
+  };
+}
+
+// --- thin: this session's way to the hub --------------------------------------
+
+export function createBridge({
+  port = PORT, host = "127.0.0.1", build = BUILD,
+  spawnHub = () => {
+    const child = spawn(process.execPath, [SELF, "--hub"], { detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env, MOONDIGEST_MCP_PORT: String(port) } });
+    child.on("error", () => {});
+    child.unref();
+  },
+} = {}) {
+  let conn = { state: "idle" }; // | { state: "connecting", promise } | { state: "open", ws }
+  let failure = null;           // why the last connect found no hub
+  let nextId = 1;
+  const pending = new Map();
+  const url = `ws://${host}:${port}/client`;
+
+  function connect() {
+    if (conn.state === "open") return Promise.resolve();
+    if (conn.state === "connecting") return conn.promise;
+    const promise = attempt().then((ws) => {
+      conn = ws ? { state: "open", ws } : { state: "idle" };
+      if (ws) adopt(ws);
+    });
+    conn = { state: "connecting", promise };
+    return promise;
+  }
+
+  async function attempt() {
+    let spawned = false;
+    for (let i = 0; i < 50; i++) {
+      const r = await dial();
+      if (r.ws) {
+        if (!newer(build, r.build)) return r.ws;
+        // The hub runs older code: it frees the port on shutdown, and the next dial starts this build's hub.
+        await new Promise((res) => { r.ws.once("close", res); send(r.ws, { type: "shutdown" }); });
+        spawned = false;
+        continue;
+      }
+      if (!r.refused) {
+        failure = new CodedError("PORT_IN_USE", `Port ${port} is used by another program, most likely a moondigest-mcp from before the shared-process change that another MCP client session is still running. Close that session (or stop that process: \`lsof -nP -iTCP:${port} -sTCP:LISTEN\` shows it). The next call picks the port up.`);
+        return null;
+      }
+      if (!spawned) { spawned = true; spawnHub(); }
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    failure = new CodedError("NOT_CONNECTED", `moondigest-mcp could not start its shared process on ${host}:${port}.`);
+    return null;
+  }
+
+  // { ws, build } for a hub, { refused: true } for a free port, {} for anything else on it.
+  function dial() {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(url);
+      const done = (r) => { clearTimeout(timer); resolve(r); };
+      const timer = setTimeout(() => { ws.terminate(); done({}); }, 2_000);
+      ws.on("error", (err) => done({ refused: err.code === "ECONNREFUSED" }));
+      ws.once("unexpected-response", (req) => { req.destroy(); done({}); });
+      ws.once("close", () => done({}));
+      ws.once("open", () => send(ws, { type: "hello", build }));
+      ws.once("message", (raw) => {
+        let msg = {};
+        try { msg = JSON.parse(String(raw)); } catch {}
+        if (msg.type === "welcome") done({ ws, build: msg.build });
+        else { ws.terminate(); done({}); }
+      });
+    });
+  }
+
+  function adopt(ws) {
+    ws.on("message", (raw) => {
+      let msg;
+      try { msg = JSON.parse(String(raw)); } catch { return; }
+      const p = pending.get(msg.id);
+      if (!p) return;
+      pending.delete(msg.id);
+      if (msg.ok) p.resolve(msg.data);
+      else p.reject(new CodedError(msg.code || "", msg.error || "The extension reported an error."));
+    });
+    ws.on("close", () => {
+      if (conn.ws === ws) conn = { state: "idle" };
+      for (const p of pending.values()) p.reject(new CodedError("NOT_CONNECTED", STOPPED));
+      pending.clear();
+    });
+  }
+
+  async function call(method, params) {
+    await connect();
+    if (conn.state !== "open") throw failure;
+    const id = String(nextId++);
+    const { ws } = conn;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
       send(ws, { id, method, params });
     });
   }
 
   async function close() {
-    if (ext) ext.ws.terminate();
-    if (wss) await new Promise((r) => wss.close(r));
-    wss = null;
+    if (conn.state !== "open") return;
+    const { ws } = conn;
+    await new Promise((r) => { ws.once("close", r); ws.close(); });
   }
 
-  return {
-    listen, call, close,
-    get port() { return wss?.address().port ?? port; },
-    get connected() { return !!ext?.hello; },
-  };
+  return { connect, call, close, url };
+}
+
+// Strictly newer: version as dot-separated numbers, then the file's mtime.
+function newer(a, b) {
+  const x = a.version.split(".").map(Number), y = String(b?.version ?? "0").split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return a.mtime > (b?.mtime ?? 0);
 }
 
 function send(ws, msg) {
@@ -565,7 +726,7 @@ function errorResult(err) {
 }
 
 export function createMcpServer(bridge) {
-  const server = new Server({ name: "moondigest", version: "0.1.2" }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+  const server = new Server({ name: "moondigest", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     const args = params.arguments || {};
@@ -642,11 +803,26 @@ export function createMcpServer(bridge) {
 }
 
 async function main() {
+  if (process.argv.includes("--hub")) {
+    const hub = createHub();
+    try {
+      await hub.listen();
+    } catch (err) {
+      // Another thin's hub won the race for the port.
+      if (err.code === "EADDRINUSE") process.exit(0);
+      console.error(`moondigest-mcp could not listen on 127.0.0.1:${hub.port}: ${err.message}`);
+      process.exit(1);
+    }
+    if (process.env.MOONDIGEST_MCP_DEBUG) console.error(`moondigest-mcp hub: ws://127.0.0.1:${hub.port}/`);
+    await hub.closed;
+    process.exit(0);
+  }
   const bridge = createBridge();
-  await bridge.listen();
-  if (process.env.MOONDIGEST_MCP_DEBUG) console.error(`moondigest-mcp: ws://127.0.0.1:${bridge.port}/`);
+  // Start the hub now, so the extension has dialed in by the first call.
+  bridge.connect();
+  if (process.env.MOONDIGEST_MCP_DEBUG) console.error(`moondigest-mcp: ${bridge.url}`);
   await createMcpServer(bridge).connect(new StdioServerTransport());
-  // The socket server would keep the process (and the port) alive after the MCP client quits.
+  // The hub socket would keep the process alive after the MCP client quits.
   process.stdin.on("close", () => process.exit(0));
 }
 

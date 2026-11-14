@@ -2,24 +2,47 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
-import WebSocket from "ws";
+import { spawn, execFileSync } from "node:child_process";
+import { createServer } from "node:net";
+import WebSocket, { WebSocketServer } from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createBridge, createMcpServer, formatSearch, formatVideo, formatFavorites, formatFollows, formatHistory, formatCollection, formatCollectionWrite } from "../server.js";
+import { createBridge, createHub, createMcpServer, formatSearch, formatVideo, formatFavorites, formatFollows, formatHistory, formatCollection, formatCollectionWrite } from "../server.js";
 
 const SERVER = fileURLToPath(new URL("../server.js", import.meta.url));
 
+const noSpawn = () => { throw new Error("spawned a hub"); };
+
 async function setup(opts = {}) {
-  const bridge = createBridge({ port: 0, ...opts });
-  await bridge.listen();
+  const hub = createHub({ port: 0, ...opts });
+  await hub.listen();
+  const bridge = createBridge({ port: hub.port, spawnHub: noSpawn });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createMcpServer(bridge).connect(a);
   const client = new Client({ name: "test", version: "0" });
   await client.connect(b);
-  return { bridge, client, async close() { await client.close(); await bridge.close(); } };
+  return { hub, bridge, client, async close() { await client.close(); await bridge.close(); await hub.close(); } };
 }
+
+// The answer, or the error's code and message, of a bridge call.
+const settle = (p) => p.then((data) => ({ data }), (e) => ({ code: e.code, message: e.message }));
+
+const freePort = () => new Promise((resolve) => {
+  const s = createServer().listen(0, "127.0.0.1", () => { const { port } = s.address(); s.close(() => resolve(port)); });
+});
+
+// A /client socket the way a thin dials it; resolves the open socket or rejects with the HTTP status.
+function rawClient(port, headers = {}, path = "/client") {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`, { headers });
+  return new Promise((resolve, reject) => {
+    ws.once("open", () => resolve(ws));
+    ws.once("error", reject);
+    ws.once("unexpected-response", (_req, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function fakeExtension(port, { origin = "chrome-extension://x", hello = true, onCall } = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/`, { origin });
@@ -57,9 +80,9 @@ const VIDEO = {
 
 test("hello, get_video formatting, pings", async () => {
   const s = await setup({ pingMs: 30 });
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (m.method === "get" ? { ok: true, data: VIDEO } : null) });
+  const ext = fakeExtension(s.hub.port, { onCall: (m) => (m.method === "get" ? { ok: true, data: VIDEO } : null) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, undefined);
   const text = r.content[0].text;
@@ -83,18 +106,18 @@ test("missing subtitle header", () => {
 
 test("rejects a web page Origin", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { origin: "https://evil.example" });
+  const ext = fakeExtension(s.hub.port, { origin: "https://evil.example" });
   await assert.rejects(ext.opened, /HTTP 401/);
-  assert.equal(s.bridge.connected, false);
+  assert.equal(s.hub.connected, false);
   await s.close();
 });
 
 test("second extension gets 4001, first keeps working", async () => {
   const s = await setup();
-  const first = fakeExtension(s.bridge.port, { onCall: () => ({ ok: true, data: VIDEO }) });
+  const first = fakeExtension(s.hub.port, { onCall: () => ({ ok: true, data: VIDEO }) });
   await first.opened;
-  await until(() => s.bridge.connected);
-  const second = fakeExtension(s.bridge.port);
+  await until(() => s.hub.connected);
+  const second = fakeExtension(s.hub.port);
   const code = await new Promise((r) => second.ws.once("close", r));
   assert.equal(code, 4001);
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
@@ -105,11 +128,11 @@ test("second extension gets 4001, first keeps working", async () => {
 
 test("get_frame returns an image block", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, {
+  const ext = fakeExtension(s.hub.port, {
     onCall: (m) => ({ ok: true, data: { at: m.params.at + 0.04, width: 640, height: 360, image: "data:image/jpeg;base64,AAAA" } }),
   });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "get_frame", arguments: { url: VIDEO.url, at: 75, maxWidth: 640 } });
   assert.deepEqual(r.content[0], { type: "image", mimeType: "image/jpeg", data: "AAAA" });
   assert.equal(r.content[1].text, "Frame at 01:15 (75.04s), 640x360.");
@@ -120,9 +143,9 @@ test("get_frame returns an image block", async () => {
 
 test("extension errors pass through, THROTTLED says stop", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: false, error: "Bilibili answered 412.", code: "THROTTLED" }) });
+  const ext = fakeExtension(s.hub.port, { onCall: () => ({ ok: false, error: "Bilibili answered 412.", code: "THROTTLED" }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^THROTTLED: Bilibili answered 412\. Stop calling MoonDigest/);
@@ -132,9 +155,9 @@ test("extension errors pass through, THROTTLED says stop", async () => {
 
 test("no answer -> TIMEOUT", async () => {
   const s = await setup({ callTimeoutMs: 100 });
-  const ext = fakeExtension(s.bridge.port, { onCall: () => null });
+  const ext = fakeExtension(s.hub.port, { onCall: () => null });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^TIMEOUT:/);
@@ -159,22 +182,215 @@ test("no extension answers NOT_CONNECTED at once, without waiting for one to con
   await s.close();
 });
 
-test("port taken -> PORT_IN_USE, then takes the port over when it frees", async () => {
-  const holder = createBridge({ port: 0 });
-  await holder.listen();
-  const port = holder.port;
-  const s = await setup({ port });
-  const r = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  assert.match(r.content[0].text, /^PORT_IN_USE: Port \d+ is used by another program, most likely another moondigest-mcp/);
-  await holder.close();
-  const r2 = await s.client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
-  assert.match(r2.content[0].text, /^NOT_CONNECTED:/);
-  assert.equal(s.bridge.port, port);
-  await s.close();
+test("two thins on one hub each get their own answer when the extension answers out of order", async () => {
+  const hub = createHub({ port: 0 });
+  await hub.listen();
+  const calls = [];
+  const ext = fakeExtension(hub.port, { onCall: (m) => {
+    calls.push(m);
+    if (calls.length === 2) for (const c of [...calls].reverse()) ext.ws.send(JSON.stringify({ id: c.id, ok: true, data: c.params }));
+  } });
+  await ext.opened;
+  await until(() => hub.connected);
+  const one = createBridge({ port: hub.port, spawnHub: noSpawn });
+  const two = createBridge({ port: hub.port, spawnHub: noSpawn });
+  // Both thins number their calls from 1.
+  const [a, b] = await Promise.all([one.call("get", { n: 1 }), two.call("get", { n: 2 })]);
+  assert.deepEqual([a, b], [{ n: 1 }, { n: 2 }]);
+  ext.ws.close();
+  await one.close();
+  await two.close();
+  await hub.close();
+});
+
+test("/client takes no Origin and no other path", async () => {
+  const hub = createHub({ port: 0 });
+  await hub.listen();
+  await assert.rejects(rawClient(hub.port, { Origin: "https://evil.example" }), /HTTP 401/);
+  await assert.rejects(rawClient(hub.port, { Origin: "chrome-extension://x" }), /HTTP 401/);
+  await assert.rejects(rawClient(hub.port, {}, "/other"), /HTTP 401/);
+  const ws = await rawClient(hub.port);
+  ws.close();
+  await hub.close();
+});
+
+test("idle: no clients closes the hub, a connected one keeps it, it closes idleMs after the last leaves", async () => {
+  const lonely = createHub({ port: 0, idleMs: 100 });
+  await lonely.listen();
+  await Promise.race([lonely.closed, sleep(1000).then(() => assert.fail("no-client hub still open"))]);
+
+  const hub = createHub({ port: 0, idleMs: 100 });
+  await hub.listen();
+  let closed = false;
+  hub.closed.then(() => { closed = true; });
+  const thin = createBridge({ port: hub.port, spawnHub: noSpawn });
+  await thin.connect();
+  await sleep(400);
+  assert.equal(closed, false, "closed with a client connected");
+  const left = Date.now();
+  await thin.close();
+  await Promise.race([hub.closed, sleep(1000).then(() => assert.fail("still open after the last client left"))]);
+  assert.ok(Date.now() - left >= 90, `closed ${Date.now() - left} ms after the last client left`);
+});
+
+test("hub stops mid-call: the call is NOT_CONNECTED and may or may not have run; the next call starts a new hub", async () => {
+  const first = createHub({ port: 0 });
+  await first.listen();
+  const port = first.port;
+  const ext = fakeExtension(port, { onCall: () => null });
+  await ext.opened;
+  await until(() => first.connected);
+  let second = null;
+  const thin = createBridge({ port, spawnHub: () => { second = createHub({ port }); second.listen(); } });
+  const call = settle(thin.call("get", {}));
+  await until(() => ext.messages.some((m) => m.method));
+  await first.close();
+  const r = await call;
+  assert.equal(r.code, "NOT_CONNECTED");
+  assert.match(r.message, /stopped before answering.*may or may not have run.*undo with list: true/);
+  assert.match((await settle(thin.call("get", {}))).message, /^No browser extension is connected/);
+  assert.ok(second, "no new hub");
+  const ext2 = fakeExtension(port, { onCall: () => ({ ok: true, data: "again" }) });
+  await ext2.opened;
+  await until(() => second.connected);
+  assert.deepEqual(await settle(thin.call("get", {})), { data: "again" });
+  ext2.ws.close();
+  await thin.close();
+  await second.close();
+});
+
+test("a newer thin replaces an older hub after its calls in flight; an older thin does not", async () => {
+  const OLD = { version: "0.1.2", mtime: 1 }, NEW = { version: "0.1.10", mtime: 0 };
+  const old = createHub({ port: 0, build: OLD });
+  await old.listen();
+  const port = old.port;
+  let oldClosed = false;
+  old.closed.then(() => { oldClosed = true; });
+  const ext = fakeExtension(port, { onCall: (m) => { setTimeout(() => ext.ws.send(JSON.stringify({ id: m.id, ok: true, data: "slow" })), 300); } });
+  await ext.opened;
+  await until(() => old.connected);
+  const same = createBridge({ port, build: OLD, spawnHub: noSpawn });
+  const inFlight = settle(same.call("get", {}));
+  await until(() => ext.messages.some((m) => m.method));
+
+  let hub = null;
+  const newer = createBridge({ port, build: NEW, spawnHub: () => { hub = createHub({ port, build: NEW }); hub.listen(); } });
+  assert.match((await settle(newer.call("get", {}))).message, /^No browser extension is connected/);
+  assert.ok(hub, "no new hub");
+  assert.deepEqual(await inFlight, { data: "slow" });
+  await Promise.race([old.closed, sleep(2000)]);
+  assert.equal(oldClosed, true, "old hub still running");
+
+  const ext2 = fakeExtension(port, { onCall: () => ({ ok: true, data: "new" }) });
+  await ext2.opened;
+  await until(() => hub.connected);
+  assert.deepEqual(await settle(newer.call("get", {})), { data: "new" });
+  const older = createBridge({ port, build: { version: "0.1.9", mtime: 9e12 }, spawnHub: noSpawn });
+  assert.deepEqual(await settle(older.call("get", {})), { data: "new" });
+  assert.deepEqual(await settle(same.call("get", {})), { data: "new" });
+  ext2.ws.close();
+  for (const b of [same, newer, older]) await b.close();
+  await hub.close();
+});
+
+test("port held by a moondigest-mcp from before the hub -> PORT_IN_USE, then the next call works", async () => {
+  const holder = new WebSocketServer({ host: "127.0.0.1", port: 0, verifyClient: ({ origin }) => typeof origin === "string" && origin.startsWith("chrome-extension://") });
+  await new Promise((r) => holder.once("listening", r));
+  const port = holder.address().port;
+  let hub = null;
+  const bridge = createBridge({ port, spawnHub: () => { hub = createHub({ port }); hub.listen(); } });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await createMcpServer(bridge).connect(a);
+  const client = new Client({ name: "test", version: "0" });
+  await client.connect(b);
+  const r = await client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
+  assert.equal(r.isError, true);
+  assert.match(r.content[0].text, new RegExp(`^PORT_IN_USE: Port ${port} is used by another program, most likely a moondigest-mcp from before the shared-process change.*lsof -nP -iTCP:${port} -sTCP:LISTEN.*The next call picks the port up\\.$`));
+  assert.equal(hub, null);
+  await new Promise((res) => holder.close(res));
+  const r2 = await client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
+  assert.match(r2.content[0].text, /^NOT_CONNECTED: No browser extension/);
+  const ext = fakeExtension(port, { onCall: () => ({ ok: true, data: VIDEO }) });
+  await ext.opened;
+  await until(() => hub.connected);
+  const r3 = await client.callTool({ name: "get_video", arguments: { url: VIDEO.url } });
+  assert.match(r3.content[0].text, /^Title: A talk/);
+  ext.ws.close();
+  await client.close();
+  await bridge.close();
+  await hub.close();
+});
+
+test("a client gone mid-call: the late answer is dropped, others go on, the hub can still stop at once", async () => {
+  const hub = createHub({ port: 0, callTimeoutMs: 5000 });
+  await hub.listen();
+  const calls = [];
+  const ext = fakeExtension(hub.port, { onCall: (m) => { calls.push(m); return m.params.now ? { ok: true, data: m.params } : null; } });
+  await ext.opened;
+  await until(() => hub.connected);
+  const gone = createBridge({ port: hub.port, spawnHub: noSpawn });
+  const stays = createBridge({ port: hub.port, spawnHub: noSpawn });
+  const lost = settle(gone.call("get", { late: true }));
+  await until(() => calls.length === 1);
+  await gone.close();
+  assert.equal((await lost).code, "NOT_CONNECTED");
+  ext.ws.send(JSON.stringify({ id: calls[0].id, ok: true, data: "late" }));
+  assert.deepEqual(await settle(stays.call("get", { now: 1 })), { data: { now: 1 } });
+  // A call left behind by a client that went away must not hold the hub's stop until its timeout.
+  const gone2 = createBridge({ port: hub.port, spawnHub: noSpawn });
+  const lost2 = settle(gone2.call("get", { late: true }));
+  await until(() => calls.length === 3);
+  await gone2.close();
+  await lost2;
+  const stopper = await rawClient(hub.port);
+  const t = Date.now();
+  stopper.send(JSON.stringify({ type: "shutdown" }));
+  await Promise.race([hub.closed, sleep(2000)]);
+  assert.ok(Date.now() - t < 1000, `hub took ${Date.now() - t} ms to stop`);
+  ext.ws.close();
+  await stays.close();
+  await hub.close();
+});
+
+test("real binaries: two sessions started at once share one hub on the port", async () => {
+  const port = await freePort();
+  const env = { ...process.env, MOONDIGEST_MCP_PORT: String(port) };
+  const clients = [new Client({ name: "a", version: "0" }), new Client({ name: "b", version: "0" })];
+  await Promise.all(clients.map((c) => c.connect(new StdioClientTransport({ command: process.execPath, args: [SERVER], env }))));
+  let ext;
+  for (let i = 0; ; i++) {
+    ext = fakeExtension(port, { onCall: (m) => ({ ok: true, data: { ...VIDEO, title: m.params.url } }) });
+    try { await ext.opened; break; } catch (e) { if (i > 50) throw e; await sleep(100); }
+  }
+  const listeners = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]).toString().trim().split("\n");
+  assert.equal(listeners.length, 1, `listening: ${listeners}`);
+  const hubPid = Number(listeners[0]);
+  const ask = async (c, url) => {
+    for (let i = 0; i < 50; i++) {
+      const text = (await c.callTool({ name: "get_video", arguments: { url } })).content[0].text;
+      if (!/^NOT_CONNECTED/.test(text)) return text;
+      await sleep(50);
+    }
+  };
+  const [a, b] = await Promise.all([ask(clients[0], "https://a.example/"), ask(clients[1], "https://b.example/")]);
+  assert.match(a, /^Title: https:\/\/a\.example\//);
+  assert.match(b, /^Title: https:\/\/b\.example\//);
+  ext.ws.close();
+  for (const c of clients) await c.close();
+  const stopper = await rawClient(port);
+  stopper.send(JSON.stringify({ type: "shutdown" }));
+  await new Promise((r) => stopper.once("close", r));
+  const alive = () => { try { process.kill(hubPid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 50 && alive(); i++) await sleep(100);
+  assert.equal(alive(), false, "hub process still running");
+  const free = await new Promise((r) => { const s = createServer().once("error", () => r(false)).listen(port, "127.0.0.1", () => s.close(() => r(true))); });
+  assert.equal(free, true, "port still taken");
 });
 
 test("stdio binary lists the tools", async () => {
-  const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], env: { ...process.env, MOONDIGEST_MCP_PORT: "0" } });
+  const hub = createHub({ port: 0 });
+  await hub.listen();
+  const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], env: { ...process.env, MOONDIGEST_MCP_PORT: String(hub.port) } });
   const client = new Client({ name: "test", version: "0" });
   await client.connect(transport);
   const { tools } = await client.listTools();
@@ -185,16 +401,20 @@ test("stdio binary lists the tools", async () => {
   assert.match(client.getInstructions() || "", /search with search_videos, then read the best few with get_video/);
   assert.doesNotMatch(client.getInstructions() || "", /cannot search/);
   await client.close();
+  await hub.close();
 });
 
 test("binary exits when its MCP client closes stdin", async () => {
-  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, MOONDIGEST_MCP_PORT: "0" }, stdio: ["pipe", "ignore", "inherit"] });
+  const hub = createHub({ port: 0 });
+  await hub.listen();
+  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, MOONDIGEST_MCP_PORT: String(hub.port) }, stdio: ["pipe", "ignore", "inherit"] });
   setTimeout(() => child.stdin.end(), 200);
   const code = await new Promise((resolve, reject) => {
     const t = setTimeout(() => { child.kill(); reject(new Error("still running")); }, 3000);
     child.once("exit", (c) => { clearTimeout(t); resolve(c); });
   });
   assert.equal(code, 0);
+  await hub.close();
 });
 
 const RESULTS = {
@@ -207,9 +427,9 @@ const RESULTS = {
 
 test("search_videos: defaults, one line per video, raw", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (m.method === "search" ? { ok: true, data: { ...RESULTS, page: m.params.page } } : null) });
+  const ext = fakeExtension(s.hub.port, { onCall: (m) => (m.method === "search" ? { ok: true, data: { ...RESULTS, page: m.params.page } } : null) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "search_videos", arguments: { query: " rust " } });
   assert.equal(r.isError, undefined);
   assert.equal(r.content[0].text, [
@@ -227,9 +447,9 @@ test("search_videos: defaults, one line per video, raw", async () => {
 
 test("search_videos: bad arguments never reach the extension", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: true, data: RESULTS }) });
+  const ext = fakeExtension(s.hub.port, { onCall: () => ({ ok: true, data: RESULTS }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   for (const [args, re] of [[{}, /query is required/], [{ query: "x", site: "" }, /site must be/], [{ query: "x", page: 0 }, /page must be/], [{ query: "x", page: 1.5 }, /page must be/]]) {
     const r = await s.client.callTool({ name: "search_videos", arguments: args });
     assert.equal(r.isError, true);
@@ -242,9 +462,9 @@ test("search_videos: bad arguments never reach the extension", async () => {
 
 test("search_videos: the extension says which sites search", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: false, error: 'site must be one of "bilibili", "youtube".' }) });
+  const ext = fakeExtension(s.hub.port, { onCall: () => ({ ok: false, error: 'site must be one of "bilibili", "youtube".' }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "search_videos", arguments: { query: "x", site: "vimeo" } });
   assert.equal(r.isError, true);
   assert.equal(r.content[0].text, 'site must be one of "bilibili", "youtube".');
@@ -257,9 +477,9 @@ test("search_videos: the extension says which sites search", async () => {
 test("search_videos: empty is not an error, THROTTLED says stop", async () => {
   assert.equal(formatSearch({ site: "youtube", query: "zzz", page: 1, items: [] }), 'No YouTube videos for "zzz" on page 1.');
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: () => ({ ok: false, error: "YouTube 限流，请稍后再试", code: "THROTTLED" }) });
+  const ext = fakeExtension(s.hub.port, { onCall: () => ({ ok: false, error: "YouTube 限流，请稍后再试", code: "THROTTLED" }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "search_videos", arguments: { query: "x", site: "youtube" } });
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^THROTTLED: YouTube 限流，请稍后再试 Stop calling MoonDigest/);
@@ -292,11 +512,11 @@ test("personal data: favorites, follows and history formatting", () => {
 test("personal data tools: params pass through, PERSONAL_DATA_OFF passes through", async () => {
   const s = await setup();
   let off = false;
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => (off
+  const ext = fakeExtension(s.hub.port, { onCall: (m) => (off
     ? { ok: false, code: "PERSONAL_DATA_OFF", error: "The user has not allowed it. Ask the user to turn it on." }
     : { ok: true, data: m.method === "history" ? { items: [], cursor: "" } : { folders: [] } }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   let r = await s.client.callTool({ name: "get_favorites", arguments: { folderId: "11", page: 2, query: "rust", raw: true } });
   assert.equal(r.content[0].text, '{"folders":[]}');
   r = await s.client.callTool({ name: "get_history", arguments: {} });
@@ -333,9 +553,9 @@ test("collection formatting: videos, playlists, channels; a write's items, lists
 test("collection tools: params pass through; a stopped batch is an error with its lists, a timed-out one is not; COLLECTION_WRITES_OFF passes through", async () => {
   const s = await setup();
   let reply = null;
-  const ext = fakeExtension(s.bridge.port, { onCall: () => reply });
+  const ext = fakeExtension(s.hub.port, { onCall: () => reply });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   reply = { ok: true, data: { site: "youtube", kind: "playlist", id: "PL1", items: [], cursor: "" } };
   let r = await s.client.callTool({ name: "list_collection", arguments: { site: "youtube", kind: "playlist", id: "PL1", cursor: "C", raw: false } });
   assert.equal(r.content[0].text, "youtube playlist PL1, 0 items. No more.");
@@ -360,9 +580,9 @@ test("collection tools: params pass through; a stopped batch is an error with it
 
 test("an extension older than the server: its unknown-method answer says to update the extension", async () => {
   const s = await setup();
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => ({ ok: false, error: `Unknown method ${m.method}.` }) });
+  const ext = fakeExtension(s.hub.port, { onCall: (m) => ({ ok: false, error: `Unknown method ${m.method}.` }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const r = await s.client.callTool({ name: "fav_write", arguments: { op: "unfav", from: "11", bvids: ["BV1aaaaaaaaa"] } });
   assert.equal(r.isError, true);
   assert.match(r.content[0].text, /^Unknown method favWrite\. The MoonDigest extension in the browser is older than this MCP server.*update the extension/);
@@ -383,9 +603,9 @@ test("writes: params pass through, the answers say what happened and give the un
     get: { title: "T", videoId: "BV1aaaaaaaaa", zone: "知识", tags: ["rust"], brief: true, subtitle: { segments: [] } },
   };
   let stop = false;
-  const ext = fakeExtension(s.bridge.port, { onCall: (m) => ({ ok: true, data: stop ? { op: "unfav", from: "11", done: ["BV1aaaaaaaaa"], notDone: ["BV1bbbbbbbbb"], stopped: "THROTTLED", undoId: "a9" } : answers[m.method] }) });
+  const ext = fakeExtension(s.hub.port, { onCall: (m) => ({ ok: true, data: stop ? { op: "unfav", from: "11", done: ["BV1aaaaaaaaa"], notDone: ["BV1bbbbbbbbb"], stopped: "THROTTLED", undoId: "a9" } : answers[m.method] }) });
   await ext.opened;
-  await until(() => s.bridge.connected);
+  await until(() => s.hub.connected);
   const call = async (name, args) => (await s.client.callTool({ name, arguments: args })).content;
   const items = [{ bvid: "BV1aaaaaaaaa", verdict: "drop", coarse: true, reason: "标题党" }];
   assert.equal((await call("set_triage", { items }))[0].text, 'Saved in the 分拣台: 2 video(s) changed. Undo: undo {"id":"a1"}. Not made (the folder is at its tag limit): 新.');

@@ -9,7 +9,7 @@
 一个可选的 MCP 服务器。装了它，Claude Code、Cursor、Codex 这类 MCP 客户端就能借你自己的浏览器和登录：搜索和读 B站、YouTube 视频（搜索结果、字幕、章节、热评、任意时刻的一帧画面），读你的 B站 收藏夹、关注、历史和 YouTube 的收藏，并且直接改 B站 收藏夹和分拣台的结果。每次修改都有记录，可以撤销。真正读和改的是浏览器里的 MoonDigest 扩展，这个服务器只负责转发。
 
 ```
-MCP 客户端 ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> 扩展的 service worker ──> B站 / YouTube
+MCP 客户端 ──stdio──> moondigest-mcp ──> 共用的 moondigest-mcp 后台进程 ──ws://127.0.0.1:47823──> 扩展的 service worker ──> B站 / YouTube
 ```
 
 搜索和读视频：
@@ -112,13 +112,13 @@ args = ["-y", "moondigest-mcp@latest"]
 - 字幕、简介和评论是别人写的文字，里面可能夹着写给 AI 的指令。服务器给 Agent 的说明要求把这些文字当作数据，不照着做，只改你要求改的。这一条由 Agent 遵守，扩展检查不了；被诱导做出的修改同样有记录，可以撤销。
 - B站 的收藏夹和稍后再看由扩展后台直接改，发的是分拣台自己用的那些请求。YouTube 的读和改都在扩展自己的后台标签页里、YouTube 网页自己的环境中发出，和 YouTube 网页自己发的请求一样，不碰你开着的标签页。
 
-### 两个 MCP 客户端同时开着
+### 多个 MCP 客户端同时开着
 
-每个 MCP 客户端都会启动自己的 moondigest-mcp，但端口只有一个。做法是：
+每个 MCP 客户端的每个会话都会启动自己的 moondigest-mcp，它们共用一个后台进程，所以同时开着的会话都能用这些工具：
 
-- 先启动的那个占住端口，正常工作。
-- 后启动的不会崩溃。它的工具调用返回 `PORT_IN_USE`，说明端口被另一个 moondigest-mcp 占着。
-- 每次工具调用它都会再试一次占端口。先启动的那个退出后（它的客户端关掉时会跟着退出），下一次调用就会接管端口，扩展最多一分钟内连过来。
+- 后台进程占着端口，连着扩展，把每个会话的调用转给扩展。它由第一个会话自己启动，不用手动开。
+- 最后一个 MCP 客户端断开 10 分钟后，后台进程自己退出。下一个会话再启动它，扩展最多一分钟内连过来。
+- 升级 moondigest-mcp 后，新版本的会话会换掉旧版本的后台进程：旧进程先答完手上的调用再退出。
 
 没有扩展连着时，调用立刻返回 `NOT_CONNECTED`，提示打开「允许 Agent 使用我的 B站和 YouTube 账号」。扩展每分钟重连一次，所以开关刚打开、或服务刚启动时，等一分钟再调用。
 
@@ -127,7 +127,7 @@ args = ["-y", "moondigest-mcp@latest"]
 ### 排查
 
 - `NOT_CONNECTED`：浏览器没开、没装 MoonDigest、或「设置 → MCP」的「允许 Agent 使用我的 B站和 YouTube 账号」没开。刚打开开关的话，等一分钟扩展连上再试。设置页的 MCP 一节写着现在是否已连接。
-- `PORT_IN_USE`：另一个 MCP 客户端的 moondigest-mcp 占着端口，见上一节。也可以用 `lsof -nP -iTCP:47823 -sTCP:LISTEN` 看是谁。
+- `PORT_IN_USE`：端口被别的程序占着，多半是还在跑的旧版 moondigest-mcp（共用后台进程之前的版本）。关掉那个 MCP 客户端会话，或结束那个进程（`lsof -nP -iTCP:47823 -sTCP:LISTEN` 能看到是谁），下一次调用就会接上。
 - `THROTTLED`：B站或 YouTube 在限流。停下来，过一阵再试，不要连续重试。
 - `TIMEOUT`：60 秒内没有回答。常见原因是页面加载太慢，或后台标签页被浏览器冻结。切到那个标签页看一眼再试。
 - 字幕说要登录（`Subtitle note`）：在这个浏览器里登录 B站。
@@ -149,7 +149,7 @@ cd mcp && npm test
 An optional MCP server. It lets MCP clients such as Claude Code, Cursor and Codex work through your own browser and login: search and read Bilibili and YouTube videos (search results, transcript, chapters, hot comments, a frame at any time), read your Bilibili favorites, follows and history and your YouTube collections, and change your Bilibili favorites and 分拣台 results directly. Every change is recorded and can be undone. The MoonDigest extension in your browser does the reading and the changing. This server only relays.
 
 ```
-MCP client ──stdio──> moondigest-mcp ──ws://127.0.0.1:47823──> extension service worker ──> Bilibili / YouTube
+MCP client ──stdio──> moondigest-mcp ──> shared moondigest-mcp background process ──ws://127.0.0.1:47823──> extension service worker ──> Bilibili / YouTube
 ```
 
 Search and read videos:
@@ -252,13 +252,13 @@ Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's �
 - Transcripts, descriptions and comments are text other people wrote, and may contain instructions aimed at an AI. The server's instructions tell the AI tool to treat that text as data, not to act on it, and to change only what you asked for. The AI tool has to follow this; the extension cannot check it. A change it was talked into is recorded like any other and can be undone.
 - Bilibili favorites and 稍后再看 are changed by the extension's background directly, with the requests the 分拣台 itself uses. YouTube reads and writes are sent from the extension's own background tab, in the YouTube page's own context, the same requests the YouTube page sends; your open tabs are not used.
 
-### Two MCP clients at once
+### Several MCP clients at once
 
-Each MCP client starts its own moondigest-mcp, and there is only one port:
+Each session of each MCP client starts its own moondigest-mcp. They all share one background process, so every open session can use the tools:
 
-- The first one to start holds the port and works.
-- The later one does not crash. Its tool calls return `PORT_IN_USE`, saying another moondigest-mcp holds the port.
-- It retries the port on every tool call. Once the first one exits (it exits when its client closes), the next call takes the port over, and the extension reconnects within a minute.
+- The background process holds the port, keeps the extension's connection and passes each session's calls to it. The first session starts it; you do not.
+- It exits 10 minutes after the last MCP client disconnects. The next session starts it again, and the extension reconnects within a minute.
+- After an upgrade, a session of the newer moondigest-mcp replaces an older background process: the old one answers the calls it has in hand, then exits.
 
 With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 允许 Agent 使用我的 B站和 YouTube 账号 to be turned on. The extension reconnects once a minute, so right after turning the switch on or starting the server, wait a minute and call again.
 
@@ -267,7 +267,7 @@ With no extension connected, a call returns `NOT_CONNECTED` at once, asking for 
 ### Troubleshooting
 
 - `NOT_CONNECTED`: the browser is not open, MoonDigest is not installed, or 允许 Agent 使用我的 B站和 YouTube 账号 in 设置 → MCP is off. Right after turning it on, wait a minute for the extension to connect. The MCP section of the settings page says whether it is connected.
-- `PORT_IN_USE`: another MCP client's moondigest-mcp holds the port, see above. `lsof -nP -iTCP:47823 -sTCP:LISTEN` shows which process.
+- `PORT_IN_USE`: another program holds the port, most likely an old moondigest-mcp (from before the shared background process) that some MCP client session is still running. Close that session or stop that process (`lsof -nP -iTCP:47823 -sTCP:LISTEN` shows it); the next call picks the port up.
 - `THROTTLED`: Bilibili or YouTube is rate limiting. Stop and try later. Do not retry in a loop.
 - `TIMEOUT`: no answer in 60 s. Usually the page loaded too slowly or the browser froze the background tab. Look at that tab and try again.
 - The subtitle says log in (`Subtitle note`): log in to Bilibili in that browser.
