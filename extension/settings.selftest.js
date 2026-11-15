@@ -159,4 +159,10 @@ for (const name of ["normalizeAiPresetPrompts", "normalizeApiKey", "normalizeDow
   for (const file of sources) assert.ok(!new RegExp(`function ${name}\\(`).test(read(file)), `${file} defines ${name} again`);
 }
 
+// An AI platform's option text, the side panel's and 分拣台's: its 备注名, else 「平台 · 模型」, else the platform alone.
+assert.deepStrictEqual(
+  [{ note: " 自己的 ", name: "DeepSeek", model: "deepseek-flash" }, { note: " ", name: "DeepSeek", model: "deepseek-flash" }, { name: "Ollama (本地)", model: "" }].map(S.aiProviderLabel),
+  ["自己的", "DeepSeek · deepseek-flash", "Ollama (本地)"]
+);
+
 console.log("settings selftest ok");

@@ -163,11 +163,13 @@ const favBusyReason = () => UI.busyText(fav.state().busy);
 
 
 // The folder's 判断标准, before the 粗看/细看 button it is for. Written: the text in the tooltip. Not written: the warn
-// dot (the AI then guesses from the folder name; the editor's placeholder says so).
+// dot (the AI then guesses from the folder name; the editor's hint says so), none in 所有收藏夹, where each video then
+// goes by its folder's.
 function criteriaBtn() {
   const text = criteria();
+  const all = S.mediaId === ALL;
   const pen = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>';
-  return `<button type="button" class="act-btn" data-head="criteria" title="${esc(text ? `判断标准：${text}` : "还没写判断标准")}" aria-label="${text ? "判断标准" : "判断标准（还没写）"}">${pen}判断标准${text ? "" : UI.WARN_DOT}</button>`;
+  return `<button type="button" class="act-btn" data-head="criteria" title="${esc(text ? `判断标准：${text}` : all ? ALL_CRIT_NONE : "还没写判断标准")}" aria-label="${text || all ? "判断标准" : "判断标准（还没写）"}">${pen}判断标准${text || all ? "" : UI.WARN_DOT}</button>`;
 }
 
 // Whether anything in row 3 is on (全部 is pressed when not).
@@ -281,7 +283,8 @@ function renderListHeader(list) {
   // like the step's own button. all: how many the folder has, so the button stays (disabled) while filters hide them.
   const redoBtn = (act, step, all) => {
     const { label, why, verb } = redoOf(step);
-    return all ? headBtn(act, label, "", why, "", `这些视频是按旧的判断标准${verb}的`, false, true) : "";
+    const unsearched = step === "fine" && searchWanted(String(S.mediaId)) ? "，或细看时没有联网核实" : "";
+    return all ? headBtn(act, label, "", why, "", `这些视频是按旧的判断标准${verb}的${unsearched}`, false, true) : "";
   };
   const sel = selectedIn(list).length;
   // A selection, listed or not, decides alone: no AI-verdict batches beside it (all hidden: its buttons say why).
@@ -290,8 +293,7 @@ function renderListHeader(list) {
   // html is what this step does (全部 mixes 粗看 guesses with 细看 conclusions: no class-wide batch, only the selection);
   // the selection's buttons go to its floating bar (selActs).
   let html = "";
-  // 所有收藏夹 has no one 判断标准 to show: its runs ask for each folder's first (askAllCriteria).
-  const critBtn = all ? "" : criteriaBtn();
+  const critBtn = criteriaBtn();
   if (t === "none") {
     // The criteria the AI reads sits just before the button that sends it.
     html = critBtn;

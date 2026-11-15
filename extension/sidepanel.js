@@ -472,8 +472,7 @@ function renderModelSelect(preferredProviderId = "") {
 
   els.modelSelect.innerHTML = providers
     .map((p) => {
-      const label = String(p.model || p.name || "").trim();
-      return `<option value="${escapeHtml(p.id)}">${escapeHtml(label)}</option>`;
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(MdgSettings.aiProviderLabel(p))}</option>`;
     })
     .join("");
 
@@ -484,7 +483,7 @@ function renderModelSelect(preferredProviderId = "") {
   syncModelSelectTitle();
 }
 
-// The select is narrow, so the full model name lives in its tooltip.
+// The select is narrow, so the full option text lives in its tooltip.
 function syncModelSelectTitle() {
   els.modelSelect.title = els.modelSelect.selectedOptions[0]?.textContent || "";
 }

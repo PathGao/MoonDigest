@@ -166,6 +166,8 @@
       return "";
     }
   };
+  // An AI platform as its option reads (the side panel's select, 分拣台's 判断标准): its 备注名, else 「平台 · 模型」.
+  const aiProviderLabel = (p) => text(p?.note) || [text(p?.name), text(p?.model)].filter(Boolean).join(" · ");
   const normalizeDownloadFormat = (value) => (value === "txt" ? "txt" : "srt");
   const normalizePlayerAiQuickPrompt = (value) => text(value);
   // 快捷追问: trimmed, no blanks or repeats, at most MAX_PRESET_PROMPTS.
@@ -301,6 +303,7 @@
     normalizeApiKey,
     trimBaseUrl,
     urlOrigin,
+    aiProviderLabel,
     normalizeFrontmatterField,
     normalizeDownloadFormat,
     normalizePlayerAiQuickPrompt,

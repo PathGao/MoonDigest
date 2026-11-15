@@ -1353,6 +1353,139 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.deepStrictEqual([t.S.titleRes.BV500.reason, t.S.titleRes.BV500.criteria], ["新理由", "新标准"], "the new result replaces it");
   Object.assign(t.S, { titleRes: {}, folderCriteria: {} });
 
+  // 判断标准's AI side (L2): the platform is the folder's own, the fallback (side panel's pick), a gone one, or none; each
+  // switch on or off, on a platform that can or cannot do it.
+  {
+    const ds = { id: "ds", name: "DeepSeek", model: "deepseek-flash", note: "自己的", caps: { thinking: true, search: true } };
+    const zp = { id: "zp", name: "智谱 GLM", model: "glm", caps: { thinking: true, search: false } };
+    const oa = { id: "oa", name: "OpenAI 兼容", model: "gpt", caps: { thinking: false, search: false } };
+    const was = { providers: t.S.settings.aiPlatforms, thinking: t.S.settings.triageThinking };
+    Object.assign(t.S.settings, { aiPlatforms: [ds, zp, oa], triageThinking: true });
+    ctx.localStorage = { getItem: (k) => (k === "mdg_ai_selected_provider" ? "zp" : null) };
+    const draft = () => plain(vm.runInContext("critAi", ctx));
+    const open = (rec) => {
+      t.S.folderAi = rec ? { J: rec } : {};
+      t.el.criteriaInput = { value: "", focus() {} };
+      t.openCriteria();
+      return draft();
+    };
+    const sw = (box, hint) => [t.el[box].checked, t.el[box].disabled, t.el[hint].textContent];
+    const KEPT = "已开启的设置保留，换回支持的平台后生效";
+    // No record: the side panel's pick and 开启思考's old global value, no 联网核实; 智谱 cannot search, so that one is off.
+    assert.deepStrictEqual(open(null), { providerId: "zp", thinking: true, search: false, gone: false });
+    assert.match(t.el.critAiList.innerHTML, /<span>思考<\/span><span>联网<\/span>/);
+    assert.match(t.el.critAiList.innerHTML, /value="zp" checked/);
+    assert.ok(t.el.critAiList.innerHTML.includes('自己的<small>DeepSeek · deepseek-flash</small>') && t.el.critAiList.innerHTML.includes(">智谱 GLM · glm<"), "备注名 on top, 「平台 · 模型」 under it; without one, the option text alone");
+    assert.deepStrictEqual(sw("critThinking", "critThinkingHint"), [true, false, "判断更细，但慢得多、token 多几倍。"]);
+    assert.deepStrictEqual(sw("critSearch", "critSearchHint"), [false, true, "智谱 GLM · glm不支持联网"]);
+    assert.strictEqual(t.el.critSearch.title, "智谱 GLM · glm不支持联网", "the reason is on the switch too");
+    assert.strictEqual(t.el.critAiNote.hidden, true);
+    // Its own record on a platform that can do neither: both off, both kept on, and said so.
+    assert.deepStrictEqual(open({ providerId: "oa", thinking: true, search: true }), { providerId: "oa", thinking: true, search: true, gone: false });
+    assert.deepStrictEqual(sw("critThinking", "critThinkingHint"), [true, true, `OpenAI 兼容 · gpt不支持开关思考。${KEPT}`]);
+    assert.deepStrictEqual(sw("critSearch", "critSearchHint"), [true, true, `OpenAI 兼容 · gpt不支持联网。${KEPT}`]);
+    // On one that can: both on and free.
+    open({ providerId: "ds", thinking: false, search: true });
+    assert.deepStrictEqual([sw("critThinking", "critThinkingHint").slice(0, 2), sw("critSearch", "critSearchHint")[1]], [[false, false], false]);
+    // Its own platform deleted or disabled: the first enabled one, as the background falls back, with a note.
+    assert.deepStrictEqual(open({ providerId: "gone", thinking: true, search: false }), { providerId: "ds", thinking: true, search: false, gone: true });
+    assert.deepStrictEqual([t.el.critAiNote.hidden, t.el.critAiNote.textContent], [false, "原来选的 AI 平台已删除或停用，现在用「自己的」。"]);
+    // The drafted platform deleted on the settings page while the dialog is open: the same fallback, said the same way.
+    open({ providerId: "ds", thinking: true, search: false });
+    t.S.settings.aiPlatforms = [zp, oa];
+    vm.runInContext("renderCritAi()", ctx);
+    assert.deepStrictEqual([draft().providerId, draft().gone, t.el.critAiNote.hidden], ["zp", true, false]);
+    // One platform: no columns to compare.
+    t.S.settings.aiPlatforms = [zp];
+    open(null);
+    assert.ok(!t.el.critAiList.innerHTML.includes("crit-th") && !t.el.critAiList.innerHTML.includes('class="cap'), t.el.critAiList.innerHTML);
+    // None: the list says so with 去设置, the switches are off with that reason, and 保存 records no platform.
+    t.S.settings.aiPlatforms = [];
+    assert.strictEqual(open(null).providerId, "");
+    assert.deepStrictEqual([t.el.critAiList.innerHTML, t.el.critAiNone.hidden], ["", false], "the list says 没有启用的 AI 平台 with 去设置");
+    assert.deepStrictEqual([t.el.critThinking.disabled, t.el.critSearch.disabled, t.el.critSearch.title], [true, true, "没有启用的 AI 平台"]);
+    assert.strictEqual(t.el.critThinkingHint.textContent, "没有启用的 AI 平台", "nothing to switch back to: no 「换回支持的平台后生效」");
+    await t.saveCriteria();
+    assert.deepStrictEqual(plain(store[t.K.folderAi] || {}), {});
+    // 保存 writes the dialog's three as this folder's record by read-modify-write: another tab's folder stays.
+    t.S.settings.aiPlatforms = [ds, zp, oa];
+    open(null);
+    vm.runInContext('Object.assign(critAi, { providerId: "ds", search: true })', ctx);
+    store[t.K.folderAi] = { K: { providerId: "zp", thinking: false, search: false } };
+    await t.saveCriteria();
+    assert.deepStrictEqual(plain(store[t.K.folderAi]), { K: { providerId: "zp", thinking: false, search: false }, J: { providerId: "ds", thinking: true, search: true } });
+    // A changed platform or switch is not a changed 判断标准: no 重新粗看 is offered.
+    t.S.titleRes.BV500 = { verdict: "keep", criteria: "" };
+    const asked = [];
+    const realAsk = t.askConfirm;
+    t.askConfirm = async (title) => (asked.push(title), false);
+    open({ providerId: "ds", thinking: true, search: true });
+    vm.runInContext('Object.assign(critAi, { providerId: "zp", thinking: false })', ctx);
+    await t.saveCriteria();
+    assert.deepStrictEqual(asked, []);
+    t.askConfirm = realAsk;
+    // Requests: the folder's own platform and 开启思考; without a record exactly what they were (the side panel's pick only).
+    handlers["triage-classify-titles"] = () => ({ ok: true, data: { results: {} } });
+    t.S.folderAi = { J: { providerId: "ds", thinking: false, search: true } };
+    t.S.titleRes = {};
+    await t.runStage1();
+    assert.deepStrictEqual([sent.at(-1).aiProviderId, sent.at(-1).thinking, sent.at(-1).search], ["ds", false, undefined], "标题粗看 never asks for 联网核实");
+    t.S.folderAi = {};
+    t.S.coarseFailed.clear();
+    await t.runStage1();
+    assert.deepStrictEqual(Object.keys(plain(sent.at(-1))).sort(), ["aiProviderId", "criteria", "folder", "items", "type"]);
+    assert.strictEqual(sent.at(-1).aiProviderId, "zp");
+    // 所有收藏夹 runs on its own record, never on a video's folder's: none of its own, none sent.
+    t.S.folderAi = { J: { providerId: "ds", thinking: true, search: false } };
+    t.S.mediaId = "all";
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), {});
+    t.S.folderAi.all = { providerId: "zp", thinking: false, search: true };
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "zp", thinking: false, search: true });
+    assert.deepStrictEqual(plain(vm.runInContext('[folderAiOf("all").own, folderAiOf("all").provider.id]', ctx)), [true, "zp"]);
+    t.S.mediaId = "J";
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "ds", thinking: true, search: false });
+    // 联网核实 on, on a platform that has it: a 细看 made without it is old (按新标准重新细看); one made with it, a folder
+    // with it off, or a platform without it, is not. The 细看 request carries it.
+    {
+      const done = (extra) => ({ status: "done", verdict: "keep", criteria: "", ...extra });
+      t.S.analyses = { BV500: done({}) };
+      const staleWith = (rec) => ((t.S.folderAi = rec ? { J: rec } : {}), plain(t.staleFine().map((it) => it.bvid)));
+      assert.deepStrictEqual(
+        [staleWith({ providerId: "ds", thinking: false, search: true }), staleWith({ providerId: "ds", thinking: false, search: false }), staleWith({ providerId: "zp", thinking: false, search: true }), staleWith(null)],
+        [["BV500"], [], [], []]
+      );
+      t.S.analyses.BV500 = done({ search: true });
+      assert.deepStrictEqual(staleWith({ providerId: "ds", thinking: false, search: true }), []);
+      t.S.analyses = {};
+      handlers["triage-analyze"] = () => ({ ok: true, data: done({ search: true }) });
+      await vm.runInContext("analyzeOne", ctx)("BV500", true, vm.runInContext("judgeOf", ctx)(t.S.itemMap.get("BV500")));
+      assert.deepStrictEqual([sent.at(-1).type, sent.at(-1).search, sent.at(-1).aiProviderId], ["triage-analyze", true, "ds"]);
+      // Saving with 联网核实 just turned on asks to redo the 细看 made without it; turning it off, or saving it on again, does not.
+      const asked = [];
+      const realAsk = t.askConfirm;
+      t.askConfirm = async (title) => (asked.push(title), false);
+      t.S.analyses = { BV500: done({}) };
+      t.S.folderCriteria = {};
+      const save = async (rec, next) => {
+        open(rec);
+        vm.runInContext(`Object.assign(critAi, ${JSON.stringify(next)})`, ctx);
+        await t.saveCriteria();
+      };
+      await save({ providerId: "ds", thinking: false, search: false }, { search: true });
+      await save({ providerId: "ds", thinking: false, search: true }, { search: true });
+      await save({ providerId: "ds", thinking: false, search: true }, { search: false });
+      assert.deepStrictEqual(asked, ["联网核实打开了"]);
+      t.askConfirm = realAsk;
+      delete handlers["triage-analyze"];
+      t.S.analyses = {};
+    }
+    delete ctx.localStorage;
+    t.S.coarseFailed.clear();
+    Object.assign(t.S, { titleRes: {}, folderCriteria: {}, folderAi: {} });
+    Object.assign(t.S.settings, { aiPlatforms: was.providers, triageThinking: was.thinking });
+    delete handlers["triage-classify-titles"];
+  }
+
   // 移动/复制 is offered for a selection in any tab, 未分析 too.
   openFake("Z", [item(700)]);
   t.S.tab = "none";
@@ -2852,7 +2985,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
   }
 
-  // 所有收藏夹: each video is judged under its first chosen folder's 判断标准 and context; a 粗看 batch holds one folder.
+  // 所有收藏夹 without a 判断标准 of its own: each video is judged under its first chosen folder's 判断标准 and context; a
+  // 粗看 batch holds one folder.
   {
     const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
     openFake("all", vids);
@@ -2861,9 +2995,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     store[t.K.folderCriteria] = structuredClone(t.S.folderCriteria);
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
-    // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
+    // The step bar offers the run and 所有收藏夹's own 判断标准 button (not written: what happens then, no warn dot); the
+    // run asks first, listing each folder's count and 判断标准.
     t.renderListHeader(t.visibleItems());
-    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 4 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="criteria"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 4 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="criteria" title="不写时，每个视频按它所在收藏夹的判断标准判断。" aria-label="判断标准">'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     const batches = [];
     handlers["triage-classify-titles"] = ({ items, criteria, folder }) => {
       batches.push([items.map((x) => x.bvid), criteria, folder.title, folder.intro]);
@@ -2896,20 +3031,83 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let started = false;
     await vm.runInContext("startJudging", ctx)("细看", "细看", [vids[0]], () => (started = true));
     assert.ok(!started);
+    // 所有收藏夹's own 判断标准 and AI: the dialog opens on it and 保存 writes both under its id.
+    const platforms = t.S.settings.aiPlatforms;
+    t.S.settings.aiPlatforms = [{ id: "ds", name: "DeepSeek", model: "m", caps: { thinking: true, search: true } }, { id: "zp", name: "智谱", model: "g", caps: { thinking: true, search: false } }];
+    t.S.folderAi = { K: { providerId: "ds", thinking: true, search: true } };
+    store[t.K.folderAi] = structuredClone(t.S.folderAi);
+    t.el.criteriaInput = { value: "", focus() {} };
+    t.openCriteria();
+    assert.deepStrictEqual([t.el.criteriaTitle.textContent, t.el.criteriaHint.textContent], ["判断标准 ·「所有收藏夹」", "不写时，每个视频按它所在收藏夹的判断标准判断。"]);
+    vm.runInContext('Object.assign(critAi, { providerId: "zp", thinking: false, search: false })', ctx);
+    t.el.criteriaInput = { value: "总标准" };
+    await t.saveCriteria();
+    assert.strictEqual(store[t.K.folderCriteria].all, "总标准");
+    assert.deepStrictEqual(plain(store[t.K.folderAi]), { K: { providerId: "ds", thinking: true, search: true }, all: { providerId: "zp", thinking: false, search: false } });
+    // Written, it is the one every video is judged under, and staleness goes by it: 夹K's and 夹L's no longer count.
+    assert.deepStrictEqual(plain([t.staleCoarse().map((it) => it.bvid), t.staleFine().map((it) => it.bvid)]), [["BV850", "BV853"], ["BV851", "BV852"]]);
+    // Its runs start at once (no per-folder dialog), each video still told its own folder, on 所有收藏夹's platform.
+    asked = null;
+    t.askConfirm = async (...a) => ((asked = a), true);
+    batches.length = fine.length = 0;
+    const ran = [];
+    const coarse = handlers["triage-classify-titles"];
+    handlers["triage-classify-titles"] = (m) => (ran.push([m.aiProviderId, m.thinking]), coarse(m));
+    handlers["triage-analyze"] = ({ bvid, criteria, folder, aiProviderId, thinking, search }) => (fine.push([bvid, criteria, folder.title, aiProviderId, thinking, search]), { ok: true, data: { bvid, status: "done", verdict: "keep", ...(search && { search }) } });
+    await vm.runInContext("startJudging", ctx)("重新粗看", "重新粗看", [vids[0], vids[3]], () => t.runStage1([vids[0], vids[3]], true));
+    while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
+    await vm.runInContext("startJudging", ctx)("重新细看", "重新细看", [vids[2]], () => t.startGroup(["BV852"], true));
+    for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual([asked, batches, ran, fine], [null, [[["BV850", "BV853"], "总标准", "夹K", ""]], [["zp", false]], [["BV852", "总标准", "夹L", "zp", false, false]]]);
+    assert.deepStrictEqual(plain([t.staleCoarse().map((it) => it.bvid), t.staleFine().map((it) => it.bvid)]), [[], ["BV851"]]);
+    // Its 判断标准 emptied and saved: the redo that save offers runs under each folder's again, so it lists the folders first.
+    {
+      const calls = [];
+      t.askConfirm = async (...args) => (calls.push(args), calls.length === 1);
+      t.el.criteriaInput = { value: "" };
+      await t.saveCriteria();
+      assert.deepStrictEqual([calls.length, calls[0][0]], [2, "判断标准改了"]);
+      assert.ok(calls[1][1].includes("每个视频按它所在收藏夹的判断标准判断"), calls[1][1]);
+      t.askConfirm = async () => false;
+      t.el.criteriaInput = { value: "总标准" };
+      await t.saveCriteria();
+      t.askConfirm = async (...args) => ((asked = args), true);
+    }
+    // 联网核实 follows 所有收藏夹's record: 夹K's being on makes nothing old, its own on does, and its 细看 then searches.
+    t.S.analyses.BV851.criteria = "总标准";
+    assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), []);
+    t.S.folderAi = { K: { providerId: "zp", thinking: false, search: false }, all: { providerId: "ds", thinking: true, search: true } };
+    assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV851", "BV852"]);
+    t.startGroup(["BV851"], true);
+    for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual([fine.at(-1), plain(t.staleFine().map((it) => it.bvid))], [["BV851", "总标准", "夹K", "ds", true, true], ["BV852"]]);
+    // Emptied again, each video goes back to its folder's 判断标准.
+    delete t.S.folderCriteria.all;
+    assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV850", "BV853"]);
+    assert.strictEqual(vm.runInContext("judgeOf", ctx)(vids[2]).crit, "L 新标准");
+    t.S.settings.aiPlatforms = platforms;
+    delete store[t.K.folderAi];
     Object.assign(t, { askConfirm: async () => true });
-    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, loadAll: null });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderAi: {}, folderIntro: {}, loadAll: null });
   }
-  for (const thinkingToggle of [false, true]) {
-    t.S.settings.thinkingToggle = thinkingToggle;
-    t.handleAiError("模型输出被截断", "AI_TRUNCATED");
-    assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), thinkingToggle, "only a platform with the thinking switch is told to turn it off");
+  // Turning thinking off is offered only when the open folder thinks on a platform that can switch it (判断标准).
+  {
+    const was = { mediaId: t.S.mediaId, folderAi: t.S.folderAi, providers: t.S.settings.aiPlatforms };
+    t.S.mediaId = "TF";
+    t.S.settings.aiPlatforms = [{ id: "ds", name: "DeepSeek", model: "m", caps: { thinking: true, search: false } }, { id: "oa", name: "OpenAI", model: "g", caps: { thinking: false, search: false } }];
+    for (const [rec, want] of [[null, false], [{ providerId: "ds", thinking: true }, true], [{ providerId: "ds", thinking: false }, false], [{ providerId: "oa", thinking: true }, false]]) {
+      t.S.folderAi = rec ? { TF: { ...rec, search: false } } : {};
+      t.handleAiError("模型输出被截断", "AI_TRUNCATED");
+      assert.strictEqual(t.el.bannerText.textContent.endsWith("关闭思考"), want, JSON.stringify(rec));
+    }
+    Object.assign(t.S, { mediaId: was.mediaId, folderAi: was.folderAi });
+    t.S.settings.aiPlatforms = was.providers;
   }
-  t.S.settings.thinkingToggle = false;
   // C553: a cut 细看 answer names 细看's own limit; 粗看 and AI 打标签 share 粗看's.
   assert.ok(t.el.bannerText.textContent.includes("调大粗看输出上限"), t.el.bannerText.textContent);
   t.el.banner.hidden = true;
   openFake("all", []);
-  assert.strictEqual(t.activityState().text, "字幕细看完成 2 个", "back in its folder, the newest finished line shows (细看 ran after 粗看)");
+  assert.strictEqual(t.activityState().text, "按新标准重新细看完成 1 个", "back in its folder, the newest finished line shows (细看 ran after 粗看)");
   for (const job of ["stage1", "group"]) await vm.runInContext("runs", ctx).run(job, { line: () => "", next: () => null }); // drops their finished lines
 
   // Back on the tab: the id check alone when nothing changed, no full load.
@@ -4110,14 +4308,6 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await wait();
     assert.deepStrictEqual(texts(), { BV1: "中文字", BV2: "侧边栏的", BV3: "视频记录的" });
     t.render = realRender;
-    // 开启思考 follows the platform the side panel picks now: opening 收藏夹设置 asks the background again.
-    handlers["triage-settings-get"] = () => ({ ok: true, data: { thinkingToggle: true } });
-    t.S.settings.thinkingToggle = false;
-    t.openSettings();
-    await wait();
-    assert.deepStrictEqual([t.S.settings.thinkingToggle, t.el.thinkingRow.hidden], [true, false], "the switch follows the platform in use");
-    delete handlers["triage-settings-get"];
-    t.el.settingsDialog.close?.();
     // a background re-render waits while a note is composing, and runs on compositionend.
     t.S.items = [];
     t.document.activeElement = { closest: (s) => (s.split(", ").includes("[data-note]") ? note : null) };

@@ -28,7 +28,8 @@ const K = {
   lastFolder: "triage_last_folder",
   folderList: KEYS.triageFolderList, // the page opens from it before it reads B站's list again
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
-  folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }
+  folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }; 所有收藏夹 has its own under ALL
+  folderAi: KEYS.triageFolderAi, // { [mediaId]: { providerId, thinking, search } }, 所有收藏夹's under ALL: written by 判断标准's 保存; none = the side panel's pick
   videoTags: KEYS.triageVideoTags,
   basket: KEYS.triageBasket,
   zones: KEYS.triageZones,
@@ -108,6 +109,7 @@ const S = {
   loadAll: null, // 所有收藏夹 only: { lists: { [mediaId]: { items, at } }, check, checkTotal, queue, phase (LOAD_ALL_STEPS), error, partial }
   tags: [],
   folderCriteria: {},
+  folderAi: {},
   videoTags: {},
   basket: [],
   notes: {},
@@ -129,7 +131,7 @@ const S = {
     ...Object.fromEntries(NUM_FIELDS.map(([key, kind]) => [key, TriageUi.numSetting(kind)])),
     triageThinking: false,
     triageAiRemoveTags: false, // 批量打 may also take tags off
-    thinkingToggle: false
+    aiPlatforms: [] // the enabled AI platforms, { id, name, model, note, caps: { thinking, search } } (the background's aiCaps)
   },
   tab: "none",
   classFilter: { none: "all", coarse: "all", fine: "all", read: "all" }, // each tab's one pick of 已保留 / 待决定 / an AI verdict; a folder switch resets them
@@ -205,21 +207,55 @@ const writeRunning = () => Boolean(runs.get("write"));
 
 const criteriaFor = (id) => S.folderCriteria[id] || "";
 const criteria = () => criteriaFor(S.mediaId);
+// The 判断标准 a video of this home folder is judged under: in 所有收藏夹 its own when written, else the home folder's.
+const critOf = (home) => (S.mediaId === ALL && criteriaFor(ALL)) || criteriaFor(home);
+// The folder whose AI record (folderAi) a request about folder id runs on: 所有收藏夹 runs on its own, whatever folder a
+// video is in.
+const aiFolder = (id) => (S.mediaId === ALL ? ALL : id);
 // The folder a video is judged under: the open one, or in 所有收藏夹 the first chosen folder (list order) it is in.
 const homeOf = (it) => (S.mediaId === ALL ? S.folders.map((f) => String(f.id)).find((id) => it?.folders?.includes(id)) : String(S.mediaId));
 // What the AI is told about a folder; its 判断标准 is relative to this.
 const folderContext = (id = S.mediaId) => ({ title: folderName(id), intro: S.folderIntro[id] || "" });
+// The fields a request about a folder carries: its own platform, 开启思考 and 联网核实 (folderAi; only 字幕细看 sends search).
+// None without a record: the background then takes the side panel's pick (sendRaw), 开启思考's old global value and no
+// search.
+const aiReq = (id) => {
+  const r = S.folderAi[aiFolder(id)];
+  return r ? { aiProviderId: r.providerId, thinking: r.thinking, search: r.search } : {};
+};
+// A folder's AI as its requests run, the background's fallbacks included: the platform (its own, else the side panel's
+// pick, else the first enabled), gone when its own was deleted or disabled; thinking, the switch as stored, and thinkingOn,
+// what the request gets (a folder's own only where the platform takes it).
+function folderAiOf(id) {
+  const list = S.settings.aiPlatforms;
+  const r = S.folderAi[id];
+  const want = r ? r.providerId : aiProviderId();
+  const provider = list.find((p) => p.id === want) || list[0] || null;
+  const thinking = r ? r.thinking : Boolean(S.settings.triageThinking);
+  return { own: Boolean(r), provider, gone: Boolean(r && provider && provider.id !== r.providerId), thinking, thinkingOn: r ? thinking && Boolean(provider?.caps.thinking) : thinking, search: Boolean(r?.search) };
+}
 // Everything a 粗看 or 细看 request about this video carries, taken when its run starts.
 const judgeOf = (it) => {
   const home = homeOf(it);
-  return { home, crit: criteriaFor(home), ctx: folderContext(home) };
+  return { home, crit: critOf(home), ctx: folderContext(home), ai: aiReq(home) };
 };
 // A 粗看 or 细看 result remembers the 判断标准 it was made under (loadResults stamps older ones with the folder's
 // current one), so after the criteria change the old results can be redone.
 const isStale = (r, crit = criteria()) => Boolean(r) && (r.criteria ?? crit) !== crit;
 const judged = () => S.mediaId && S.mediaId !== REMOVED;
-const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "coarse") && isStale(S.titleRes[it.bvid], criteriaFor(homeOf(it)))) : []);
-const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "fine") && isStale(S.analyses[it.bvid], criteriaFor(homeOf(it)))) : []);
+const staleCoarse = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "coarse") && isStale(S.titleRes[it.bvid], critOf(homeOf(it)))) : []);
+// 联网核实 on for the folder (in 所有收藏夹, for 所有收藏夹) and possible on its platform: a 细看 made without it is old
+// too, redone like one made under another 判断标准. Turning it off makes none old.
+const searchWanted = (id) => {
+  const a = folderAiOf(aiFolder(id));
+  return a.search && Boolean(a.provider?.caps.search);
+};
+const staleFineOf = (it) => {
+  const a = S.analyses[it.bvid];
+  const home = homeOf(it);
+  return isStale(a, critOf(home)) || (Boolean(a) && !a.search && searchWanted(home));
+};
+const staleFine = () => (judged() ? S.items.filter((it) => !it.invalid && inStage(it, "fine") && staleFineOf(it)) : []);
 
 const $ = (id) => document.getElementById(id);
 
@@ -244,11 +280,11 @@ const el = {};
   "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "favSel", "list", "basket", "basketToggle", "basketCount",
-  "basketList", "basketClearBtn", "settingsDialog", "folderToggles", "thinkingRow", "intervalInput",
-  "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "thinkingInput", "titleMaxInput",
+  "basketList", "basketClearBtn", "settingsDialog", "folderToggles", "intervalInput",
+  "coarseBatchInput", "fineBatchInput", "aiBatchInput", "tagLimitInput", "aiNewTagMaxInput", "aiRemoveTagsInput", "openOptionsBtn", "titleMaxInput",
   "titleMaxHint", "analyzeMaxInput", "analyzeMaxHint", "csvBtn", "confirmDialog",
   "confirmTitle", "confirmBody", "confirmOk",
-  "criteriaDialog", "criteriaTitle", "criteriaInput", "helpDialog",
+  "criteriaDialog", "criteriaTitle", "criteriaInput", "criteriaHint", "critAiNote", "critAiList", "critAiNone", "critAiOptions", "critThinking", "critThinkingHint", "critSearch", "critSearchHint", "helpDialog",
   "biliBtn", "main", "viewer", "viewerCloseBtn", "viewerFrame", "viewerTags",
   "tools", "writeBtn", "writeDialog", "writeScope", "writeFormat", "writeScopeCount", "writeOverwriteRow", "writeOverwrite", "writeProgress", "writeFailed", "writeStopBtn", "writeSettingsBtn", "writeCopyBtn", "writeRunBtn", "writeMdBtn"
 ].forEach((id) => (el[id] = $(id)));
@@ -266,7 +302,8 @@ function send(msg) {
 const openOptions = () => send({ type: "open-options" }).then((r) => r.ok || toast(`${MdgErrors.TEXT.settingsOpenFailed}：${MdgErrors.text(r)}`, true));
 const showLogin = () => showBanner(MdgErrors.TEXT.biliLogin, "去登录", () => openTab("https://passport.bilibili.com/login"), "login");
 // The AI platform picked at the top of the side panel: sidepanel.js keeps it in this extension's localStorage under
-// this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat).
+// this key (SELECTED_PROVIDER_KEY there). Every request carries it; the background's AI calls use it (triageChat) unless
+// the folder has its own (aiReq).
 const AI_PROVIDER_KEY = KEYS.aiSelectedProvider;
 // Before the first read: 3.5 and older kept it under the old key prefix. Either page may open first after the update.
 try {
@@ -281,7 +318,8 @@ function aiProviderId() {
 }
 const NO_REPLY = "后台无响应";
 function sendRaw(msg) {
-  const id = aiProviderId();
+  // A folder's own platform (aiReq) wins over the side panel's pick.
+  const id = msg.aiProviderId || aiProviderId();
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage(id ? { ...msg, aiProviderId: id } : msg, (resp) => {
@@ -451,11 +489,14 @@ function handleAiError(error, code = "", limit = "粗看") {
   } else if (aiSettingsCode(code)) {
     showBanner(text, MdgErrors.LABEL.toSettings, openOptions, "ai");
   } else if (code === "AI_TRUNCATED") {
-    showBanner(`${text}。建议调大${limit}输出上限${hasThinkingToggle() ? "或关闭思考" : ""}`, `打开${SETTINGS_NAME}`, () => openSettings(true), "ai");
+    showBanner(`${text}。建议调大${limit}输出上限${canThinkLess() ? "或在判断标准里关闭思考" : ""}`, `打开${SETTINGS_NAME}`, () => openSettings(true), "ai");
   } else toast(text, true);
 }
-// Only platforms with the 开启思考 switch in 收藏夹设置 can turn thinking off.
-const hasThinkingToggle = () => Boolean(S.settings.thinkingToggle);
+// The open folder thinks, on a platform whose thinking can be switched off (判断标准's 开启思考).
+const canThinkLess = () => {
+  const a = folderAiOf(String(S.mediaId));
+  return a.thinkingOn && Boolean(a.provider?.caps.thinking);
+};
 const clearAiBanner = () => {
   if (el.banner.dataset.kind === "ai") el.banner.hidden = true;
 };

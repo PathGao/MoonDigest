@@ -857,7 +857,8 @@ async function saveSettings(settings) {
 }
 
 // Every setting (收藏夹 and 关注 included) lives in sync, except the 分拣台's folder choice (收藏夹设置) and each folder's
-// 判断标准, kept in local beside the data; the file carries those as `local`. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
+// 判断标准, kept in local beside the data; the file carries those as `local`. Each folder's AI platform, 开启思考 and
+// 联网核实 (triageFolderAi) are local too and stay out of the file. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
 // against a copy left in sync by an older version.
 const SETTINGS_FILE_VERSION = 1;
 const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = MdgLimits.KEYS;
@@ -936,6 +937,7 @@ function normalizeAiProvider(item) {
     id,
     presetId: String(item.presetId || "custom"),
     name: String(item.name || "").trim() || MdgErrors.LABEL.customAi,
+    note: String(item.note || "").trim(),
     baseUrl: MdgSettings.trimBaseUrl(item.baseUrl),
     model: String(item.model || "").trim(),
     temperature: typeof item.temperature === "number" ? item.temperature : 0.7,
@@ -1170,6 +1172,13 @@ async function* parseOpenAISSE(response, onActivity) {
 // DeepSeek、智谱（国内/国际）、Kimi（国内/国际）用同一个 thinking 参数开关思考；其他平台不发该参数。triage-bg.js 也用它
 function supportsThinkingToggle(baseUrl) {
   return /^https?:\/\/(api\.deepseek\.com|open\.bigmodel\.cn|api\.z\.ai|api\.moonshot\.(cn|ai))(\/|:|$)/i.test(String(baseUrl || ""));
+}
+
+// What a platform can do in 分拣台's requests, said only here (the page draws it from triage-settings-get): 开启思考 where
+// it takes the thinking switch; 联网核实 only on DeepSeek's deepseek-flash, the one model its web search tool serves.
+function aiCaps(provider) {
+  const baseUrl = String(provider?.baseUrl || "");
+  return { thinking: supportsThinkingToggle(baseUrl), search: /^https:\/\/api\.deepseek\.com(\/|$)/i.test(baseUrl) && provider?.model === "deepseek-flash" };
 }
 
 // The one OpenAI-compatible request every AI call sends (the side panel's streamChat, 测试连接, 分拣台's triageChat): POST

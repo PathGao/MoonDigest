@@ -41,7 +41,7 @@ async function start() {
   bindEvents();
   // Read up front: sidePanel.open must run inside the click's user gesture, before any await.
   chrome.tabs.getCurrent().then((tab) => (ownTabId = tab?.id));
-  const [{ tags, videoTags, folderCriteria }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, zones] = await Promise.all([
+  const [{ tags, videoTags, folderCriteria, folderAi }, kept, basket, notes, settingsResp, aiHistory, aiRecent, sortBy, readAt, aiProposals, agentLog, zones] = await Promise.all([
     loadTagsAndCriteria(),
     storeGet(K.kept, {}),
     storeGet(K.basket, []),
@@ -55,7 +55,7 @@ async function start() {
     storeGet(K.agentLog, []),
     storeGet(K.zones, {})
   ]);
-  Object.assign(S, { tags, videoTags, folderCriteria, kept, notes, aiHistory, aiRecent, sortBy, readAt, zones });
+  Object.assign(S, { tags, videoTags, folderCriteria, folderAi, kept, notes, aiHistory, aiRecent, sortBy, readAt, zones });
   followAgentLog(agentLog, false);
   S.ai.proposals = aiProposals;
   pruneAiProposals();
@@ -97,13 +97,15 @@ async function start() {
 
 // 收藏夹设置's stored keys. A write from elsewhere (导入设置 on the options page, AI 打标签's switch) is read again here, as
 // 关注 and 摘读记录 read theirs, so this page runs with it and a later save does not put the old values back.
-const SETTING_KEYS = [...NUM_FIELDS.map(([key]) => key), "triageThinking", "triageAiRemoveTags"];
+// The platform list too: 判断标准 draws each one's name and what it can do.
+const SETTING_KEYS = [...NUM_FIELDS.map(([key]) => key), "triageThinking", "triageAiRemoveTags", KEYS.aiProviderList];
 function followSettings(changes) {
   if (!SETTING_KEYS.some((k) => changes[k])) return;
   return send({ type: "triage-settings-get" }).then((r) => {
     if (!r.ok) return;
     Object.assign(S.settings, r.data);
     renderTagLimit();
+    if (critAi && el.criteriaDialog.open) renderCritAi();
     render();
   });
 }
@@ -127,7 +129,7 @@ function followIncluded(changes) {
 // Another triage tab wrote one of the lists every page writes whole: take its value, so the next
 // write here does not put back what it removed. This page's own writes come back as events too and are skipped: an
 // older one arriving after a newer edit would undo that edit.
-const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, aiRecent: {} };
+const SHARED = { kept: {}, videoTags: {}, tags: [], basket: [], folderCriteria: {}, folderAi: {}, aiRecent: {} };
 function followShared(changes) {
   let changed = false;
   for (const [name, empty] of Object.entries(SHARED)) {
@@ -556,9 +558,6 @@ function bindEvents() {
   );
 
   el.settingsBtn.addEventListener("click", () => openSettings());
-  for (const input of [el.thinkingInput, el.titleMaxInput, el.analyzeMaxInput]) {
-    input.addEventListener("input", renderTokenHints);
-  }
   el.settingsDialog.addEventListener("click", (e) => {
     const all = e.target.closest("[data-folders-all]");
     if (!all && !e.target.closest("[data-folders-none]")) return;
@@ -651,6 +650,17 @@ function bindEvents() {
     e.preventDefault();
     el.criteriaDialog.close("save");
   });
+  el.critAiList.addEventListener("change", (e) => {
+    Object.assign(critAi, { providerId: e.target.value, gone: false });
+    renderCritAi();
+  });
+  el.critAiOptions.addEventListener("click", openOptions);
+  for (const [kind, box] of [["thinking", el.critThinking], ["search", el.critSearch]]) {
+    box.addEventListener("change", () => {
+      critAi[kind] = box.checked;
+      renderCritAi();
+    });
+  }
   el.criteriaDialog.addEventListener("close", () => {
     if (el.criteriaDialog.returnValue === "save") saveCriteria();
   });
@@ -680,8 +690,9 @@ function renderTagLimit() {
   for (const node of document.querySelectorAll("[data-ai-new-tag-max]")) node.textContent = S.settings.triageAiNewTagMax;
 }
 
+// The automatic caps as the open folder's requests get them (判断标准's 开启思考).
 function renderTokenHints() {
-  const on = el.thinkingInput.checked;
+  const on = folderAiOf(String(S.mediaId)).thinkingOn;
   // ✦ AI 打标签 takes a number set here; left empty it has its own 自动 per batch (autoMaxTokens "command").
   el.titleMaxHint.textContent = `留空 = 自动（${UI.autoMaxTokens("title", TITLES_PER_REQUEST, on)}；✦ AI 打标签按每批数量另算），被截断时再调大。填了数时 ✦ AI 打标签也用它。`;
   el.analyzeMaxHint.textContent = `留空 = 自动（${UI.autoMaxTokens("analyze", 1, on)}）`;
@@ -690,7 +701,6 @@ function renderTokenHints() {
 // 收藏夹设置's fields as the values they store; settingsShown is what they held when the dialog opened.
 const settingsFields = () => ({
   ...Object.fromEntries(NUM_FIELDS.map(([key, kind, input]) => [key, UI.numSetting(kind, el[input].value)])),
-  triageThinking: el.thinkingInput.checked,
   triageAiRemoveTags: el.aiRemoveTagsInput.checked
 });
 let settingsShown = {};
@@ -705,18 +715,10 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.folderToggles.innerHTML = S.allFolders
     .map((f) => `<label class="toggle"><input type="checkbox" name="includedFolder" value="${esc(f.id)}"${S.included.includes(String(f.id)) ? " checked" : ""} /> ${esc(f.title)} <span class="muted">${esc(f.count)}</span></label>`)
     .join("") || `<p class="dialog-hint">${esc(S.foldersRead == null ? "收藏夹列表还没加载" : S.foldersRead ? `读取收藏夹失败：${S.foldersRead}` : NO_FOLDERS)}</p>`;
-  el.thinkingRow.hidden = !hasThinkingToggle();
-  // The side panel may have switched platform since this page loaded: ask again which one the requests go to.
-  send({ type: "triage-settings-get" }).then((r) => {
-    if (!r.ok) return;
-    S.settings.thinkingToggle = r.data.thinkingToggle;
-    el.thinkingRow.hidden = !hasThinkingToggle();
-  });
   el.intervalInput.value = S.settings.triageIntervalSec;
   el.coarseBatchInput.value = coarseBatchSize();
   el.fineBatchInput.value = fineBatchSize();
   el.aiBatchInput.value = aiBatchSize();
-  el.thinkingInput.checked = Boolean(S.settings.triageThinking);
   el.titleMaxInput.value = S.settings.triageTitleMaxTokens || "";
   el.analyzeMaxInput.value = S.settings.triageAnalyzeMaxTokens || "";
   el.tagLimitInput.value = tagLimit();

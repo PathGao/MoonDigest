@@ -253,6 +253,8 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   const type = (sel, v) => ((parts[sel].value = v), parts[sel].L.input.forEach((f) => f()));
   type(".ai-provider-baseurl", "https://api.deepseek.com/v2");
   assert.strictEqual(page.collectAiProviders()[0].hasSavedKey, true, "another path on the same host keeps the Key");
+  parts[".ai-provider-note"].value = " 自己的 ";
+  assert.strictEqual(page.collectAiProviders()[0].note, "自己的", "the row's 备注名 is saved with it");
 
   // A5: pointed at another host, the saved Key is not counted (save asks for one) and 测试连接 does not use it.
   parts[".ai-provider-preset"].value = "custom";

@@ -1218,6 +1218,7 @@ function renderAiProviders(items) {
 function updateAiProvidersEmptyState() {
   const hasRows = elements.aiProvidersList.children.length > 0;
   elements.aiProvidersHead.hidden = !hasRows;
+  elements.aiNoteHint.hidden = !hasRows;
   // The prompt settings do nothing without a platform, so they wait until a row is added.
   elements.aiPromptRows.hidden = !hasRows;
   elements.aiPromptsLater.hidden = hasRows;
@@ -1270,6 +1271,7 @@ function addAiProviderRow(item = {}) {
     <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
       ${AI_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>
+    <input class="ai-provider-note" name="aiProviderNote" type="text" aria-label="备注名" placeholder="可选" value="${escapeHtml(item.note || "")}" />
     <input class="ai-provider-baseurl" name="aiProviderBaseUrl" type="text" aria-label="${AI_FIELD.baseUrl}" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
     <input class="ai-provider-model" name="aiProviderModel" type="text" aria-label="${AI_FIELD.model}" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
     <div class="key">
@@ -1458,6 +1460,7 @@ function collectAiProviders() {
       id: row.dataset.providerId || generateAiProviderId(),
       presetId: preset.id,
       name: preset.name,
+      note: row.querySelector(".ai-provider-note").value.trim(),
       baseUrl,
       model: row.querySelector(".ai-provider-model").value.trim(),
       temperature: 0.7,

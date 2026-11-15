@@ -48,14 +48,14 @@ async function runStage1(list = stage1Pending(), redo = false) {
       // One request carries one 判断标准: in 所有收藏夹 a batch is the first pending video's folder only.
       const left = pending();
       if (!left.length) return null;
-      const { home, crit, ctx } = judge.get(left[0].bvid);
+      const { home, crit, ctx, ai } = judge.get(left[0].bvid);
       const batch = left.filter((it) => judge.get(it.bvid).home === home).slice(0, TITLES_PER_REQUEST);
-      return { batch, crit, ctx, n: batch.length };
+      return { batch, crit, ctx, ai, n: batch.length };
     },
-    async act({ batch, crit, ctx }) {
+    async act({ batch, crit, ctx, ai }) {
       for (const it of batch) S.analyzing.add(it.bvid);
       render();
-      const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx });
+      const r = await send({ type: "triage-classify-titles", items: batch.map(aiItem), criteria: crit, folder: ctx, aiProviderId: ai.aiProviderId, thinking: ai.thinking });
       for (const it of batch) S.analyzing.delete(it.bvid);
       return r;
     },
@@ -117,10 +117,10 @@ function startGroup(bvids, redo = false, name = "") {
 
 const groupPending = (group, b) => (group.redo ? group.redo.has(b) : needsAnalysis(b, group));
 
-async function analyzeOne(bvid, force, { crit, ctx }) {
+async function analyzeOne(bvid, force, { crit, ctx, ai }) {
   S.analyzing.add(bvid);
   render();
-  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx });
+  const r = await send({ type: "triage-analyze", bvid, force, criteria: crit, folder: ctx, aiProviderId: ai.aiProviderId, thinking: ai.thinking, search: ai.search });
   S.analyzing.delete(bvid);
   render();
   return r;
@@ -366,6 +366,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
   // In 所有收藏夹 a video in no chosen folder has no part: nothing may be left to send.
   if (!from) return;
   addAiHistory(instruction);
+  const ai = aiReq(folder);
   const partOf = (i) => {
     const part = parts.findLast((x) => x.from <= i);
     return [part, i - part.from];
@@ -379,7 +380,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     request: (i, p) => {
       const [part, j] = partOf(i);
       const maxNewTags = Math.max(0, part.opts.maxNewTags - p.newTags.filter((t) => t.folder === part.opts.newTagFolder).length);
-      return { type: "triage-ai-command", instruction, items: part.payload.slice(j * size, (j + 1) * size), tags: part.tags, maxNewTags, allowRemove };
+      return { type: "triage-ai-command", instruction, items: part.payload.slice(j * size, (j + 1) * size), tags: part.tags, maxNewTags, allowRemove, aiProviderId: ai.aiProviderId, thinking: ai.thinking };
     },
     // not tagIdsOf: the open folder may have changed since the run started
     merge: (p, data, i) => {

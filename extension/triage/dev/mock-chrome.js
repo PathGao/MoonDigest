@@ -323,7 +323,13 @@
     },
     "triage-settings-get": () => ({
       ok: true,
-      data: { thinkingToggle: true, triageIntervalSec: 1, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
+      data: {
+        aiPlatforms: [
+          { id: "ds", name: "DeepSeek", model: "deepseek-flash", note: "自己的", caps: { thinking: true, search: true } },
+          { id: "zp", name: "智谱 GLM", model: "glm-4.7-flash", note: "", caps: { thinking: true, search: false } },
+          { id: "oa", name: "OpenAI 兼容", model: "gpt-6-luna", note: "", caps: { thinking: false, search: false } }
+        ],
+        triageIntervalSec: 1, triageThinking: false, triageTitleMaxTokens: 0, triageAnalyzeMaxTokens: 0, ...store.__settings }
     }),
     "triage-settings-save": ({ type, ...patch }) => {
       store.__settings = { ...store.__settings, ...patch };

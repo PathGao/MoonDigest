@@ -124,7 +124,6 @@
             <div class="set-card">
               <div class="set-row" data-set-row="interval"><input id="intervalInput" type="number" data-num="interval" step="1" /></div>
               <div class="set-row" data-set-row="aiBatch"><input id="aiBatchInput" type="number" data-num="aiBatch" step="1" /></div>
-              <div id="thinkingRow" class="set-row"><div><label class="name" for="thinkingInput">开启思考</label><p class="hint">判断更细，但慢得多、token 多几倍。</p></div><input id="thinkingInput" type="checkbox" class="switch" /></div>
               <div class="set-row"><div><label class="name" for="coarseBatchInput">标题粗看每批数量</label><p class="hint">点一次「标题粗看」跑几个。默认 <span data-num-default="coarseBatch"></span>，最多 <span data-num-max="coarseBatch"></span>。</p></div><input id="coarseBatchInput" type="number" data-num="coarseBatch" step="1" /></div>
               <div class="set-row"><div><label class="name" for="fineBatchInput">字幕细看每批数量</label><p class="hint">点一次「字幕细看」跑几个。默认 <span data-num-default="fineBatch"></span>，最多 <span data-num-max="fineBatch"></span>。</p></div><input id="fineBatchInput" type="number" data-num="fineBatch" step="1" /></div>
               <div class="set-row"><div><label class="name" for="titleMaxInput">粗看输出上限（token）</label><p id="titleMaxHint" class="hint"></p></div><input id="titleMaxInput" type="number" data-num="maxTokens" step="1" /></div>
@@ -260,12 +259,32 @@
       </form>
     </dialog>
 
-    <dialog id="criteriaDialog" aria-label="判断标准">
+    <dialog id="criteriaDialog" class="crit-dialog" aria-labelledby="criteriaTitle">
       <form method="dialog">
         <h2 id="criteriaTitle">判断标准</h2>
-        <textarea id="criteriaInput" rows="4" aria-label="判断标准" placeholder="这个收藏夹留什么、清什么（给 AI 看，粗看和细看都按它判断；可不写，不写时按收藏夹名和简介推测）&#10;例如：只留能跟着做的菜谱，探店和吃播可清理"></textarea>
-        <p class="dialog-meta">只对这个收藏夹生效 · 回车保存，Shift+回车换行</p>
+        <div class="crit-cols">
+          <div class="crit-left">
+            <label class="crit-head" for="criteriaInput">这个收藏夹留什么、清什么</label>
+            <textarea id="criteriaInput" rows="8" placeholder="例如：只留能跟着做的菜谱，探店和吃播可清理"></textarea>
+            <p id="criteriaHint" class="dialog-hint"></p>
+          </div>
+          <div class="crit-right">
+            <div id="critAiHead" class="crit-head">AI 平台</div>
+            <p id="critAiNote" class="dialog-hint warn" hidden></p>
+            <div id="critAiList" class="crit-list" role="radiogroup" aria-labelledby="critAiHead"></div>
+            <p id="critAiNone" class="dialog-hint" hidden><span data-text="aiNone">没有启用的 AI 平台</span> <button id="critAiOptions" type="button" class="link" data-text="toSettings">去设置</button></p>
+            <div class="crit-switch" data-cap="thinking">
+              <div><label class="name" for="critThinking">开启思考</label><p id="critThinkingHint" class="dialog-meta"></p></div>
+              <input id="critThinking" type="checkbox" class="switch" />
+            </div>
+            <div class="crit-switch" data-cap="search">
+              <div><label class="name" for="critSearch">联网核实</label><p id="critSearchHint" class="dialog-meta"></p></div>
+              <input id="critSearch" type="checkbox" class="switch" />
+            </div>
+          </div>
+        </div>
         <div class="dialog-actions">
+          <span class="dialog-meta">只对这个收藏夹生效 · 回车保存，Shift+回车换行</span>
           <span class="spacer"></span>
           <button value="cancel" type="submit" aria-label="取消">取消</button>
           <button value="save" type="submit" class="primary" aria-label="保存判断标准">保存</button>
