@@ -75,7 +75,14 @@
         "正文没有写到的不要猜测或编造；区分文中的事实、数据、推测与作者观点。"
       ].join("\n")
     ],
-    webAiSummaryPrompt: ["整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。"]
+    webAiSummaryPrompt: ["整理这篇网页的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。"],
+    // 快捷追问 are lists: a stored list that is one of these, line for line and in order, is an unedited one.
+    aiPresetPrompts: [
+      ["生成视频摘要和结论", "按章节整理视频内容", "生成带时间轴的笔记"],
+      ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按时间顺序整理这期视频的内容", "根据评论总结观众的看法", "按章节整理视频内容", "生成带时间轴的笔记"],
+      ["按时间顺序整理这期视频的内容", "根据评论总结观众的看法", "按章节整理视频内容", "生成带时间轴的笔记"]
+    ],
+    webAiPresetPrompts: []
   });
 
   // 看到多少算看完了 (%): the range and default every reader takes (background, B站 pages, 分拣台, settings page).
@@ -233,6 +240,7 @@
   const str = (value) => (typeof value === "string" ? value : "");
   const currentDefault = (key, value) => (OLD_DEFAULTS[key].includes(value) ? DEFAULTS[key] : value);
   const normalizeAiSystemPrompt = (value) => currentDefault("aiSystemPrompt", str(value).trim());
+  const currentDefaultList = (key, list) => (OLD_DEFAULTS[key].some((old) => old.join("\n") === list.join("\n")) ? [...DEFAULTS[key]] : list);
 
   // Every on/off setting (a boolean in DEFAULTS), by its default: default on stays on unless stored false, default off
   // is on only when stored true. A non-boolean (an imported file's "true") never flips a switch away from its default.
@@ -261,10 +269,10 @@
     merged.fixedFrontmatterProperties = normalizeFixedFrontmatterProperties(merged.fixedFrontmatterProperties);
     merged.notePlaceholderSections = normalizeNotePlaceholderSections(merged.notePlaceholderSections);
     merged.aiSystemPrompt = normalizeAiSystemPrompt(merged.aiSystemPrompt);
-    merged.aiPresetPrompts = normalizeAiPresetPrompts(merged.aiPresetPrompts);
+    merged.aiPresetPrompts = currentDefaultList("aiPresetPrompts", normalizeAiPresetPrompts(merged.aiPresetPrompts));
     merged.webAiSystemPrompt = currentDefault("webAiSystemPrompt", str(merged.webAiSystemPrompt).trim());
     merged.webAiSummaryPrompt = currentDefault("webAiSummaryPrompt", normalizePlayerAiQuickPrompt(merged.webAiSummaryPrompt));
-    merged.webAiPresetPrompts = normalizeAiPresetPrompts(merged.webAiPresetPrompts);
+    merged.webAiPresetPrompts = currentDefaultList("webAiPresetPrompts", normalizeAiPresetPrompts(merged.webAiPresetPrompts));
     return merged;
   }
 
