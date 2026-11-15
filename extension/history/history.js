@@ -303,7 +303,7 @@ function aiProviderId() {
 }
 const RECENT_CHECK = "在记录上逐个看，不对的按 T 或点「+ 标签」改";
 // A batch's line (「AI 正在处理第 1 批…」, a wait) does not start with 正在 but is still in progress.
-const aiProgress = (text) => (TagDialogs.ai.progress(aiTags, text), setStatus(text, false, null, true));
+const aiProgress = (text, fail) => (TagDialogs.ai.progress(aiTags, text, "", fail && aiRemedy(fail)), setStatus(text, false, null, true));
 const aiTags = {
   who: "记录",
   sees: `标题、是视频还是网页、现有标签和你与 AI 的对话（问和答，每条记录最多 ${UI.READING_AI_CHARS} 字）；没有对话的记录看分拣台的 AI 总结和备注`,
@@ -434,16 +434,16 @@ function renderHead(all, groups) {
   els.searchCount.textContent = UI.resultCount(els.search.value.trim() || filtered, groups.length);
   const shown = shownPicks(groups);
   els.selectAllSlot.innerHTML = UI.selectAllBox('data-f="select-all"', groups.length, shown.length, "这里没有列出记录");
-  // The bar's buttons act on the listed selected records and say how many; when the search and filters hide every
-  // selected one they count all of them, off with selbar's none, as on the 分拣台.
+  // The bar says how many are selected once, so its buttons carry no count (as 收藏夹's); when the search and filters
+  // hide every selected one they are off with selbar's none, as on the 分拣台.
   const n = shown.length || selected.size;
-  // 删除 removes AI conversations only, so its N counts the selected records that have one and says when that is fewer.
+  // 删除 removes AI conversations only: its tooltip says when fewer of the selected records have one.
   // A YouTube video's 备注 is not on the 分拣台 (B站 收藏夹 only), so the reason names no other place.
   const del = deletableKeys(shown.length ? shown : [...selected]).length;
   const acts = (none) =>
-    UI.actBtn('data-sel="md"', n > 1 ? `打包下载选中的 ${n} 个 .md` : "下载选中的 1 个 .md", { reason: none }) +
+    UI.actBtn('data-sel="md"', n > 1 ? "打包下载 .md" : MdgErrors.LABEL.downloadMd, { reason: none }) +
     UI.actBtn('data-sel="tags"', MdgErrors.LABEL.tagsMenu, { reason: none }) +
-    UI.actBtn('data-sel="delete"', del ? `删除选中的 ${del} 个的 AI 对话` : "删除选中的 AI 对话", { cls: "danger", reason: none || (del ? "" : "选中的记录没有 AI 对话"), title: del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "" });
+    UI.actBtn('data-sel="delete"', "删除 AI 对话", { cls: "danger", reason: none || (del ? "" : "选中的记录没有 AI 对话"), title: del < n ? `选中的 ${n} 个里，${n - del} 个没有 AI 对话，删除后会留下` : "" });
   els.selbar.innerHTML = selected.size ? UI.selbar({ label: "选中的记录", n: shown.length, hidden: selected.size - shown.length, clearAttrs: 'data-sel="clear"', acts }) : "";
   setReason(els.clearAll, !conversations.length ? "还没有 AI 对话" : conversations.every(isStarredConv) ? "只剩加了星标的记录的 AI 对话" : "");
   if (focused) [...els.filters.querySelectorAll("[data-f]")].find((b) => b.dataset.f === focused)?.focus();
@@ -730,7 +730,12 @@ async function removeConversations(keep, done, unselect = []) {
 
 async function deleteGroups(keys) {
   keys = deletableKeys(keys);
-  if (!keys.length || !(await UI.askConfirm(`删除 ${keys.length} 条记录的全部 AI 对话？`, "删除后不能恢复。", "删除", { danger: true }))) return;
+  if (!keys.length) return;
+  // The body names what goes: one record's title and how many conversations, or the titles as a batch confirm lists them.
+  const groups = groupByVideo(conversations).filter((g) => keys.includes(g.key));
+  const name = (g) => (g.title === g.context.videoId ? MdgErrors.TEXT.untitledVideo : g.title);
+  const what = groups.length === 1 ? `<p>「${esc(name(groups[0]))}」 · ${groups[0].convs.length} 段对话</p>` : UI.confirmList(groups.map(name));
+  if (!(await UI.askConfirm(`删除 ${keys.length} 条记录的全部 AI 对话？`, `${what}<p class="lead">删除后不能恢复。</p>`, "删除", { danger: true }))) return;
   await removeConversations((c) => !keys.includes(c?.contextKey || c?.id), `已删除 ${keys.length} 条记录的 AI 对话`, keys);
 }
 

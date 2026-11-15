@@ -63,12 +63,20 @@ let busyButton = null;
 // 设置 → MCP. @latest: npx then takes the newest moondigest-mcp each time the Agent starts, so the server keeps up with
 // the extension without the user updating it.
 const MCP_NPX = "npx -y moondigest-mcp@latest";
-const MCP_JSON = `{"mcpServers":{"moondigest":{"command":"npx","args":["-y","moondigest-mcp@latest"]}}}`;
+const MCP_JSON = `{
+  "mcpServers": {
+    "moondigest": {
+      "command": "npx",
+      "args": ["-y", "moondigest-mcp@latest"]
+    }
+  }
+}`;
+// One tab per client: name, what 复制 copies (shown whole), where it goes, what the status calls it.
 const MCP_INSTALL = [
-  ["Claude Code", `claude mcp add moondigest -- ${MCP_NPX}`],
-  ["Codex", `[mcp_servers.moondigest]\ncommand = "npx"\nargs = ["-y", "moondigest-mcp@latest"]`, "写进 ~/.codex/config.toml"],
-  ["Cursor", MCP_JSON, "写进 ~/.cursor/mcp.json"],
-  ["Claude 桌面版", MCP_JSON, "写进 claude_desktop_config.json"]
+  ["Claude Code", `claude mcp add moondigest -- ${MCP_NPX}`, "在终端运行", "命令"],
+  ["Codex", `[mcp_servers.moondigest]\ncommand = "npx"\nargs = ["-y", "moondigest-mcp@latest"]`, "写进 ~/.codex/config.toml", "的配置"],
+  ["Cursor", MCP_JSON, "写进 ~/.cursor/mcp.json", "的配置"],
+  ["Claude 桌面版", MCP_JSON, "写进 claude_desktop_config.json", "的配置"]
 ];
 // Why an undo stopped with videos left (agent-writes.js restOf): what the user can do about it.
 const MCP_UNDO_STOP = {
@@ -76,7 +84,8 @@ const MCP_UNDO_STOP = {
   NOT_LOGGED_IN: "先在这个浏览器里登录对应的网站，再点撤销",
   REFUSED: "网站不让加回（多半是视频已被删除，或列表满了），处理后可以再点撤销"
 };
-const MCP_STATUS = { connected: "现在：已连接。", disconnected: "现在：未连接，Agent 启动 MCP 服务后一分钟内连上。", off: "" };
+// The pill beside 「安装」 and the sentence after the hint under the command; nothing while the switch is off.
+const MCP_STATUS = { connected: ["已连接", ""], disconnected: ["未连接", "现在未连接，Agent 启动 MCP 服务后一分钟内连上。"] };
 const MCP_OPS = { move: "移动", copy: "复制", unfav: MdgErrors.LABEL.unfaved, clean_invalid: "清理失效视频", folder_create: "新建收藏夹", folder_rename: "收藏夹改名", folder_privacy: "改公开或私密", folder_delete: "删除收藏夹" };
 
 init();
@@ -103,7 +112,7 @@ function init() {
     flushSave({ quiet: false });
     if (behind || !formValid()) event.preventDefault();
   });
-  initPromptTabs();
+  initTabs(elements.promptTabVideo.parentElement, showPromptTab);
   document.getElementById("exportSettingsBtn").addEventListener("click", exportSettingsFile);
   const importFile = document.getElementById("importSettingsFile");
   document.getElementById("importSettingsBtn").addEventListener("click", () => importFile.click());
@@ -263,27 +272,27 @@ async function renderStorageLimits() {
   try {
     all = await chrome.storage.local.get(null);
   } catch (error) {
-    const cell = Object.assign(document.createElement("td"), { colSpan: 3, textContent: `读取存储用量失败：${error.message || MdgErrors.TEXT.unknown}` });
+    const cell = Object.assign(document.createElement("td"), { colSpan: 4, textContent: `读取存储用量失败：${error.message || MdgErrors.TEXT.unknown}` });
     const tr = document.createElement("tr");
     tr.append(cell);
     elements.storageLimits.replaceChildren(tr);
     return;
   }
-  elements.storageLimits.replaceChildren(
-    ...MdgLimits.describe(MdgLimits.storageUsage(all)).map((row) => {
-      const tr = document.createElement("tr");
-      const label = document.createElement("th");
-      label.textContent = row.label;
-      const usage = document.createElement("td");
-      usage.className = "use";
-      usage.textContent = row.usage;
-      const rule = document.createElement("td");
-      rule.className = "rule";
-      rule.textContent = row.rule;
-      tr.append(label, usage, rule);
-      return tr;
-    })
-  );
+  // 已用 and 上限 each get a column, a small second line under either; the per-request AI caps have no 已用.
+  const cell = (tag, className, text, note) => {
+    const node = Object.assign(document.createElement(tag), { className, textContent: text });
+    if (note) node.append(Object.assign(document.createElement("small"), { textContent: note }));
+    return node;
+  };
+  const rows = MdgLimits.describe(MdgLimits.storageUsage(all)).map((row) => {
+    const tr = document.createElement("tr");
+    tr.append(cell("th", "", row.label));
+    if (!row.perRequest) tr.append(cell("td", "use", row.usage, row.usageNote));
+    tr.append(cell("td", row.perRequest ? "use" : row.cap ? "cap" : "cap no", row.cap || row.keeps || "", row.capNote), cell("td", "rule", row.rule));
+    return [row.perRequest, tr];
+  });
+  elements.storageLimits.replaceChildren(...rows.filter(([ai]) => !ai).map(([, tr]) => tr));
+  elements.aiLimits.replaceChildren(...rows.filter(([ai]) => ai).map(([, tr]) => tr));
 }
 
 // A failed read shows no values and offers no save: defaults or an empty platform list saved over the real ones would erase them.
@@ -321,18 +330,16 @@ async function loadSettings() {
 function renderBiliMarks(off) {
   const { ROWS, COLS, allowed, normalizeOff } = MdgSurfaces;
   const no = new Set(normalizeOff(off));
-  const head = document.getElementById("biliMarksHead");
-  head.replaceChildren(document.createElement("th"), ...Object.values(COLS).map((name) => Object.assign(document.createElement("th"), { textContent: name, scope: "col" })));
   elements.biliMarks.replaceChildren(
     ...Object.entries(ROWS).map(([key, name]) => {
       const tr = document.createElement("tr");
       tr.append(Object.assign(document.createElement("th"), { textContent: name, scope: "row" }));
       for (const [col, colName] of Object.entries(COLS)) {
         const td = document.createElement("td");
+        td.dataset.col = col;
         if (allowed(key, col)) {
           const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: !no.has(`${key}.${col}`) });
           box.dataset.cell = `${key}.${col}`;
-          box.dataset.col = col;
           box.setAttribute("aria-label", `${name}：${colName}`);
           td.append(box);
         } else {
@@ -346,18 +353,19 @@ function renderBiliMarks(off) {
   );
 }
 
-// A column whose switch is off (above, or 封面显示 in 观看进度) keeps its boxes but greys them out.
+// A column whose switch is off (in its header, or 封面显示 in 观看进度) is greyed as a whole and keeps its ticks.
 function syncBiliMarks() {
-  // The reason names the switch by its own label.
-  const why = (on, el) => (on ? "" : `「${document.querySelector(`label[for="${el.id}"]`).textContent}」关着`);
-  const off = {
-    verdict: why(elements.showBiliVerdicts.checked, elements.showBiliVerdicts),
-    vtags: why(elements.showBiliTriageBadges.checked, elements.showBiliTriageBadges),
-    ups: why(elements.showBiliUpTags.checked, elements.showBiliUpTags),
-    plus: why(elements.showBiliUpTags.checked, elements.showBiliUpTags),
-    seen: why(elements.seenShow.value !== "off", elements.seenShow)
-  };
-  elements.biliMarks.querySelectorAll("input[data-col]").forEach((box) => MdgErrors.setReason(box, off[box.dataset.col]));
+  const { COLS } = MdgSurfaces;
+  const seen = elements.seenShow.value !== "off";
+  const on = { verdict: elements.showBiliVerdicts.checked, vtags: elements.showBiliTriageBadges.checked, ups: elements.showBiliUpTags.checked, seen };
+  on.plus = on.ups;
+  elements.biliSeenState.textContent = `封面显示：${seen ? "开" : "关"}`;
+  elements.biliMarks.closest("table").querySelectorAll("[data-col]").forEach((cell) => {
+    const col = cell.dataset.col;
+    cell.classList.toggle("off", !on[col]);
+    const box = cell.querySelector("input[data-cell]");
+    if (box) MdgErrors.setReason(box, on[col] ? "" : col === "seen" ? "「观看进度」的封面显示关着" : `「${COLS[col === "plus" ? "ups" : col]}」这一列关着`);
+  });
 }
 
 // 看到多少算看完了 and the mark style only matter while the mark is shown. The example covers follow the unsaved form:
@@ -708,12 +716,26 @@ function validateNoteExtras() {
 
 // ---------- MCP ----------
 function renderMcpInstall() {
-  elements.mcpInstall.innerHTML = MCP_INSTALL.map(([name, cmd, where], i) => `<li><span>${escapeHtml(name)}</span><code title="${escapeHtml(where || "")}">${escapeHtml(cmd)}</code><button type="button" class="sm" data-mcp-copy="${i}">复制</button></li>`).join("");
-  elements.mcpInstall.addEventListener("click", async (event) => {
-    const i = event.target.closest?.("[data-mcp-copy]")?.dataset.mcpCopy;
-    if (i == null) return;
-    await navigator.clipboard.writeText(MCP_INSTALL[i][1]).then(() => setStatus(`已复制：${MCP_INSTALL[i][0]}${MCP_INSTALL[i][2] ? "的配置" : "命令"}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
+  elements.mcpTabs.innerHTML = MCP_INSTALL.map(([name], i) => `<button type="button" role="tab" aria-controls="mcpPanel" data-i="${i}">${escapeHtml(name)}</button>`).join("");
+  let at = 0;
+  const show = (tab) => {
+    at = Number(tab.dataset.i);
+    selectTab(tab);
+    elements.mcpWhere.textContent = `${MCP_INSTALL[at][2]}：`;
+    elements.mcpCmd.textContent = MCP_INSTALL[at][1];
+  };
+  initTabs(elements.mcpTabs, show);
+  show(elements.mcpTabs.firstElementChild);
+  elements.mcpCopy.addEventListener("click", async () => {
+    const [name, text, , what] = MCP_INSTALL[at];
+    await navigator.clipboard.writeText(text).then(() => setStatus(`已复制：${name}${what}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
   });
+}
+function showMcpStatus(status) {
+  const [pill, text] = MCP_STATUS[status] || [];
+  elements.mcpPill.hidden = !pill;
+  setPill(elements.mcpPill, status === "connected", pill || "");
+  elements.mcpStatusText.textContent = text || "";
 }
 // One journaled call (agent-writes.js) in a line.
 function mcpLogLine(e) {
@@ -768,11 +790,11 @@ async function bindMcp() {
   const key = MdgLimits.KEYS.triageAgentLog;
   const got = await chrome.storage.local.get([key, "mcpStatus"]);
   renderMcpLog(got[key]);
-  elements.mcpStatusText.textContent = MCP_STATUS[got.mcpStatus] || "";
+  showMcpStatus(got.mcpStatus);
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
     if (changes[key]) renderMcpLog(changes[key].newValue);
-    if (changes.mcpStatus) elements.mcpStatusText.textContent = MCP_STATUS[changes.mcpStatus.newValue] || "";
+    if (changes.mcpStatus) showMcpStatus(changes.mcpStatus.newValue);
   });
   elements.mcpLog.addEventListener("click", (event) => {
     const button = event.target.closest?.("[data-mcp-undo]");
@@ -785,26 +807,31 @@ function syncObsidianBody() {
   document.querySelectorAll("#obsidianBody, .obsidian-only").forEach((el) => (el.hidden = !elements.obsidianEnabled.checked));
 }
 
-// The 视频 / 网页 prompt tabs. Arrow keys move between them, as in any tablist.
-function showPromptTab(tab) {
-  for (const t of document.querySelectorAll('.kind-tabs [role="tab"]')) {
-    const on = t === tab;
-    t.setAttribute("aria-selected", String(on));
-    t.tabIndex = on ? 0 : -1;
-    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+// A tablist's tabs: the chosen one is marked and is the only Tab stop.
+function selectTab(tab) {
+  for (const t of tab.parentElement.children) {
+    t.setAttribute("aria-selected", String(t === tab));
+    t.tabIndex = t === tab ? 0 : -1;
   }
 }
 
-function initPromptTabs() {
-  const tabs = [...document.querySelectorAll('.kind-tabs [role="tab"]')];
+// The 视频 / 网页 prompt tabs: one panel each.
+function showPromptTab(tab) {
+  selectTab(tab);
+  for (const t of tab.parentElement.children) document.getElementById(t.getAttribute("aria-controls")).hidden = t !== tab;
+}
+
+// Click, and arrow keys move between them, as in any tablist.
+function initTabs(list, show) {
+  const tabs = [...list.querySelectorAll('[role="tab"]')];
   tabs.forEach((tab, i) => {
-    tab.addEventListener("click", () => showPromptTab(tab));
+    tab.addEventListener("click", () => show(tab));
     tab.addEventListener("keydown", (event) => {
       const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
       if (!step) return;
       event.preventDefault();
       const next = tabs[(i + step + tabs.length) % tabs.length];
-      showPromptTab(next);
+      show(next);
       next.focus();
     });
   });
@@ -1268,10 +1295,10 @@ function addAiProviderRow(item = {}) {
   row.dataset.keyOrigin = MdgSettings.urlOrigin(baseUrl);
   row.dataset.currentPresetId = presetId;
   row.innerHTML = `
+    <input class="ai-provider-note" name="aiProviderNote" type="text" aria-label="备注名" value="${escapeHtml(item.note || "")}" />
     <select class="ai-provider-preset" name="aiProviderPreset" aria-label="平台">
       ${AI_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
     </select>
-    <input class="ai-provider-note" name="aiProviderNote" type="text" aria-label="备注名" placeholder="可选" value="${escapeHtml(item.note || "")}" />
     <input class="ai-provider-baseurl" name="aiProviderBaseUrl" type="text" aria-label="${AI_FIELD.baseUrl}" placeholder="如 https://api.openai.com/v1" value="${escapeHtml(baseUrl)}" />
     <input class="ai-provider-model" name="aiProviderModel" type="text" aria-label="${AI_FIELD.model}" placeholder="如 gpt-6-luna" value="${escapeHtml(model)}" />
     <div class="key">
@@ -1286,6 +1313,18 @@ function addAiProviderRow(item = {}) {
     <p class="ai-provider-status" hidden></p>
   `;
 
+  // An empty 备注名 shows in grey the name the row gets in the selects (MdgSettings.aiProviderLabel). A row is only saved
+  // with a 模型, so before one is typed the box just says what it is.
+  const noteInput = row.querySelector(".ai-provider-note");
+  const syncNote = () => {
+    const name = presetOf(row.querySelector(".ai-provider-preset").value).name;
+    const model = row.querySelector(".ai-provider-model").value.trim();
+    noteInput.placeholder = model ? MdgSettings.aiProviderLabel({ name, model }) : "备注名";
+    noteInput.title = noteInput.placeholder; // a long one ends in an ellipsis
+  };
+  syncNote();
+  row.querySelector(".ai-provider-model").addEventListener("input", syncNote);
+
   row.querySelector(".ai-provider-preset").addEventListener("change", (e) => {
     const previousPreset = presetOf(row.dataset.currentPresetId);
     const next = presetOf(e.target.value);
@@ -1299,6 +1338,7 @@ function addAiProviderRow(item = {}) {
       modelInput.value = next.model;
     }
     row.dataset.currentPresetId = next.id;
+    syncNote();
     syncKey();
     syncTest();
     syncWarn();

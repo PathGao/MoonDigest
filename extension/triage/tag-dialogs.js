@@ -8,61 +8,89 @@
   const manageDlg = $("tagManageDialog");
   const aiDlg = $("aiTagDialog");
   if (!manageDlg || !aiDlg) return;
-  // The page has the empty dialog; its markup is here, so the 分拣台 and 摘读记录 share one copy.
+  // The page has the empty dialog; its markup is here, so the 分拣台 and 摘读记录 share one copy. Two pages in one form: the
+  // setup (#aiForm, #aiFormActs) and the review (#aiReviewHead, #aiReview, #aiReviewActs). Only .dlg-body scrolls
+  // (tags.css); the columns are the 判断标准 dialog's (.crit-cols, triage.css).
   aiDlg.innerHTML = `<form method="dialog">
         <h2 id="aiTagTitle">${MdgErrors.LABEL.aiTag}</h2>
-        <section id="aiForm" class="ai-section">
-          <p id="aiHint" class="dialog-hint"></p>
-          <div class="ai-grid">
-            <label for="aiInstruction">指令</label>
-            <textarea id="aiInstruction" rows="3"></textarea>
-            <div id="aiHistory" class="ai-history"></div>
-            <label for="aiScope">作用范围</label>
-            <select id="aiScope"></select>
-            <p id="aiScopeCount" class="dialog-meta"></p>
-            <div id="aiTagsPreview"></div>
-            <label class="toggle"><input id="aiRemoveInput" type="checkbox" class="switch" /> 允许 AI 去掉已有标签</label>
-          </div>
-          <p id="aiProgress" class="dialog-meta" aria-live="polite"></p>
-          <div class="dialog-actions">
-            <span class="spacer"></span>
-            <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
-            <button id="aiStopBtn" type="button" class="danger" aria-label="${MdgErrors.LABEL.stop}" hidden>${MdgErrors.LABEL.stop}</button>
-            <button id="aiRunBtn" type="button" class="primary" aria-label="运行 AI 打标签">${UI.AI_SPARK}运行</button>
-          </div>
-        </section>
-        <section id="aiReview" class="ai-section" hidden>
-          <h3>检查 AI 的建议 <span id="aiReviewSummary" class="dialog-meta"></span></h3>
-          <div id="aiNotes"></div>
-          <h3 id="aiNewTagsHead">新标签</h3>
-          <div id="aiNewTags" class="tag-rows"></div>
-          <h3>改动汇总</h3>
-          <div id="aiRows" class="ai-tally"></div>
+        <div id="aiReviewHead" hidden>
+          <p id="aiReviewSummary" class="ai-verdict"></p>
           <p id="aiReviewHint" class="dialog-hint"></p>
-          <div id="aiRecentMeta" class="dialog-meta"></div>
-          <div class="dialog-actions">
-            <span class="spacer"></span>
-            <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
-            <button id="aiApplyBtn" type="button" class="primary">应用</button>
-          </div>
-        </section>
+        </div>
+        <div class="dlg-body">
+          <section id="aiForm" class="crit-cols">
+            <div class="crit-left">
+              <label class="crit-head" for="aiInstruction">指令</label>
+              <textarea id="aiInstruction" rows="5"></textarea>
+              <p id="aiHint" class="dialog-meta"></p>
+              <div id="aiHistory" class="ai-past"></div>
+            </div>
+            <div class="crit-right">
+              <div class="ai-opt">
+                <label class="crit-head" for="aiScope">作用范围</label>
+                <select id="aiScope"></select>
+                <p id="aiScopeCount" class="dialog-meta"></p>
+              </div>
+              <div id="aiTagsPreview" class="ai-opt"></div>
+              <div class="crit-switch">
+                <div><label class="name" for="aiRemoveInput">允许 AI 去掉已有标签</label><p class="dialog-meta">关时只加标签。</p></div>
+                <input id="aiRemoveInput" type="checkbox" class="switch" />
+              </div>
+            </div>
+          </section>
+          <section id="aiReview" class="crit-cols" hidden>
+            <div class="crit-left">
+              <span id="aiNewTagsHead" class="crit-head">新标签</span>
+              <div id="aiNewTags" class="tag-rows"></div>
+              <span class="crit-head">改动汇总</span>
+              <div id="aiRows" class="ai-tally"></div>
+            </div>
+            <div class="crit-right ai-basis">
+              <span class="crit-head">依据</span>
+              <dl id="aiNotes"></dl>
+            </div>
+          </section>
+        </div>
+        <div id="aiFormActs" class="dialog-actions">
+          <span id="aiProgress" class="dialog-meta" aria-live="polite"></span>
+          <p id="aiFail" class="ai-fail" role="alert" hidden></p>
+          <span class="spacer"></span>
+          <button id="aiCloseBtn" type="button" aria-label="关闭">关闭</button>
+          <button id="aiStopBtn" type="button" class="danger" aria-label="${MdgErrors.LABEL.stop}" hidden>${MdgErrors.LABEL.stop}</button>
+          <button id="aiRunBtn" type="button" class="primary" aria-label="运行 AI 打标签">${UI.AI_SPARK}运行</button>
+        </div>
+        <div id="aiReviewActs" class="dialog-actions" hidden>
+          <p id="aiErrors" class="ai-fail" role="alert" hidden></p>
+          <span class="spacer"></span>
+          <button id="aiDiscardBtn" type="button" aria-label="放弃这些建议">放弃</button>
+          <button id="aiApplyBtn" type="button" class="primary">应用</button>
+        </div>
       </form>`;
 
   // ----- 标签管理 (and 关注's 分组管理, the same list of named things) -----
-  // a = { who: 视频 | UP 主, hint() (where the tags live, the limit), reason() ("" or why nothing can be edited here),
-  // tags(), count(id), addReason(name) ("" or why this name cannot be added: empty, taken, the list full), add(name) →
-  // tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but addReason.
-  // 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and row(t, count)
-  // (its row html).
-  const TAG_TEXT = { title: UI.tagManage, saved: "改名、颜色、说明和删除立即保存。", newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "新建", addLabel: MdgErrors.LABEL.newTag };
+  // a = { who: 视频 | UP 主, hint() (where the tags live, the limit: the one sentence under the title), reason() ("" or
+  // why nothing can be edited here), tags(), count(id), addReason(name) ("" or why this name cannot be added: empty,
+  // taken, the list full), add(name) → tag | null, edit(t, field, value) → saved?, remove(t) }; all may be async but
+  // addReason.
+  // 标签管理 (.tm) is two panes: the tags on the left with 新建 under them, the picked tag's name, color, 说明 and 删除
+  // on the right. 分组管理 also passes text: { title, saved (what saves at once), newName, newMax, add, addLabel } and
+  // row(t, count) (its row html), and stays one list of rows.
+  const TAG_TEXT = { title: UI.tagManage, newName: MdgErrors.LABEL.newTagName, newMax: MdgTagCore.TAG_NAME_MAX, add: "新建", addLabel: MdgErrors.LABEL.newTag };
   let man = null;
   const rows = $("tagsRows");
+  const detail = $("tmDetail");
   const newInput = $("newTagInput");
+  // 标签管理's picked tag, and its place in the list: deleted, the tag now there takes over.
+  let sel = "";
+  let selAt = 0;
 
   function openManage(a) {
     man = a;
     const text = { ...TAG_TEXT, ...a.text };
     $("tagManageTitle").textContent = text.title;
+    manageDlg.classList.toggle("tm", !a.row);
+    sel = "";
+    selAt = 0;
     newInput.value = "";
     newInput.placeholder = text.newName;
     newInput.maxLength = text.newMax;
@@ -76,33 +104,79 @@
   function renderManage() {
     const a = man;
     const why = a.reason?.() || "";
-    // Nothing can be edited (why): 「…立即保存」 would say the opposite.
-    $("tagManageHint").textContent = `${a.hint()}${why ? "" : { ...TAG_TEXT, ...a.text }.saved}`;
+    // Nothing can be edited (why): 「…立即保存」 would say the opposite. 标签管理 says it beside 完成, 分组管理 here.
+    $("tagManageHint").textContent = `${a.hint()}${why || !a.row ? "" : a.text.saved}`;
     UI.setReason(newInput, why);
     syncAdd();
     const tags = a.tags();
-    rows.innerHTML = why
-      ? `<p class="muted">${esc(why)}</p>`
-      : tags.length
-        ? tags.map((t) => (a.row ? a.row(t, a.count(t.id)) : UI.tagRowHtml(t, { count: a.count(t.id), who: a.who }))).join("")
-        : `<p class="muted">还没有${a.row ? "自己建的分组" : esc(tagsWord(a.who))}</p>`;
+    $("tmMeta").textContent = a.row || why ? "" : `${tags.length} 个标签 · 改动立即保存`;
+    if (!a.row) return drawList(), drawDetail(why);
+    detail.innerHTML = "";
+    rows.innerHTML = why ? `<p class="muted">${esc(why)}</p>` : tags.length ? tags.map((t) => a.row(t, a.count(t.id))).join("") : `<p class="muted">还没有自己建的分组</p>`;
+  }
+  // The tags 标签管理 lists: none where nothing can be edited (the pane says why).
+  const listed = () => (man.reason?.() ? [] : man.tags());
+  const curTag = () => listed().find((t) => String(t.id) === sel);
+  function drawList() {
+    const tags = listed();
+    const cur = curTag() || tags[Math.min(selAt, tags.length - 1)];
+    sel = cur ? String(cur.id) : "";
+    selAt = Math.max(0, tags.indexOf(cur));
+    const who = esc(sp(man.who));
+    rows.innerHTML = tags
+      .map((t) => {
+        const n = man.count(t.id);
+        return `<button type="button" class="tm-item" data-id="${esc(t.id)}" aria-current="${t === cur}"><span class="dot" style="--c:${esc(t.color)}"></span><span class="name">${esc(t.name)}</span><span class="n" title="${n} 个${who}">${n}</span></button>`;
+      })
+      .join("");
+  }
+  function drawDetail(why) {
+    const t = curTag();
+    if (!t) return void (detail.innerHTML = `<p class="tm-empty">${esc(why || `还没有${tagsWord(man.who)}`)}</p>`);
+    const who = esc(sp(man.who));
+    const others = listed().filter((x) => x !== t);
+    const dots = MdgTagCore.swatchColors(t.color, others)
+      .map((c, i) => {
+        const taken = others.filter((x) => x.color === c).map((x) => x.name);
+        const note = taken.length ? `「${esc(taken.join("」「"))}」在用` : "";
+        return `<button type="button" class="tag-color${note ? " used" : ""}" style="--c:${esc(c)}" data-color="${esc(c)}" aria-pressed="${c === t.color}" aria-label="颜色 ${i + 1}${note && `，${note}`}"${note && ` title="${note}"`}></button>`;
+      })
+      .join("");
+    const rule = t.rule || "";
+    detail.innerHTML = `<div class="tm-top">
+        <div><label for="tmName">名称</label><input id="tmName" type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="${MdgTagCore.TAG_NAME_MAX}" autocomplete="off" /></div>
+        <div><span id="tmColorLbl" class="lbl">颜色</span><div class="tm-swatches" role="group" aria-labelledby="tmColorLbl">${dots}</div></div>
+      </div>
+      <label class="crit-head" for="tmRule">什么样的${who}打这个标签</label>
+      <textarea id="tmRule" name="tagRule" rows="5" data-field="rule" maxlength="${UI.TAG_RULE_MAX}">${esc(rule)}</textarea>
+      <div class="tm-under"><span>写给 AI 看。不写时，AI 只看到标签名。</span><span id="tmCnt">${rule.length} / ${UI.TAG_RULE_MAX}</span></div>
+      <div class="tm-foot"><span class="dialog-meta">用在 ${man.count(t.id)} 个${who}</span><span class="spacer"></span><button type="button" class="quiet tm-del" data-tag-del>删除标签</button></div>`;
   }
   const rowTag = (target) => {
     const id = target.closest(".tag-row")?.dataset.id;
     return id && man.tags().find((t) => String(t.id) === id);
   };
   // 新建 is off with why while the name cannot be added, updated as you type; Enter follows it, the typed text stays.
+  // 标签管理 also writes the why under the box once something is typed.
   const addWhy = () => man.reason?.() || man.addReason(newInput.value);
-  const syncAdd = () => UI.setReason($("addTagBtn"), addWhy());
+  function syncAdd() {
+    const why = addWhy();
+    UI.setReason($("addTagBtn"), why);
+    $("tmWhy").textContent = !man.row && newInput.value.trim() ? why : "";
+  }
   // A second 新建 (a double click, Enter twice) before the first one's answer would create the name twice.
   let adding = false;
   async function addTag() {
     if (adding || addWhy()) return;
     adding = true;
     try {
-      if (await man.add(newInput.value)) {
+      const tag = await man.add(newInput.value);
+      if (tag) {
         newInput.value = "";
+        // 标签管理 picks the new tag, the caret in its 说明.
+        if (!man.row) sel = String(tag.id);
         renderManage();
+        if (!man.row) $("tmRule")?.focus();
       }
     } finally {
       adding = false;
@@ -115,18 +189,39 @@
     if (t && field && !(await man.edit(t, field, e.target.value))) renderManage();
   });
   rows.addEventListener("click", async (e) => {
+    const pick = e.target.closest(".tm-item")?.dataset.id;
+    if (pick) return (sel = pick), renderManage();
     const t = rowTag(e.target);
+    if (!t || !e.target.closest("[data-tag-del]")) return;
+    await man.remove(t);
+    renderManage();
+  });
+  detail.addEventListener("change", async (e) => {
+    const t = curTag();
+    const field = e.target.dataset.field;
+    if (!t || !field) return;
+    // A saved edit redraws only the list (the new name), so the focus stays where it moved; a refused name goes back.
+    if (await man.edit(t, field, e.target.value)) drawList();
+    else renderManage();
+  });
+  detail.addEventListener("input", (e) => {
+    if (e.target.id === "tmRule") $("tmCnt").textContent = `${e.target.value.length} / ${UI.TAG_RULE_MAX}`;
+  });
+  detail.addEventListener("click", async (e) => {
+    const t = curTag();
     if (!t) return;
+    const color = e.target.closest("[data-color]")?.dataset.color;
     if (e.target.closest("[data-tag-del]")) await man.remove(t);
-    else if (e.target.closest("[data-tag-color]")) await man.edit(t, "color");
+    else if (color) await man.edit(t, "color", color);
     else return;
     renderManage();
+    if (color) detail.querySelector(`[data-color="${color}"]`)?.focus();
   });
   $("addTagBtn").addEventListener("click", addTag);
   newInput.addEventListener("input", () => man && syncAdd());
   // Enter in a name field: the new-tag box adds; a rename would submit the form and close the dialog.
   manageDlg.addEventListener("keydown", (e) => {
-    if (MdgTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"], [data-field="rule"]')) return;
+    if (MdgTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"]')) return;
     e.preventDefault();
     if (e.target === newInput) addTag();
   });
@@ -148,11 +243,28 @@
   const notMade = (a, p) => a.notMade?.(p) || { keys: new Set(), why: "" };
   const changesOf = (a, p, skip = notMade(a, p).keys) => UI.aiChanges(p, a.map(), a.live(), (key) => !skip.has(key) && UI.previewId(p, key, allTags(a)));
   let ai = null;
-  // adapter → { where, text }: its run's progress line and the folder the run is in, kept while the dialog is closed and
-  // shown only there.
+  // adapter → { where, text, remedy }: its run's progress line and the folder the run is in, kept while the dialog is
+  // closed and shown only there. remedy ({ label, run }) is the button the adapter's page gives the error that stopped
+  // the run (去设置, 授权), or null.
   const progressOf = new Map();
   const whereOf = (a) => a.where?.() ?? "";
   const progressText = (a) => (progressOf.get(a)?.where === whereOf(a) ? progressOf.get(a).text : "");
+  // The line left when no run is on is why the last one gave no proposal: red, at the left of the buttons. While one
+  // runs it is its progress, in grey there.
+  function drawProgress(a) {
+    const text = progressText(a);
+    const failed = Boolean(text) && !a.running();
+    $("aiProgress").textContent = failed ? "" : text;
+    $("aiFail").textContent = failed ? text : "";
+    $("aiFail").hidden = !failed;
+    const remedy = failed && progressOf.get(a).remedy;
+    if (remedy) {
+      $("aiFail").insertAdjacentHTML("beforeend", `<button type="button" class="sm">${esc(remedy.label)}</button>`);
+      $("aiFail").querySelector("button").addEventListener("click", () => remedy.run());
+    }
+  }
+  // adapter → { where, instruction }: what the last run here was asked, for the review's 依据.
+  const ranOf = new Map();
   const scopeSel = $("aiScope");
   const instr = $("aiInstruction");
   let instrKey = null; // [adapter, where] the instruction was written for; another mode or folder starts empty
@@ -179,8 +291,8 @@
   const isOpen = (a) => aiDlg.open && ai === a;
   function renderAi(want) {
     const p = !ai.running() && ai.proposal();
-    $("aiForm").hidden = Boolean(p);
-    $("aiReview").hidden = !p;
+    for (const id of ["aiForm", "aiFormActs"]) $(id).hidden = Boolean(p);
+    for (const id of ["aiReviewHead", "aiReview", "aiReviewActs"]) $(id).hidden = !p;
     if (p) renderReview(p);
     else renderForm(want);
   }
@@ -191,7 +303,7 @@
   // want: the scope to pick when it has items (else the one picked stays, if it still has any).
   function renderForm(want = scopeSel.value) {
     const a = ai;
-    $("aiHint").textContent = `用一句话让 AI 给一批${sp(a.who)}打标签。AI 看${a.sees}，只给建议，你点「应用」后才生效。`;
+    $("aiHint").textContent = `AI 看${a.sees}，只给建议，你点「应用」后才生效。`;
     const scopes = a.scopes();
     // 选中 counts like the row-4 button: the listed selected ones, or all of them when filters hide every one.
     scopeSel.innerHTML = scopes.map((s) => `<option value="${esc(s.value)}"${s.n ? "" : " disabled"}>${esc(s.label)} · ${s.shown || s.n} 个</option>`).join("");
@@ -207,14 +319,15 @@
     // The link only where 标签管理 can edit (not in 所有收藏夹, whose tags belong to each folder).
     const manageable = !a.manage?.reason?.();
     const manageLink = `<button type="button" class="link" data-open-manage>「${TAG_TEXT.title}」</button>`;
+    const tagsHead = `<span id="aiTagsLabel" class="crit-head">可用标签</span>`;
     $("aiTagsPreview").innerHTML = blocked
       ? `<p class="dialog-hint">${esc(blocked)}</p>`
       : tags.length
-        ? `<span id="aiTagsLabel" class="grid-label">可用标签</span><div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。<br>${a.roomHint()}</p>`
-        : `<p class="dialog-hint">还没有${esc(tagsWord(a.who))}。${a.roomHint()}${manageable ? `想打得准，先在${manageLink}里建好标签、每个写一句说明。` : ""}</p>`;
+        ? `${tagsHead}<div class="chips" role="group" aria-labelledby="aiTagsLabel">${tags.map(useChip).join("")}</div><p class="dialog-meta">点掉的标签这次不给 AI 用。${a.roomHint()}</p>`
+        : `${tagsHead}<p class="dialog-meta">还没有${esc(tagsWord(a.who))}。${a.roomHint()}${manageable ? `想打得准，先在${manageLink}里建好标签、每个写一句说明。` : ""}</p>`;
     const history = a.history();
     $("aiHistory").innerHTML = history.length
-      ? `<span class="muted">最近：</span>${history.map((h, i) => `<button type="button" class="chip" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h.length > 18 ? `${h.slice(0, 18)}…` : h)}</button>`).join("")}`
+      ? `<span class="crit-head">最近</span>${history.map((h, i) => `<button type="button" data-h="${i}" title="${esc(h)}" aria-label="使用指令 ${esc(h)}">${esc(h)}</button>`).join("")}`
       : "";
     const running = a.running();
     const run = $("aiRunBtn");
@@ -229,7 +342,7 @@
     stop.textContent = stopping ? MdgErrors.LABEL.stopping : MdgErrors.LABEL.stop;
     stop.setAttribute("aria-label", stop.textContent);
     UI.setReason(stop, stopping ? UI.WRITE_STOPPING : "");
-    $("aiProgress").textContent = progressText(a);
+    drawProgress(a);
   }
   // AI may propose more new tags than the run's cap; they are all kept, and this says by how much. Not under a hard
   // limit (notMade), which says instead which ones 应用 will not create.
@@ -256,8 +369,11 @@
     </div>`;
       })
       .join("");
-    $("aiReviewHint").textContent = `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${a.check || UI.AI_RECENT_CHECK}。`;
-    $("aiRecentMeta").innerHTML = `「${UI.AI_RECENT}」只显示最近一次 AI 打标签改动的${esc(who)}：<ul class="ai-recent-rules">${UI.AI_RECENT_RULES.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>${esc(UI.aiRecentUndo(a.who))}`;
+    // The chip's tooltip has the full rules (UI.aiRecentChip).
+    $("aiReviewHint").textContent = `应用后列表只显示「✦ ${UI.AI_RECENT}」这些${who}，${a.check || UI.AI_RECENT_CHECK}，按 U 整批撤销。`;
+    // Failed batches (and a stop): red, at the left of the buttons.
+    $("aiErrors").textContent = p.errors.join("；");
+    $("aiErrors").hidden = !p.errors.length;
     renderTally(p);
   }
   function renderTally(p) {
@@ -268,14 +384,20 @@
     // Redrawn with each tick: which new tags 应用 cannot create follows them.
     const unmade = p.newTags.filter((t) => skip.keys.has(t.key)).map((t) => cleanTagName(t.name));
     const warns = unmade.length ? [`「${unmade.join("」「")}」不会新建：${skip.why}，用到它们的${who}也不会打上。取消勾选别的新标签可以腾出位置。`] : overCapLines(p);
-    $("aiNotes").innerHTML = p.errors.map((e) => `<p class="fail-text">${esc(e)}</p>`).join("") + p.notes.map((n) => `<p class="muted">AI 说明：${esc(n)}</p>`).join("") +
-      [...warns, ...(p.excludedHits?.length ? [`AI 想用的「${p.excludedHits.join("」「")}」是你点掉的标签，没有采用。`] : [])].map((l) => `<p class="dialog-hint warn">${esc(l)}</p>`).join("");
+    const ran = ranOf.get(a)?.where === whereOf(a) ? ranOf.get(a).instruction : "";
+    const basis = [
+      ...(ran ? [["指令", ran]] : []),
+      ...[...new Set(p.notes)].map((n) => ["AI 说明", n]),
+      ...warns.map((l) => ["新标签", l, " warn"]),
+      ...(p.excludedHits?.length ? [["没有采用", `AI 想用的「${p.excludedHits.join("」「")}」是你点掉的标签，没有采用。`, " warn"]] : [])
+    ];
+    $("aiNotes").innerHTML = (basis.length ? basis : [["AI 说明", "没有"]]).map(([k, v, cls = ""]) => `<div><dt>${k}</dt><dd class="dialog-hint${cls}">${esc(v)}</dd></div>`).join("");
     // A new tag whose name an existing one has is that tag (previewId), not a new one.
     const newN = p.newTags.filter((t) => t.checked && !skip.keys.has(t.key) && UI.aiRef.keyOf(String(UI.previewId(p, t.key, allTags(a)) || ""))).length;
-    $("aiReviewSummary").textContent = `· ${changes.length} 个${who}有改动 · 新标签 ${newN} 个 · 点「应用」前不会改动任何东西`;
-    const tally = UI.aiTally(p, changes, a.tagName);
     // Nothing to apply: the AI proposed nothing, or what it proposed was unticked or left the list since.
     const none = p.rows.length || p.newTags.length ? "没有可应用的改动" : "AI 没有提出改动";
+    $("aiReviewSummary").innerHTML = changes.length || newN ? `<b>${changes.length}</b> 个${esc(who)}有改动，新建 <b>${newN}</b> 个标签` : none;
+    const tally = UI.aiTally(p, changes, a.tagName);
     $("aiRows").innerHTML = tally.length
       ? `<div class="chips">${tally.map((t) => `<span class="chip ${t.cls}">${esc(t.text)} <b>${t.n}</b></span>`).join("")}</div>`
       : `<p class="empty">${newN ? `没有${esc(who)}的标签改动，应用只创建新标签` : none}</p>`;
@@ -290,6 +412,9 @@
     const scope = ai.scopes().find((s) => s.value === scopeSel.value) || {};
     // 运行 is off with its reason then (renderForm); a stale click does nothing.
     if (ai.running() || ai.blocked() || !instruction || hiddenAll(scope) || !scope.n || noTagsToUse(ai)) return;
+    // The last run's failure line goes; the review shows what this one was asked.
+    progressOf.delete(ai);
+    ranOf.set(ai, { where: whereOf(ai), instruction });
     ai.run({ instruction, scope: scopeSel.value, allowRemove: $("aiRemoveInput").checked });
     renderAi();
   }
@@ -361,9 +486,9 @@
       // Redraw for a mode whose run moved on; nothing when the dialog is closed or shows the other mode.
       render: (a) => isOpen(a) && renderAi(),
       // where: the folder the run is in (a.where() when it started).
-      progress(a, text, where = "") {
-        progressOf.set(a, { where, text });
-        if (isOpen(a) && !$("aiForm").hidden) $("aiProgress").textContent = progressText(a);
+      progress(a, text, where = "", remedy = null) {
+        progressOf.set(a, { where, text, remedy });
+        if (isOpen(a) && !$("aiForm").hidden) drawProgress(a);
       }
     }
   };

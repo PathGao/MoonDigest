@@ -646,7 +646,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tab = "read";
     t.S.selected = new Set(["BV61", "BV62"]);
     t.renderListHeader(t.visibleItems());
-    assert.ok(["保留选中的 2 个", "取消收藏选中的 2 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    assert.ok(['aria-label="保留"', 'aria-label="取消收藏"', "已选中 2 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     // H7: the bar has its own slot outside the header's rows (a folded header hides those).
     assert.ok(t.el.favSel.innerHTML.startsWith('<div class="selbar"') && !t.el.listHeader.innerHTML.includes("selbar"), t.el.favSel.innerHTML);
     await t.batchKeep(t.batchList(null));
@@ -654,7 +654,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     assert.deepStrictEqual(plain([...t.S.selected]), ["BV61", "BV62"], "阅览 still lists them: 保留 keeps them selected");
     // K1: none of the selection left to keep: the count is still the selection's, off with why.
     t.renderListHeader(t.visibleItems());
-    assert.ok(/aria-label="保留选中的 2 个"[^>]*disabled title="选中的都已保留"/.test(t.el.favSel.innerHTML), t.el.favSel.innerHTML);
+    assert.ok(/aria-label="保留"[^>]*disabled title="选中的都已保留"/.test(t.el.favSel.innerHTML), t.el.favSel.innerHTML);
     await t.undo();
     assert.ok(!t.S.kept.BV61 && !t.S.kept.BV62);
     // U cut short by a failure: still in 所有收藏夹, the rest is the next U; after another folder opened, the rest stays
@@ -976,7 +976,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.classFilter.fine = "all";
   t.S.selected.add("BV210");
   t.renderListHeader(t.visibleItems());
-  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("取消收藏选中的 1 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("保留选中的 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(">取消收藏</button>") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(">保留</button>"));
   t.S.selected.clear();
   // A3: 待定 left after 细看 sits in 细看完成 under its own filter, and a selection there drives both batch buttons.
   t.S.analyses = { BV200: { status: "done", verdict: "unsure" } };
@@ -988,7 +988,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-checked="false"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("全选 1 个"));
   t.S.selected.add("BV200");
   t.renderListHeader(t.visibleItems());
-  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-checked="true"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("移动/复制选中的 1 个"));
+  assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('aria-checked="true"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(">移动/复制…</button>"));
   t.S.selected.clear();
   assert.strictEqual(t.batchList("keep").length, 0, "without a selection 待定 has no verdict-scoped batch");
   t.S.selected.add("BV200");
@@ -1088,7 +1088,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.selected.add("BV207");
   assert.deepStrictEqual(plain(t.nextBatch()), ["BV207"], "a selection still wins");
   t.renderListHeader(t.visibleItems());
-  for (const part of ["字幕细看选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(part), part);
+  for (const part of ["字幕细看选中的 1 个", ">保留</button>", ">取消收藏</button>"]) assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(part), part);
   assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).split("</div>")[0].includes("字幕细看选中的 1 个"), "细看 stays in row 3 with a selection, like 标题粗看");
   // The pill (runs' table, PILL's order) names what runs, whatever the tab: 细看 before 粗看. Its button pauses the run;
   // pressed, it says so (disabled) on the pill and in row 3 until the step in flight lands.
@@ -1119,6 +1119,12 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.tab = "none";
     t.renderListHeader(t.visibleItems());
     assert.ok(t.el.activity.innerHTML.includes('title="当前批次粗看完就暂停"') && t.el.listHeader.innerHTML.includes('title="当前批次粗看完就暂停"'), t.el.activity.innerHTML);
+    // 暂停 shows once: on the run's own tab row 3 has it and the pill's copy is marked for hiding; on another tab the pill keeps it.
+    t.renderStatus();
+    assert.ok(t.el.activity.innerHTML.includes('data-head="stage1" class="in-row3"'), t.el.activity.innerHTML);
+    t.S.tab = "fine";
+    t.renderStatus();
+    assert.ok(t.el.activity.innerHTML.includes('data-head="stage1"') && !t.el.activity.innerHTML.includes("in-row3"), t.el.activity.innerHTML);
     t.S.tab = "coarse";
     release1();
     await stage1;
@@ -1491,7 +1497,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tab = "none";
   t.S.selected.add("BV700");
   t.renderListHeader(t.visibleItems());
-  assert.ok(["移动/复制选中的 1 个", "保留选中的 1 个", "取消收藏选中的 1 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), "未分析 offers every selection action");
+  assert.ok([">移动/复制…</button>", ">保留</button>", ">取消收藏</button>", "已选中 1 个"].every((x) => (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes(x)), "未分析 offers every selection action");
   t.S.selected.clear();
 
   // 批量打标签 proposals: new tags only by name, all kept past the cap of 5; a verdict in the reply changes nothing.
@@ -1699,7 +1705,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   t.S.tags = t.S.tags.filter((x) => x.id !== long.id);
   assert.ok(aiTags.roomHint().includes("AI 这次最多新建 4 个（这个收藏夹还剩 4 个名额）"));
   // A new tag takes the folder's first free color, so a deleted tag's color comes back instead of a taken one
-  // repeating; 管理's color button moves to the next color.
+  // repeating; 标签管理's color dots set the color picked.
   {
     const C = ctx.MdgTagCore.TAG_COLORS;
     openFake("K", [item(710)]);
@@ -1707,7 +1713,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.videoTags = { BV710: ["p0"] };
     const p1 = (await createTag("p1"));
     assert.strictEqual(p1.color, C[1], "not C[2] (two tags → third color), which p2 has");
-    assert.ok(await saveTagEdit(p1, "color"));
+    assert.ok(await saveTagEdit(p1, "color", C[2]));
     assert.strictEqual(tagNow(p1).color, C[2]);
     assert.deepStrictEqual([manageTags.count("p0"), manageTags.count("p1")], [1, 0], "标签管理 counts the videos per tag");
 
@@ -2043,8 +2049,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     const disabledWhy = (label) => new RegExp(`aria-label="${label}"[^>]*disabled title="${hid}"`).test((t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     t.S.classFilter.read = "drop";
     t.renderListHeader(t.visibleItems());
-    // J14: with the true count, as row 3's.
-    assert.ok(disabledWhy("收藏选中的 1 个到…"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    // J14: the bar's buttons carry no count (the bar says it once); row 3's 清理 keeps the true count.
+    assert.ok(disabledWhy("收藏到…"), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     // J2: 清理 stays the selection's, with its true count, off with why.
     assert.ok(disabledWhy("清理选中的 1 个") && !t.el.listHeader.innerHTML.includes("清理这"), t.el.listHeader.innerHTML);
     // F12 / F9: 所有收藏夹 has 全选 like a folder (across its folders), and its bar says why as well.
@@ -2060,7 +2066,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.selected.add("BV1");
     t.renderListHeader(t.visibleItems());
     assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="select-all" aria-checked="false"') && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("全选 2 个"), "所有收藏夹 has 全选");
-    for (const label of ["保留选中的 1 个", "取消收藏选中的 1 个"]) assert.ok(disabledWhy(label), label);
+    for (const label of ["保留", "取消收藏"]) assert.ok(disabledWhy(label), label);
     vm.runInContext("UI.toggleAll(visibleItems().map((it) => it.bvid), S.selected)", ctx);
     assert.deepStrictEqual([...t.S.selected].sort(), ["BV1", "BV2", "BV3"], "全选 adds what is listed, keeps the hidden one");
     t.S.selected.clear();
@@ -2952,6 +2958,14 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
       t.handleAiError(ctx.MdgErrors.noAccess("https://ai.test"), code);
       const want = labels[ctx.MdgErrors.remedies(code)[0]];
       assert.deepStrictEqual(want ? [t.el.banner.hidden, t.el.bannerBtn.textContent] : [t.el.banner.hidden], want ? [false, want] : [true], code);
+    }
+  }
+  // The AI 打标签 dialog's red banner gets the same remedy as a button: by the code, none without one.
+  {
+    const labels = { settings: ctx.MdgErrors.LABEL.toSettings, grant: ctx.MdgErrors.LABEL.grant };
+    for (const code of [...Object.keys(ctx.MdgErrors.CODE).filter((c) => c.startsWith("AI_")), ""]) {
+      const remedy = t.aiRemedy({ error: ctx.MdgErrors.noAccess("https://ai.test"), code });
+      assert.strictEqual(remedy?.label, labels[ctx.MdgErrors.remedies(code)[0]], code || "no code");
     }
   }
   t.handleAiError("没有启用的 AI 平台", "AI_SETUP");

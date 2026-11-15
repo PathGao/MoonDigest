@@ -306,6 +306,13 @@ const proposal = (newTags, rows) => ({ newTags: newTags.map((name) => ({ key: na
     let n = 0;
     r = await run({ send: async () => (++n === 1 && R.stop("ai"), { ok: true, data: { assignments: { a: { add: ["甲"] } } } }) });
     assert.deepStrictEqual([r.proposal.rows.length, r.errors.at(-1)], [1, "已手动停止，这里只有已完成批次的建议"]);
+    // An error that stops the run reaches progress with its code, for the dialog banner's button; one batch failing
+    // on its own, or a stop by hand, brings none.
+    const ends = [];
+    r = await run({ total: 1, progress: (...a) => ends.push(a), send: async () => ({ ok: false, error: "API Key 不对", code: "AI_AUTH" }) });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(ends.at(-1))), ["第 1 批失败：API Key 不对", { error: "API Key 不对", code: "AI_AUTH" }]);
+    r = await run({ total: 1, progress: (...a) => ends.push(a), send: async () => ({ ok: false, error: "格式不对" }) });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(ends.at(-1))), ["第 1 批失败：格式不对", null]);
     const progress = [];
     const merge = (q, data) => (UI.mergeAiBatch(q, data, { tags: p.tags, map: p.map, maxNewTags: 5, scope: new Set(["a"]) }), (p.tags = []));
     r = await run({ total: 1, merge, progress: (x) => progress.push(x), send: async () => ({ ok: true, data: { assignments: { a: { add: ["甲"] } } } }) });

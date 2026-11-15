@@ -85,8 +85,8 @@
   const OUT_KINDS = [["gone", "已取消关注"], ["closed", "已注销"], ["cleared", "投稿已清空"]];
   const outKind = (u) => (u.gone ? "gone" : u.closed ? "closed" : u.cleared ? "cleared" : "");
 
-  // 移到 / 复制到 in the toast and U. 特别关注 is a flag on top of the groups (B站): from 默认分组 into it is an add, the UP stays.
-  const groupMoveLabel = (from, to, move, D) => `${move && from === 0 && to === SPECIAL ? "加进" : move ? "移到" : "复制到"}「${groupName(to, D)}」`;
+  // 加进 / 移到 in the toast and U: B站's groups are tags on an UP, so what is no move adds one more group.
+  const groupMoveLabel = (to, move, D) => `${move ? "移到" : "加进"}「${groupName(to, D)}」`;
   // An UP's groups after leaving from (null: nothing, a copy) and joining to (0: none).
   const regrouped = (ids, from, to) => [...ids.filter((id) => id !== from), ...(to !== 0 && !ids.includes(to) ? [to] : [])];
   // The follow-group-move requests that take mids from cur(mid) to want(mid): one per (from, to), at most size UP 主 each.
@@ -110,7 +110,7 @@
       return out;
     });
   }
-  // Where 移动 / 复制到分组 can go from the sidebar item's group (from; null in 全部): every group but that one, 默认分组
+  // Where 加进 / 移到分组 can go from the sidebar item's group (from; null in 全部): every group but that one, 默认分组
   // only for a move. [[id, name]].
   const groupTargets = (D, from, how) =>
     [...(how === "move" ? [0] : []), SPECIAL, ...(D.groups || []).map((g) => g.id)].filter((id) => id !== from).map((id) => [id, groupName(id, D)]);

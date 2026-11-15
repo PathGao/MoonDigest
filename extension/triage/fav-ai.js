@@ -394,7 +394,7 @@ async function runAiCommand({ instruction, scope, allowRemove }) {
     where: () => (S.ai.mediaId === String(S.mediaId) ? "" : `（${folderName(S.ai.mediaId)}）`),
     send,
     intervalMs: S.settings.triageIntervalSec * 1000,
-    progress: (text) => (TagDialogs.ai.progress(aiTags, text, folder), renderStatus()),
+    progress: (text, fail) => (TagDialogs.ai.progress(aiTags, text, folder, fail && aiRemedy(fail)), renderStatus()),
     // A cut answer also gets the banner that asks to raise 粗看输出上限.
     onError: (error, code) => handleAiError(error, code),
     limitHint: true

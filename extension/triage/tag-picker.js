@@ -36,6 +36,8 @@
   const list = dlg.querySelector(".picker-list");
   const title = dlg.querySelector(".tp-title");
   const note = dlg.querySelector(".tp-note");
+  // The modal has no button: its last line says how it closes (true of the popover too, which is known by its place and hides it).
+  dlg.querySelector(".tp-foot").textContent = "按 Esc 或点外面关闭并保存";
   // The open picker: opts, sets (the ticks), before (ids at opening), rows, index (the active row).
   let cur = null;
 
@@ -89,8 +91,9 @@
           const n = countOf(sets, r.tag.id);
           const all = n === sets.size;
           const some = sets.size > 1 && n ? `<span class="muted">${n} 个有</span>` : "";
-          const key = !input.value && keyOf(i) ? `<span class="n" aria-hidden="true">${keyOf(i)}</span>` : "";
-          return `<li ${attrs.replace('class="picker-opt', `class="picker-opt${all ? " on" : ""}`)} style="--c:${esc(r.tag.color)}" title="${esc(r.tag.name)}" aria-checked="${all ? "true" : n ? "mixed" : "false"}"><span class="slot"><span class="dot">${all ? "✓" : n ? "–" : ""}</span></span><span class="name">${esc(r.tag.name)}</span>${some}${key}</li>`;
+          // A key cap before the name, so it is not read as part of 「N 个有」; the popover draws it as a faint digit at the right (tags.css).
+          const key = !input.value && keyOf(i) ? `<kbd aria-hidden="true">${keyOf(i)}</kbd>` : "";
+          return `<li ${attrs.replace('class="picker-opt', `class="picker-opt${all ? " on" : ""}`)} style="--c:${esc(r.tag.color)}" title="${esc(r.tag.name)}" aria-checked="${all ? "true" : n ? "mixed" : "false"}">${key}<span class="slot"><span class="dot">${all ? "✓" : n ? "–" : ""}</span></span><span class="name">${esc(r.tag.name)}</span>${some}</li>`;
         })
         .join("") || (opts.empty ? `<li class="muted">${esc(opts.empty)}</li>` : "");
     list.querySelector(".active")?.scrollIntoView?.({ block: "nearest" });
@@ -112,14 +115,17 @@
     render();
   }
 
-  // Under the anchor, or above it when there is no room below; always inside the window (an anchor scrolled out of it).
+  // Under the anchor, or above it when there is no room below; always inside the window (an anchor scrolled out of it),
+  // and not past the right edge of the anchor's card.
   function place() {
-    const r = (document.querySelector(cur.opts.anchor) || document.body).getBoundingClientRect();
+    const anchor = document.querySelector(cur.opts.anchor);
+    const r = (anchor || document.body).getBoundingClientRect();
     const w = dlg.offsetWidth;
     const h = dlg.offsetHeight;
     let y = r.bottom + 6;
     if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 6);
-    dlg.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
+    const right = Math.min(innerWidth - 8, anchor?.closest?.("article")?.getBoundingClientRect().right ?? Infinity);
+    dlg.style.left = `${Math.max(8, Math.min(r.left, right - w))}px`;
     dlg.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
   }
 

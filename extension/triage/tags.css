@@ -49,6 +49,16 @@ dialog:where(:not(.mdg-overwrite)) textarea { resize: vertical; }
 .dialog-hint.warn { color: var(--warn); }
 /* Status lines fill in later; empty ones must not add the form's gap. */
 dialog:where(:not(.mdg-overwrite)) :is(p, div):empty { display: none; }
+/* A dialog taller than the window: the form's .dlg-body scrolls; what is before it (the title) and after it
+   (.dialog-actions) stay put. A dialog without a .dlg-body scrolls whole, as above. */
+dialog[open]:where(:not(.mdg-overwrite)):has(> form > .dlg-body) { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+dialog:has(> form > .dlg-body) > form { flex: 1; min-height: 0; gap: 0; }
+dialog:has(> form > .dlg-body) > form > * { flex: none; margin: 0; padding: 10px 16px; }
+dialog:has(> form > .dlg-body) > form > .dlg-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 16px 12px; }
+dialog:has(> form > .dlg-body) > form > :first-child { padding-top: 16px; }
+/* A scrolling middle takes the focus when the dialog opens (the arrow keys scroll it): no ring around the whole content. */
+dialog > form > .dlg-body:focus-visible { outline: none; }
+dialog:has(> form > .dlg-body) > form > .dlg-body ~ .dialog-actions { border-top: 1px solid var(--border); }
 
 /* The tag picker (tag-picker.js): the filter on top, three equal columns of tags under it. A popover under 「+ 标签」 is
    known by its place, so it has no title (kept for screen readers). */
@@ -70,50 +80,108 @@ dialog:where(:not(.mdg-overwrite)) :is(p, div):empty { display: none; }
 .picker-opt .slot { flex: none; display: flex; align-items: center; justify-content: center; width: 12px; font-weight: 700; }
 .picker-opt .dot { --c: inherit; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; color: #fff; font-size: 9px; line-height: 1; }
 .picker-opt .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.picker-opt .muted, .picker-opt .n { flex: none; }
-.picker-opt .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+.picker-opt .muted { flex: none; }
+/* The digit that ticks the tag: a key cap before the name in the modal, a faint number at the right in the popover. */
+.picker-opt kbd { flex: none; min-width: 1.5em; padding: 0 3px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-2); font: 600 11px/1.4 ui-monospace, Menlo, monospace; text-align: center; }
+.tp-pop .picker-opt kbd { order: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-variant-numeric: tabular-nums; }
+/* The modal has no button: one line says how it closes and saves. The popover is known by its place. */
+.tp-foot { margin: 0; padding: 6px 12px 8px; border-top: 1px solid var(--border); }
+.tp-pop .tp-foot { display: none; }
+/* In the popover the filter is a boxed field, as the dialogs' inputs. */
+#tagPicker.tp-pop .tp-input { width: calc(100% - 16px); height: 28px; margin: 8px 8px 0; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--field-bg); }
+#tagPicker.tp-pop .tp-input:focus-visible { border-color: var(--text-2); }
 .picker-opt.tp-new { grid-column: 1 / -1; border-style: dashed; border-color: var(--border-strong); font-weight: 500; }
 /* 「+ 标签 T」 (shared.js tagPlusBtn) on cards and the viewer line: quiet, a dashed outline on hover; T is a faint letter
    after the word, as the card keys. button. to win over tokens.css button.quiet. */
 button.tag-plus { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed transparent; border-radius: 4px; color: var(--text-2); font-size: var(--fs-xs); text-decoration: none; }
 button.tag-plus:hover { border-color: var(--border-strong); color: var(--text); background: none; }
 
-/* 标签管理 and AI 打标签 (tag-dialogs.js) */
+/* 标签管理 and AI 打标签 (tag-dialogs.js). Both have a .dlg-body: the title and the buttons stay, the middle scrolls. */
 dialog.wide { width: min(620px, calc(100% - 32px)); }
 .tag-rows { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
 .tag-row { display: grid; grid-template-columns: 22px minmax(0, 9em) minmax(0, 1fr) 5.5em auto; align-items: center; gap: 6px; }
 .tag-color { width: 18px; height: 18px; padding: 0; border: 2px solid var(--surface); border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--border-strong); }
 .tag-color:hover { background: var(--c); box-shadow: 0 0 0 2px var(--c); }
-@media (max-width: 760px) {
-  .tag-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
-  .tag-row [data-field="rule"] { grid-column: 1 / -1; grid-row: 2; }
-}
 .tag-row .muted { text-align: right; font-size: var(--fs-xs); }
 .tag-add { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .tag-add input { flex: 1; min-width: 120px; }
-.ai-section { display: flex; flex-direction: column; gap: 6px; }
-.ai-section > h3:first-child { margin-top: 0; }
+/* 分组管理 is one list: the rows, then 新建. 标签管理 (.tm) is two panes: the tags and 新建 on the left, the picked tag's
+   name, color, 说明 and 删除 on the right; the panes run edge to edge between the hint and the buttons, the list scrolls. */
+.tm-cols, .tm-list { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tm-why { margin: 0; font-size: var(--fs-xs); color: var(--warn); }
+#tagManageDialog.tm { width: min(720px, calc(100% - 32px)); }
+.tm .tm-cols { flex: none; display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 0; height: min(340px, calc(100vh - 220px)); margin: 6px -16px -12px; border-top: 1px solid var(--border); }
+.tm .tm-list { gap: 8px; min-height: 0; padding: 12px; border-right: 1px solid var(--border); }
+.tm .tag-rows { flex: 1 1 0; gap: 2px; max-height: none; }
+.tm-item { flex: none; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: none; text-align: left; }
+.tm-item:hover { background: var(--field-bg); }
+.tm-item[aria-current="true"] { background: var(--field-bg); box-shadow: inset 2px 0 0 var(--accent); font-weight: 600; }
+.tm-item .dot { flex: none; }
+.tm-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-item .n { color: var(--faint); font-size: var(--fs-xs); font-weight: 400; font-variant-numeric: tabular-nums; }
+.tm .tag-add { flex-wrap: nowrap; padding-top: 10px; border-top: 1px solid var(--border); }
+.tm .tag-add input { min-width: 0; }
+.tm-detail { display: flex; flex-direction: column; min-width: 0; padding: 14px 16px 12px 20px; overflow-y: auto; }
+.tm-top { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 16px; }
+.tm-top label, .tm-top .lbl { display: block; margin-bottom: 4px; font-size: var(--fs-xs); color: var(--text-2); }
+.tm-top input { width: 13em; }
+/* The row offers the colors no other tag here has; one another tag took goes to the end, dimmed (MdgTagCore.swatchColors). */
+.tm-swatches { display: flex; align-items: center; gap: 8px; height: 28px; }
+.tm-swatches .tag-color.used { opacity: 0.4; }
+.tm-swatches .tag-color[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--text); opacity: 1; }
+.tm-detail textarea { display: block; width: 100%; min-height: 96px; margin-top: 6px; line-height: 1.6; }
+.tm-under { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: var(--fs-xs); color: var(--text-2); }
+#tmCnt { flex: none; color: var(--faint); font-variant-numeric: tabular-nums; }
+.tm-foot { display: flex; align-items: center; margin-top: auto; padding-top: 14px; }
+/* 删除标签 is grey until pointed at. */
+button.tm-del:hover { background: var(--danger-bg); color: var(--danger); }
+.tm-empty { margin: auto; color: var(--faint); }
+@media (max-width: 640px) {
+  .tm .tm-cols { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .tm .tm-list { border-right: 0; border-bottom: 1px solid var(--border); }
+  .tm .tag-rows { flex: none; max-height: 132px; }
+}
 /* Label column on the left; anything that is not a label or a field (counts, switches, chips) sits under its field. */
 .ai-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; align-items: baseline; }
 /* A count or quota line hangs under the field it describes. */
-.ai-grid > .dialog-meta, #aiTagsPreview > .dialog-meta { margin-top: -6px; }
-.ai-grid > label:not(.toggle), .ai-grid .grid-label { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
-.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle, #aiTagsPreview > :not(.grid-label) { grid-column: 2; }
-/* Its label, chips and hint join the grid as if they were the grid's own children. */
-#aiTagsPreview { display: contents; }
-#aiTagsPreview .chips { margin: 0; }
-.chip.tag-use[aria-pressed="false"] { border: 1px dashed var(--border-strong); color: var(--faint); }
+.ai-grid > .dialog-meta { margin-top: -6px; }
+.ai-grid > label:not(.toggle) { grid-column: 1; font-size: var(--fs-sm); color: var(--text-2); }
+.ai-grid > :not(label, select, textarea, input), .ai-grid > .toggle { grid-column: 2; }
 .ai-grid select { width: 100%; max-width: none; }
-.ai-history { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+/* AI 打标签, the setup: the 判断标准 dialog's two columns (.crit-cols, triage.css). Left: the instruction, what the AI
+   reads under it, the last instructions. Right: one block per option, each with its one line under it. */
+#aiTagDialog { width: min(780px, calc(100% - 32px)); }
+#aiForm textarea { min-height: 124px; line-height: 1.6; }
+.ai-past { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ai-past button { display: block; width: calc(100% + 16px); height: 28px; margin: 0 -8px; padding: 0 8px; border: 0; background: none; color: var(--text-2); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-past button:hover { background: var(--field-bg); color: var(--text); }
+.ai-opt { display: flex; flex-direction: column; gap: 6px; }
+.ai-opt + .ai-opt { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ai-opt select { width: 100%; max-width: none; }
+.ai-opt .chips { margin: 0; }
+.chip.tag-use[aria-pressed="false"] { border: 1px dashed var(--border-strong); color: var(--faint); }
+/* A run that gave no proposal, and the review's failed batches: a red banner at the left of the buttons. */
+.ai-fail { flex: 1 1 200px; display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0; padding: 5px 10px; border: 1px solid var(--danger-border); border-radius: var(--radius-sm); background: var(--danger-bg); color: var(--danger); font-size: var(--fs-xs); line-height: 1.4; }
+.ai-fail::before { content: "⚠"; flex: none; }
+.ai-fail button { flex: none; margin-left: auto; }
+.ai-fail:not([hidden]) + .spacer { display: none; }
+/* The review: the verdict in large type under the title; left what to decide, right what it rests on. */
+#aiReviewHead { padding-top: 0; }
+.ai-verdict { margin: 0; font-size: var(--fs-xl); font-weight: 600; line-height: 1.35; }
+.ai-verdict b { font-variant-numeric: tabular-nums; }
+#aiReviewHint { margin-top: 4px; }
+#aiNewTags { flex: none; max-height: none; margin-bottom: 10px; }
+.ai-newtag { display: flex; gap: 6px; align-items: center; }
+.ai-newtag input[type="text"] { flex: 0 1 200px; min-width: 100px; }
+.ai-newtag:has(input[type="checkbox"]:not(:checked)) input[type="text"] { color: var(--faint); text-decoration: line-through; }
 .chip.add { --c: var(--ok); color: var(--ok); }
 .chip.remove { --c: var(--danger); color: var(--danger); text-decoration: line-through; }
-#aiReviewSummary { font-weight: 400; }
-#aiNotes p { margin: 0; }
 .ai-tally .chips { margin: 0; }
 .ai-tally b { font-weight: 600; margin-left: 2px; }
-.ai-recent-rules { margin: 2px 0 0; padding-left: 18px; }
-.ai-newtag { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.ai-newtag input[type="text"] { flex: 0 1 240px; min-width: 120px; }
+.ai-basis { padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-muted); }
+#aiNotes { display: grid; gap: 10px; margin: 0; }
+#aiNotes dt { font-size: var(--fs-xs); color: var(--faint); }
+#aiNotes dd { margin: 0; overflow-wrap: anywhere; }
 
 /* Settings rows (收藏夹设置, 关注设置, 摘读记录设置) follow the settings page: name and hint on the left, the control on the right. */
 .settings-ai { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
@@ -126,3 +194,6 @@ dialog.wide { width: min(620px, calc(100% - 32px)); }
 .set-row .name { font-size: var(--fs-sm); color: var(--text); }
 .set-row .hint { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--faint); line-height: 1.5; }
 .set-row input[type="number"] { flex: none; width: 72px; text-align: right; }
+/* 关注设置 and 摘读记录设置: one 560px column, a group under a group. */
+dialog.set-single { width: min(560px, calc(100% - 32px)); }
+.set-stack { display: flex; flex-direction: column; gap: 16px; }

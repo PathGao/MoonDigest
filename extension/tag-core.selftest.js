@@ -15,7 +15,14 @@ const T = ctx.MdgTagCore;
 assert.strictEqual(T.cleanTagName(" 学，习、ab,c "), "学习abc");
 assert.strictEqual(T.cleanTagName("一二三四五六七八九十一二三"), "一二三四五六七八九十一二");
 assert.strictEqual(T.nextTagColor([{ color: T.TAG_COLORS[0] }]), T.TAG_COLORS[1]);
-assert.strictEqual(T.cycleTagColor(T.TAG_COLORS.at(-1)), T.TAG_COLORS[0]);
+{
+  // The color dots: the tag's own color and the free ones keep palette order; taken ones go last, the least used first.
+  const C = [...T.TAG_COLORS];
+  const dots = (color, others) => JSON.parse(JSON.stringify(T.swatchColors(color, others.map((c) => ({ color: c })))));
+  assert.deepStrictEqual(dots(C[0], []), C);
+  assert.deepStrictEqual(dots(C[1], [C[0], C[1]]), [...C.slice(1), C[0]], "its own color stays though another tag has it too");
+  assert.deepStrictEqual(dots(C[8], [C[0], C[0], C[2]]), [C[1], ...C.slice(3), C[2], C[0]]);
+}
 assert.match(T.newTagId("ft"), /^ft[0-9a-z]{9,}$/);
 
 // The verdict, as the triage page and B站 pages show it.

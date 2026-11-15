@@ -7,7 +7,7 @@
 // - follow-feed { offset }    一页视频动态 { items: [{ bvid, aid, title, cover, duration, play, mid, name, face, at }], offset, hasMore }，缓存 3 分钟。
 // - follow-relation { mid, act, gone? }  1 关注 / 2 取关，成功后改好 follow_list、follow_unfollowed、follow_tag_map；gone = 撤销重新关注时放回的取关记录。
 //                             取关记录存当时的分组；重新关注时放回还在的那些 → { groups, groupsError }（没放回不算失败）。
-// - follow-group-move { mids, from, to }  关注分组：from 为空是复制到 to（copyUsers），否则从 from 移到 to（moveUsers）。
+// - follow-group-move { mids, from, to }  关注分组：from 为空是加进 to（copyUsers），否则从 from 移到 to（moveUsers）。
 //                             -10 是特别关注，0 是默认分组。成功后改好 follow_list.special / groups。
 //                             整批被拒时逐个再发，→ { skipped: [{ mid, error }] } 是 B站 不收的（如已注销）；全被拒才报错。
 // - follow-forget { mids }    清理：删掉这些人的已取消关注记录（连同记录里的标签），不改 B站。

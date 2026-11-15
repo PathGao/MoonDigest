@@ -210,7 +210,8 @@
 
   const findItem = (bvid) => folders.flatMap((f) => f.items).find((it) => it.bvid === bvid) || [...removed.values()].find((r) => r.item.bvid === bvid)?.item;
   const pub = ({ _i, ...rest }) => rest;
-  const noAi = () => ({ ok: false, error: "还没有可用的模型，请先配置 AI 服务" });
+  // As the background answers with no platform enabled (triage-bg.js): the code makes the page stop and show the banner.
+  const noAi = () => ({ ok: false, error: MdgErrors.TEXT.aiNone, code: MdgErrors.CODE.AI_SETUP });
 
   // ----- handlers -----
   const handlers = {
@@ -285,6 +286,7 @@
     },
     "triage-ai-command": async ({ items, tags: tagList }) => {
       await wait(300);
+      if (globalThis.__mockNoAI) return noAi();
       const tags = tagList.map((t) => t.name);
       aiCommandCalls++;
       if (aiCommandCalls === 2) return { ok: false, error: "模型返回的 JSON 无法解析" };

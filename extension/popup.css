@@ -328,17 +328,6 @@ body {
   margin: 0 14px var(--space-2);
 }
 
-.details summary {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.details[open] summary {
-  margin-bottom: var(--space-2);
-}
-
 .props {
   border-radius: var(--radius-md);
   background: var(--surface-muted);

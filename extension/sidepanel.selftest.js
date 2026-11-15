@@ -20,7 +20,7 @@ for (const name of ["decideFollow", "applyConversation", "restartChat", "persist
   assert.ok(!new RegExp(`function\\s+${name}\\b`).test(page), `sidepanel.js defines ${name}`);
 }
 
-const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: {}, dataset: {}, querySelectorAll: () => [], querySelector: () => null }, {
+const stubEl = () => new Proxy({ classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, style: {}, dataset: {}, querySelectorAll: () => [], querySelector: () => null, appendChild: (c) => c }, {
   get: (o, k) => (k in o ? o[k] : () => {}),
   set: (o, k, v) => ((o[k] = v), true)
 });
@@ -617,9 +617,18 @@ const tick = () => new Promise((r) => setImmediate(r));
 
   // A bad key, used-up quota, unreachable platform or timeout offers 去设置 before 重试, as 分拣台 does; others only 重试.
   {
-    const errorButtons = (code) => {
+    // S15: the error goes before the reply's button row, and its buttons before 复制 Markdown in that row. What a
+    // failed reply shows, in order: the error, then the buttons.
+    const COPY = {};
+    const failedReply = (error, code) => {
       const kids = [];
-      ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, "x", false, code);
+      const row = { firstChild: COPY, before: (c) => kids.push(c), insertBefore: (c, ref) => (assert.strictEqual(ref, COPY, "before 复制 Markdown"), kids.push(c)) };
+      ctx.appendStreamError({ node: { querySelector: (sel) => (assert.strictEqual(sel, ".sp-msg-actions"), row) }, prompt: "q", raw: "" }, error, false, code);
+      assert.strictEqual(kids[0].className, "sp-msg-error");
+      return kids;
+    };
+    const errorButtons = (code) => {
+      const kids = failedReply("x", code);
       return kids.slice(1).map((k) => (typeof k.textContent === "string" ? k.textContent : k.innerHTML.replace(/<[^>]*>/g, "")));
     };
     assert.deepStrictEqual(errorButtons("AI_QUOTA"), ["去设置", "重试"]);
@@ -628,16 +637,14 @@ const tick = () => new Promise((r) => setImmediate(r));
     assert.deepStrictEqual(errorButtons("AI_THROTTLED"), ["重试"]);
     // C345: 授权 only for the background's AI_ACCESS, never for the same words in an AI platform's reply.
     const grants = (code) => {
-      const kids = [];
-      ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, "未授权访问 https://evil.example，授权后重试", false, code);
+      const kids = failedReply("未授权访问 https://evil.example，授权后重试", code);
       return kids.filter((k) => k.textContent === ctx.MdgErrors.LABEL.grant).length;
     };
     assert.deepStrictEqual([grants(""), grants("AI_ACCESS")], [0, 1]);
     // entry-matrix: every AI code gets the buttons MdgErrors.remedies lists, in its order.
     const labels = { settings: ctx.MdgErrors.LABEL.toSettings, grant: ctx.MdgErrors.LABEL.grant, retry: ctx.MdgErrors.LABEL.retry };
     for (const code of [...Object.keys(ctx.MdgErrors.CODE).filter((c) => c.startsWith("AI_")), "AI_THROTTLED", "AI_STALLED"]) {
-      const kids = [];
-      ctx.appendStreamError({ node: { appendChild: (c) => kids.push(c) }, prompt: "q", raw: "" }, ctx.MdgErrors.noAccess("https://ai.test"), false, code);
+      const kids = failedReply(ctx.MdgErrors.noAccess("https://ai.test"), code);
       const shown = kids.slice(1).map((k) => (typeof k.textContent === "string" ? k.textContent : k.innerHTML.replace(/<[^>]*>/g, "")));
       assert.deepStrictEqual(shown, [...ctx.MdgErrors.remedies(code)].map((r) => labels[r]), code);
     }
@@ -770,6 +777,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     assert.strictEqual(els.syncStatus.hidden, true);
     // H14: 发送 says why it is off: while stopping, and on a page that is not a supported video page. The button is
     // drawn from the turn's phase: 停止 while a reply runs, 停止中 once asked to stop, 发送 again when it ends.
+    vm.runInContext("providers = [{}]", ctx);
     show(video);
     const stopPort = { sent: [], postMessage(m) { this.sent.push(m.action); }, disconnect() {} };
     streamOn({ prompt: "q", raw: "", node: stubEl(), notice: "", port: stopPort });
@@ -930,6 +938,30 @@ const tick = () => new Promise((r) => setImmediate(r));
     delete ctx.chrome.tabs.sendMessage;
     show(video);
     ctx.syncSendUi();
+  }
+
+  {
+    const els = vm.runInContext("els", ctx);
+    // S14: no platform, or the tab's video not read: the input and 发送 are off and the input's placeholder says why.
+    const askBox = () => (ctx.syncSendUi(), [els.input.disabled, els.sendBtn.disabled, els.input.placeholder]);
+    const NONE = ctx.MdgErrors.TEXT.aiNone;
+    vm.runInContext("providers = []", ctx);
+    assert.deepStrictEqual(askBox(), [true, true, "先添加 AI 平台才能提问"]);
+    vm.runInContext('providersError = "读取 AI 平台失败：断网"', ctx);
+    assert.deepStrictEqual(askBox(), [true, true, "AI 平台没读到，点「重试」后才能提问"]);
+    // With no conversation the read failure is the empty state, as a video that could not be read: centered, 重试 below.
+    state.dispatch({ type: "NEW" });
+    assert.match(ctx.suggestionsContent().html, /^<div class="sp-center-error">读取 AI 平台失败：断网<br><button [^>]*data-act="platforms">重试<\/button><\/div>$/);
+    vm.runInContext('providers = [{}]; providersError = ""', ctx);
+    assert.deepStrictEqual(askBox(), [false, false, "回车发送，Shift+回车换行"]);
+    const unread = (noRetry) => (state.dispatch({ type: "CONTEXT_ARRIVED", payload: null, error: "读取视频失败：B站限流", noRetry, follow: false }), askBox());
+    state.dispatch({ type: "NEW" });
+    state.dispatch({ type: "TAB_READ", tab: { url: video.url, title: "" }, follow: false });
+    assert.deepStrictEqual(unread(false), [true, true, "视频没读到，点「重试」后才能提问"]);
+    // No read helps (the empty state has no 重试): the box says what the read said.
+    assert.deepStrictEqual(unread(true), [true, true, "读取视频失败：B站限流"]);
+    show(video);
+    assert.deepStrictEqual(askBox(), [false, false, "回车发送，Shift+回车换行"]);
   }
 
   // 快捷追问's 添加: disabled with the reason while the box is empty or the list is full.
@@ -1122,7 +1154,8 @@ const tick = () => new Promise((r) => setImmediate(r));
     attrs: {}, listeners: {}, style: {}, dataset: {}, kids: [],
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
     setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; }, removeAttribute(k) { delete this.attrs[k]; },
-    addEventListener(t, f) { this.listeners[t] = f; }, appendChild(c) { this.kids.push(c); }, remove() { this.removed = true; },
+    addEventListener(t, f) { this.listeners[t] = f; }, appendChild(c) { this.kids.push(c); return c; }, remove() { this.removed = true; },
+    querySelector: () => null, before() {}, insertBefore(c) { this.kids.push(c); },
     ...extra
   });
   const els = vm.runInContext("els", ctx);
@@ -1229,6 +1262,23 @@ const tick = () => new Promise((r) => setImmediate(r));
     pending[1]();
     await Promise.all([one, two]);
     assert.deepStrictEqual([saves, [...vm.runInContext("aiPrefs", ctx).aiPresetPrompts]], [[["b", "c"], ["c"]], ["c"]]);
+    // R6: a row edited in place keeps its position; made equal to another row the two become one; emptied it goes;
+    // left as it was nothing is saved.
+    const renamed = async (list, prompt, value) => {
+      stored = list;
+      saves.length = 0;
+      const done = ctx.renamePresetPrompt(prompt, value);
+      for (let i = 0; i < 4; i++) await tick();
+      pending.at(-1)();
+      await done;
+      return saves[0];
+    };
+    assert.deepStrictEqual(await renamed(["a", "b", "c"], "b", " 改过 "), ["a", "改过", "c"]);
+    assert.deepStrictEqual(await renamed(["a", "b", "c"], "b", "c"), ["a", "c"]);
+    assert.deepStrictEqual(await renamed(["a", "b", "c"], "b", "  "), ["a", "c"]);
+    saves.length = 0;
+    await ctx.renamePresetPrompt("a", " a ");
+    assert.deepStrictEqual(saves, []);
     vm.runInContext("aiPrefs.aiPresetPrompts = []", ctx);
     ctx.chrome.runtime.sendMessage = realSend;
   }

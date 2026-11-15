@@ -277,7 +277,7 @@ $("favSide").insertAdjacentHTML("beforeend", UI.sideFoot({ settingsAttrs: `id="s
 const REFRESH_EMPTY = UI.refreshEmpty("data-refresh");
 const el = {};
 [
-  "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
+  "folderSelect", "folderList", "folderHead", "settingsHeading", "settingsFoldersHeading", "settingsAi", "settingsAdv", "settingsFirstRunHint", "searchInput", "searchCount", "refreshBtn", "activity", "settingsBtn", "helpBtn",
   "banner", "bannerText", "bannerBtn", "bannerClose", "syncNotice", "syncText", "syncViewBtn", "syncCloseBtn", "syncDetail",
   "tabs", "stagebar", "sortBox", "classFilter", "tagFilter", "aiTagSlot", "listHeader", "favSel", "list", "basket", "basketToggle", "basketCount",
   "basketList", "basketClearBtn", "settingsDialog", "folderToggles", "intervalInput",
@@ -491,6 +491,13 @@ function handleAiError(error, code = "", limit = "粗看") {
   } else if (code === "AI_TRUNCATED") {
     showBanner(`${text}。建议调大${limit}输出上限${canThinkLess() ? "或在判断标准里关闭思考" : ""}`, `打开${SETTINGS_NAME}`, () => openSettings(true), "ai");
   } else toast(text, true);
+}
+// The same two remedies as a button, for the AI 打标签 dialog's red banner (the dialog covers this page's banner): 授权
+// or 去设置 by MdgErrors' table, nothing for any other error.
+function aiRemedy({ error, code }) {
+  const access = MdgErrors.grantOrigin(error, code);
+  if (access) return { label: MdgErrors.LABEL.grant, run: async () => (await access.request()) && toast(MdgErrors.TEXT.granted) };
+  return aiSettingsCode(code) ? { label: MdgErrors.LABEL.toSettings, run: openOptions } : null;
 }
 // The open folder thinks, on a platform whose thinking can be switched off (判断标准's 开启思考).
 const canThinkLess = () => {

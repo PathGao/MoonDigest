@@ -25,10 +25,11 @@ function node(id, extra = {}) {
   return (nodes[id] = Object.assign({ id, L, attrs, hidden: false, disabled: false, value: "", innerHTML: "", textContent: "", dataset: {}, addEventListener: (t, f) => (L[t] ||= []).push(f), setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k], focus() { focused = id; } }, extra));
 }
 let focused = "";
-const dialog = (id) => node(id, { open: false, showModal() { this.open = true; }, close() { this.open = false; }, querySelector: () => null });
+const dialog = (id) => node(id, { open: false, showModal() { this.open = true; }, close() { this.open = false; }, querySelector: () => null, classList: { on: new Set(), toggle(c, v) { v ? this.on.add(c) : this.on.delete(c); } } });
 dialog("tagManageDialog");
 dialog("aiTagDialog");
-for (const id of ["tagManageTitle", "tagManageHint", "tagsRows", "newTagInput", "addTagBtn", "aiForm", "aiReview", "aiHint", "aiInstruction", "aiHistory", "aiScope", "aiScopeCount", "aiTagsPreview", "aiRemoveInput", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiReviewHint", "aiRecentMeta", "aiDiscardBtn", "aiApplyBtn"]) node(id);
+for (const id of ["tagManageTitle", "tagManageHint", "tagsRows", "newTagInput", "addTagBtn", "aiForm", "aiReview", "aiHint", "aiInstruction", "aiHistory", "aiScope", "aiScopeCount", "aiTagsPreview", "aiRemoveInput", "aiProgress", "aiCloseBtn", "aiStopBtn", "aiRunBtn", "aiReviewSummary", "aiNotes", "aiNewTagsHead", "aiNewTags", "aiRows", "aiReviewHint", "aiDiscardBtn", "aiApplyBtn", "tmMeta", "tmWhy", "aiFormActs", "aiReviewHead", "aiReviewActs", "aiFail", "aiErrors"]) node(id);
+node("tmDetail", { querySelector: () => null });
 const fire = (id, type, e = {}) => {
   const ev = { prevented: 0, preventDefault() { this.prevented++; }, isComposing: false, keyCode: 0, ...e };
   for (const f of nodes[id].L[type] || []) f(ev);
@@ -102,8 +103,14 @@ function adapters(who) {
     // 标签管理: only the tags, from the adapter; AI 打标签 stays closed.
     D.manage.open(manage);
     assert.ok(nodes.tagManageDialog.open && !nodes.aiTagDialog.open && D.manage.isOpen(manage), `${who}: 标签管理 opens alone`);
-    assert.strictEqual(nodes.tagManageHint.textContent, "这里的标签。改名、颜色、说明和删除立即保存。");
-    assert.ok(nodes.tagsRows.innerHTML.includes(`2 个${unit}`) && nodes.tagsRows.innerHTML.includes("data-tag-color"), `${who}: rows count in the mode's unit`);
+    // Two panes: the tags on the left, the first one's name, the color dots, 说明 and 删除 on the right. One sentence
+    // under the title; what saves at once is beside 完成.
+    assert.ok(nodes.tagManageDialog.classList.on.has("tm"));
+    assert.deepStrictEqual([nodes.tagManageHint.textContent, nodes.tmMeta.textContent], ["这里的标签。", "1 个标签 · 改动立即保存"]);
+    assert.ok(nodes.tagsRows.innerHTML.includes('class="tm-item" data-id="a" aria-current="true"') && nodes.tagsRows.innerHTML.includes(`title="2 个${unit}">2<`), nodes.tagsRows.innerHTML);
+    const pane = () => nodes.tmDetail.innerHTML;
+    assert.ok(pane().includes('value="科普" data-field="name"') && pane().includes(`什么样的${unit}打这个标签`) && pane().includes(`用在 2 个${unit}`) && pane().includes("data-tag-del"), `${who}: the pane counts in the mode's unit`);
+    assert.strictEqual(pane().split("data-color=").length - 1, ctx.MdgTagCore.TAG_COLORS.length, "a dot per palette color");
     assert.strictEqual(focused, "newTagInput");
     // IME: Enter that picks a candidate adds nothing; a plain Enter adds and clears the box.
     nodes.newTagInput.value = "zhong";
@@ -134,14 +141,40 @@ function adapters(who) {
     // Enter in a rename stays in the dialog (it would submit the form), but not mid-IME.
     assert.strictEqual(enter(target('[data-field="name"]')).prevented, 1);
     assert.strictEqual(enter(target('[data-field="name"]'), { isComposing: true }).prevented, 0);
-    // A refused rename redraws the row with the saved name; 删除 goes to the adapter.
-    nodes.tagsRows.innerHTML = "";
-    fire("tagsRows", "change", { target: { value: "重名", dataset: { field: "name" }, closest: () => ({ dataset: { id: "a" } }) } });
+    // 新建 says why under the box once something is typed.
+    nodes.newTagInput.value = "重名";
+    fire("newTagInput", "input");
+    assert.strictEqual(nodes.tmWhy.textContent, "已有同名标签");
+    nodes.newTagInput.value = "";
+    fire("newTagInput", "input");
+    assert.strictEqual(nodes.tmWhy.textContent, "");
+    // A saved edit redraws only the list, so the focus stays in the pane; a refused rename redraws the pane with the
+    // saved name; a color dot sets that color; 删除 goes to the adapter.
+    const inPane = (sel, dataset = {}) => ({ dataset: {}, closest: (s) => (s === sel ? { dataset } : null) });
+    nodes.tmDetail.innerHTML = nodes.tagsRows.innerHTML = "";
+    fire("tmDetail", "change", { target: { value: "写给 AI 的说明", dataset: { field: "rule" } } });
     await wait();
-    assert.ok(nodes.tagsRows.innerHTML.includes("科普"), `${who}: a refused name goes back`);
-    fire("tagsRows", "click", { target: { closest: (s) => (s === ".tag-row" ? { dataset: { id: "a" } } : s === "[data-tag-del]" ? {} : null) } });
+    assert.deepStrictEqual([calls.at(-1), pane()], [["edit", "a", "rule", "写给 AI 的说明"], ""]);
+    assert.ok(nodes.tagsRows.innerHTML.includes("科普"));
+    fire("tmDetail", "change", { target: { value: "重名", dataset: { field: "name" } } });
     await wait();
-    assert.deepStrictEqual(calls.at(-1), ["remove", "a"]);
+    assert.ok(pane().includes('value="科普"'), `${who}: a refused name goes back`);
+    fire("tmDetail", "click", { target: inPane("[data-color]", { color: "#298287" }) });
+    await wait();
+    assert.deepStrictEqual(calls.at(-1), ["edit", "a", "color", "#298287"]);
+    // A click on the left picks the tag the pane shows; a color another tag has is dimmed and named. Names are escaped.
+    tags.push({ id: "b", name: '<i>"', color: "#da86c3" });
+    fire("tagsRows", "click", { target: inPane(".tm-item", { id: "b" }) });
+    assert.ok(pane().includes('value="&lt;i&gt;&quot;"') && !pane().includes("<i>") && !nodes.tagsRows.innerHTML.includes("<i>"), pane());
+    tags[0].color = "#298287";
+    D.manage.open(manage);
+    fire("tagsRows", "click", { target: inPane(".tm-item", { id: "b" }) });
+    assert.ok(/class="tag-color used" style="--c:#298287"[^>]*title="「科普」在用"/.test(pane()) && pane().includes('data-color="#da86c3" aria-pressed="true"'), pane());
+    fire("tmDetail", "click", { target: inPane("[data-tag-del]") });
+    await wait();
+    assert.deepStrictEqual(calls.at(-1), ["remove", "b"]);
+    tags.pop();
+    tags[0].color = "#111";
     nodes.tagManageDialog.close();
 
     // AI 打标签: the form, its own title and no 标签管理 part; 选中 is picked when something is selected.
@@ -151,7 +184,7 @@ function adapters(who) {
     assert.ok(!nodes.aiForm.hidden && nodes.aiReview.hidden);
     assert.strictEqual(nodes.aiScope.value, "selected");
     assert.strictEqual(ai.excluded.size, 0, "each opening starts with every tag usable");
-    assert.strictEqual(nodes.aiHint.textContent, `用一句话让 AI 给一批${unit}打标签。AI 看名字，只给建议，你点「应用」后才生效。`);
+    assert.strictEqual(nodes.aiHint.textContent, "AI 看名字，只给建议，你点「应用」后才生效。");
     assert.ok(nodes.aiTagsPreview.innerHTML.includes('data-use="a"') && nodes.aiRemoveInput.checked);
     // No tags: the hint links to 标签管理 (a text link), which closes this dialog and opens 标签管理 with the mode's adapter.
     tags.length = 0;
@@ -210,22 +243,52 @@ function adapters(who) {
     assert.deepStrictEqual(JSON.parse(JSON.stringify(calls.at(-1))), ["run", { instruction: "按内容分", scope: "selected", allowRemove: true }]);
     assert.ok(nodes.aiRunBtn.disabled && nodes.aiRunBtn.innerHTML === "运行中…" && !nodes.aiStopBtn.hidden);
     D.ai.progress(ai, "AI 正在处理第 1 / 2 批…");
-    assert.strictEqual(nodes.aiProgress.textContent, "AI 正在处理第 1 / 2 批…");
+    assert.deepStrictEqual([nodes.aiProgress.textContent, nodes.aiFail.hidden], ["AI 正在处理第 1 / 2 批…", true]);
     // 停止, as the pill's: 停止中, off with the pill's reason; the progress line stays the run's.
     fire("aiTagDialog", "click", { target: target("#aiStopBtn", { id: "aiStopBtn" }) });
     assert.deepStrictEqual([calls.at(-1)[0], nodes.aiStopBtn.textContent, nodes.aiStopBtn.disabled, nodes.aiStopBtn.title], ["stop", "停止中", true, ctx.TriageUi.WRITE_STOPPING]);
     assert.strictEqual(nodes.aiProgress.textContent, "AI 正在处理第 1 / 2 批…");
     ai.isStopping = false;
 
+    // X7: a run that ends with no proposal leaves why in the red banner beside the buttons, not in the grey progress
+    // line; the next run takes it away.
+    ai.isRunning = false;
+    D.ai.progress(ai, "第 1 批失败：API Key 不对");
+    D.ai.render(ai);
+    assert.deepStrictEqual([nodes.aiProgress.textContent, nodes.aiFail.textContent, nodes.aiFail.hidden], ["", "第 1 批失败：API Key 不对", false]);
+    // The banner draws the button it is handed (the page's 去设置 / 授权 for the error's code), and none without one.
+    {
+      const btn = { L: [], addEventListener: (type, f) => btn.L.push(f) };
+      let ran = 0;
+      nodes.aiFail.added = "";
+      nodes.aiFail.insertAdjacentHTML = (where, h) => (nodes.aiFail.added += h);
+      nodes.aiFail.querySelector = () => btn;
+      assert.strictEqual(nodes.aiFail.added, "", "no remedy: no button");
+      D.ai.progress(ai, "第 1 批失败：API Key 不对", "", { label: "去设置", run: () => ran++ });
+      assert.deepStrictEqual([nodes.aiFail.textContent, nodes.aiFail.added], ["第 1 批失败：API Key 不对", '<button type="button" class="sm">去设置</button>']);
+      btn.L[0]();
+      assert.strictEqual(ran, 1, "the button runs the remedy");
+      nodes.aiFail.added = "";
+      D.ai.progress(ai, "第 1 批失败：格式不对");
+      assert.strictEqual(nodes.aiFail.added, "", "an error without a remedy: the banner alone");
+    }
+    fire("aiTagDialog", "click", { target: target("#aiRunBtn", { id: "aiRunBtn" }) });
+    assert.deepStrictEqual([nodes.aiProgress.textContent, nodes.aiFail.hidden], ["", true]);
     // Done: the open dialog turns to the proposal, counted in the mode's unit; 应用 closes it.
     ai.isRunning = false;
     // A row for an item that left (unfavorited, unfollowed) counts nowhere: not in 应用到, not in 用在.
     const row = (id, add) => ({ id, add, remove: [] });
-    ai.p = { newTags: [{ key: "n", name: "新", checked: true }], rows: [row("x", ["new:n"]), row("y", ["id:a"]), row("left", ["new:n"])], notes: [], errors: [] };
+    ai.p = { newTags: [{ key: "n", name: "新", checked: true }], rows: [row("x", ["new:n"]), row("y", ["id:a"]), row("left", ["new:n"])], notes: ["看不出的没打", "看不出的没打"], errors: ["第 2 批失败：超时"], excludedHits: ["数学"] };
     D.ai.render(ai);
-    assert.ok(nodes.aiForm.hidden && !nodes.aiReview.hidden);
+    assert.ok(nodes.aiForm.hidden && nodes.aiFormActs.hidden && !nodes.aiReview.hidden && !nodes.aiReviewHead.hidden && !nodes.aiReviewActs.hidden);
     assert.strictEqual(nodes.aiApplyBtn.textContent, `应用到 2 个${unit}`);
-    assert.ok(nodes.aiReviewHint.textContent.includes(`这些${unit}，在卡片上逐个看`) && nodes.aiNewTags.innerHTML.includes(`用在 1 个${unit}`));
+    // The verdict in one line; one sentence under it; failed batches in the red banner; on the right what it rests on:
+    // the instruction it ran with, the AI's notes (each once) and what was not used.
+    assert.strictEqual(nodes.aiReviewSummary.innerHTML, `<b>2</b> 个${unit}有改动，新建 <b>1</b> 个标签`);
+    assert.strictEqual(nodes.aiReviewHint.textContent, `应用后列表只显示「✦ AI 刚打的」这些${unit}，在卡片上逐个看，不对的按 T 改，按 U 整批撤销。`);
+    assert.deepStrictEqual([nodes.aiErrors.textContent, nodes.aiErrors.hidden], ["第 2 批失败：超时", false]);
+    assert.strictEqual(nodes.aiNotes.innerHTML, '<div><dt>指令</dt><dd class="dialog-hint">按内容分</dd></div><div><dt>AI 说明</dt><dd class="dialog-hint">看不出的没打</dd></div><div><dt>没有采用</dt><dd class="dialog-hint warn">AI 想用的「数学」是你点掉的标签，没有采用。</dd></div>');
+    assert.ok(nodes.aiNewTags.innerHTML.includes(`用在 1 个${unit}`));
     assert.ok(nodes.aiRows.innerHTML.includes("+ 新 <b>1</b>") && nodes.aiRows.innerHTML.includes("+ 科普 <b>1</b>"), nodes.aiRows.innerHTML);
     // Nothing to apply: 应用 is off and says why. A48/A49: unticked or left proposals are not 「AI 没有提出改动」.
     ai.p.newTags[0].checked = false;
@@ -236,6 +299,7 @@ function adapters(who) {
     ai.p = { newTags: [], rows: [], notes: [], errors: [] };
     D.ai.render(ai);
     assert.ok(nodes.aiApplyBtn.disabled && nodes.aiApplyBtn.title === "AI 没有提出改动" && nodes.aiRows.innerHTML.includes("AI 没有提出改动"), `${who}: the AI proposed nothing`);
+    assert.deepStrictEqual([nodes.aiReviewSummary.innerHTML, nodes.aiErrors.hidden], ["AI 没有提出改动", true]);
     ai.p = proposed;
     ai.p.newTags[0].checked = true;
     D.ai.render(ai);
@@ -254,16 +318,16 @@ function adapters(who) {
     D.ai.open(ai);
     nodes.aiInstruction.value = "A 的指令";
     D.ai.progress(ai, "第 1 批失败", "A");
-    assert.strictEqual(nodes.aiProgress.textContent, "第 1 批失败");
+    assert.strictEqual(nodes.aiFail.textContent, "第 1 批失败");
     nodes.aiTagDialog.close();
     D.ai.open(ai);
     assert.strictEqual(nodes.aiInstruction.value, "A 的指令", "reopened in the same folder, the instruction stays");
     folder = "B";
     D.ai.open(ai);
-    assert.deepStrictEqual([nodes.aiProgress.textContent, nodes.aiInstruction.value], ["", ""], "folder A's failure and instruction stay out of B");
+    assert.deepStrictEqual([nodes.aiFail.textContent, nodes.aiFail.hidden, nodes.aiInstruction.value], ["", true, ""], "folder A's failure and instruction stay out of B");
     folder = "A";
     D.ai.open(ai);
-    assert.strictEqual(nodes.aiProgress.textContent, "第 1 批失败", "back in A, its line is there again");
+    assert.strictEqual(nodes.aiFail.textContent, "第 1 批失败", "back in A, its line is there again");
     D.ai.open(adapters("UP 主").ai);
     assert.strictEqual(nodes.aiInstruction.value, "", "another mode starts with an empty instruction");
     nodes.aiTagDialog.close();
@@ -295,6 +359,7 @@ function adapters(who) {
     assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.placeholder, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent, nodes.addTagBtn.attrs["aria-label"]], ["分组管理", "新分组名称", 16, "新建", "新建分组"]);
     assert.strictEqual(nodes.tagManageHint.textContent, "B站 的分组。立即在 B站 生效。");
     assert.strictEqual(nodes.tagsRows.innerHTML, '<div class="group-row">每周必看/4</div>', "its own rows");
+    assert.deepStrictEqual([nodes.tagManageDialog.classList.on.has("tm"), nodes.tmDetail.innerHTML, nodes.tmMeta.textContent], [false, "", ""], "one list, no pane");
     fire("tagsRows", "change", { target: { value: "新名", dataset: { field: "name" }, closest: () => ({ dataset: { id: "101" } }) } });
     await wait();
     assert.deepStrictEqual(calls.at(-1), ["edit", 101, "name", "新名"], "a number id is found from the row's data-id");
@@ -305,7 +370,7 @@ function adapters(who) {
     D.manage.open(adapters("视频").manage);
     // K24: making a tag is 新建标签 here too, as in the picker and on B站 pages.
     assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent, nodes.addTagBtn.attrs["aria-label"]], ["标签管理", 12, "新建", "新建标签"]);
-    assert.ok(nodes.tagsRows.innerHTML.includes("data-tag-color"));
+    assert.ok(nodes.tagManageDialog.classList.on.has("tm") && nodes.tmDetail.innerHTML.includes("data-color"));
   }
 
   // C488 / C490 / C495 / C496 / C500.
@@ -314,7 +379,7 @@ function adapters(who) {
     // Nothing editable here: the hint does not promise 立即保存.
     manage.reason = () => "所有收藏夹里不能改标签";
     D.manage.open(manage);
-    assert.strictEqual(nodes.tagManageHint.textContent, "这里的标签。");
+    assert.deepStrictEqual([nodes.tagManageHint.textContent, nodes.tmMeta.textContent, nodes.tmDetail.innerHTML], ["这里的标签。", "", '<p class="tm-empty">所有收藏夹里不能改标签</p>']);
     manage.reason = null;
     // 新建 twice before the first answer creates the tag once.
     let answer;
@@ -346,13 +411,13 @@ function adapters(who) {
     tags.push({ id: "a", name: "科普", color: "#111" });
     ai.p = { newTags: [{ key: "n", name: "科普", checked: true }, { key: "m", name: "新", checked: true }], rows: [{ id: "x", add: ["new:n", "new:m"], remove: [] }], notes: [], errors: [] };
     D.ai.render(ai);
-    assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 1 个"), nodes.aiReviewSummary.textContent);
+    assert.ok(nodes.aiReviewSummary.innerHTML.includes("新建 <b>1</b> 个标签"), nodes.aiReviewSummary.innerHTML);
     // C491: 所有收藏夹 lists one tag per name (A's 科普); B's new 科普 is B's own 科普, found among allTags().
     ai.allTags = () => [...tags, { id: "b", name: "科普", color: "#222", folder: "B" }];
     tags[0].folder = "A";
     ai.p = { newTags: [{ key: "B/科普", name: "科普", checked: true, folder: "B" }], rows: [{ id: "x", add: ["new:B/科普"], remove: [] }], notes: [], errors: [] };
     D.ai.render(ai);
-    assert.ok(nodes.aiReviewSummary.textContent.includes("新标签 0 个"), nodes.aiReviewSummary.textContent);
+    assert.ok(nodes.aiReviewSummary.innerHTML.includes("新建 <b>0</b> 个标签"), nodes.aiReviewSummary.innerHTML);
     // H3: under a hard limit (摘读记录's), the ticked new tags 应用 cannot create are named up front, not said to be kept, and
     // count as unticked, as 应用 skips them.
     delete ai.allTags;
@@ -362,7 +427,7 @@ function adapters(who) {
     ai.notMade = (p) => ({ keys: new Set(p.newTags.filter((t) => t.checked).slice(1).map((t) => t.key)), why: "最多 50 个" });
     D.ai.render(ai);
     assert.ok(nodes.aiNotes.innerHTML.includes("「乙」不会新建：最多 50 个") && !nodes.aiNotes.innerHTML.includes("超过上限"), nodes.aiNotes.innerHTML);
-    assert.ok(nodes.aiReviewSummary.textContent.includes("1 个") && nodes.aiReviewSummary.textContent.includes("新标签 1 个") && nodes.aiApplyBtn.textContent.startsWith("应用到 1 个"), nodes.aiReviewSummary.textContent);
+    assert.ok(nodes.aiReviewSummary.innerHTML === "<b>1</b> 个视频有改动，新建 <b>1</b> 个标签" && nodes.aiApplyBtn.textContent.startsWith("应用到 1 个"), nodes.aiReviewSummary.innerHTML);
     delete ai.notMade;
     ai.p = null;
     nodes.aiTagDialog.close();

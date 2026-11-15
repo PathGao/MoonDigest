@@ -16,6 +16,7 @@ const {
 const PLAYER_AI_QUICK_ACTION_STORAGE_KEY = MdgLimits.KEYS.playerAiQuickAction;
 // Marks a control that starts an AI request (tokens.css draws it in the text color).
 const AI_SPARK = '<span class="ai-spark" aria-hidden="true"></span>';
+const ASK_PLACEHOLDER = "回车发送，Shift+回车换行";
 const EMPTY_INTRO = "AI 会读这期视频的字幕和评论，回答你的问题。";
 const PAGE_INTRO = "AI 会读这篇网页的正文，回答你的问题。";
 const STREAM_SLOW_NOTICE_MS = 15000;
@@ -28,6 +29,7 @@ const NOTICE_MS = 3000;
 const NOTICE_LONG_MS = 4000;
 // A history conversation whose B站 video was deleted or hidden: no retry brings it back, so it is only read.
 const VIDEO_GONE = "视频已失效，这段对话只能查看，不能继续提问。";
+const TRASH_ICON = '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
 
 const els = {
   contextChip: document.getElementById("spContextChip"),
@@ -48,6 +50,7 @@ const els = {
   downloadConversationBtn: document.getElementById("spDownloadConversationBtn"),
   presetPopover: document.getElementById("spPresetPopover"),
   presetList: document.getElementById("spPresetList"),
+  presetCount: document.getElementById("spPresetCount"),
   presetInput: document.getElementById("spPresetInput"),
   presetAddBtn: document.getElementById("spPresetAddBtn"),
   followups: document.getElementById("spFollowups"),
@@ -331,6 +334,29 @@ function grantPageAccess() {
   void MdgErrors.grantPages().then((granted) => (granted ? refreshContextManually() : act({ type: "GRANT_DENIED" })));
 }
 
+// Why nothing can be asked now, written in the gray input box: no AI platform, the shown conversation read-only, or
+// the tab's video not read (the empty state above then has 重试, unless no read helps or there is no tab). Without a
+// platform the box says what to do first: the reason itself is in the platform select and in the message.
+const ASK_AFTER_RETRY = "视频没读到，点「重试」后才能提问";
+const ASK_AFTER_PLATFORM = "先添加 AI 平台才能提问";
+const ASK_AFTER_PLATFORM_RETRY = "AI 平台没读到，点「重试」后才能提问";
+function askBlockReason() {
+  if (!providers.length) return providersError ? ASK_AFTER_PLATFORM_RETRY : ASK_AFTER_PLATFORM;
+  const readOnly = readOnlyReason();
+  if (readOnly) return readOnly;
+  const { context, bound, live } = state.view();
+  return !context && !bound && live.error ? (contextRetry() && live.tabUrl ? ASK_AFTER_RETRY : live.error) : "";
+}
+
+// What helps without a platform, where 重试 sits: the empty state's 去设置页添加平台 when none is enabled, 重试 when
+// the platforms could not be read.
+const ADD_PLATFORM = "去设置页添加平台";
+function platformRemedy() {
+  return providersError
+    ? { label: MdgErrors.LABEL.retry, run: () => refreshProvidersAndPrefsAfterExternalChange() }
+    : { label: ADD_PLATFORM, run: () => chrome.runtime.openOptionsPage() };
+}
+
 // The AI texts come in two sets the user edits (DESIGN): the web* keys on a web page, the original keys on a video.
 const isPage = (context) => context?.isVideoContext === false;
 const summaryPrompt = (context) => (isPage(context) ? aiPrefs.webAiSummaryPrompt : aiPrefs.playerAiQuickPrompt);
@@ -343,9 +369,11 @@ const presetPrompts = () => aiPrefs[presetKey()] || [];
 function syncSendUi() {
   const { turn, streaming } = state.view();
   const stopping = turn === "stopping";
-  const blocked = streaming ? "" : readOnlyReason();
-  // The input says why too: while streaming the 正在生成… line's words, else the send button's.
+  const blocked = streaming ? "" : askBlockReason();
+  // The input says why too: while streaming the 正在生成… line's words, else the send button's, which it also shows
+  // as its placeholder.
   setDisabledReason(els.input, streaming ? els.generating.textContent : blocked);
+  els.input.placeholder = blocked || ASK_PLACEHOLDER;
   renderFollowups();
   els.generating.hidden = !streaming;
   setDisabledReason(els.sendBtn, stopping ? "正在停止生成" : blocked);
@@ -491,7 +519,11 @@ function syncModelSelectTitle() {
 async function refreshProvidersAndPrefsAfterExternalChange() {
   const previousProviderId = String(els.modelSelect?.value || localStorage.getItem(SELECTED_PROVIDER_KEY) || "").trim();
   const previousSummary = summaryPrompt(state.view().context);
+  const hadPlatforms = Boolean(providers.length);
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
+  syncSendUi();
+  // A conversation says under it that there is no platform: taken down or put up when that changed.
+  if (state.view().messages.length && hadPlatforms !== Boolean(providers.length)) redrawConversation();
   // AI 总结 filled in and not edited since follows the setting, so the box shows what the button sends.
   const summary = summaryPrompt(state.view().context);
   if (previousSummary && summary && els.input.value.trim() === previousSummary.trim()) {
@@ -501,8 +533,8 @@ async function refreshProvidersAndPrefsAfterExternalChange() {
     return;
   }
   renderHistoryList();
-  // A conversation draws nothing from these settings (the select, 快捷追问 and the Obsidian item are drawn above); only
-  // the empty state does, and it is drawn again only if it changed.
+  // Nothing else in a conversation is drawn from these settings (the select, 快捷追问 and the Obsidian item are drawn
+  // above); the empty state is, and it is drawn again only if it changed.
   const { messages, unanswered } = state.view();
   if (!messages.length && !unanswered) renderInitialState();
 }
@@ -812,7 +844,7 @@ function updateContextChip() {
   // A page read since (允许读取网页, the tab back on the page, 继续问 from 摘读记录 opening it) unlocks sending in a
   // conversation that stays, and takes down the 打开这个网页后才能继续问 drawn under it.
   syncSendUi();
-  if (state.view().nonVideo && state.view().messages.length && !readOnlyReason()) removeCenteredState();
+  if (state.view().nonVideo && state.view().messages.length && !readOnlyReason() && providers.length) removeCenteredState();
   const { context, mismatch } = state.view();
   if (!context) {
     setContextChipText("读取失败");
@@ -964,10 +996,11 @@ function suggestionsContent() {
     return { html: "" };
   }
   if (providersError) {
-    return { html: `<p class="sp-empty-intro">${escapeHtml(providersError)}</p>` };
+    // As the empty state of a video that could not be read: the message centered, 重试 on its own line.
+    return { html: `<div class="sp-center-error">${escapeHtml(providersError)}<br><button type="button" class="sp-chip sp-grant-btn" data-act="platforms">${MdgErrors.LABEL.retry}</button></div>` };
   }
   if (!providers.length) {
-    return { html: `<p class="sp-empty-intro">${context?.isVideoContext === false ? PAGE_INTRO : EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn" data-act="settings">去设置页添加平台</button>` };
+    return { html: `<p class="sp-empty-intro">${context?.isVideoContext === false ? PAGE_INTRO : EMPTY_INTRO}${MdgErrors.TEXT.aiNone}。</p><button type="button" class="sp-summary-btn" data-act="settings">${ADD_PLATFORM}</button>` };
   }
   if (!context || (context.isVideoContext === false && pageReason(context))) {
     return { html: "" };
@@ -1005,6 +1038,7 @@ function renderSuggestions() {
     node.querySelector('[data-act="settings"]')?.addEventListener("click", () => chrome.runtime.openOptionsPage());
     node.querySelector('[data-act="summary"]')?.addEventListener("click", () => sendSummary(summary.prompt));
     node.querySelector('[data-act="retry"]')?.addEventListener("click", () => void refreshContextManually());
+    node.querySelector('[data-act="platforms"]')?.addEventListener("click", () => void platformRemedy().run());
     if (video) void renderTriageSummary(node);
   }
   if (!summary) {
@@ -1127,28 +1161,49 @@ function sendSummary(prompt) {
   else void sendMessage(prompt);
 }
 
+let presetRedraw = false;
 function renderPresetPrompts() {
   if (!els.presetList) {
     return;
   }
   syncPresetAdd();
   const prompts = presetPrompts();
-  if (!prompts.length) {
-    els.presetList.innerHTML = '<span class="sp-preset-empty">还没有快捷追问</span>';
-    return;
-  }
+  els.presetCount.textContent = `${prompts.length}/${MdgSettings.MAX_PRESET_PROMPTS}`;
+  // A redraw (this panel's own save comes back as a settings change) keeps the row being typed in: its text and focus.
+  // defaultValue is the row's saved text.
+  const rows = () => [...els.presetList.querySelectorAll(".sp-preset-text")];
+  const typing = rows().find((input) => input === document.activeElement);
+  // Chrome tells the focused row it lost the focus as the redraw removes it: that is not the reader leaving it.
+  presetRedraw = true;
   els.presetList.innerHTML = prompts
-    .map((prompt) => `
-      <span class="sp-preset-item">
-        <span class="sp-preset-chip" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
-        <button type="button" class="sp-preset-remove" aria-label="删除快捷追问">×</button>
-      </span>
-    `)
-    .join("");
+    .map((prompt, index) => `<li class="sp-preset-row"><input class="sp-preset-input sp-preset-text" type="text" name="presetPrompt" value="${escapeHtml(prompt)}" aria-label="快捷追问 ${index + 1}"><button type="button" class="sp-preset-remove" aria-label="删除快捷追问">${TRASH_ICON}</button></li>`)
+    .join("") || '<li class="sp-preset-empty">还没有快捷追问</li>';
+  presetRedraw = false;
+  const unread = settingsReadFailed ? PRESETS_UNREAD : "";
+  rows().forEach((input, index) => {
+    setDisabledReason(input, unread, prompts[index]);
+    // Saved when the box is left or on Enter; never mid-IME.
+    // Not when the row's own 删除 takes the focus: the row is then removed, not renamed.
+    // Another row's 删除: this save draws the rows again before that click lands, so the removal is done here after it
+    // (a click that does land removes the same row, once).
+    input.addEventListener("focusout", (e) => {
+      if (presetRedraw || e.relatedTarget === input.nextElementSibling || input.value.trim() === prompts[index]) return;
+      const pressed = [...els.presetList.querySelectorAll(".sp-preset-remove")].indexOf(e.relatedTarget);
+      void renamePresetPrompt(prompts[index], input.value).then(() => pressed >= 0 && removePresetPrompt(prompts[pressed]));
+    });
+    input.addEventListener("keydown", (e) => {
+      if (!MdgTyping.composing(e) && e.key === "Enter") input.blur();
+    });
+  });
   els.presetList.querySelectorAll(".sp-preset-remove").forEach((btn, index) => {
-    setDisabledReason(btn, settingsReadFailed ? PRESETS_UNREAD : "", "删除快捷追问");
+    setDisabledReason(btn, unread, "删除快捷追问");
     btn.addEventListener("click", () => void removePresetPrompt(prompts[index]));
   });
+  const again = typing && rows().find((input) => input.defaultValue === typing.defaultValue);
+  if (again && !again.disabled) {
+    again.value = typing.value;
+    again.focus();
+  }
 }
 
 function renderHistoryList() {
@@ -1177,13 +1232,7 @@ function renderHistoryList() {
             </span>
             <span class="sp-history-meta" title="${escapeHtml(metaText)}">${escapeHtml(metaText)}</span>
           </button>
-          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话" title="删除">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M3 6h18"></path>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
-              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>
+          <button type="button" class="sp-history-remove" data-id="${escapeHtml(conversation.id)}" aria-label="删除历史对话" title="删除">${TRASH_ICON}</button>
         </div>
       `;
     })
@@ -1250,7 +1299,8 @@ async function saveConversations() {
 }
 
 async function deleteConversation(id) {
-  if (!confirm("删除这条历史对话？删除后不能恢复。")) {
+  const title = cutTitle(String(state.view().saved.find((c) => c.id === id)?.title || "").trim(), 30);
+  if (!confirm(`删除历史对话${title ? `「${title}」` : ""}？删除后不能恢复。`)) {
     return;
   }
   await act({ type: "DELETED", id });
@@ -1451,6 +1501,7 @@ async function openPreviousVideoUrl(url) {
 }
 
 const PRESETS_UNREAD = `${MdgErrors.TEXT.settingsReadFailed}，暂时不能修改快捷追问`;
+const PRESETS_FULL = `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加`;
 // 添加 is disabled with the reason while the box is empty, holds one already listed, or the list is full (one past the
 // limit would be cut when saved); Enter follows the same rule, and the typed text stays.
 function presetAddReason() {
@@ -1458,11 +1509,14 @@ function presetAddReason() {
   const text = String(els.presetInput.value || "").trim();
   if (!text) return "先输入快捷追问";
   if (presetPrompts().includes(text)) return "已有这条快捷追问";
-  const full = presetPrompts().length >= MdgSettings.MAX_PRESET_PROMPTS;
-  return full ? `最多 ${MdgSettings.MAX_PRESET_PROMPTS} 条快捷追问，先删掉一条再添加` : "";
+  return presetPrompts().length >= MdgSettings.MAX_PRESET_PROMPTS ? PRESETS_FULL : "";
 }
 function syncPresetAdd() {
   setDisabledReason(els.presetAddBtn, presetAddReason());
+  // The add box itself is gray only when adding is impossible whatever is typed, and says why in its placeholder.
+  const closed = settingsReadFailed ? PRESETS_UNREAD : presetPrompts().length >= MdgSettings.MAX_PRESET_PROMPTS ? PRESETS_FULL : "";
+  setDisabledReason(els.presetInput, closed);
+  els.presetInput.placeholder = closed || "添加快捷追问";
 }
 
 async function addPresetPrompt() {
@@ -1486,6 +1540,18 @@ async function removePresetPrompt(prompt) {
     renderPresetPrompts();
     renderFollowups();
   }
+}
+
+// A row edited in place: its new text takes the old one's place; emptied, the row goes; made equal to another row, the
+// two become one (the list has no repeats, as the settings page's). The rows are drawn again either way, so a row
+// whose save was refused shows what is stored.
+async function renamePresetPrompt(prompt, value) {
+  const text = String(value || "").trim();
+  if (!settingsReadFailed && text !== prompt) {
+    await editPresetPrompts((list) => MdgSettings.normalizeAiPresetPrompts(list.map((item) => (item === prompt ? text : item))));
+  }
+  renderPresetPrompts();
+  renderFollowups();
 }
 
 // Edits save one after another, each on the list as stored when its turn comes (the settings page may have changed it
@@ -1605,6 +1671,8 @@ function renderConversationMessages() {
   const failed = nonVideo ? pageReason(state.view().context) : state.view().failed?.text;
   if (failed) {
     showConversationContextError(failed, nonVideo ? null : contextRemedy());
+  } else if (!providers.length) {
+    showConversationContextError(providersError || MdgErrors.TEXT.aiNone, platformRemedy());
   }
   renderFollowups();
   drawnRun = run;
@@ -2002,7 +2070,12 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
   const err = document.createElement("div");
   err.className = "sp-msg-error";
   err.textContent = `错误：${error}`;
-  node.appendChild(err);
+  // The error comes before the reply's button row, and its buttons lead that row: 复制 Markdown (of an answer cut
+  // short) is last. A reply that failed before its first word has no row yet.
+  const actions = node.querySelector(".sp-msg-actions") || node.appendChild(Object.assign(document.createElement("div"), { className: "sp-msg-actions" }));
+  actions.before(err);
+  const copy = actions.firstChild;
+  const add = (button) => actions.insertBefore(button, copy);
   // Only the background's own AI_ACCESS (grantOrigin checks the code): words an AI platform returns must not choose
   // which origin is asked for.
   const fix = MdgErrors.remedies(code);
@@ -2018,7 +2091,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
         grant.remove();
       }
     });
-    node.appendChild(grant);
+    add(grant);
   }
   // The AI platform errors 分拣台 stops on (MdgErrors.CODES): 去设置 comes before 重试.
   if (fix.includes("settings")) {
@@ -2027,7 +2100,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
     settings.className = "sp-chip sp-grant-btn";
     settings.textContent = MdgErrors.LABEL.toSettings;
     settings.addEventListener("click", () => chrome.runtime.openOptionsPage());
-    node.appendChild(settings);
+    add(settings);
   }
   const retry = document.createElement("button");
   retry.type = "button";
@@ -2048,7 +2121,7 @@ function appendStreamError({ node, prompt, raw }, error, saved, code = "") {
       }
     });
   });
-  node.appendChild(retry);
+  add(retry);
 }
 
 // Up while the reply still waits for its first word (the answering effect takes it down).

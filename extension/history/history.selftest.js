@@ -151,7 +151,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   pick("a");
   assert.strictEqual(allBox(), "mixed", "some selected");
   assert.ok(els.selbar.innerHTML.includes("已选中 1 个"), els.selbar.innerHTML);
-  assert.deepStrictEqual(btn("md"), ["下载选中的 1 个 .md", false, ""]);
+  assert.deepStrictEqual(btn("md"), ["下载 .md", false, ""]);
   pick("a");
   assert.strictEqual(allBox(), "false", "a second click takes it off");
   // Shift picks the run from the last picked.
@@ -163,7 +163,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   pick("b");
   assert.strictEqual(allBox(), "true", "b on again");
   assert.ok(els.selectAllSlot.innerHTML.includes("全选 2 个"), els.selectAllSlot.innerHTML);
-  assert.deepStrictEqual([btn("md")[0], btn("delete")[0]], ["打包下载选中的 2 个 .md", "删除选中的 2 个的 AI 对话"]);
+  assert.deepStrictEqual([btn("md")[0], btn("delete")[0]], ["打包下载 .md", "删除 AI 对话"]);
   // 清空选中 empties the selection and takes the bar away; 全选 selects every listed one again.
   const selClick = (sel) => (L.selbar.click || []).forEach((f) => f({ target: { closest: () => ({ dataset: { sel } }) } }));
   const headClick = (f) => (L.filters.click || []).forEach((h) => h({ target: { closest: () => ({ dataset: { f } }) } }));
@@ -206,7 +206,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   selClick("clear");
   assert.deepStrictEqual([allBox(), els.selbar.innerHTML], ["false", ""]);
   headClick("select-all");
-  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载选中的 2 个 .md"]);
+  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载 .md"]);
   // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
   // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
   const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
@@ -221,13 +221,13 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   pick("a");
   pick("b");
   await search("img");
-  assert.deepStrictEqual(btn("md"), ["下载选中的 1 个 .md", false, ""]);
+  assert.deepStrictEqual(btn("md"), ["下载 .md", false, ""]);
   assert.ok(els.selbar.innerHTML.includes("另有 1 个被筛选隐藏"), els.selbar.innerHTML);
   await search("没有这个");
-  assert.deepStrictEqual([btn("md"), btn("delete")], [["打包下载选中的 2 个 .md", true, "选中的都被筛选隐藏了"], ["删除选中的 2 个的 AI 对话", true, "选中的都被筛选隐藏了"]]);
+  assert.deepStrictEqual([btn("md"), btn("delete")], [["打包下载 .md", true, "选中的都被筛选隐藏了"], ["删除 AI 对话", true, "选中的都被筛选隐藏了"]]);
   assert.ok(els.selbar.innerHTML.includes("已选中 2 个</strong><span class=\"muted\">都被筛选隐藏"), els.selbar.innerHTML);
   await search("");
-  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载选中的 2 个 .md"], "the selection is still there");
+  assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载 .md"], "the selection is still there");
   // H4: 已打标签 with none tagged lists nothing and says why, as the other filters do.
   headClick("tagstate:tagged");
   assert.ok(html.includes("没有符合筛选的记录"), html);
@@ -240,7 +240,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await wait(350);
   const noteKey = html.match(/data-key="([^"]*BV1note[^"]*)"/)[1];
   pick(noteKey);
-  assert.deepStrictEqual([btn("md")[0], btn("delete")], ["打包下载选中的 3 个 .md", ["删除选中的 2 个的 AI 对话", false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下"]]);
+  assert.deepStrictEqual([btn("md")[0], btn("delete")], ["打包下载 .md", ["删除 AI 对话", false, "选中的 3 个里，1 个没有 AI 对话，删除后会留下"]]);
   // A21: a 备注 closed by pressing another entry's button (focusout on pointerdown) redraws only after that press,
   // so the button the click lands on is still the one pressed.
   // A key pressed on the page (I, U), outside any text field.
@@ -279,7 +279,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   assert.ok(renders > before && !html.includes("data-note"), "redrawn after the press, the box closed");
   pick("a");
   pick("b");
-  assert.deepStrictEqual(btn("delete"), ["删除选中的 AI 对话", true, "选中的记录没有 AI 对话"]);
+  assert.deepStrictEqual(btn("delete"), ["删除 AI 对话", true, "选中的记录没有 AI 对话"]);
   // K13: each entry's button says what it deletes.
   assert.ok(html.includes('data-act="delete" class="quiet danger">删除 AI 对话</button>'), html);
   // The buttons top right in reading order: 继续问, 复制 Markdown, 下载 .md, 写入 Obsidian; 删除 is not among them.
@@ -303,7 +303,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   await wait(350);
   els.list.querySelectorAll = realQsa;
   assert.deepStrictEqual([ask.disabled, ask.title, ask.attrs["aria-description"]], [true, ctx.MdgErrors.TEXT.notVideo, ctx.MdgErrors.TEXT.notVideo]);
-  assert.deepStrictEqual([btn("md")[0], els.toast.textContent], ["下载选中的 1 个 .md", "已清空全部 AI 对话"]);
+  assert.deepStrictEqual([btn("md")[0], els.toast.textContent], ["下载 .md", "已清空全部 AI 对话"]);
   // Out of the selection bar, 清空全部 still clears every conversation, not the selected one.
   assert.strictEqual(store.mdg_ai_conversations_v1.length, 0, "the unselected record's conversation is gone too");
   ctx.chrome.storage.local.set = async () => {};
@@ -486,6 +486,7 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
     await wait(20);
     assert.deepStrictEqual([els.status.textContent, red], ["保存备注失败：存储已满", true]);
     await on(p2Key, "delete");
+    assert.match(asks.at(-1)[1], /^<p>「[^」]+」 · \d+ 段对话<\/p><p class="lead">删除后不能恢复。<\/p>$/, "the confirm names the record");
     assert.deepStrictEqual([els.status.textContent, red], ["删除失败：存储已满", true]);
     els.status.textContent = "";
     for (const f of L.clearAll.click) await f({});
@@ -825,9 +826,9 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
 
     // Deleting a tag in 标签管理 takes it off every record; the page, left with nothing, stays listed until a reload.
     await filter("manage");
-    assert.ok(els.tagsRows.innerHTML.includes("读过") && els.tagsRows.innerHTML.includes("2 个记录"), els.tagsRows.innerHTML);
-    const del = { closest: (sel) => (sel === ".tag-row" ? { dataset: { id: tag.id } } : sel === "[data-tag-del]" ? {} : null) };
-    for (const f of L.tagsRows.click) await f({ target: del });
+    assert.ok(els.tagsRows.innerHTML.includes("读过") && els.tmDetail.innerHTML.includes("用在 2 个记录"), els.tmDetail.innerHTML);
+    const del = { closest: (sel) => (sel === "[data-tag-del]" ? {} : null) };
+    for (const f of L.tmDetail.click) await f({ target: del });
     assert.deepStrictEqual(asks.at(-1), ["删除标签「读过」？", "<p>将从 2 个记录上去掉这个标签，无法撤销。</p>", "删除", { danger: true }], "a red 删除, the body as html");
     assert.deepStrictEqual(plain([store[MARKS].tags, store[MARKS].items[videoKey].tags, store[MARKS].items[pageKey]]), [[], [], null]);
     assert.ok(entry(pageKey) && !entry(pageKey).includes("读过"), entry(pageKey));

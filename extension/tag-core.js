@@ -4,7 +4,7 @@
 (() => {
   // Catppuccin Latte accents (desaturated); chips keep --text on top, so these are only borders and tints.
   // Mauve, blue, green, red and yellow are left out: they mean where-you-are, next step, keep, delete and pending.
-  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#64748b", "#8595ea", "#cf5c66", "#2497c6", "#b0417f", "#7b5a44"];
+  const TAG_COLORS = ["#da86c3", "#298287", "#dc6d2d", "#64748b", "#8595ea", "#cf5c66", "#2497c6", "#b0417f", "#7b5a44", "#a752e0", "#7a9c1c"];
   // A tag name as both modes and the AI keep it: no commas or 顿号 (the CSV joins names with 、), trimmed, at most
   // TAG_NAME_MAX characters (every tag name box's maxlength). The background worker loads this file too (background.js),
   // so its AI suggestions are cleaned alike.
@@ -12,8 +12,14 @@
   const cleanTagName = (s) => String(s ?? "").replace(/[,，、]/g, "").trim().slice(0, TAG_NAME_MAX);
   // A new tag's color: the first one no tag in the list has, so deleting a tag frees its color.
   const nextTagColor = (tags) => TAG_COLORS.find((c) => !tags.some((t) => t.color === c)) || TAG_COLORS[tags.length % TAG_COLORS.length];
-  // 管理's color button: the next color in the palette.
-  const cycleTagColor = (color) => TAG_COLORS[(TAG_COLORS.indexOf(color) + 1) % TAG_COLORS.length];
+  // 标签管理's color dots for a tag colored color among others (the other tags of its list), the whole palette: its own
+  // color and the ones no other tag has first, in palette order, then the taken ones, the least used first.
+  function swatchColors(color, others) {
+    const uses = (c) => others.filter((t) => t.color === c).length;
+    const free = TAG_COLORS.filter((c) => c === color || !uses(c));
+    const taken = TAG_COLORS.filter((c) => !free.includes(c)).sort((a, b) => uses(a) - uses(b));
+    return [...free, ...taken];
+  }
   // A new tag's id; 关注's (UP) tags use the prefix "ft".
   const newTagId = (prefix) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   // A new UP tag (关注's follow_tags; B站 pages' 「+ UP 标签」 makes the same).
@@ -96,5 +102,5 @@
     return col + (((i - col) / COLS + (key === "ArrowDown" ? 1 : rows - 1)) % rows) * COLS;
   }
 
-  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, cycleTagColor, newTagId, newUpTag, upFullText, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove };
+  globalThis.MdgTagCore = { TAG_COLORS, TAG_NAME_MAX, cleanTagName, nextTagColor, swatchColors, newTagId, newUpTag, upFullText, upTagsFull, applyUpTag, VERDICTS, INVALID, verdictOf, rowsOf, keyOf, indexOfKey, orderOf, inOrder, gridMove };
 })();

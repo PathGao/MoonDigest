@@ -365,7 +365,9 @@
     // answer in, send(msg) sends one. An AI 429 or timeout sends the same batch again, up to AI_THROTTLE_WAITS /
     // AI_TIMEOUT_TRIES in a row; an error that fails every batch alike (aiEnds) ends the run. name(i), when given, says
     // which batch in the progress line and errors (所有收藏夹 names the folder); where() follows the pill's line.
-    // progress(text) is the dialog's line, counting down with the pill. onError(error, code) shows an error with its
+    // progress(text, fail) is the dialog's line, counting down with the pill; a run that ends with no proposal leaves why
+    // in it, which the dialog then draws as its red banner (tag-dialogs.js), with fail = { error, code } when an error
+    // stopped the run, for the adapter to give the banner the button its page gives that code. onError(error, code) shows an error with its
     // remedy (收藏夹's banner): the stop's, and a cut answer's when limitHint. A proposal naming a tag deleted meanwhile
     // is dropped. Resolves { proposal (null when no batch got through), errors, error, code }.
     async function runAi({ R, job, total, request, merge, send, intervalMs, progress, name = null, where = () => "", onError = () => {}, limitHint = false }) {
@@ -396,7 +398,7 @@
       if (r.stopped) p.errors.push(answered ? "已手动停止，这里只有已完成批次的建议" : "已手动停止，还没有批次完成");
       // A new tag no item uses starts unticked.
       for (const t of p.newTags) t.checked = p.rows.some((row) => row.add.includes(UI.aiRef.new(t.key)));
-      progress(answered ? "" : p.errors.join("；"));
+      progress(answered ? "" : p.errors.join("；"), !answered && r.error ? { error: r.error, code: r.code } : null);
       let proposal = answered ? p : null;
       // A tag deleted during the run is still named by the batches before it: dropped like a saved proposal.
       if (proposal && !fits(proposal)) {

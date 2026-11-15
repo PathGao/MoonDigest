@@ -3,7 +3,7 @@
 // into #followSide and #followMain (the same grid areas as the folder view, so the shared viewer sits beside the list).
 // Data comes from follow-bg.js through follow_* storage and the follow-* messages (the message list is in follow-bg.js's header).
 // Tags live only in this extension (follow_tags / follow_tag_map). B站 writes: 取消关注, 重新关注 and the 关注分组 (新建, 改名,
-// 删除, 移到 / 复制到, ★ 特别关注 which is group -10), see DESIGN 产品决策 · 改 B站 的操作和撤销 for what asks first and what U undoes.
+// 删除, 加进 / 移到, ★ 特别关注 which is group -10), see DESIGN 产品决策 · 改 B站 的操作和撤销 for what asks first and what U undoes.
 import "./triage.js"; // runs first: it starts 收藏夹 (fav-*.js), which gives globalThis.MoonTriage (viewer, toast, confirm dialog)
 
 // 关注's pure functions: follow-core.js (FollowCore), loaded before this module.
@@ -42,7 +42,6 @@ const NO_UPS_LISTED = "这里没有列出 UP 主"; // 全选 and 清理 with not
 const GROUPS_TITLE = "分组管理";
 const NEW_GROUP_NAME = `新分组名称（最多 ${GROUP_NAME_MAX} 个字）`;
 const starLabel = (on) => (on ? "设为特别关注" : "取消特别关注");
-const unfollowSel = (n) => `取消关注选中的 ${n} 个`;
 const FEED_RUN = "follow-feed"; // 视频投稿's wait for B站限流 in runs
 const DRY_PAGES = 3; // the feed stops loading by itself after this many pages in a row without a video for the picked item
 const FEED_KEEP_MS = UI.FEED_CACHE_MS; // as the background's cache; older lists start over
@@ -585,20 +584,20 @@ function renderSel() {
   if (F.tab !== "ups" || !F.sel.size) return (E.sel.innerHTML = "");
   const hidden = F.sel.size - n;
   const busy = busyWhy();
-  // As 收藏夹's selection bar: the buttons that act on B站 say how many, label and aria-label alike.
+  // As 收藏夹's selection bar: it says how many are selected once, so the buttons carry no count.
   const btn = (act, label, reason, cls = "") => UI.actBtn(`data-fw="${act}"`, label, { reason, cls });
-  // 移动 leaves the sidebar's group, so 全部 has none to leave.
+  // B站's 关注分组 are tags on an UP, not folders: 加进分组… adds one more. 移到分组… also leaves the sidebar's group, so
+  // it is there only in a group one can leave: one of your own or 特别关注, not 全部 (no group) or 默认分组 (being in none).
   // 已出分拣范围: 重新关注 the unfollowed, 取消关注 the ones still followed (清理 is in row 3, as 收藏夹's).
-  // Filters hiding the whole selection: the buttons count all of it, off (none).
   const pool = n ? selShown() : [...F.sel];
   const k = pool.length;
   const gone = pool.filter((m) => rows.get(m)?.gone).length;
   const acts = (none) => F.side === "out"
-    ? btn("refollow", `重新关注选中的 ${gone || k} 个`, busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", unfollowSel(k - gone || k), busy || none || (k === gone && "选中的都已取消关注"), "danger")
+    ? btn("refollow", "重新关注", busy || none || (!gone && "选中的都还关注着")) + btn("unfollow", "取消关注", busy || none || (k === gone && "选中的都已取消关注"), "danger")
     : btn("pick-sel", MdgErrors.LABEL.tagsMenu, none) +
-      btn("move-sel", `移动选中的 ${k} 个到分组…`, busy || none || (groupId(F.side) == null && `先在分组列表里选一个分组：「${ALL}」里不知道从哪个分组移走`)) +
-      btn("copy-sel", `复制选中的 ${k} 个到分组…`, busy || none) +
-      btn("unfollow", unfollowSel(k), busy || none, "danger");
+      btn("copy-sel", "加进分组…", busy || none) +
+      (groupId(F.side) ? btn("move-sel", "移到分组…", busy || none) : "") +
+      btn("unfollow", "取消关注", busy || none, "danger");
   E.sel.innerHTML = UI.selbar({ label: "选中的 UP 主", n, hidden, clearAttrs: 'data-fw="select-none"', acts });
 }
 
@@ -670,7 +669,7 @@ function renderViewerUp() {
   const ids = u ? u.tagIds : liveTags(mid, D);
   const chips = ids.map(tagOf).map((t) => `<span class="chip" style="--c:${esc(t.color)}"${u?.gone ? "" : ` data-pick="${esc(mid)}"`}>${esc(t.name)}</span>`).join("");
   const pre = `${face ? `<img src="${esc(img(face, "48w_48h_1c"))}" alt="" referrerpolicy="no-referrer">` : ""}<a class="name" href="${space(mid)}" target="_blank" rel="noopener">${esc(name)}</a>`;
-  vline.innerHTML = UI.viewerLine({ label: "UP 标签", pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: MdgErrors.upTagTitle(name), key: follow } });
+  vline.innerHTML = UI.viewerLine({ label: MdgErrors.LABEL.upTags, pre, chips, plus: !u?.gone && { attrs: `data-pick="${esc(mid)}"`, label: MdgErrors.upTagTitle(name), key: follow } });
 }
 // B站's autoplay moved the player on (收藏夹's showViewing, fav-*.js): the pink card, this line and T follow the new video.
 T.setViewerHook(() => {
@@ -969,25 +968,31 @@ async function starOne(mid) {
   const { done } = await regroup([mid], (m) => regrouped(groupsOf(m, D), on ? null : SPECIAL, on ? SPECIAL : 0), label);
   if (done.length) toast(`已${label}「${upName(mid)}」${UI.UNDO}`);
 }
-// 移动 / 复制选中的 N 个到分组… on the selection: the shared 移动 / 复制 dialog, which is the batch's confirm (在 B站…, the count on
-// its button). A move leaves the sidebar's group; 新建分组… makes the group first.
+// 加进分组… / 移到分组… on the selection: the shared 移动 / 复制 dialog, which is the batch's confirm (在 B站…, the count on
+// its button). 加进 (how "copy") adds a group; 移到 also leaves the sidebar's group; 新建分组… makes the group first.
 async function moveOrCopy(mids, how) {
   const from = groupId(F.side);
-  if (!mids.length || (how === "move" && from == null)) return;
+  if (!mids.length || (how === "move" && !from)) return;
   const move = how === "move";
-  const verb = move ? "移" : "复制";
+  const verb = move ? "移到" : "加进";
+  // One hint under the target (html). 移到: the group they leave. 加进: 默认分组 is being in none of your own groups, so
+  // the ones only there leave it by joining one (all of them when opened from 默认分组); 特别关注 is a flag on top of
+  // the groups and takes nobody out of 默认分组, so that target says only what it does.
+  const LEAVES_DEFAULT = "加进分组后，就不在默认分组里了。";
+  const loose = mids.filter((m) => !groupsOf(m, D).some((id) => id > 0)).length;
+  const own = move ? `从「${esc(groupName(from, D))}」移走。` : loose === mids.length ? LEAVES_DEFAULT : loose ? `其中 ${loose} 个只在默认分组，${LEAVES_DEFAULT}` : "";
   const ask = await UI.askTransfer({
-    title: `在 B站把这 ${mids.length} 个 UP 主${verb}到分组`,
+    title: `在 B站把这 ${mids.length} 个 UP 主${verb}分组`,
     n: mids.length,
     hows: [how],
+    verbs: { copy: "加进", move: "移到" },
     list: names(mids),
     label: "目标分组",
     options: groupTargets(D, from, how).map(([id, name]) => [String(id), `${name} (${sideCount(`g:${id}`)})`]),
     newText: "新建分组…",
     newPlaceholder: NEW_GROUP_NAME,
     newMax: GROUP_NAME_MAX,
-    how: move ? (from === 0 ? "放进自己建的分组后，就不在默认分组里了。" : `从「${groupName(from, D)}」移走。`) : "原来的分组里也留着。",
-    note: (v) => (v === String(SPECIAL) ? `${move && from === 0 ? "还留在默认分组里：特别关注只是多一个标记。" : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? "不在别的分组的会回到默认分组，还关注着。" : "")
+    note: (v) => (v === String(SPECIAL) ? `${move ? own : ""}特别关注的 UP 主发视频，手机 B站会推送。` : v === "0" ? `${own}不在别的分组的会回到默认分组，还关注着。` : own)
   });
   if (!ask || W.busy()) return;
   let to = Number(ask.target.id);
@@ -996,7 +1001,7 @@ async function moveOrCopy(mids, how) {
     if (!g) return;
     to = g.id;
   }
-  const label = groupMoveLabel(move ? from : null, to, move, D);
+  const label = groupMoveLabel(to, move, D);
   const { done, skipped, ok } = await regroup(mids, (m) => regrouped(groupsOf(m, D), move ? from : null, to), label);
   // A stopped run has said how far it got (relationRun's toast); the skipped have their own dialog.
   const n = done.length;
@@ -1063,13 +1068,17 @@ async function deleteGroup(g) {
   render();
   toast(`已删除分组「${g.name}」`);
 }
+// B站's two fixed groups head the list as read-only rows: no data-id, so the dialog's rename and 删除 never find them.
+const FIXED_GROUPS = [0, SPECIAL];
 const manageGroups = {
   who: WHO,
   text: { title: GROUPS_TITLE, saved: "新建、改名和删除立即在 B站 生效。", newName: NEW_GROUP_NAME, newMax: GROUP_NAME_MAX, add: "新建", addLabel: "新建分组" },
-  hint: () => "这里就是 B站 的关注分组。特别关注和默认分组是 B站 固定的，不能改名或删除；要把人放进分组，选中后用选中栏的「移动选中的 N 个到分组…」「复制选中的 N 个到分组…」。",
-  tags: () => D.groups,
+  hint: () => "",
+  tags: () => [...FIXED_GROUPS.map((id) => ({ id, name: groupName(id, D), fixed: true })), ...D.groups],
   count: (id) => sideCount(`g:${id}`),
-  row: (g, n) => `<div class="tag-row group-row" data-id="${esc(g.id)}">
+  row: (g, n) => g.fixed
+    ? `<div class="tag-row group-row fixed" title="B站 固定的分组，不能改名或删除"><span class="fixed-name">${g.id === SPECIAL ? "★ " : ""}${g.name}${g.id === 0 ? "<small>没放进任何分组的 UP 主都在这里。</small>" : ""}</span><span class="muted">${n} 个 UP 主</span><span class="fixed-why">B站 固定</span></div>${g.id === FIXED_GROUPS.at(-1) && !D.groups.length ? '<p class="muted">还没有自己建的分组</p>' : ""}`
+    : `<div class="tag-row group-row" data-id="${esc(g.id)}">
       <input type="text" name="followGroupName" value="${esc(g.name)}" data-field="name" maxlength="${GROUP_NAME_MAX}" aria-label="分组名称" />
       <span class="muted">${n} 个 UP 主</span>
       <button type="button" class="danger" data-tag-del aria-label="删除分组 ${esc(g.name)}">删除</button>
@@ -1342,7 +1351,7 @@ const aiTags = {
 async function runAi({ instruction, scope, allowRemove }) {
   const mids = aiScopeMids(scope);
   if (aiRunning() || !mids.length) return;
-  const progress = (text) => TagDialogs.ai.progress(aiTags, text);
+  const progress = (text, fail) => TagDialogs.ai.progress(aiTags, text, "", fail && T.aiRemedy(fail));
   AI.history = UI.aiHistoryAdd(AI.history, instruction);
   T.store({ [AI_HISTORY_KEY]: AI.history });
   const excluded = new Set(D.tags.filter((t) => AI.excluded.has(t.id)).map((t) => t.name));
@@ -1359,7 +1368,7 @@ async function runAi({ instruction, scope, allowRemove }) {
     merge: (p, data) => UI.mergeAiBatch(p, data, { ...opts, tags: D.tags, map: D.map }),
     send,
     intervalMs,
-    progress: (text) => (progress(text), renderSync()),
+    progress: (text, fail) => (progress(text, fail), renderSync()),
     // 收藏夹设置's 粗看输出上限 does not apply here (triageAiCommand): no limitHint.
     onError: T.aiError
   });
