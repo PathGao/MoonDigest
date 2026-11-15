@@ -132,11 +132,14 @@ const CAP_TEXT = {
   thinking: { hint: "判断更细，但慢得多、token 多几倍。", no: "不支持开关思考" },
   search: { hint: "字幕细看时查内容是否过时或有误，按搜索次数另外计费、更慢。标题粗看不联网。", no: "不支持联网" }
 };
+// 所有收藏夹 without a 判断标准 of its own (the dialog's hint and its button's tooltip).
+const ALL_CRIT_NONE = "不写时，每个视频按它所在收藏夹的判断标准判断。";
 const KEPT_ON = "已开启的设置保留，换回支持的平台后生效";
 
 function openCriteria() {
   el.criteriaTitle.textContent = `判断标准 ·「${folderName(S.mediaId)}」`;
   el.criteriaInput.value = criteria();
+  el.criteriaHint.textContent = S.mediaId === ALL ? ALL_CRIT_NONE : "不写时，AI 按收藏夹名和简介推测。";
   const a = folderAiOf(String(S.mediaId));
   critAi = { providerId: a.provider?.id || "", thinking: a.thinking, search: a.search, gone: a.gone };
   renderCritAi();
@@ -242,8 +245,8 @@ async function askSearchRedo(searchWas) {
   if (ok) startGroup(batch.map((it) => it.bvid), true);
 }
 
-// 所有收藏夹 has no one 判断标准: before a 粗看 or 细看 run it lists each folder the run touches, with its videos and its
-// 判断标准 to edit (saved as in the 判断标准 dialog). false on 取消.
+// 所有收藏夹 without a 判断标准 of its own judges each video under its folder's: before a 粗看 or 细看 run it lists each
+// folder the run touches, with its videos and its 判断标准 to edit (saved as in the 判断标准 dialog). false on 取消.
 async function askAllCriteria(title, verb, items) {
   const n = new Map();
   for (const it of items) n.set(homeOf(it), (n.get(homeOf(it)) || 0) + 1);
@@ -258,9 +261,9 @@ async function askAllCriteria(title, verb, items) {
   render();
   return true;
 }
-// A 粗看 / 细看 button: in 所有收藏夹 after askAllCriteria, elsewhere at once.
+// A 粗看 / 细看 button: in 所有收藏夹 without its own 判断标准 after askAllCriteria, elsewhere at once.
 async function startJudging(title, verb, items, start) {
-  if (S.mediaId === ALL && !(await askAllCriteria(title, verb, items))) return;
+  if (S.mediaId === ALL && !criteria() && !(await askAllCriteria(title, verb, items))) return;
   start();
 }
 

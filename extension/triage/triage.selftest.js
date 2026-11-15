@@ -1435,10 +1435,13 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     await t.runStage1();
     assert.deepStrictEqual(Object.keys(plain(sent.at(-1))).sort(), ["aiProviderId", "criteria", "folder", "items", "type"]);
     assert.strictEqual(sent.at(-1).aiProviderId, "zp");
-    // 所有收藏夹 keeps today's behavior for now: no folder's record goes with its requests.
+    // 所有收藏夹 runs on its own record, never on a video's folder's: none of its own, none sent.
     t.S.folderAi = { J: { providerId: "ds", thinking: true, search: false } };
     t.S.mediaId = "all";
     assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), {});
+    t.S.folderAi.all = { providerId: "zp", thinking: false, search: true };
+    assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "zp", thinking: false, search: true });
+    assert.deepStrictEqual(plain(vm.runInContext('[folderAiOf("all").own, folderAiOf("all").provider.id]', ctx)), [true, "zp"]);
     t.S.mediaId = "J";
     assert.deepStrictEqual(plain(vm.runInContext('aiReq("J")', ctx)), { aiProviderId: "ds", thinking: true, search: false });
     // 联网核实 on, on a platform that has it: a 细看 made without it is old (按新标准重新细看); one made with it, a folder
@@ -2982,7 +2985,8 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.el.banner.hidden = true;
   }
 
-  // 所有收藏夹: each video is judged under its first chosen folder's 判断标准 and context; a 粗看 batch holds one folder.
+  // 所有收藏夹 without a 判断标准 of its own: each video is judged under its first chosen folder's 判断标准 and context; a
+  // 粗看 batch holds one folder.
   {
     const vids = [{ ...item(850), folders: ["K"] }, { ...item(851), folders: ["L", "K"] }, { ...item(852), folders: ["L"] }, { ...item(853), folders: ["K"] }];
     openFake("all", vids);
@@ -2991,9 +2995,10 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     store[t.K.folderCriteria] = structuredClone(t.S.folderCriteria);
     Object.assign(t.S.settings, { triageIntervalSec: 0 });
     assert.deepStrictEqual(vids.map((it) => vm.runInContext("homeOf", ctx)(it)), ["K", "K", "L", "K"], "the first chosen folder it is in");
-    // The step bar offers the run (no single 判断标准 button); the run asks first, listing each folder's count and 判断标准.
+    // The step bar offers the run and 所有收藏夹's own 判断标准 button (not written: what happens then, no warn dot); the
+    // run asks first, listing each folder's count and 判断标准.
     t.renderListHeader(t.visibleItems());
-    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 4 个") && !(t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="criteria"'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
+    assert.ok((t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes("标题粗看下一批 4 个") && (t.el.listHeader.innerHTML + t.el.favSel.innerHTML).includes('data-head="criteria" title="不写时，每个视频按它所在收藏夹的判断标准判断。" aria-label="判断标准">'), (t.el.listHeader.innerHTML + t.el.favSel.innerHTML));
     const batches = [];
     handlers["triage-classify-titles"] = ({ items, criteria, folder }) => {
       batches.push([items.map((x) => x.bvid), criteria, folder.title, folder.intro]);
@@ -3026,8 +3031,51 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     let started = false;
     await vm.runInContext("startJudging", ctx)("细看", "细看", [vids[0]], () => (started = true));
     assert.ok(!started);
+    // 所有收藏夹's own 判断标准 and AI: the dialog opens on it and 保存 writes both under its id.
+    const platforms = t.S.settings.aiPlatforms;
+    t.S.settings.aiPlatforms = [{ id: "ds", name: "DeepSeek", model: "m", caps: { thinking: true, search: true } }, { id: "zp", name: "智谱", model: "g", caps: { thinking: true, search: false } }];
+    t.S.folderAi = { K: { providerId: "ds", thinking: true, search: true } };
+    store[t.K.folderAi] = structuredClone(t.S.folderAi);
+    t.el.criteriaInput = { value: "", focus() {} };
+    t.openCriteria();
+    assert.deepStrictEqual([t.el.criteriaTitle.textContent, t.el.criteriaHint.textContent], ["判断标准 ·「所有收藏夹」", "不写时，每个视频按它所在收藏夹的判断标准判断。"]);
+    vm.runInContext('Object.assign(critAi, { providerId: "zp", thinking: false, search: false })', ctx);
+    t.el.criteriaInput = { value: "总标准" };
+    await t.saveCriteria();
+    assert.strictEqual(store[t.K.folderCriteria].all, "总标准");
+    assert.deepStrictEqual(plain(store[t.K.folderAi]), { K: { providerId: "ds", thinking: true, search: true }, all: { providerId: "zp", thinking: false, search: false } });
+    // Written, it is the one every video is judged under, and staleness goes by it: 夹K's and 夹L's no longer count.
+    assert.deepStrictEqual(plain([t.staleCoarse().map((it) => it.bvid), t.staleFine().map((it) => it.bvid)]), [["BV850", "BV853"], ["BV851", "BV852"]]);
+    // Its runs start at once (no per-folder dialog), each video still told its own folder, on 所有收藏夹's platform.
+    asked = null;
+    t.askConfirm = async (...a) => ((asked = a), true);
+    batches.length = fine.length = 0;
+    const ran = [];
+    const coarse = handlers["triage-classify-titles"];
+    handlers["triage-classify-titles"] = (m) => (ran.push([m.aiProviderId, m.thinking]), coarse(m));
+    handlers["triage-analyze"] = ({ bvid, criteria, folder, aiProviderId, thinking, search }) => (fine.push([bvid, criteria, folder.title, aiProviderId, thinking, search]), { ok: true, data: { bvid, status: "done", verdict: "keep", ...(search && { search }) } });
+    await vm.runInContext("startJudging", ctx)("重新粗看", "重新粗看", [vids[0], vids[3]], () => t.runStage1([vids[0], vids[3]], true));
+    while (vm.runInContext("runs", ctx).get("stage1")) await new Promise((r) => setTimeout(r, 0));
+    await vm.runInContext("startJudging", ctx)("重新细看", "重新细看", [vids[2]], () => t.startGroup(["BV852"], true));
+    for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual([asked, batches, ran, fine], [null, [[["BV850", "BV853"], "总标准", "夹K", ""]], [["zp", false]], [["BV852", "总标准", "夹L", "zp", false, false]]]);
+    assert.deepStrictEqual(plain([t.staleCoarse().map((it) => it.bvid), t.staleFine().map((it) => it.bvid)]), [[], ["BV851"]]);
+    // 联网核实 follows 所有收藏夹's record: 夹K's being on makes nothing old, its own on does, and its 细看 then searches.
+    t.S.analyses.BV851.criteria = "总标准";
+    assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), []);
+    t.S.folderAi = { K: { providerId: "zp", thinking: false, search: false }, all: { providerId: "ds", thinking: true, search: true } };
+    assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), ["BV851", "BV852"]);
+    t.startGroup(["BV851"], true);
+    for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
+    assert.deepStrictEqual([fine.at(-1), plain(t.staleFine().map((it) => it.bvid))], [["BV851", "总标准", "夹K", "ds", true, true], ["BV852"]]);
+    // Emptied again, each video goes back to its folder's 判断标准.
+    delete t.S.folderCriteria.all;
+    assert.deepStrictEqual(plain(t.staleCoarse().map((it) => it.bvid)), ["BV850", "BV853"]);
+    assert.strictEqual(vm.runInContext("judgeOf", ctx)(vids[2]).crit, "L 新标准");
+    t.S.settings.aiPlatforms = platforms;
+    delete store[t.K.folderAi];
     Object.assign(t, { askConfirm: async () => true });
-    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderIntro: {}, loadAll: null });
+    Object.assign(t.S, { titleRes: {}, analyses: {}, folderCriteria: {}, folderAi: {}, folderIntro: {}, loadAll: null });
   }
   // Turning thinking off is offered only when the open folder thinks on a platform that can switch it (判断标准).
   {
@@ -3046,7 +3094,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
   assert.ok(t.el.bannerText.textContent.includes("调大粗看输出上限"), t.el.bannerText.textContent);
   t.el.banner.hidden = true;
   openFake("all", []);
-  assert.strictEqual(t.activityState().text, "字幕细看完成 2 个", "back in its folder, the newest finished line shows (细看 ran after 粗看)");
+  assert.strictEqual(t.activityState().text, "按新标准重新细看完成 1 个", "back in its folder, the newest finished line shows (细看 ran after 粗看)");
   for (const job of ["stage1", "group"]) await vm.runInContext("runs", ctx).run(job, { line: () => "", next: () => null }); // drops their finished lines
 
   // Back on the tab: the id check alone when nothing changed, no full load.
