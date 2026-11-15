@@ -447,7 +447,6 @@ assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySel
   assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}分组`,\s*n: mids\.length,\s*hows: \[how\],\s*verbs: \{ copy: "加进", move: "移到" \},/.test(mc), "the batch confirm: 在 B站…, the count on its one button, in 关注's words");
   assert.ok(mc.indexOf("createGroup(") < mc.indexOf("regroup("), "新建分组… first");
   assert.ok(mc.includes("const label = groupMoveLabel(to, move, D);"), "toast and U use the same words");
-  assert.ok(!/\bhow: /.test(mc), "one hint, under the target");
   const del = fn("deleteGroup");
   assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*if \(W\.busy\(\)\)[^\n]*\n\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
   assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");
@@ -838,14 +837,14 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     F.tagState = "tagged";
     p.FW.render();
     assert.ok(p.$("fwBarR").innerHTML.includes('aria-label="清理选中的 1 个" disabled title="选中的都被筛选隐藏了"'), p.$("fwBarR").innerHTML);
-    // J14: the bar's buttons count the whole hidden selection too, off with why.
+    // J14: the bar's buttons are off with why too.
     assert.ok(E.sel.innerHTML.includes('aria-label="重新关注" disabled title="选中的都被筛选隐藏了"'), E.sel.innerHTML);
     const asked = p.asked.length;
     p.click("followMain", "[data-fw]", { fw: "clean" });
     await p.settle();
     assert.strictEqual(p.asked.length, asked, "no 清理 confirm for a hidden selection");
     F.tagState = "";
-    // K1: none of the selection can take it: the count is the selection's, never 0, off with why.
+    // K1: none of the selection can take it: off with why.
     p.FW.render();
     assert.ok(E.sel.innerHTML.includes('aria-label="取消关注" disabled title="选中的都已取消关注"'), E.sel.innerHTML);
   }
@@ -1160,6 +1159,13 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     for (const side of ["all", "g:0"]) ((p.FW.F.side = side), await p.FW.moveOrCopy(["u2"], "move"));
     assert.strictEqual(asks.length, asked, "no move out of 全部 or 默认分组");
     assert.ok(asks.every((o) => !o.how), "nothing in the dialog's second hint line");
+    // 加进 a group everyone picked is already in: nothing goes to B站 and a toast says so (it used to throw on the pill's line).
+    p.ctx.TriageUi.askTransfer = async () => ({ target: { id: "5" } });
+    const groupWrites = () => p.sent.filter((m) => /^follow-group/.test(m.type)).length;
+    const wrote = groupWrites();
+    p.FW.F.side = "all";
+    await p.FW.moveOrCopy(["u1"], "copy");
+    assert.deepStrictEqual([groupWrites() - wrote, p.toasts.at(-1)], [0, "选中的都已经在「五」里了"]);
   }
 
   // The head's refresh error, as 收藏夹's: 刷新失败：reason, B站限流 in MdgErrors' words.

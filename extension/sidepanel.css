@@ -337,7 +337,7 @@ body {
 .sp-note-input:focus {
   outline: none;
   border-color: var(--text-2);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-2) 18%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 /* The keys that save, under the box while it is open. */
@@ -1426,7 +1426,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
 #spInput:focus {
   border-color: var(--text-2);
   background: var(--surface);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-2) 18%, transparent);
+  box-shadow: var(--focus-ring);
 }
 
 /* Fixed width, so turning into 停止 never moves anything. Blue only once there is something to send. */

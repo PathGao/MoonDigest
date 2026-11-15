@@ -23,7 +23,7 @@
   const SEEN_GAP_MS = 10 * 60 * 1000;
   const SEEN_KEEP_DAYS = 365;
   const SEEN_MAX = 5000;
-  // The same caps in words: the 数据与存储 row and the 观看进度 hint on the options page.
+  // The same caps in words: SEEN_KEEP_TEXT under the 数据与存储 row's 上限, SEEN_LIMITS_TEXT in the 观看进度 hint on the options page.
   const SEEN_KEEP_TEXT = SEEN_KEEP_DAYS % 365 ? `${SEEN_KEEP_DAYS} 天` : `${SEEN_KEEP_DAYS / 365} 年`;
   const SEEN_LIMITS_TEXT = `最多 ${SEEN_GAP_MS / 60000} 分钟一次，留最近 ${SEEN_KEEP_TEXT}、最多 ${SEEN_MAX} 个`;
 

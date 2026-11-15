@@ -59,7 +59,7 @@ select { height: 28px; max-width: 240px; }
 .search-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: var(--text); text-overflow: ellipsis; }
 .search input:focus-visible { outline: none; box-shadow: none; }
-.search:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-2) 18%, transparent); }
+.search:focus-within { box-shadow: var(--focus-ring); }
 .search .muted { white-space: nowrap; }
 .search-key { font: 12px var(--font-mono); padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--faint); }
 .search:focus-within .search-key, .search:has(input:not(:placeholder-shown)) .search-key { display: none; }
@@ -536,9 +536,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .card-foot .spacer { flex: 1; }
 
 .k-faint { padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-xs); }
-/* 关注's 分组管理 in the same dialog: name, count, 删除. */
-.tag-row.group-row { grid-template-columns: minmax(0, 1fr) 6em 4.5em; }
-/* B站's two fixed groups head the list on the same grid: grey, read-only, 「B站 固定」 where 删除 would be. */
+/* 关注's 分组管理 (the rows' grid is tags.css .tag-row). B站's two fixed groups head the list on the same grid: grey, read-only, 「B站 固定」 where 删除 would be. */
 .group-row.fixed { border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text-2); }
 .group-row.fixed .fixed-name { padding: 4px 8px; border: 1px solid transparent; }
 .group-row.fixed .fixed-name small { display: block; color: var(--muted); font-size: var(--fs-xs); }
@@ -635,8 +633,7 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .confirm-body .lead { margin: 0; color: var(--text-2); }
 .confirm-body :is(p, ul) + .lead { margin-top: 6px; }
 .confirm-body .conseq { margin: 6px 0 0; color: var(--text); font-weight: 600; }
-/* 移动 / 复制: what is moved is one line, the first name and 「等 N 个」; it opens into the list, which scrolls in its box. */
-/* The folded name list is a details.fold (tokens.css): the first name, then 「等 N 个」. */
+/* 移动 / 复制: what is moved is one line, a details.fold (tokens.css) with the first name and 「等 N 个」; it opens into the list, which scrolls in its box. */
 .transfer-list .first { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transfer-list .n { flex: none; margin-left: 8px; color: var(--faint); font-size: var(--fs-xs); font-weight: 400; }
 .transfer-list .confirm-body { max-height: 150px; margin-top: 6px; padding: 8px 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
@@ -722,20 +719,12 @@ dialog .crit-switch .name { color: var(--text); font-size: var(--fs-sm); font-we
 .folder-toggles { display: grid; align-content: start; gap: 2px; max-height: 220px; overflow-y: auto; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .folder-toggles .toggle { padding: 3px 0; }
 .folder-toggles .muted { margin-left: auto; font-size: var(--fs-xs); }
-dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
-@media (min-width: 640px) {
-  .settings-cols:has(.settings-ai:not([hidden])) { grid-template-columns: 1fr 1.15fr; }
-  /* The folder list runs as tall as the right column and scrolls inside. */
-  .settings-cols:has(.settings-ai:not([hidden])) .folder-toggles { flex: 1 1 0; min-height: 200px; max-height: none; }
-}
 /* 收藏夹设置: the folders and 标签 on the left, 请求和 AI 参数 and 高级 (the two 输出上限, closed) on the right, both columns
    ending on one line. The first open (.settings-ai hidden) asks only for folders. */
 #settingsDialog:has(.settings-ai:not([hidden])) { width: min(840px, calc(100% - 32px)); }
 .st-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .st-left:has(+ .settings-ai[hidden]) .st-tags { display: none; }
-/* 高级 is a details.fold (tokens.css) in a card: the line keeps the card's padding, and a rule under it when open. */
-.st-adv > summary { margin-block: 6px; }
-.st-adv[open] > summary { margin-bottom: 6px; }
+/* 高级 is a details.fold (tokens.css) in a card. */
 .st-adv summary .hint { margin-left: 8px; font-size: var(--fs-xs); font-weight: 400; color: var(--faint); }
 @media (min-width: 640px) {
   #settingsDialog .settings-cols:has(.settings-ai:not([hidden])) { grid-template-columns: 1fr 1fr; }

@@ -25,7 +25,7 @@ assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
 assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹快照").usageNote, "约 0 KB", "nothing stored is 0 KB, not 1");
-// 观看进度: the caps triage-bg.js applies, in the row and in the options page's hint (filled from SEEN_LIMITS_TEXT).
+// 观看进度: the caps triage-bg.js applies, in the row (上限 and its note) and in the options page's hint (SEEN_LIMITS_TEXT).
 assert.deepStrictEqual([byLabel["观看进度"].cap, byLabel["观看进度"].capNote, L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage], [`${L.SEEN_MAX} 个`, "1 年", "8 个视频"]);
 assert.strictEqual(L.SEEN_LIMITS_TEXT, "最多 10 分钟一次，留最近 1 年、最多 5000 个");
 assert.ok(byLabel["观看进度"].rule.includes(`最多 ${L.SEEN_GAP_MS / 60000} 分钟一次`));

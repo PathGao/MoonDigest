@@ -371,6 +371,59 @@ function adapters(who) {
     // K24: making a tag is 新建标签 here too, as in the picker and on B站 pages.
     assert.deepStrictEqual([nodes.tagManageTitle.textContent, nodes.newTagInput.maxLength, nodes.addTagBtn.textContent, nodes.addTagBtn.attrs["aria-label"]], ["标签管理", 12, "新建", "新建标签"]);
     assert.ok(nodes.tagManageDialog.classList.on.has("tm") && nodes.tmDetail.innerHTML.includes("data-color"));
+
+    // A name box's keys, in 分组管理 (a rename there is a request to B站). Enter saves and the dialog stays; leaving the
+    // box afterwards sends nothing more; never mid-IME.
+    const box = (value, o = {}) => ({ value, dataset: { field: "name" }, matches: (s) => s.includes('[data-field="name"]'), closest: () => ({ dataset: { id: "101" } }), ...o });
+    const keydown = (key, target, o = {}) => fire("tagManageDialog", "keydown", { key, target, ...o });
+    g.edit = async (x, field, value) => (calls.push(["edit", x.id, field, value]), (x.name = value.trim()), true);
+    D.manage.open(g);
+    let b = box("改名 ");
+    let ev = keydown("Enter", b);
+    await wait();
+    assert.deepStrictEqual([ev.prevented, calls.at(-1), nodes.tagManageDialog.open, b.value], [1, ["edit", 101, "name", "改名 "], true, "改名"], "Enter saves, the dialog stays, the box shows the saved name");
+    let sent = calls.length;
+    fire("tagsRows", "change", { target: b });
+    await wait();
+    assert.strictEqual(calls.length, sent, "leaving the box after Enter sends nothing more");
+    ev = keydown("Enter", box("拼音"), { isComposing: true });
+    await wait();
+    assert.deepStrictEqual([ev.prevented, calls.length], [0, sent], "Enter that picks an IME candidate is not a save");
+    // Esc with an unsaved rename takes it back: nothing goes to B站, the dialog stays for the next Esc to close.
+    b = box("半个名字");
+    ev = keydown("Escape", b);
+    await wait();
+    assert.deepStrictEqual([ev.prevented, b.value, calls.length], [1, "改名", sent], "Esc discards the half-typed name");
+    assert.strictEqual(keydown("Escape", b).prevented, 0, "nothing unsaved: Esc closes the dialog as before");
+    // The close itself never commits one either (an Esc the keydown did not see).
+    ctx.document.activeElement = b = box("又半个");
+    fire("tagManageDialog", "cancel");
+    delete ctx.document.activeElement;
+    assert.deepStrictEqual([b.value, calls.length], ["改名", sent]);
+    // Leaving the box by click or Tab (and 完成, which closes the dialog) still saves.
+    fire("tagsRows", "change", { target: box("离开时保存") });
+    await wait();
+    assert.deepStrictEqual(calls.at(-1), ["edit", 101, "name", "离开时保存"]);
+    // The new-group box: Esc with text in it makes no group (the dialog closes).
+    sent = calls.length;
+    nodes.newTagInput.value = "草稿";
+    ev = keydown("Escape", nodes.newTagInput);
+    await wait();
+    assert.deepStrictEqual([ev.prevented, calls.length], [0, sent]);
+
+    // The same keys in 标签管理's 名称.
+    const tm = adapters("视频");
+    D.manage.open(tm.manage);
+    const name = (value) => box(value, { id: "tmName", closest: () => null });
+    ev = keydown("Enter", (b = name("科普视频")));
+    await wait();
+    assert.deepStrictEqual([ev.prevented, tm.calls.at(-1), nodes.tagManageDialog.open], [1, ["edit", "a", "name", "科普视频"], true]);
+    sent = tm.calls.length;
+    ev = keydown("Escape", (b = name("科")));
+    assert.deepStrictEqual([ev.prevented, b.value, tm.calls.length], [1, "科普", sent], "Esc: back to the saved name, nothing saved");
+    fire("tmDetail", "change", { target: name("离开") });
+    await wait();
+    assert.deepStrictEqual(tm.calls.at(-1), ["edit", "a", "name", "离开"], "leaving still saves");
   }
 
   // C488 / C490 / C495 / C496 / C500.

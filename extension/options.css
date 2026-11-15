@@ -1168,10 +1168,13 @@ table.marks thead label {
 }
 
 table.marks thead :is(small, a) {
-  color: var(--faint);
   font-size: var(--fs-xs);
   font-weight: 400;
   line-height: 20px;
+}
+
+table.marks thead small {
+  color: var(--faint);
 }
 
 table.marks thead a {

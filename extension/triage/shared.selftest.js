@@ -721,7 +721,7 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   };
   const group = {
     title: "在 B站把这 2 个 UP 主加进分组", n: 2, hows: ["copy"], verbs: { copy: "加进" }, list: "<ul></ul>", label: "目标分组",
-    options: [["-10", "特别关注 (3)"], ["7", "<数码> (2)"]], newText: "新建分组…", newPlaceholder: "新分组名称", newMax: 16, how: "原来的分组里也留着。",
+    options: [["-10", "特别关注 (3)"], ["7", "<数码> (2)"]], newText: "新建分组…", newPlaceholder: "新分组名称", newMax: 16,
     note: (v) => (v === "-10" ? "会推送" : "")
   };
   let p = UI.askTransfer(group);

@@ -64,6 +64,7 @@
   --mdg-cover-scrim: rgba(0, 0, 0, 0.6);
   --mdg-shadow-float: 0 4px 16px rgba(0, 0, 0, 0.15);
   --mdg-lift: 0 8px 22px rgba(0, 0, 0, 0.14);
+  --mdg-focus-ring: 0 0 0 3px color-mix(in srgb, var(--mdg-text-2) 18%, transparent);
   --mdg-backdrop: rgba(17, 24, 39, 0.28);
 }
 
@@ -154,14 +155,14 @@ html[data-mdg-reader-mode="1"][data-mdg-reader-theme="dark"] {
 :where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(button, select, textarea, input, summary, a):focus-visible {
   outline: 1px solid var(--mdg-text-2);
   outline-offset: -1px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mdg-text-2) 18%, transparent);
+  box-shadow: var(--mdg-focus-ring);
 }
 :where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(a):focus-visible { outline-offset: 2px; border-radius: 4px; box-shadow: none; }
 
 :where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(select, textarea, input[type="text"]):focus-visible {
   outline: none;
   border-color: var(--mdg-text-2);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mdg-text-2) 18%, transparent);
+  box-shadow: var(--mdg-focus-ring);
 }
 
 .mdg-confirm-cancel {

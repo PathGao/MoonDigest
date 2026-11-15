@@ -36,7 +36,7 @@
   const list = dlg.querySelector(".picker-list");
   const title = dlg.querySelector(".tp-title");
   const note = dlg.querySelector(".tp-note");
-  // The modal has no button: its last line says how it closes (true of the popover too, which is known by its place and hides it).
+  // The modal has no button: its last line says how it closes.
   dlg.querySelector(".tp-foot").textContent = "按 Esc 或点外面关闭并保存";
   // The open picker: opts, sets (the ticks), before (ids at opening), rows, index (the active row).
   let cur = null;

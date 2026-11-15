@@ -207,8 +207,8 @@ assert.ok(/<dialog id="confirmDialog"[\s\S]*id="confirmTitle"[\s\S]*id="confirmB
   assert.deepStrictEqual([allBox(), els.selbar.innerHTML], ["false", ""]);
   headClick("select-all");
   assert.deepStrictEqual([allBox(), btn("md")[0]], ["true", "打包下载 .md"]);
-  // A search keeps hidden selections (like the 分拣台): the buttons count and act on the listed ones; with every one
-  // hidden they say all of them, disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
+  // A search keeps hidden selections (like the 分拣台): the buttons act on the listed ones; with every one hidden
+  // they are disabled with 「选中的都被筛选隐藏了」; clearing the search brings the selection back.
   const search = async (q) => ((els.search.value = q), fire("input", {}), await wait(200));
   // A card the search hides stops being current: X does nothing to it.
   selClick("clear");

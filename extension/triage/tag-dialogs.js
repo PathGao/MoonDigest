@@ -182,12 +182,30 @@
       adding = false;
     }
   }
-  rows.addEventListener("change", async (e) => {
-    const t = rowTag(e.target);
-    const field = e.target.dataset.field;
-    // A refused name goes back to the saved one; other edits keep the row (and the focus moving through it).
-    if (t && field && !(await man.edit(t, field, e.target.value))) renderManage();
-  });
+  // A name box: 标签管理's 名称 or a 分组管理 row's. Its tag is looked up again each time, so a saved rename is its name.
+  const nameBox = (el) => Boolean(el?.matches?.('[data-field="name"]'));
+  const boxTag = (el) => (man.row ? rowTag(el) : curTag());
+  // Saves a field as leaving it does (change), and for a name on Enter. A name that is the saved one is not sent, nor
+  // the one being sent: Enter saves, then leaving the box fires change for the same text.
+  const sending = new WeakMap();
+  async function saveField(el) {
+    const t = boxTag(el);
+    const field = el.dataset.field;
+    if (!t || !field) return;
+    if (field === "name" && (el.value === t.name || sending.get(el) === el.value)) return;
+    sending.set(el, el.value);
+    let ok;
+    try {
+      ok = await man.edit(t, field, el.value);
+    } finally {
+      sending.delete(el);
+    }
+    // A refused name goes back to the saved one. A saved edit keeps the box (and the focus moving on); 标签管理 redraws
+    // only its list, for the new name.
+    if (!ok) renderManage();
+    else if (!man.row) drawList();
+  }
+  rows.addEventListener("change", (e) => saveField(e.target));
   rows.addEventListener("click", async (e) => {
     const pick = e.target.closest(".tm-item")?.dataset.id;
     if (pick) return (sel = pick), renderManage();
@@ -196,14 +214,7 @@
     await man.remove(t);
     renderManage();
   });
-  detail.addEventListener("change", async (e) => {
-    const t = curTag();
-    const field = e.target.dataset.field;
-    if (!t || !field) return;
-    // A saved edit redraws only the list (the new name), so the focus stays where it moved; a refused name goes back.
-    if (await man.edit(t, field, e.target.value)) drawList();
-    else renderManage();
-  });
+  detail.addEventListener("change", (e) => saveField(e.target));
   detail.addEventListener("input", (e) => {
     if (e.target.id === "tmRule") $("tmCnt").textContent = `${e.target.value.length} / ${UI.TAG_RULE_MAX}`;
   });
@@ -219,11 +230,37 @@
   });
   $("addTagBtn").addEventListener("click", addTag);
   newInput.addEventListener("input", () => man && syncAdd());
-  // Enter in a name field: the new-tag box adds; a rename would submit the form and close the dialog.
+  // Keys in a name box. Enter: the new-tag box adds, a rename is saved; the dialog stays (Enter would submit the form
+  // and close it) and so does the focus. Esc with an unsaved rename takes it back and only that: the dialog stays, and
+  // the next Esc closes it. So closing by Esc never sends a half-typed name (to B站, in 分组管理).
+  const unsaved = (el) => {
+    const saved = nameBox(el) ? boxTag(el)?.name : null;
+    return saved != null && el.value !== saved ? saved : null;
+  };
   manageDlg.addEventListener("keydown", (e) => {
-    if (MdgTyping.composing(e) || e.key !== "Enter" || !e.target.matches?.('#newTagInput, [data-field="name"]')) return;
+    if (MdgTyping.composing(e)) return;
+    const el = e.target;
+    if (e.key === "Escape") {
+      const saved = unsaved(el);
+      if (saved == null) return;
+      e.preventDefault();
+      el.value = saved;
+      return;
+    }
+    if (e.key !== "Enter" || !el.matches?.('#newTagInput, [data-field="name"]')) return;
     e.preventDefault();
-    if (e.target === newInput) addTag();
+    if (el === newInput) addTag();
+    else saveField(el).then(() => {
+      // The name as saved (trimmed), so leaving the box has nothing left to send.
+      const t = boxTag(el);
+      if (t) el.value = t.name;
+    });
+  });
+  // However Esc got to close the dialog with a rename still unsaved in the focused box, the close does not save it.
+  manageDlg.addEventListener("cancel", () => {
+    const el = document.activeElement;
+    const saved = el && unsaved(el);
+    if (saved != null) el.value = saved;
   });
 
   // ----- AI 打标签 -----
