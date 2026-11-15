@@ -106,10 +106,10 @@ function page({ readyState = "complete", videos = [], main = null, body = "", fi
   assert.strictEqual(r.title, "Doc title");
   assert.deepStrictEqual(r.subtitle.segments, [{ from: 1, to: 2.5, content: "One" }, { from: 3, to: 4, content: "Two lines" }]);
 
-  // Cues the browser already loaded win: nothing is fetched.
-  p = page({ videos: [{ w: 1, h: 1, duration: 4, tracks: [{ src: "https://e.test/a.srt" }], textTracks: [{ kind: "metadata", cues: [{}] }, { kind: "captions", label: "Auto", cues: [{ startTime: 0, endTime: 1, text: "<i>Hi</i>" }, { startTime: 1, endTime: 2, text: " " }] }] }] });
+  // Cues the browser already loaded win: nothing is fetched. Their text is cleaned like a file's.
+  p = page({ videos: [{ w: 1, h: 1, duration: 4, tracks: [{ src: "https://e.test/a.srt" }], textTracks: [{ kind: "metadata", cues: [{}] }, { kind: "captions", label: "Auto", cues: [{ startTime: 0, endTime: 1, text: "<i>Hi</i> &amp; bye" }, { startTime: 1, endTime: 2, text: " " }] }] }] });
   r = await p.read();
-  assert.deepStrictEqual([p.fetched, r.subtitle.lang, r.subtitle.segments], [[], "Auto", [{ from: 0, to: 1, content: "Hi" }]]);
+  assert.deepStrictEqual([p.fetched, r.subtitle.lang, r.subtitle.segments], [[], "Auto", [{ from: 0, to: 1, content: "Hi & bye" }]]);
 
   // A track over 2 MB, one that fails and a javascript: src are not read; no track at all; an unknown duration is 0.
   const big = "WEBVTT\n\n" + "00:00:01.000 --> 00:00:02.000\nx\n\n".repeat(80000);

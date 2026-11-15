@@ -39,6 +39,9 @@ MdgAgentSites.register({
       return { ...page, kind: "page", duration: 0, text, subtitle: { segments: [], lang: "", warning: "", missing: "No <video> on this page; text is the page's main text." } };
     }
 
+    // A cue's text as written in the file (VTTCue.text is that too): tags out, the entities WebVTT has decoded.
+    const cueText = (s) => line(String(s || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"), 1000);
+
     // WebVTT or SRT: blocks with a "from --> to" line, the lines after it the text.
     const parse = (raw) => {
       const time = (t) => {
@@ -54,7 +57,7 @@ MdgAgentSites.register({
         const [a, b] = lines[at].split("-->");
         const from = time(a);
         const to = time(b);
-        const content = line(lines.slice(at + 1).join(" ").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"), 1000);
+        const content = cueText(lines.slice(at + 1).join(" "));
         if (!Number.isFinite(from) || !Number.isFinite(to) || !content) continue;
         if ((total += content.length) > MAX_TEXT) break;
         out.push({ from, to, content });
@@ -95,7 +98,7 @@ MdgAgentSites.register({
       let total = 0;
       const segments = [];
       for (const c of loaded.cues) {
-        const content = line(String(c.text || "").replace(/<[^>]*>/g, ""), 1000);
+        const content = cueText(c.text);
         if (!content) continue;
         if ((total += content.length) > MAX_TEXT) break;
         segments.push({ from: c.startTime, to: c.endTime, content });
