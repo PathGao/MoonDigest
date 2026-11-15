@@ -856,7 +856,8 @@ async function saveSettings(settings) {
 }
 
 // Every setting (收藏夹 and 关注 included) lives in sync, except the 分拣台's folder choice (收藏夹设置) and each folder's
-// 判断标准, kept in local beside the data; the file carries those as `local`. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
+// 判断标准, kept in local beside the data; the file carries those as `local`. Each folder's AI platform, 开启思考 and
+// 联网核实 (triageFolderAi) are local too and stay out of the file. The sort is a quick toggle, not a setting. Keys and data stay out of the file. The key filter only guards
 // against a copy left in sync by an older version.
 const SETTINGS_FILE_VERSION = 1;
 const { triageIncludedFolders: FOLDERS_KEY, triageFolderCriteria: CRITERIA_KEY } = MdgLimits.KEYS;

@@ -29,7 +29,7 @@ const K = {
   folderList: KEYS.triageFolderList, // the page opens from it before it reads B站's list again
   tags: KEYS.triageTags, // [{ id, name, color, folder, rule? }]: folder is the mediaId the tag belongs to; rule is the one line the AI follows
   folderCriteria: KEYS.triageFolderCriteria, // { [mediaId]: 判断标准 }; 所有收藏夹 has its own under ALL
-  folderAi: "triage_folder_ai", // { [mediaId]: { providerId, thinking, search } }, 所有收藏夹's under ALL: written by 判断标准's 保存; none = the side panel's pick
+  folderAi: KEYS.triageFolderAi, // { [mediaId]: { providerId, thinking, search } }, 所有收藏夹's under ALL: written by 判断标准's 保存; none = the side panel's pick
   videoTags: KEYS.triageVideoTags,
   basket: KEYS.triageBasket,
   zones: KEYS.triageZones,

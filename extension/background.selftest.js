@@ -175,7 +175,7 @@ process.on("exit", (code) => {
     const src = ["background.js", "triage/triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8")).join("\n");
     assert.strictEqual(src.match(/await hostPermissionError\(/g).length, 1, "hostPermissionError is asked only in aiFetchError");
     assert.strictEqual(ctx.normalizeAiProvider({ id: "x", baseUrl: " https://ai.test/v1// " }).baseUrl, "https://ai.test/v1", "a saved platform's address is trimmed");
-  assert.deepStrictEqual([ctx.normalizeAiProvider({ id: "x", note: " 自己的 " }).note, ctx.normalizeAiProvider({ id: "x" }).note], ["自己的", ""], "a saved platform keeps its 备注名");
+    assert.deepStrictEqual([ctx.normalizeAiProvider({ id: "x", note: " 自己的 " }).note, ctx.normalizeAiProvider({ id: "x" }).note], ["自己的", ""], "a saved platform keeps its 备注名");
     const timeout = async () => {
       throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
     };

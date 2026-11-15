@@ -84,6 +84,8 @@
     // The 分拣台's folder choice and 判断标准: settings kept in local, carried by the settings file.
     triageIncludedFolders: "triage_included_folders",
     triageFolderCriteria: "triage_folder_criteria",
+    // Each folder's AI platform, 开启思考 and 联网核实 (判断标准's 保存). In local, and on purpose not in the settings file.
+    triageFolderAi: "triage_folder_ai",
     // 关注 (follow-bg.js writes most of them; the 分拣台, the B站 page's UP tags and the 分拣台 backup read them): follow_<name>
     // for list, people, last, last_wip, content, tags, tag_map, unfollowed, jobs, hold, stats, groups, ai_recent, ai_proposal,
     // ai_history, view (local) and ai_settings (sync). Code names them by the short name; followGet / followFull /

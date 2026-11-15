@@ -771,7 +771,7 @@ function aiProviderProblem(provider, apiKey) {
 }
 
 // The platform 分拣台's AI requests go to (aiProviderId: the folder's own from folderAi, else the side panel's pick), else
-// the first enabled one. The page falls back the same way to draw 判断标准 (fav-tags.js folderAiOf).
+// the first enabled one. The page falls back the same way to draw 判断标准 (fav-base.js folderAiOf).
 async function triageProvider(providerId = "") {
   const enabled = (await loadAiProviders()).filter((p) => p.enabled !== false);
   return enabled.find((p) => p.id === providerId) || enabled[0] || null;
@@ -843,8 +843,8 @@ async function triageClassifyTitles({ items, criteria, folder, aiProviderId, thi
 }
 
 // 协作打标签：只返回提案，不缓存。提示里让 AI 新建至多 maxNewTags 个（收藏夹剩余名额与分拣设置里 AI 新建上限取小），多出的照样返回
-// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit, and so does 摘读记录. 开启思考 and
-// 粗看输出上限 are 收藏夹设置's: 关注设置 and 摘读记录设置 have neither, so their runs think off with the automatic cap.
+// 关注 (follow-bg.js) calls it too, with UP 主 as items (mid in bvid) and its own unit, and so does 摘读记录. 开启思考 is
+// 判断标准's and 粗看输出上限 is 收藏夹设置's: 关注 and 摘读记录 have neither, so their runs think off with the automatic cap.
 async function triageAiCommand({ instruction, items, tags, maxNewTags, allowRemove = false, aiProviderId, thinking }, unit = TRIAGE_AI_UNIT) {
   const text = String(instruction ?? "").trim();
   if (!text) throw triageError("缺少指令");
