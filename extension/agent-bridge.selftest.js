@@ -550,7 +550,48 @@ check("inSitePage: a func that never settles is TIMEOUT by the deadline, and the
   assert.deepEqual([r.ok, r.code], [false, "TIMEOUT"]);
   assert.deepEqual(env.updated.at(-1), { id: env.created[0].id, url: "about:blank" });
 });
+// A site whose adapter reads the page itself (§5, read a function).
+const SELF = "https://www.self.test/v/1";
+const selfSite = (env) => env.sites.register({ id: "self", origins: ["https://www.self.test/*"], key: (u) => (u.hostname === "www.self.test" ? `${u.pathname}:` : null), read: () => globalThis.__STATE__ });
 
+check("a page-read site without access: NO_ACCESS for get and frame, no tab, nothing injected", async () => {
+  const env = makeEnv({ enabled: true });
+  selfSite(env);
+  const s = await openSocket(env);
+  assert.deepEqual(await rpc(s, "1", "get", { url: SELF }), { id: "1", ok: false, error: "MoonDigest has no access to https://www.self.test/*: ask the user to allow it.", code: "NO_ACCESS" });
+  assert.equal((await rpc(s, "2", "frame", { url: SELF, at: 1 })).code, "NO_ACCESS");
+  assert.equal(env.created.length, 0);
+  assert.equal(env.injected.length, 0);
+});
+
+check("a page-read site runs read in its own tab's isolated world, never the user's tab, until the page is ready", async () => {
+  const replies = [null, { title: "t", site: "spoofed" }];
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.self.test/*"], tabs: [{ id: 7, url: SELF }], inject: () => replies.shift() });
+  selfSite(env);
+  const s = await openSocket(env);
+  const r = await call(env, s, "1", SELF);
+  assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "self" } });
+  assert.equal(env.created.length, 1);
+  assert.equal(env.created[0].active, false);
+  assert.deepEqual(env.injected, Array(2).fill({ tabId: env.created[0].id, world: undefined, args: [SELF] }));
+  assert.equal(env.sent.length, 0, "no content-script message");
+});
+
+check("a page-read site's frame injects agent-page.js into its own tab and runs its frame there, in front when hidden", async () => {
+  const replies = [{ ok: false, code: "TAB_HIDDEN", error: "hidden" }, { ok: true, data: { at: 5 } }];
+  const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.self.test/*"], inject: (_tab, d) => (d.files ? undefined : replies.shift()) });
+  selfSite(env);
+  const s = await openSocket(env);
+  s.receive({ id: "1", method: "frame", params: { url: SELF, at: 5, maxWidth: 640 } });
+  for (let i = 0; i < 3; i++) { await settle(); env.runTimers(); }
+  await settle();
+  assert.deepEqual(s.out.find((m) => m.id === "1"), { id: "1", ok: true, data: { at: 5 } });
+  const id = env.created[0].id;
+  const ask = [{ tabId: id, files: ["agent-page.js"] }, { tabId: id, world: undefined, args: [{ at: 5, maxWidth: 640 }] }];
+  assert.deepEqual(env.injected, [...ask, ...ask]);
+  assert.deepEqual(env.shown, [id]);
+  assert.equal(env.sent.length, 0, "no content-script message");
+});
 
 (async () => {
   let failed = 0;

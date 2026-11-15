@@ -4,6 +4,7 @@
 //   MdgAgentPage.bind({ read, signal })
 //     read()  → §1's get data for the page's current video, or rejects with an Error carrying code.
 //     signal  → an AbortSignal that removes the listeners (optional).
+//   MdgAgentPage.frame(params) → the frame reply, for the bridge to run in a tab with no content script (agent-sites/web.js).
 (() => {
   if (globalThis.MdgAgentPage) {
     return;
@@ -149,5 +150,5 @@
     signal?.addEventListener("abort", () => chrome.runtime.onMessage.removeListener(onRuntime), { once: true });
   }
 
-  globalThis.MdgAgentPage = Object.freeze({ bind, VERSION });
+  globalThis.MdgAgentPage = Object.freeze({ bind, frame: (params) => run({ frame }, "frame", params), VERSION });
 })();
