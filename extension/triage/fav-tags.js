@@ -229,7 +229,7 @@ async function saveCriteria() {
     label,
     { reason: why }
   );
-  if (ok) runStage1(batch, true);
+  if (ok) startJudging(label, "重新粗看", batch, () => runStage1(batch, true));
 }
 
 // 联网核实 just turned on (and possible on the folder's platform) leaves the 细看 made without it old: asked as a changed
@@ -242,7 +242,7 @@ async function askSearchRedo(searchWas) {
   const { batch, label, why } = redoOf("fine");
   const shown = open.length < stale ? `（当前筛选下列出 ${open.length} 个）` : "";
   const ok = await askConfirm("联网核实打开了", `<p>「细看完成」里有 ${stale} 个视频细看时没有联网核实${shown}，要按新标准重新细看吗？</p>`, label, { reason: why });
-  if (ok) startGroup(batch.map((it) => it.bvid), true);
+  if (ok) startJudging(label, "重新细看", batch, () => startGroup(batch.map((it) => it.bvid), true));
 }
 
 // 所有收藏夹 without a 判断标准 of its own judges each video under its folder's: before a 粗看 or 细看 run it lists each

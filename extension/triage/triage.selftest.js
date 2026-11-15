@@ -3060,6 +3060,19 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     for (let i = 0; i < 20 && t.S.group; i++) await new Promise((r) => setImmediate(r));
     assert.deepStrictEqual([asked, batches, ran, fine], [null, [[["BV850", "BV853"], "总标准", "夹K", ""]], [["zp", false]], [["BV852", "总标准", "夹L", "zp", false, false]]]);
     assert.deepStrictEqual(plain([t.staleCoarse().map((it) => it.bvid), t.staleFine().map((it) => it.bvid)]), [[], ["BV851"]]);
+    // Its 判断标准 emptied and saved: the redo that save offers runs under each folder's again, so it lists the folders first.
+    {
+      const calls = [];
+      t.askConfirm = async (...args) => (calls.push(args), calls.length === 1);
+      t.el.criteriaInput = { value: "" };
+      await t.saveCriteria();
+      assert.deepStrictEqual([calls.length, calls[0][0]], [2, "判断标准改了"]);
+      assert.ok(calls[1][1].includes("每个视频按它所在收藏夹的判断标准判断"), calls[1][1]);
+      t.askConfirm = async () => false;
+      t.el.criteriaInput = { value: "总标准" };
+      await t.saveCriteria();
+      t.askConfirm = async (...args) => ((asked = args), true);
+    }
     // 联网核实 follows 所有收藏夹's record: 夹K's being on makes nothing old, its own on does, and its 细看 then searches.
     t.S.analyses.BV851.criteria = "总标准";
     assert.deepStrictEqual(plain(t.staleFine().map((it) => it.bvid)), []);
