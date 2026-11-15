@@ -104,6 +104,14 @@ const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.
 for (const t of texts) {
   for (const file of sources) assert.ok(!read(file).includes(t), `${file} writes 「${t}」 itself`);
 }
+// docs/OFFICIAL_PROMPTS.md is the copy users paste from: it has every default in full.
+{
+  const doc = read("../docs/OFFICIAL_PROMPTS.md");
+  const D = S.DEFAULTS;
+  for (const t of [D.aiSystemPrompt, D.playerAiQuickPrompt, [...D.aiPresetPrompts].join("\n"), D.webAiSystemPrompt, D.webAiSummaryPrompt, [...D.webAiPresetPrompts].join("\n")]) {
+    assert.ok(doc.includes("```text\n" + t + "\n```"), `docs/OFFICIAL_PROMPTS.md lacks today's 「${t.slice(0, 20)}」`);
+  }
+}
 // A stored copy of a default an earlier version shipped reads as today's; an edited one stays (C: the settings page saves
 // every field, so an untouched prompt is stored too).
 {
@@ -126,6 +134,21 @@ for (const t of texts) {
   const edited = Object.fromEntries(keys.map((k) => [k, `${OLD[k]}用英文回答。`]));
   assert.deepStrictEqual(read(edited), keys.map((k) => edited[k]));
   for (const k of keys) assert.ok(!now.includes(OLD[k]), `${k}: today's default is new`);
+  // 快捷追问 too: the whole list an earlier version shipped reads as today's; one line added, dropped or moved is an edit.
+  const lists = (stored) => plain(S.normalizeSyncSettings({ ...S.DEFAULTS, aiPresetPrompts: stored }).aiPresetPrompts);
+  const OLD_LISTS = [
+    ["生成视频摘要和结论", "按章节整理视频内容", "生成带时间轴的笔记"],
+    ["用 3 句话总结这个视频", "提炼这个视频的 5 个重点", "按时间顺序整理这期视频的内容", "根据评论总结观众的看法", "按章节整理视频内容", "生成带时间轴的笔记"],
+    ["按时间顺序整理这期视频的内容", "根据评论总结观众的看法", "按章节整理视频内容", "生成带时间轴的笔记"]
+  ];
+  for (const old of OLD_LISTS) {
+    assert.notDeepStrictEqual(old, plain(S.DEFAULTS.aiPresetPrompts), "today's default is new");
+    assert.deepStrictEqual(lists(old), plain(S.DEFAULTS.aiPresetPrompts));
+    assert.deepStrictEqual(lists([...old, "我的追问"]), [...old, "我的追问"]);
+    assert.deepStrictEqual(lists(old.slice(1)), old.slice(1));
+    assert.deepStrictEqual(lists([...old].reverse()), [...old].reverse());
+  }
+  assert.deepStrictEqual(lists([]), [], "an emptied list stays empty");
 }
 assert.deepStrictEqual([...S.normalizeAiPresetPrompts([" a ", "", "a", 5, null, ...Array.from({ length: 20 }, (_, i) => `q${i}`)])].slice(0, 3), ["a", "5", "q0"]);
 assert.strictEqual(S.normalizeAiPresetPrompts(Array.from({ length: 20 }, (_, i) => `q${i}`)).length, S.MAX_PRESET_PROMPTS);
