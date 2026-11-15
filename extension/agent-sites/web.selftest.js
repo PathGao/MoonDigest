@@ -7,8 +7,13 @@ const S = require("./registry.selftest.js").load("web.js", "youtube.js");
 
 const keys = {
   "https://www.youtube.com/watch?v=abc": "youtube:abc:",
-  "https://example.com/a/b?x=1#t=30": "web:https://example.com/a/b?x=1:",
+  "https://example.com/a/b?x=1#/route": "web:https://example.com/a/b?x=1#/route:",
   "http://example.com/": "web:http://example.com/:",
+  // The other sites' hosts are theirs alone: a page their adapter does not read is no page of web's.
+  "https://space.bilibili.com/1": null,
+  "https://b23.tv/abc": null,
+  "https://www.youtube.com/playlist?list=x": null,
+  "https://youtu.be/": null,
   "ftp://example.com/": null
 };
 for (const [href, key] of Object.entries(keys)) assert.strictEqual(S.keyOf(href), key, href);
@@ -119,19 +124,23 @@ function page({ readyState = "complete", videos = [], main = null, body = "", fi
   p = page({ videos: [{ w: 1, h: 1, tracks: [{ src: "javascript:alert(1)" }] }] });
   r = await p.read();
   assert.deepStrictEqual([p.fetched, r.duration, r.subtitle.segments.length], [[], 0, 0]);
-  assert.strictEqual((await page({ videos: [{ w: 1, h: 1, duration: 2 }] }).read()).subtitle.missing, "The video has no subtitle track.");
+  // No subtitles read: the page's text goes along (the video may be an article's decoration); with subtitles it does not.
+  r = await page({ videos: [{ w: 1, h: 1, duration: 2 }], main: "The article" }).read();
+  assert.deepStrictEqual([r.kind, r.duration, r.subtitle.missing, r.text], ["video", 2, "The video has no subtitle track.", "The article"]);
+  r = await page({ videos: [{ w: 1, h: 1, duration: 4, tracks: [{ src: "https://e.test/a.srt" }] }], files: { "https://e.test/a.srt": SRT }, main: "The article" }).read();
+  assert.strictEqual("text" in r, false);
 
   // Subtitle text stops at 100,000 characters.
   const long = "WEBVTT\n\n" + `00:00:01.000 --> 00:00:02.000\n${"y".repeat(900)}\n\n`.repeat(200);
   r = await page({ videos: [{ w: 1, h: 1, duration: 4, tracks: [{ src: "https://e.test/l.vtt" }] }], files: { "https://e.test/l.vtt": long } }).read();
-  assert.strictEqual(r.subtitle.segments.length, 111);
+  assert.deepStrictEqual([r.subtitle.segments.length, r.subtitle.warning], [111, "Cut at 100000 characters."]);
 
   // No video: the main element's text, blank runs collapsed, capped at 100,000 characters; else the body's.
   r = await page({ main: "  Head  \n\n\n\n  Para\t\tone ", body: "ignored" }).read();
-  assert.deepStrictEqual([r.kind, r.text, r.duration, r.subtitle.segments], ["page", "Head \n\n Para one", 0, []]);
+  assert.deepStrictEqual([r.kind, r.text, r.duration, r.subtitle.segments, r.subtitle.warning], ["page", "Head \n\n Para one", 0, [], ""]);
   assert.match(r.subtitle.missing, /No <video>/);
   r = await page({ body: "z".repeat(150000) }).read();
-  assert.strictEqual(r.text.length, 100000);
+  assert.deepStrictEqual([r.text.length, r.subtitle.warning], [100000, "Cut at 100000 characters."]);
 
   console.log("agent-sites web selftest ok");
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -159,10 +159,10 @@
     }
   }
 
-  // A site whose adapter reads the page itself: read(url) runs in the page's own world (its globals in reach) and returns
-  // §1's get data, or a falsy value while the page is not ready (callPage asks again).
+  // A site whose adapter reads the page itself: read(url) runs in the page's isolated world (the page cannot change what
+  // it runs with) and returns §1's get data, or a falsy value while the page is not ready (callPage asks again).
   const readInPage = (site, url) => async (tabId) => {
-    const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: site.read, args: [url] });
+    const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: site.read, args: [url] });
     return r?.result ? { ok: true, data: { ...r.result, site: site.id } } : undefined;
   };
 

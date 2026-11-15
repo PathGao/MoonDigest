@@ -564,7 +564,7 @@ check("a page-read site without access: NO_ACCESS for get and frame, no tab, not
   assert.equal(env.injected.length, 0);
 });
 
-check("a page-read site runs read in its own tab's MAIN world, never the user's tab, until the page is ready", async () => {
+check("a page-read site runs read in its own tab's isolated world, never the user's tab, until the page is ready", async () => {
   const replies = [null, { title: "t", site: "spoofed" }];
   const env = makeEnv({ enabled: true, commitNow: true, granted: ["https://www.self.test/*"], tabs: [{ id: 7, url: SELF }], inject: () => replies.shift() });
   selfSite(env);
@@ -573,7 +573,7 @@ check("a page-read site runs read in its own tab's MAIN world, never the user's 
   assert.deepEqual(r, { id: "1", ok: true, data: { title: "t", site: "self" } });
   assert.equal(env.created.length, 1);
   assert.equal(env.created[0].active, false);
-  assert.deepEqual(env.injected, Array(2).fill({ tabId: env.created[0].id, world: "MAIN", args: [SELF] }));
+  assert.deepEqual(env.injected, Array(2).fill({ tabId: env.created[0].id, world: undefined, args: [SELF] }));
   assert.equal(env.sent.length, 0, "no content-script message");
 });
 

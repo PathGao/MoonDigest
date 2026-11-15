@@ -1,11 +1,13 @@
 // Any other web page for the agent interface (docs/AGENT.md §5): the registry asks it last. Its main <video> with the
-// <track> subtitles, or, with no video, the page's main text (kind "page").
+// <track> subtitles; the page's main text when there is no video (kind "page") or its subtitles cannot be read.
 MdgAgentSites.register({
   id: "web",
   origins: ["http://*/*", "https://*/*"],
   fallback: true,
-  key: (u) => `${u.href.split("#")[0]}:`,
-  // Runs in the page's MAIN world: the page is untrusted, so every size is capped and every wait bounded.
+  // The whole URL, hash included (a hash may be the route). Not the other sites' hosts: a page of theirs their adapter
+  // does not read stays BAD_URL, and their short links would land on a player whose subtitles are not a <track>.
+  key: (u) => (/(^|\.)(bilibili\.com|b23\.tv|youtube\.com|youtu\.be)$/.test(u.hostname) ? null : `${u.href}:`),
+  // Runs in the page's isolated world. The page's content is untrusted, so every size is capped and every wait bounded.
   read: async function read() {
     if (document.readyState === "loading") return null;
     const MAX_TEXT = 100000; // characters of page text, and of all subtitle text together
@@ -33,10 +35,15 @@ MdgAgentSites.register({
       chapters: [],
       comments: []
     };
-    if (!video) {
+    const CUT = `Cut at ${MAX_TEXT} characters.`;
+    const mainText = () => {
       const root = document.querySelector("article, main, [role=main]") || document.body;
-      const text = String(root?.innerText || "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim().slice(0, MAX_TEXT);
-      return { ...page, kind: "page", duration: 0, text, subtitle: { segments: [], lang: "", warning: "", missing: "No <video> on this page; text is the page's main text." } };
+      const all = String(root?.innerText || "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+      return { text: all.slice(0, MAX_TEXT), warning: all.length > MAX_TEXT ? CUT : "" };
+    };
+    if (!video) {
+      const { text, warning } = mainText();
+      return { ...page, kind: "page", duration: 0, text, subtitle: { segments: [], lang: "", warning, missing: "No <video> on this page; text is the page's main text." } };
     }
 
     // A cue's text as written in the file (VTTCue.text is that too): tags out, the entities WebVTT has decoded.
@@ -49,6 +56,7 @@ MdgAgentSites.register({
         return m ? (+m[1] || 0) * 3600 + +m[2] * 60 + +m[3] + +m[4].padEnd(3, "0") / 1000 : NaN;
       };
       const out = [];
+      out.cut = false;
       let total = 0;
       for (const block of raw.replace(/\r\n?/g, "\n").split(/\n{2,}/)) {
         const lines = block.split("\n");
@@ -59,7 +67,7 @@ MdgAgentSites.register({
         const to = time(b);
         const content = cueText(lines.slice(at + 1).join(" "));
         if (!Number.isFinite(from) || !Number.isFinite(to) || !content) continue;
-        if ((total += content.length) > MAX_TEXT) break;
+        if ((total += content.length) > MAX_TEXT) { out.cut = true; break; }
         out.push({ from, to, content });
       }
       return out;
@@ -96,24 +104,31 @@ MdgAgentSites.register({
     const loaded = [...(video.textTracks || [])].find((t) => isSub(t.kind) && t.cues?.length);
     if (loaded) {
       let total = 0;
+      let cut = false;
       const segments = [];
       for (const c of loaded.cues) {
         const content = cueText(c.text);
         if (!content) continue;
-        if ((total += content.length) > MAX_TEXT) break;
+        if ((total += content.length) > MAX_TEXT) { cut = true; break; }
         segments.push({ from: c.startTime, to: c.endTime, content });
       }
-      subtitle = { segments, lang: line(loaded.label || loaded.language, 100), warning: "", missing: "" };
+      subtitle = { segments, lang: line(loaded.label || loaded.language, 100), warning: cut ? CUT : "", missing: "" };
     } else {
       const tracks = [...video.querySelectorAll("track")].filter((t) => isSub(t.kind || "subtitles") && t.src);
       const track = tracks.find((t) => t.default) || tracks[0];
       if (track) {
         const segments = parse(await fetchText(track.src));
         subtitle = segments.length
-          ? { segments, lang: line(track.label || track.srclang, 100), warning: "", missing: "" }
+          ? { segments: [...segments], lang: line(track.label || track.srclang, 100), warning: segments.cut ? CUT : "", missing: "" }
           : { ...subtitle, missing: "The video's subtitle track could not be read." };
       }
     }
-    return { ...page, kind: "video", duration: video.duration > 0 && Number.isFinite(video.duration) ? Math.round(video.duration) : 0, subtitle };
+    const duration = video.duration > 0 && Number.isFinite(video.duration) ? Math.round(video.duration) : 0;
+    // No subtitles read: the video may be an article's decoration, so the page's text goes along.
+    if (!subtitle.segments.length) {
+      const { text, warning } = mainText();
+      return { ...page, kind: "video", duration, text, subtitle: { ...subtitle, warning } };
+    }
+    return { ...page, kind: "video", duration, subtitle };
   }
 });
