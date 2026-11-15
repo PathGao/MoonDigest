@@ -27,7 +27,7 @@
   // 播放量 / 粉丝: 12.3万 and 2.5亿 (one decimal, dropped when 0), plain below 万.
   const fmtCount = (n) => (n >= 1e8 ? `${Math.round(n / 1e7) / 10}亿` : n >= 1e4 ? `${Math.round(n / 1e3) / 10}万` : String(n));
   // Tag names, colors and ids: ../tag-core.js, which badges.js on B站 pages loads too.
-  const { cleanTagName, nextTagColor, cycleTagColor } = globalThis.MdgTagCore;
+  const { cleanTagName, nextTagColor, TAG_COLORS } = globalThis.MdgTagCore;
   // A plain primary click on a video link plays it in the viewer here; with ⌘ / Ctrl / Shift / Alt the browser opens it.
   const plainClick = (e) => e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
   // A video card plays on a plain click anywhere on it (收藏夹 and 视频投稿 alike), except on a control inside it
@@ -376,7 +376,8 @@
     return new Promise((resolve) => dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true }));
   }
   // ----- 移动 / 复制 (#transferDialog): 收藏夹's folders and 关注's groups -----
-  // o = { title, list (html), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one), label (目标收藏夹 /
+  // o = { title, list (html: confirmList), aside (html under the list, optional), n, hows ("copy" / "move" / "add" buttons shown; the last is the blue one),
+  // verbs (the buttons' words when not 复制 / 移动 / 收藏: 关注's 加进 / 移到), label (目标收藏夹 /
   // 目标分组), options [[value, text]], newText (新建收藏夹… / 新建分组…), newPlaceholder, newMax, privacy (show 设为私密),
   // how (the hint under it, "" hides it), note(value) (html of the amber line for that target, "" hides it) }.
   // Resolves { how, target: { id } | { create, privacy } }, or null when cancelled.
@@ -397,12 +398,15 @@
     }
     $("transferTitle").textContent = o.title;
     dlg.setAttribute("aria-label", o.title);
-    $("transferBody").innerHTML = o.list;
+    // More than one: a line with the first name and 「等 N 个」 that opens into the list. aside stays in sight under it.
+    const first = /<li>([\s\S]*?)<\/li>/.exec(o.list)?.[1] || "";
+    const body = `<div class="confirm-body">${o.list}</div>`;
+    $("transferBody").innerHTML = (o.n > 1 ? `<details class="transfer-list fold"><summary><span class="first">${first}</span><span class="n">等 ${o.n} 个</span></summary>${body}</details>` : body) + (o.aside || "");
     $("transferLabel").textContent = o.label;
     for (const b of dlg.querySelectorAll("button[value=copy], button[value=move], button[value=add]")) {
       b.hidden = !o.hows.includes(b.value);
       b.classList.toggle("primary", b.value === o.hows.at(-1));
-      b.textContent = `${TRANSFER_VERB[b.value]} ${o.n} 个`;
+      b.textContent = `${o.verbs?.[b.value] || TRANSFER_VERB[b.value]} ${o.n} 个`;
       b.setAttribute("aria-label", b.textContent);
     }
     $("transferHow").textContent = o.how || "";
@@ -457,7 +461,7 @@
   const upWho = "UP 主";
   const sp = (who) => (/^[A-Za-z]/.test(who) ? ` ${who}` : who);
   // A unit's tags: 「视频标签」, 「 UP 标签」 (DESIGN's name for the tags on an UP, not 「UP 主标签」).
-  const tagsWord = (who) => (who === upWho ? " UP 标签" : `${sp(who)}标签`);
+  const tagsWord = (who) => (who === upWho ? ` ${MdgErrors.LABEL.upTags}` : `${sp(who)}标签`);
   // The delete confirm's title and body.
   const deleteTagAsk = (t, n, who) => [`删除标签「${t.name}」？`, `<p>将从 ${n} 个${sp(who)}上去掉这个标签，无法撤销。</p>`];
   // A batch confirm's list: the first CONFIRM_NAMES names, then 「等 N 个」.
@@ -465,7 +469,7 @@
   const confirmList = (names) => `<ul>${names.slice(0, CONFIRM_NAMES).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>${names.length > CONFIRM_NAMES ? `<p>等 ${names.length} 个</p>` : ""}`;
   // The tag picker's title: 「给「名字」打视频标签 / 打 UP 标签」 (a name alone does not say which), or for several
   // 「给选中的 N 个视频打标签」.
-  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}打标签` : who === upWho ? MdgErrors.upTagTitle(name) : `给「${name}」打${tagsWord(who)}`);
+  const pickTitle = (n, name, who) => (n > 1 ? `给选中的 ${n} 个${sp(who)}${MdgErrors.LABEL.keyTag}` : who === upWho ? MdgErrors.upTagTitle(name) : `给「${name}」打${tagsWord(who)}`);
   // U on a step that changed n ≥ 2 items asks this first: kind is tags (one 标签… save), ai (one applied AI 打标签) or
   // keep (one batch 保留).
   const UNDO_ASK = {
@@ -485,7 +489,7 @@
       const why = tagNameError(name, others);
       return why ? { why } : { tag: { ...t, name } };
     }
-    if (field === "color") return { tag: { ...t, color: cycleTagColor(t.color) } };
+    if (field === "color") return TAG_COLORS.includes(value) ? { tag: { ...t, color: value } } : {};
     if (field !== "rule") return {};
     const { rule: _, ...rest } = t;
     const rule = String(value ?? "").trim().slice(0, TAG_RULE_MAX);
@@ -568,14 +572,6 @@
     const tip = `最近一次 AI 打标签改动的${sp(who)}，${check}。\n${AI_RECENT_RULES.map((r) => `· ${r}`).join("\n")}\n${aiRecentUndo(who)}`;
     return stateGroup(AI_RECENT, filterBtn(`${attrs} title="${esc(tip)}"`, AI_RECENT, n, on, AI_SPARK) + AI_RECENT_X(xAttrs), " ai-recent");
   }
-  // One row of 标签管理: color, name, the line for the AI, how many carry it, 删除. Edits save on change.
-  const tagRowHtml = (t, { count, who }) => `<div class="tag-row" data-id="${esc(t.id)}">
-      <button type="button" class="tag-color" style="--c:${esc(t.color)}" data-tag-color title="换一个颜色" aria-label="换 ${esc(t.name)} 的颜色"></button>
-      <input type="text" name="tagName" value="${esc(t.name)}" data-field="name" maxlength="${MdgTagCore.TAG_NAME_MAX}" aria-label="标签名称" />
-      <input type="text" name="tagRule" value="${esc(t.rule || "")}" data-field="rule" maxlength="${TAG_RULE_MAX}" placeholder="什么样的${esc(sp(who))}打这个标签（给 AI 看，可不写）" aria-label="${esc(t.name)} 的说明" />
-      <span class="muted">${count} 个${esc(sp(who))}</span>
-      <button type="button" class="danger" data-tag-del aria-label="删除标签 ${esc(t.name)}">删除</button>
-    </div>`;
   // 「+ 标签 T」 on 视频投稿 cards and the viewer lines; attrs say what it tags. key: false leaves out the T where T acts
   // on something else.
   const tagPlusBtn = (attrs, label, key = true) =>
@@ -894,5 +890,5 @@
     };
   }
 
-  globalThis.TriageUi = { https, gearBtn, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, untagStep, changedFields, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, tagRowHead, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, aiTagsLabel, READING_AI_CHARS, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, toast, askConfirm, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, tagUses, undoAsk, tagRowHtml, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, AI_TAG_GONE, AI_APPLY_FAILED, NEW_TAG_MAX_ZERO, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, ZONE_BATCH, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
+  globalThis.TriageUi = { https, gearBtn, keepScroll, UP_RECENT, upTitles, AI_RECENT, AI_RECENT_CHECK, aiRef, esc, pad, dayText, fmtDate, fmtAgo, agoHtml, setSearchScope, confirmList, pickTitle, fmtDuration, fmtCount, cleanTagName, plainClick, cardPlayClick, cardPickClick, pickCard, img, toCsv, cardTagChip, untagStep, changedFields, syncedText, headMeta, titleHtml, AI_SPARK, byValue, dirWords, sortControl, filterBtn, labeledRow, tagFilterChip, kindTabs, originChip, stateGroup, tagRowHead, aiRecentChip, searchBox, bindSearch, resultCount, rowButtons, menuItem, BACKUP_ITEM, CLEAN_BACKUP, reasonAttrs, setReason, WARN_DOT, selectAllState, selectAllBox, toggleAll, aiTagsLabel, READING_AI_CHARS, setActivity, BILI_STUCK, waitText, BILI_HOLD_MS, WRITE_STOPPING, busyText, syncPill, setSync, bindSync, tagButtons, sideFoot, actBtn, cleanBtn, HIDDEN_ALL, selbar, toast, askConfirm, askTransfer, sideItem, emptyState, refreshEmpty, noMatch, fillSetRows, fillNumHints, numBox, NUM_SETTINGS, TITLES_PER_REQUEST, INTRO_CHARS, DEEP_COMMENTS, autoMaxTokens, numSetting, clampNumber, intIn, clampNumbers, mergeAiBatch, aiChanges, aiProposalOk, previewId, aiTally, nextTagColor, TAG_RULE_MAX, AI_TAGS_PENDING, tagNameError, deleteTagAsk, editedTag, withoutTag, tagUses, undoAsk, sp, tagsWord, AI_RECENT_RULES, aiRecentUndo, tagPlusBtn, viewerLine, viewerKeyFrom, headFold, FOLLOW_WRITE_GAP_MS, AI_TAGS_DONE, aiTagsFailed, AI_TAG_GONE, AI_APPLY_FAILED, NEW_TAG_MAX_ZERO, aiApplied, aiHistoryAdd, GROUP_NAME_MAX, groupNameError, UNDO, untagged, searchScope, cardCleanBtn, REFRESHING, stopWords, upWho, withFeedInProgress, UP_GONE_CODES, FOLLOW_SPECIAL, FEED_CACHE_MS, aiRoomHint, scopeLabel, batchesText, videoUrl, FAV_PAGE_SIZE, ZONE_BATCH, removedName, transferVerb: TRANSFER_VERB, tagManage: TAG_MANAGE };
 })();

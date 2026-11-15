@@ -380,18 +380,9 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   assert.strictEqual(UI.nextTagColor([]), C[0]);
   assert.strictEqual(UI.nextTagColor([{ color: C[0] }, { color: C[2] }]), C[1], "a deleted tag's color is reused, not a taken one");
   assert.strictEqual(UI.nextTagColor(C.map((color) => ({ color }))), C[0], "all taken: round again");
-  assert.strictEqual(TAG.cycleTagColor(C[0]), C[1]);
-  assert.strictEqual(TAG.cycleTagColor(C.at(-1)), C[0]);
-  assert.strictEqual(TAG.cycleTagColor("#000"), C[0], "a color from elsewhere starts the palette");
   assert.strictEqual(UI.tagNameError("", []), "标签名不能为空");
   assert.strictEqual(UI.tagNameError("a", [{ name: "a" }]), "已有同名标签");
   assert.strictEqual(UI.tagNameError("a", [{ name: "b" }]), "");
-  // Both modes' 管理 rows: the color button, the who in placeholder and count, escaped names.
-  const row = (who) => UI.tagRowHtml({ id: "x", name: "<i>", color: "#fff", rule: "r" }, { count: 3, who });
-  for (const [who, words] of [["视频", "视频"], ["UP 主", " UP 主"]]) {
-    assert.ok(row(who).includes("data-tag-color") && row(who).includes("data-tag-del") && row(who).includes(`3 个${words}<`) && row(who).includes(`什么样的${words}打这个标签`));
-    assert.ok(row(who).includes('value="&lt;i&gt;"') && !row(who).includes("<i>"));
-  }
   assert.ok(UI.deleteTagAsk({ name: "甲" }, 2, "UP 主")[1].includes("2 个 UP 主上"));
   assert.deepStrictEqual([...UI.deleteTagAsk({ name: "甲" }, 2, "视频")], ["删除标签「甲」？", "<p>将从 2 个视频上去掉这个标签，无法撤销。</p>"]);
   // The picker's title names which tags: a lone name does not say whether it is a video or an UP 主.
@@ -413,7 +404,8 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   assert.strictEqual(UI.editedTag(t0, "rule", ` ${"讲".repeat(90)} `).tag.rule.length, 80);
   assert.strictEqual(UI.editedTag(t0, "name", " 乙, ", []).tag.name, "乙");
   assert.deepStrictEqual(plain(UI.editedTag(t0, "name", "乙", [{ name: "乙" }])), { why: "已有同名标签" });
-  assert.strictEqual(UI.editedTag(t0, "color").tag.color, TAG.TAG_COLORS[1]);
+  assert.strictEqual(UI.editedTag(t0, "color", TAG.TAG_COLORS[4]).tag.color, TAG.TAG_COLORS[4]);
+  assert.strictEqual(UI.editedTag(t0, "color", "red").tag, undefined, "only a palette color");
   assert.strictEqual(t0.rule, "旧说明", "the tag itself is not changed");
   assert.deepStrictEqual([...UI.undoAsk("tags", 3, "UP 主")], ["撤销批量改标签？", "<p>上一步改了 3 个 UP 主的标签，撤销后都改回去。</p>", "撤销"]);
   assert.deepStrictEqual(plain(UI.withoutTag({ x: ["a", "b"], y: ["a"] }, "a")), { x: ["b"] });
@@ -728,13 +720,13 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
     nodes.transferDialog.L.close.at(-1)();
   };
   const group = {
-    title: "在 B站把这 2 个 UP 主复制到分组", n: 2, hows: ["copy"], list: "<ul></ul>", label: "目标分组",
-    options: [["-10", "特别关注 (3)"], ["7", "<数码> (2)"]], newText: "新建分组…", newPlaceholder: "新分组名称", newMax: 16, how: "原来的分组里也留着。",
+    title: "在 B站把这 2 个 UP 主加进分组", n: 2, hows: ["copy"], verbs: { copy: "加进" }, list: "<ul></ul>", label: "目标分组",
+    options: [["-10", "特别关注 (3)"], ["7", "<数码> (2)"]], newText: "新建分组…", newPlaceholder: "新分组名称", newMax: 16,
     note: (v) => (v === "-10" ? "会推送" : "")
   };
   let p = UI.askTransfer(group);
   assert.ok(nodes.transferDialog.open && nodes.transferLabel.textContent === "目标分组" && nodes.transferName.maxLength === 16);
-  assert.deepStrictEqual(buttons.map((b) => [b.value, b.hidden, b.textContent, b.cls.has("primary")]), [["copy", false, "复制 2 个", true], ["move", true, "移动 2 个", false], ["add", true, "收藏 2 个", false]], "only the mode's button, blue, with the count");
+  assert.deepStrictEqual(buttons.map((b) => [b.value, b.hidden, b.textContent, b.cls.has("primary")]), [["copy", false, "加进 2 个", true], ["move", true, "移动 2 个", false], ["add", true, "收藏 2 个", false]], "only the mode's button, blue, with the count");
   assert.ok(nodes.transferTarget.innerHTML.includes("&lt;数码&gt;") && nodes.transferTarget.innerHTML.endsWith('<option value="new">新建分组…</option>'));
   assert.ok(nodes.transferPrivateRow.hidden, "设为私密 is 收藏夹's");
   nodes.transferTarget.value = "-10";
@@ -754,11 +746,15 @@ for (const [file, fns, src] of [["收藏夹", ["mergeAiBatch"], PS.text(PS.favor
   close("move", "7");
   assert.deepStrictEqual(plain(await p), { how: "move", target: { id: "7" } });
   assert.strictEqual(nodes.transferTarget.L.change.length, 1, "bound once");
+  // What is moved: one name shows as it is; more fold into 「first 等 N 个」, and aside stays outside the fold.
+  UI.askTransfer({ ...group, n: 1, list: UI.confirmList(["甲"]) });
+  assert.strictEqual(nodes.transferBody.innerHTML, '<div class="confirm-body"><ul><li>甲</li></ul></div>');
+  UI.askTransfer({ ...group, list: UI.confirmList(["<甲>", "乙"]), aside: "<p>另有 1 个</p>" });
+  assert.ok(nodes.transferBody.innerHTML.startsWith('<details class="transfer-list fold"><summary><span class="first">&lt;甲&gt;</span><span class="n">等 2 个</span></summary>') && nodes.transferBody.innerHTML.endsWith("</details><p>另有 1 个</p>"), nodes.transferBody.innerHTML);
 
   for (const bad of XSS) {
     assertInert(UI.titleHtml(bad, 2), "titleHtml");
     assertInert(UI.cardTagChip({ id: bad, name: bad, color: "#fff" }, bad), "cardTagChip");
-    assertInert(UI.tagRowHtml({ id: bad, name: bad, color: "#fff", rule: bad }, { count: 1, who: "视频" }), "tagRowHtml");
     assertInert(UI.tagPlusBtn('data-x="1"', `给 ${bad} 打 UP 标签`), "tagPlusBtn");
     assertInert(UI.sideItem({ attrs: "", label: bad }), "sideItem");
   }

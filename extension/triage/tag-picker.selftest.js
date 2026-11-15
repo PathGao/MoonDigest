@@ -16,7 +16,7 @@ const fire = (n, type, e = {}) => {
 };
 const input = node({ value: "", focused: 0, focus() { this.focused++; }, setAttribute(k, v) { this[k] = v; } });
 const list = node({ innerHTML: "", querySelector: () => null });
-const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }) };
+const parts = { ".tp-input": input, ".picker-list": list, ".tp-title": node({ textContent: "" }), ".tp-note": node({ textContent: "" }), ".tp-foot": node({ textContent: "" }) };
 const calls = [];
 const dlg = node({
   open: false,
@@ -107,7 +107,8 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   P.open(opts());
   assert.deepStrictEqual(calls.splice(0), ["showModal"]);
   assert.ok(input.focused && P.isOpen());
-  assert.ok(list.innerHTML.includes('aria-checked="true"><span class="slot"><span class="dot">✓</span></span>') && list.innerHTML.includes('<span class="n" aria-hidden="true">3</span>'));
+  assert.strictEqual(parts[".tp-foot"].textContent, "按 Esc 或点外面关闭并保存", "the modal's one line: Esc and a click outside close and save (below)");
+  assert.ok(list.innerHTML.includes('aria-checked="true"><kbd aria-hidden="true">1</kbd><span class="slot"><span class="dot">✓</span></span>') && list.innerHTML.includes('<kbd aria-hidden="true">3</kbd><span class="slot">'), list.innerHTML);
 
   // → then Enter ticks the second tag; 1 ticks the first (游戏 off); Enter that picks an IME candidate ticks nothing.
   assert.strictEqual(key("ArrowRight").prevented, 1);
@@ -133,7 +134,7 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   input.value = " ";
   fire(input, "input");
   await wait();
-  assert.ok(!list.innerHTML.includes('class="n"'), list.innerHTML);
+  assert.ok(!list.innerHTML.includes("<kbd"), list.innerHTML);
   assert.strictEqual(key("1").prevented, 0, "1 goes into the box");
   input.value = "";
   fire(input, "input");
@@ -148,9 +149,9 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
 
   // Several targets: – for some, a click puts it on all, a second click takes it off all.
   P.open(opts({ targets: ["a", "b"] }));
-  assert.ok(list.innerHTML.includes('aria-checked="mixed"><span class="slot"><span class="dot">–</span></span>') && list.innerHTML.includes("1 个有"));
+  assert.ok(list.innerHTML.includes('aria-checked="mixed"><kbd aria-hidden="true">1</kbd><span class="slot"><span class="dot">–</span></span>') && list.innerHTML.includes("1 个有"));
   fire(list, "click", { target: { closest: () => ({ dataset: { i: "0" } }) } });
-  assert.ok(list.innerHTML.includes('style="--c:#1" title="游戏" aria-checked="true"><span class="slot"><span class="dot">✓</span></span><span class="name">游戏</span>'));
+  assert.ok(list.innerHTML.includes('style="--c:#1" title="游戏" aria-checked="true"><kbd aria-hidden="true">1</kbd><span class="slot"><span class="dot">✓</span></span><span class="name">游戏</span>'));
   P.close();
   assert.deepStrictEqual(saved.splice(0), [[{ key: "b", add: ["g"], remove: [] }]]);
 
@@ -192,6 +193,14 @@ const key = (k, o = {}) => fire(dlg, "keydown", { key: k, target: input, ...o })
   P.open(opts({ anchor: "#x" }));
   fire(win, "blur");
   assert.ok(!P.isOpen());
+  // An anchor near its card's right edge: the popover ends at that edge, not past it.
+  const anchorOf = doc.querySelector;
+  doc.querySelector = () => ({ getBoundingClientRect: () => ({ left: 900, right: 940, top: 300, bottom: 320 }), closest: (s) => s === "article" && { getBoundingClientRect: () => ({ right: 1000 }) } });
+  P.open(opts({ anchor: "#x" }));
+  assert.strictEqual(dlg.style.left, "752px");
+  P.close();
+  doc.querySelector = anchorOf;
+  saved.length = 0;
   // A modal ignores both, and sits centered (no popover position left over).
   P.open(opts());
   assert.ok(!dlg.classList.on.has("tp-pop") && dlg.style.top === "" && dlg.style.left === "");

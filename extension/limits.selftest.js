@@ -12,32 +12,32 @@ const L = ctx.MdgLimits;
 // The options page renders describe(); each cap it states must be the one the code enforces.
 const rows = L.describe({ subtitleCache: 12, aiConversations: 23, triageResults: 7 });
 const byLabel = Object.fromEntries(rows.map((row) => [row.label, row]));
-assert.strictEqual(byLabel["字幕缓存"].usage, `12 / ${L.SUBTITLE_CACHE_ENTRIES} 条`);
-assert.ok(byLabel["字幕缓存"].rule.includes(`${L.SUBTITLE_CACHE_DAYS} 天`));
-assert.strictEqual(byLabel["AI 对话"].usage, `23 / ${L.AI_CONVERSATIONS} 段`);
+assert.deepStrictEqual([byLabel["字幕缓存"].usage, byLabel["字幕缓存"].cap, byLabel["字幕缓存"].capNote], ["12 条", `${L.SUBTITLE_CACHE_ENTRIES} 条`, `${L.SUBTITLE_CACHE_DAYS} 天`]);
+assert.deepStrictEqual([byLabel["AI 对话"].usage, byLabel["AI 对话"].cap], ["23 段", `${L.AI_CONVERSATIONS} 段`]);
 assert.strictEqual(byLabel["分拣结果（粗看 + 细看）"].usage, "7 条");
-assert.ok(byLabel["AI 每次请求读的字幕或网页正文"].usage.includes("60,000"));
-assert.ok(byLabel["AI 每次请求带的历史"].usage.includes("40,000"));
+assert.deepStrictEqual([byLabel["读的字幕或网页正文"].cap, byLabel["带的历史"].cap], ["60,000 字", "40,000 字"]);
+assert.strictEqual(rows.filter((row) => row.perRequest && row.usage === undefined).length, 2, "a cap on one request has nothing used");
 assert.ok(!byLabel["分拣台最近取消收藏"] && !byLabel["分拣台撤销"], "display counts are not storage rows");
 const sized = Object.fromEntries(L.describe({ folderSnapshots: 3, folderSnapshotSize: 2.8 * 1024 * 1024, triageRemoved: 4, triageNotes: 5, totalSize: 300 })
-  .map((row) => [row.label, row.usage]));
+  .map((row) => [row.label, [row.usage, row.usageNote].filter(Boolean).join("，")]));
 assert.strictEqual(sized["收藏夹快照"], "3 个收藏夹，约 2.8 MB");
 assert.strictEqual(sized["已出分拣范围"], "4 个视频");
 assert.strictEqual(sized["备注"], "5 条");
 assert.strictEqual(sized["本地数据合计"], "约 1 KB");
-assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹快照").usage, "0 个收藏夹，约 0 KB", "nothing stored is 0 KB, not 1");
-// 观看进度: the caps triage-bg.js applies, in the row and in the options page's hint (filled from SEEN_LIMITS_TEXT).
-assert.strictEqual(L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage, `8 / ${L.SEEN_MAX} 个视频`);
+assert.strictEqual(L.describe({ folderSnapshots: 0, folderSnapshotSize: 0 }).find((row) => row.label === "收藏夹快照").usageNote, "约 0 KB", "nothing stored is 0 KB, not 1");
+// 观看进度: the caps triage-bg.js applies, in the row (上限 and its note) and in the options page's hint (SEEN_LIMITS_TEXT).
+assert.deepStrictEqual([byLabel["观看进度"].cap, byLabel["观看进度"].capNote, L.describe({ seen: 8 }).find((row) => row.label === "观看进度").usage], [`${L.SEEN_MAX} 个`, "1 年", "8 个视频"]);
 assert.strictEqual(L.SEEN_LIMITS_TEXT, "最多 10 分钟一次，留最近 1 年、最多 5000 个");
-assert.ok(byLabel["观看进度"].rule.includes(L.SEEN_LIMITS_TEXT));
+assert.ok(byLabel["观看进度"].rule.includes(`最多 ${L.SEEN_GAP_MS / 60000} 分钟一次`));
 const triageBg = fs.readFileSync(path.join(__dirname, "triage/triage-bg.js"), "utf8");
 for (const name of ["SEEN_GAP_MS", "SEEN_KEEP_DAYS", "SEEN_MAX"]) assert.ok(triageBg.includes(`MdgLimits.${name}`), `triage-bg.js reads MdgLimits.${name}`);
 const optionsHtml = fs.readFileSync(path.join(__dirname, "options.html"), "utf8");
 assert.ok(optionsHtml.includes("<span data-seen-limits></span>") && !/分钟一次|最多 \d+ 个/.test(optionsHtml), "options.html states 观看进度's caps only through data-seen-limits");
 assert.ok(fs.readFileSync(path.join(__dirname, "options.js"), "utf8").includes("node.textContent = MdgLimits.SEEN_LIMITS_TEXT"), "options.js fills data-seen-limits");
-assert.strictEqual(byLabel["收藏夹快照"].usage, "– 个收藏夹，约 –", "unknown sizes render as a dash");
-assert.strictEqual(L.describe()[0].usage, `– / ${L.SUBTITLE_CACHE_ENTRIES} 条`, "unknown usage renders as a dash");
-assert.ok(rows.every((row) => row.label && row.usage && row.rule));
+assert.deepStrictEqual([byLabel["收藏夹快照"].usage, byLabel["收藏夹快照"].usageNote], ["– 个收藏夹", "约 –"], "unknown sizes render as a dash");
+assert.strictEqual(L.describe()[0].usage, "– 条", "unknown usage renders as a dash");
+assert.ok(rows.every((row) => row.label && (row.usage || row.perRequest) && row.rule));
+assert.strictEqual(rows.filter((row) => !row.cap === !row.keeps).map((row) => row.label).join(), "本地数据合计", "every row but the total states a cap or why it has none, not both");
 // vm objects carry another realm's prototypes, so compare through JSON.
 assert.deepStrictEqual(
   JSON.parse(JSON.stringify(L.storageUsage({
@@ -61,7 +61,7 @@ assert.deepStrictEqual(
   };
   const u = L.storageUsage(all);
   assert.deepStrictEqual([u.aiConversations, u.aiConversationsStarred], [2, 2]);
-  assert.strictEqual(L.describe(u).find((row) => row.label === "AI 对话").usage, `2 / ${L.AI_CONVERSATIONS} 段，星标 2 段不计`);
+  assert.strictEqual(L.describe(u).find((row) => row.label === "AI 对话").usageNote, "星标 2 段不计");
   assert.deepStrictEqual(JSON.parse(JSON.stringify(L.conversationCounts(all.mdg_ai_conversations_v1, all.mdg_reading_marks_v1))), { counted: 2, starred: 2 });
   assert.ok(fs.readFileSync(path.join(__dirname, "history/history.js"), "utf8").includes("MdgLimits.conversationCounts(conversations, marks)"), "摘读记录 counts through the same helper");
 }
@@ -72,7 +72,7 @@ assert.deepStrictEqual(
     seen_BV1: [80, 1], seen_BV2: [80, 1], seen_BV3: [80, 1]
   });
   assert.deepStrictEqual([u.seen, u.seenExempt], [2, 1]);
-  assert.strictEqual(L.describe(u).find((row) => row.label === "观看进度").usage, `2 / ${L.SEEN_MAX} 个视频，勾选收藏夹里的 1 个不计`);
+  assert.strictEqual(L.describe(u).find((row) => row.label === "观看进度").usageNote, "勾选收藏夹里的 1 个不计");
 }
 
 // Storage key names: each KEYS name is written only in limits.js. Selftests and dev mocks may seed their own.

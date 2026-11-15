@@ -93,31 +93,29 @@
             <div class="ctl"><input id="includeAiChatInNote" type="checkbox" class="switch" /></div>
           </div>
 
-          <details class="adv">
+          <details class="adv fold">
             <summary>属性和附加段落</summary>
             <div class="row wide">
               <div class="lab"><span class="name">自带属性（frontmatter）</span><p class="hint">仅视频笔记：每个视频自动填，勾选的写进笔记开头。网页笔记固定写 <code>title</code> <code>url</code> <code>site</code> <code>author</code> <code>published</code> <code>created</code> <code>tags</code>。在摘读记录里加了星标的，两种笔记都再写 <code>starred: true</code>。</p></div>
-              <table class="data">
-                <tbody>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="title" /> <span class="mono">title</span></label></td><td class="rule">视频标题</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="url" /> <span class="mono">url</span></label></td><td class="rule">视频链接</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="site" /> <span class="mono">site</span></label></td><td class="rule">网站：bilibili / youtube</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="video_id" /> <span class="mono">video_id</span></label></td><td class="rule">视频号：BV 号或 YouTube ID</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="cid" /> <span class="mono">cid</span></label></td><td class="rule">分 P 的内部编号（仅 B站）</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="author" /> <span class="mono">author</span></label></td><td class="rule">UP 主或频道</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="author_url" /> <span class="mono">author_url</span></label></td><td class="rule">作者主页</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="duration" /> <span class="mono">duration</span></label></td><td class="rule">时长（秒）</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="cover" /> <span class="mono">cover</span></label></td><td class="rule">封面图地址</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="video_tags" /> <span class="mono">video_tags</span></label></td><td class="rule">视频自带的标签</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="upload_date" /> <span class="mono">upload_date</span></label></td><td class="rule" data-text="uploadDate">发布日期</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> <span class="mono">subtitle_lang</span></label></td><td class="rule">字幕语言</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="created" /> <span class="mono">created</span></label></td><td class="rule" data-text="exportDate">导出日期</td></tr>
-                  <tr><td><label><input type="checkbox" name="frontmatterField" value="tags" /> <span class="mono">tags</span></label></td><td class="rule">默认标签，分拣台和摘读记录给视频打的标签</td></tr>
-                </tbody>
-              </table>
+              <div class="fm-grid">
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="title" /><span class="mono">title</span><small>视频标题</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="url" /><span class="mono">url</span><small>视频链接</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="site" /><span class="mono">site</span><small>网站：bilibili / youtube</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="video_id" /><span class="mono">video_id</span><small>视频号：BV 号或 YouTube ID</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="cid" /><span class="mono">cid</span><small>分 P 的内部编号（仅 B站）</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="author" /><span class="mono">author</span><small>UP 主或频道</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="author_url" /><span class="mono">author_url</span><small>作者主页</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="duration" /><span class="mono">duration</span><small>时长（秒）</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="cover" /><span class="mono">cover</span><small>封面图地址</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="video_tags" /><span class="mono">video_tags</span><small>视频自带的标签</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="upload_date" /><span class="mono">upload_date</span><small data-text="uploadDate">发布日期</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="subtitle_lang" /><span class="mono">subtitle_lang</span><small>字幕语言</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="created" /><span class="mono">created</span><small data-text="exportDate">导出日期</small></label>
+                <label class="fm"><input type="checkbox" name="frontmatterField" value="tags" /><span class="mono">tags</span><small>默认标签，分拣台和摘读记录给视频打的标签</small></label>
+              </div>
             </div>
             <div class="row wide">
-              <div class="lab"><span class="name" data-text="fixedFrontmatterProperties">自定属性</span><p class="hint">名字和值你自己定，视频和网页笔记每篇都带，如 <code>类型: 视频</code>。值里可用上表的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
+              <div class="lab"><span class="name" data-text="fixedFrontmatterProperties">自定属性</span><p class="hint">名字和值你自己定，视频和网页笔记每篇都带，如 <code>类型: 视频</code>。值里可用自带属性的 <code>{{名称}}</code>，如 <code>来源: {{site}}</code>。</p></div>
               <div class="ctl">
                 <div id="fixedPropertiesList" class="fixed-properties-list"></div>
                 <p id="fixedPropertiesEmpty" class="empty">还没有自定属性</p>
@@ -186,10 +184,10 @@
         <div class="rows">
           <div class="prov">
             <div id="aiProvidersHead" class="ai-provider-row ai-provider-head" aria-hidden="true">
-              <span>平台</span><span>备注名</span><span>接口地址</span><span>模型</span><span>API Key</span><span></span><span></span>
+              <span>备注名</span><span>平台</span><span>接口地址</span><span>模型</span><span>API Key</span><span></span><span></span>
             </div>
             <div id="aiProvidersList" class="ai-providers-list"></div>
-            <p id="aiNoteHint" class="hint">备注名显示在侧边栏和分拣台的平台选项里。不填时显示「平台 · 模型」。</p>
+            <p id="aiNoteHint" class="hint">备注名显示在侧边栏和分拣台的平台选项里，不填时用框里的灰字。</p>
             <button id="addAiProviderBtn" class="add" type="button">+ 添加平台</button>
           </div>
           <p id="aiPromptsLater" class="ai-later">加好平台后，这里会出现系统提示词、AI 总结要求、播放器上的 ✦ AI 总结按钮和快捷追问。</p>
@@ -212,7 +210,7 @@
                 <div class="ctl"><input id="enablePlayerAiQuickAction" type="checkbox" class="switch" /></div>
               </div>
               <div class="row wide">
-                <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">有回答后出现在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
+                <div class="lab"><label class="name" for="aiPresetPrompts" data-text="aiPresetPrompts">快捷追问</label><p class="hint">一直显示在侧边栏里，点一下就发。每行一条，最多 <span data-hint-num="presetPrompts"></span> 条。侧边栏「管理快捷追问」里也能改。</p></div>
                 <div class="ctl"><textarea id="aiPresetPrompts" rows="4"></textarea></div>
               </div>
             </div>
@@ -241,22 +239,26 @@
           <a class="jump" href="./triage/triage.html" target="_blank">打开B站分拣台 ↗</a>
         </div>
         <div class="rows">
-          <div class="row">
-            <div class="lab"><label class="name" for="showBiliVerdicts">在 B站页面显示 AI 判断</label><p class="hint">分拣台给视频的判断（值得留、可清理、拿不准，或你定的已保留、已取消收藏），显示在 B站页面的标题前。虚线框 = 只做过标题粗看。默认关，判断在分拣台里看。</p></div>
-            <div class="ctl"><input id="showBiliVerdicts" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="showBiliTriageBadges">在 B站页面显示视频标签</label><p class="hint">你在分拣台给视频打的标签，显示在 B站页面的标题前。</p></div>
-            <div class="ctl"><input id="showBiliTriageBadges" type="checkbox" class="switch" /></div>
-          </div>
-          <div class="row">
-            <div class="lab"><label class="name" for="showBiliUpTags">在 B站页面显示 UP 标签</label><p class="hint">你在分拣台「关注」里给 UP 打的标签，显示在 B站页面的 UP 名字后面，还有「+ UP 标签」。</p></div>
-            <div class="ctl"><input id="showBiliUpTags" type="checkbox" class="switch" /></div>
-          </div>
           <div class="row wide">
-            <div class="lab"><span class="name">B站页面上显示什么</span><p class="hint">取消勾选，那个位置就不显示。「–」是那里不放的。「在 B站页面显示…」开关关着时，对应的列不起作用；「观看进度」这一列还要在「观看进度」里打开封面显示。</p></div>
+            <div class="lab">
+              <span class="name">B站页面上显示什么</span>
+              <p class="hint">一列是一种标记，列头的开关管整列。取消勾选，那个位置就不显示。「–」是那里不放的。</p>
+              <dl class="legend">
+                <dt data-text="aiVerdict">AI 判断</dt><dd>分拣台给视频的判断（值得留、可清理、拿不准，或你定的已保留、已取消收藏），显示在标题前。虚线框 = 只做过标题粗看。</dd>
+                <dt data-text="videoTags">视频标签</dt><dd>你在分拣台给视频打的标签，显示在标题前。</dd>
+                <dt data-text="upTags">UP 标签</dt><dd>你在分拣台「关注」里给 UP 打的标签，显示在 UP 名字后面。「+ UP 标签」跟它一起开关。</dd>
+                <dt data-text="seen">观看进度</dt><dd>要在「观看进度」里打开封面显示。</dd>
+              </dl>
+            </div>
             <table class="data marks">
-              <thead><tr id="biliMarksHead"></tr></thead>
+              <thead><tr>
+                <th></th>
+                <th scope="col" data-col="verdict"><label><span data-text="aiVerdict">AI 判断</span><input id="showBiliVerdicts" type="checkbox" class="switch" aria-label="在 B站页面显示 AI 判断" /></label></th>
+                <th scope="col" data-col="vtags"><label><span data-text="videoTags">视频标签</span><input id="showBiliTriageBadges" type="checkbox" class="switch" aria-label="在 B站页面显示视频标签" /></label></th>
+                <th scope="col" data-col="ups"><label><span data-text="upTags">UP 标签</span><input id="showBiliUpTags" type="checkbox" class="switch" aria-label="在 B站页面显示 UP 标签" /></label></th>
+                <th scope="col" data-col="plus"><div><span data-text="upTagAdd">「+ UP 标签」</span><small>随「UP 标签」</small></div></th>
+                <th scope="col" data-col="seen"><div><span data-text="seen">观看进度</span><a id="biliSeenState" href="#seen" title="到「观看进度」一节改封面显示"></a></div></th>
+              </tr></thead>
               <tbody id="biliMarks"></tbody>
             </table>
           </div>
@@ -277,12 +279,32 @@
         </div>
         <div class="rows">
           <div class="row">
-            <div class="lab"><label class="name" for="mcpAccess">允许 Agent 使用我的 B站和 YouTube 账号</label><p class="hint">打开后，Claude Code、Cursor、Codex 等 Agent 能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录：搜索和读视频（字幕、评论、画面）；读你的 B站收藏夹、关注、历史和稍后再看，以及 YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表；改它们：移动、复制、移出收藏夹，新建、改名、删除收藏夹，写分拣台的 AI 判断、保留、备注和标签。把视频加进或移出稍后再看和 YouTube 播放列表。每次修改都记在下面，可以撤销。不含 API Key 和 AI 对话。开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</p></div>
+            <div class="lab">
+              <label class="name" for="mcpAccess">允许 Agent 使用我的 B站和 YouTube 账号</label>
+              <p class="hint">打开后，Claude Code、Cursor、Codex 等 Agent 能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录读视频，读和改你的收藏夹、YouTube 播放列表和分拣结果。每次修改都记在「Agent 最近的修改」里，可以撤销。</p>
+              <details class="fold">
+                <summary>能读什么、能改什么</summary>
+                <dl class="legend">
+                  <dt>读</dt><dd>搜索和读视频（字幕、评论、画面）；你的 B站收藏夹、关注、历史和稍后再看；YouTube 的稍后观看、赞过的视频、订阅、历史记录和 YouTube 播放列表。</dd>
+                  <dt>改</dt><dd>移动、复制、移出收藏夹，新建、改名、删除收藏夹；写分拣台的 AI 判断、保留、备注和标签；把视频加进或移出稍后再看和 YouTube 播放列表。</dd>
+                  <dt>不含</dt><dd>API Key 和 AI 对话。</dd>
+                  <dt>连接</dt><dd>开着时插件每分钟试连一次本机 127.0.0.1:47823，连上后插件后台会一直运行，不用时关掉。</dd>
+                </dl>
+              </details>
+            </div>
             <div class="ctl"><input id="mcpAccess" type="checkbox" class="switch" /></div>
           </div>
           <div class="row wide">
-            <div class="lab"><span class="name">安装</span><p class="hint">在 Agent 里添加 MCP 服务，要先装好 Node 20 或更高版本。这样装的服务每次随 Agent 启动取最新版。Agent 说 MCP 服务比插件旧时（以前按本地文件夹装的会这样），用这里的命令重新添加一次，再重启 Agent。<span id="mcpStatusText"></span></p>
-              <ul class="mcp-install" id="mcpInstall"></ul>
+            <div class="lab">
+              <div class="name-line"><span class="name">安装</span><span id="mcpPill" class="pill" hidden></span></div>
+              <p class="hint">选你用的 Agent，把 MCP 服务加进去。要先装好 Node 20 或更高版本。</p>
+              <div class="kind-tabs mcp-tabs" role="tablist" aria-label="Agent" id="mcpTabs"></div>
+              <div class="mcp-panel" role="tabpanel" id="mcpPanel">
+                <p class="where" id="mcpWhere"></p>
+                <pre id="mcpCmd"></pre>
+                <button type="button" class="sm" id="mcpCopy">复制</button>
+              </div>
+              <p class="hint">Agent 说 MCP 服务比插件旧时，用这里的命令重新添加一次，再重启 Agent。<span id="mcpStatusText"></span></p>
             </div>
           </div>
           <div class="row wide">
@@ -305,7 +327,7 @@
           </div>
 
           <div id="obsidianBody">
-            <details id="obsidianGuide" class="guide-box">
+            <details id="obsidianGuide" class="guide-box fold">
               <summary>重看配置指引</summary>
               <ol class="guide">
                 <li><b>装插件</b><span>在 Obsidian 社区插件里装好并启用 <strong>Local REST API with MCP</strong>。</span></li>
@@ -354,8 +376,15 @@
           <a class="jump" href="./history/history.html" target="_blank">打开摘读记录 ↗</a>
         </div>
         <div class="rows">
+          <div class="sub first">存在这台电脑上的</div>
           <table class="data">
-            <tbody id="storageLimits"><tr><td aria-busy="true">正在统计…</td></tr></tbody>
+            <thead><tr><th></th><th>已用</th><th>上限</th><th>说明</th></tr></thead>
+            <tbody id="storageLimits"><tr><td colspan="4" aria-busy="true">正在统计…</td></tr></tbody>
+          </table>
+          <div class="sub">每次发给 AI 的上限</div>
+          <table class="data">
+            <thead><tr><th></th><th>上限</th><th>说明</th></tr></thead>
+            <tbody id="aiLimits"></tbody>
           </table>
         </div>
       </section>

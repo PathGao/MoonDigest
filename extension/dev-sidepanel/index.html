@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MoonDigest · AI 侧边栏</title>
     <link rel="stylesheet" href="../tokens.css" />
+    <link rel="stylesheet" href="../vendor/Temml-Local.css" />
     <link rel="stylesheet" href="../sidepanel.css" />
   </head>
   <body>
@@ -34,6 +35,7 @@
       <section id="spNote" class="sp-note" hidden>
         <button id="spNoteToggle" type="button" class="sp-note-toggle is-empty" title="这个视频的备注，和分拣台、摘读记录里的是同一份"><span class="sp-note-label"><span class="sp-note-add" data-text="noteAdd">✎ 备注</span><span class="sp-note-head" data-text="noteAdd">✎ 备注</span></span><span id="spNoteText" class="sp-note-text"></span></button>
         <textarea id="spNoteInput" class="sp-note-input" rows="2" placeholder="一句话备注，回车保存" aria-label="备注" hidden data-text="notePlaceholder"></textarea>
+        <p class="sp-note-keys">回车或 Esc 保存 · Shift+回车换行</p>
       </section>
       <div class="sp-center-error" aria-busy="true" data-text="loading">正在加载…</div>
       <div class="sp-suggestions" id="spSuggestions"></div>
@@ -57,7 +59,8 @@
           <span>管理快捷追问</span>
         </button>
         <div id="spPresetPopover" class="sp-preset-popover" hidden>
-          <div id="spPresetList" class="sp-preset-list"></div>
+          <div class="sp-preset-head"><span class="sp-pop-title">管理快捷追问</span><span id="spPresetCount" class="sp-preset-count"></span></div>
+          <ul id="spPresetList" class="sp-preset-list"></ul>
           <div class="sp-preset-editor">
             <input id="spPresetInput" class="sp-preset-input" type="text" placeholder="添加快捷追问" />
             <button id="spPresetAddBtn" type="button" class="sp-preset-add-btn">添加</button>
@@ -86,6 +89,7 @@
         </div>
         <div id="spHistoryPopover" class="sp-history-popover" hidden>
           <div class="sp-history-popover-head">
+            <span class="sp-pop-title">历史对话</span>
             <a class="sp-history-manage" href="./history/history.html" target="_blank" title="打开摘读记录" aria-label="打开摘读记录" data-text="history">摘读记录</a>
           </div>
           <div id="spHistoryList" class="sp-history-list"></div>
@@ -110,6 +114,7 @@
     <script src="../typing.js"></script>
     <script src="../sites.js"></script>
     <script src="../tag-core.js"></script>
+    <script src="../vendor/temml.min.js"></script>
     <script src="../note.js"></script>
     <script src="../download.js"></script>
     <script src="../note-actions.js"></script>

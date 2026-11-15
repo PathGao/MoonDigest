@@ -49,7 +49,8 @@
               fail(e);
               return null;
             }
-            if (!p) return null;
+            // Nothing to send (加进分组… with everyone already there): no run, so no pill line without a progress.
+            if (!p || !p.chunks.length) return null;
             const { verb, chunks, folders = [], meta = {}, onChunk } = p;
             Object.assign(batch, { folders: folders.map(String), meta });
             for (const c of chunks) hold(c.keys, verb);

@@ -49,6 +49,16 @@ const turn = () => new Promise((r) => setImmediate(r));
     assert.deepStrictEqual([w.busy(), w.pending("b"), w.progress()], ["", "", null]);
   }
 
+  // A batch with nothing to send (加进分组… with everyone already in it) is no run: nothing is sent and the pill is
+  // never asked for the line of a batch that has no progress (the page redraws its pill on every run change).
+  {
+    const log = [];
+    const runs = globalThis.MdgRuns.create({ hold: () => null, sleep: async () => {}, redraw: () => runs.pill(["follow-write"]) });
+    const w = globalThis.MdgWrites.create({ runs, lane: "follow-write", send: (msg) => (log.push(msg), { ok: true }), line: (p) => `${p.name}中 ${p.done}/${p.total}` });
+    const r = await w.run("follow-write", "加进「X」", { verb: "加进「X」", chunks: [] });
+    assert.deepStrictEqual([r.done, r.total, r.error, log.length, w.busy()], [0, 0, "", 0, ""]);
+  }
+
   // A failure stops at that chunk: done counts what went through, the rest is no longer pending, the lane is free.
   {
     const { w, log } = setup((m) => (m.id === 2 ? { ok: false, error: "网络错误" } : { ok: true }));

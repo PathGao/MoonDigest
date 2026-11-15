@@ -11,7 +11,8 @@ const rules = (css) =>
     body,
     vars: new Map([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(([, k, v]) => [k, v.trim().replace(/\s+/g, " ")]))
   }));
-const asMdg = (vars) => new Map([...vars].map(([k, v]) => [`--mdg-${k.slice(2)}`, v]));
+// A token made of another token (--focus-ring from --text-2) names the mirrored one there.
+const asMdg = (vars) => new Map([...vars].map(([k, v]) => [`--mdg-${k.slice(2)}`, v.replace(/var\(--/g, "var(--mdg-")]));
 const pick = (vars, prefix) => new Map([...vars].filter(([k]) => k.startsWith(prefix)));
 
 const tokenRules = rules(read("tokens.css")).filter((r) => r.selector === ":root");

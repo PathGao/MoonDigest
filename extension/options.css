@@ -88,6 +88,10 @@ textarea {
   font-size: var(--fs-sm);
   line-height: 1.65;
   resize: vertical;
+  /* Grows with its text, in whole lines: 4 to 20, then it scrolls. 18px = padding and border. */
+  field-sizing: content;
+  min-height: calc(1.65em * 4 + 18px);
+  max-height: calc(1.65em * 20 + 18px);
 }
 
 :is(input, select).input-error {
@@ -391,8 +395,88 @@ main {
   justify-self: end;
 }
 
-/* MCP: the install commands (one per client, each with 复制) and the Agent's changes (each with 撤销). */
-.mcp-install,
+/* A short list of terms under a hint: what each column or word covers. */
+.legend {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 12px;
+  margin: 8px 0 0;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+
+.legend dt {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.legend dd {
+  margin: 0;
+}
+
+.lab > details.fold {
+  margin-top: 4px;
+}
+
+/* The switch stays by the name when the details under it open. */
+.row:has(> .lab > details) {
+  align-items: start;
+}
+
+.lab > details.fold .legend {
+  margin: 0 0 4px 19px;
+}
+
+/* MCP: a tab per client with its install command shown whole and 复制, then the Agent's changes (each with 撤销). */
+.name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kind-tabs.mcp-tabs {
+  gap: 24px;
+  margin-top: 10px;
+}
+
+.mcp-tabs button {
+  height: 38px;
+  font-size: var(--fs-md);
+  line-height: 38px;
+}
+
+.mcp-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  align-items: start;
+  margin-top: 12px;
+}
+
+.mcp-panel .where {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.mcp-panel pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mcp-panel + .hint {
+  margin-top: 8px;
+}
+
 .mcp-log {
   margin: 8px 0 0;
   padding: 0;
@@ -401,21 +485,11 @@ main {
   gap: 6px;
 }
 
-.mcp-install li,
 .mcp-log li {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-}
-
-.mcp-log li {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.mcp-install code {
-  overflow-x: auto;
-  white-space: pre;
 }
 
 .mcp-log .empty {
@@ -433,6 +507,11 @@ input.switch:disabled {
   align-items: start;
 }
 
+/* Obsidian's three boxes share the 笔记目录 row's column, so their left edges line up. */
+:where(#obsidianBody) .row {
+  grid-template-columns: minmax(0, 1fr) 420px;
+}
+
 .row.wide {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
@@ -440,6 +519,12 @@ input.switch:disabled {
 
 .toggle-row .name {
   font-weight: 600;
+}
+
+.sub.first {
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 0;
 }
 
 .sub {
@@ -515,35 +600,53 @@ input.switch:disabled {
   font-size: var(--fs-sm);
 }
 
-details > summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-details > summary::-webkit-details-marker {
-  display: none;
-}
-
+/* The disclosures are tokens.css's details.fold; here only where each sits. */
 details.adv {
   border-top: 1px solid var(--border);
 }
 
 details.adv > summary {
-  padding: 14px 0;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
-details.adv > summary::before {
-  content: "▸";
-  display: inline-block;
-  width: 14px;
-  transition: transform 0.15s;
+/* 自带属性: a tick, the name and what it holds, three to a line, read left to right. */
+.fm-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 12px;
+  margin-top: 4px;
 }
 
-details.adv[open] > summary::before {
-  transform: rotate(90deg);
+.fm {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 8px;
+  align-items: baseline;
+  align-content: start;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.fm:hover {
+  background: var(--surface-muted);
+}
+
+.fm input {
+  grid-row: 1 / 3;
+  align-self: start;
+  margin: 4px 0 0;
+}
+
+.fm small {
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.fm:has(input:not(:checked)) .mono {
+  color: var(--faint);
 }
 
 /* Fixed properties and extra sections: built by options.js, one grid row each. */
@@ -664,7 +767,8 @@ details.adv[open] > summary::before {
 
 .ai-provider-row {
   display: grid;
-  grid-template-columns: 124px 112px minmax(130px, 1fr) 140px 140px 96px minmax(30px, max-content);
+  /* The fields give way before anything sticks out of the card; the two buttons keep their size. */
+  grid-template-columns: minmax(90px, 160px) minmax(90px, 124px) minmax(100px, 1fr) minmax(80px, 120px) minmax(80px, 120px) 96px minmax(30px, max-content);
   gap: 8px;
   align-items: center;
 }
@@ -681,7 +785,8 @@ details.adv[open] > summary::before {
   font-size: var(--fs-sm);
 }
 
-.ai-provider-baseurl {
+.ai-provider-baseurl,
+.ai-provider-note {
   text-overflow: ellipsis;
 }
 
@@ -859,31 +964,11 @@ details.adv[open] > summary::before {
 }
 
 /* Obsidian */
-.guide-box + .row {
-  border-top: 0;
-}
-
 .guide-box {
-  margin: 4px 0 var(--space-3);
-  padding: 10px 16px;
-  border-radius: var(--radius-md);
-  background: var(--bg);
-}
-
-.guide-box > summary {
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-}
-
-.guide-box[open] > summary {
-  margin-bottom: 10px;
+  margin: 8px 0;
 }
 
 /* Before a key is saved the guide is just open, with nothing to fold. */
-.guide-box.first {
-  padding: 14px 16px;
-}
-
 .guide-box.first > summary {
   display: none;
 }
@@ -892,7 +977,9 @@ details.adv[open] > summary::before {
   display: grid;
   gap: 10px;
   margin: 0;
-  padding: 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
   list-style: none;
   counter-reset: g;
 }
@@ -1001,10 +1088,43 @@ table.data th {
   white-space: nowrap;
 }
 
+table.data thead th {
+  padding-bottom: 4px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
 table.data td.use {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* 数据与存储: 已用 and 上限 each in a column, with a small second line (what is not counted, how long it is kept). */
+#storageLimits th {
+  width: 168px;
+  white-space: normal;
+}
+
+#storageLimits td.use {
+  width: 190px;
+  white-space: normal;
+}
+
+table.data td.cap {
+  width: 96px;
+  font-variant-numeric: tabular-nums;
+}
+
+table.data td.cap.no {
+  color: var(--faint);
+}
+
+table.data td:is(.use, .cap) small {
+  display: block;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+  font-weight: 400;
 }
 
 table.data td.rule {
@@ -1015,16 +1135,63 @@ table.data tr + tr > * {
   border-top: 1px solid var(--border);
 }
 
-/* B站页面上显示什么: page names down the side, a column per mark. */
+/* B站页面上显示什么: page names down the side, a column per mark with its switch in the header. A column that is
+   off (.off, set by options.js) is grey from top to bottom. */
 table.marks :is(thead th, td) {
   padding-right: 0;
   text-align: center;
   white-space: nowrap;
 }
 
+table.marks [data-col] {
+  width: 112px;
+  transition: background 0.16s;
+}
+
 table.marks thead th {
-  color: var(--muted);
+  padding: 10px 0;
+  vertical-align: top;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+table.marks thead th > :is(label, div) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+table.marks thead label {
+  cursor: pointer;
+}
+
+table.marks thead :is(small, a) {
   font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 20px;
+}
+
+table.marks thead small {
+  color: var(--faint);
+}
+
+table.marks thead a {
+  color: var(--link);
+}
+
+table.marks .off {
+  background: var(--field-bg);
+}
+
+table.marks thead th.off {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  color: var(--faint);
+}
+
+table.marks tbody tr:last-child td.off {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 table.marks tbody th {

@@ -83,7 +83,9 @@ function activityState() {
 
 function renderStatus() {
   const a = activityState();
-  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"`, label: a.actLabel, reason: a.stopping ? stopWhy(a.act) : "" } });
+  // 暂停粗看 / 暂停细看 is row 3's button on the run's own tab: the pill's copy is hidden there (triage.css .in-row3).
+  const inRow3 = a && ((a.act === "stage1" && ownStage1() && S.tab === "none") || (a.act === "group" && ownGroup() && S.tab === "coarse"));
+  UI.setActivity(el.activity, a && { ...a, btn: a.act && { attrs: `data-head="${a.act}"${inRow3 ? ' class="in-row3"' : ""}`, label: a.actLabel, reason: a.stopping ? stopWhy(a.act) : "" } });
 }
 
 // 观看进度's countdown each second (runs' own waits redraw themselves).
@@ -241,7 +243,8 @@ function renderListHeader(list) {
   // Search, row 3 or row 4 on: how many the tab lists.
   el.searchCount.textContent = UI.resultCount(S.query.trim() || statesOn(t) || tagRowOn(), list.length);
   const { run: favRun, busy: favBusy } = fav.state();
-  // none: why the selection's buttons are off (UI.selbar: filters hide the whole selection); they count all of it then.
+  // none: why the selection's buttons are off (UI.selbar: filters hide the whole selection). The bar says how many are
+  // selected once, so its buttons carry no count; row 3's AI-verdict batches do.
   const batchBtn = (route, verdict = "", none = "") => {
     const run = favRun?.job === "unfav" ? favRun : null;
     if (route === "unfav" && run && !runWhere(run)) return headBtn("batch-unfav", runLine(run), "danger", "正在取消收藏", "", "", true);
@@ -256,16 +259,15 @@ function renderListHeader(list) {
     const reason = none || (!can ? empty
       : route === "unfav" && run ? UI.busyText(`「${folderName(run.mediaId)}」的${UNFAV_MANY}`)
       : route === "unfav" ? UI.busyText(favBusy) : "");
-    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : `${verb}选中的 ${n} 个`, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
+    return headBtn(`batch-${route}`, verdict ? `${verb}（AI：${VERDICTS[verdict]}）${n} 个` : verb, route === "unfav" ? "danger" : "", reason, verdict, route === "keep" ? KEEP_TIP : "");
   };
   const transferBtn = (none) => {
     const run = favRun?.job === "transfer" ? favRun : null;
     if (run) return headBtn("transfer", runLine(run), "", `正在${run.verb}`, "", "", true);
     const can = none ? S.selected.size : transferList().length;
-    const n = can || selectedIn(visibleItems()).length;
     // 已出分拣范围 holds no 取消收藏 decisions (S.decisions is 保留 only there): only a missing aid keeps one out.
     const reason = none || (!can ? (S.mediaId === REMOVED ? "选中的视频缺少视频编号" : "选中的视频已取消收藏，或缺少视频编号") : UI.busyText(favBusy));
-    return headBtn("transfer", S.mediaId === REMOVED ? `收藏选中的 ${n} 个到…` : `移动/复制选中的 ${n} 个…`, "", reason);
+    return headBtn("transfer", S.mediaId === REMOVED ? "收藏到…" : "移动/复制…", "", reason);
   };
   const groupBtn = (cls) => {
     const g = ownGroup() && runs.get("group");

@@ -255,6 +255,17 @@ assert.ok(!/seenThreshold\.value = String\((readFormPayload\(\)|payload)\.seenTh
   assert.strictEqual(page.collectAiProviders()[0].hasSavedKey, true, "another path on the same host keeps the Key");
   parts[".ai-provider-note"].value = " 自己的 ";
   assert.strictEqual(page.collectAiProviders()[0].note, "自己的", "the row's 备注名 is saved with it");
+  // An empty 备注名 shows the name the selects will use, and follows the row's 模型 and 平台.
+  const note = parts[".ai-provider-note"];
+  assert.strictEqual(note.placeholder, "备注名", "no 模型 yet: the box says what it is");
+  type(".ai-provider-model", "m1");
+  assert.strictEqual(note.placeholder, ctx.MdgSettings.aiProviderLabel({ name: "DeepSeek", model: "m1" }));
+  assert.strictEqual(note.placeholder, "DeepSeek · m1");
+  parts[".ai-provider-preset"].value = "custom";
+  parts[".ai-provider-preset"].L.change.forEach((f) => f({ target: parts[".ai-provider-preset"] }));
+  assert.strictEqual(note.placeholder, "自定义 · m1", "changing 平台 renames it");
+  parts[".ai-provider-preset"].value = "deepseek";
+  parts[".ai-provider-preset"].L.change.forEach((f) => f({ target: parts[".ai-provider-preset"] }));
 
   // A5: pointed at another host, the saved Key is not counted (save asks for one) and 测试连接 does not use it.
   parts[".ai-provider-preset"].value = "custom";

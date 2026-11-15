@@ -225,7 +225,6 @@ const DUPLICATES = [
   ["「附带 AI 问答」已关。", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["整篇覆盖会替换全部内容：", "content.js download.js", "例外：同上，「该笔记已存在」确认框的两份"],
   ["账号已注销", "triage/follow-bg.js triage/follow.js", "例外：follow-bg.js 里的是 B站 给注销账号的占位名（接口数据，按它认人），follow.js 显示的状态名恰好同字"],
-  ["UP 标签", "bili-surfaces.js triage/follow.js triage/shared.js", "待修：C55"],
   ["AI 平台", "options.html triage/triage.html", "例外：设置页那一节的名字，分拣台判断标准弹窗里选平台的那一栏用同一个词指同一个东西，各是静态 html 的标题"],
 ];
 {

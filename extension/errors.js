@@ -206,6 +206,9 @@
     // B站 pages' columns, 摘读记录 and the 收藏夹 CSV.
     aiVerdict: "AI 判断",
     videoTags: "视频标签",
+    // The tags on an UP (not 「UP 主标签」), and B站 pages' button that adds one.
+    upTags: "UP 标签",
+    upTagAdd: "「+ UP 标签」",
     // Note properties: 专注模式's info line, the settings page, the popup's 详情.
     uploadDate: "发布日期",
     exportDate: "导出日期",
@@ -213,6 +216,10 @@
     noteAdd: "✎ 备注",
     // The help dialogs (分拣台's two, 摘读记录) and the buttons they name.
     shortcuts: "快捷键",
+    keysMove: "移动和选中",
+    keysCard: "当前卡片",
+    keyPrevCard: "上一张卡片",
+    keyTag: "打标签",
     keyTagNumber: "打标签时勾选或去掉第几个标签",
     keySearch: "搜索（Esc 清空）",
     keyHelp: "显示本帮助",

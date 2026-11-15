@@ -57,9 +57,9 @@ select { height: 28px; max-width: 240px; }
   color: var(--faint);
 }
 .search-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
-.search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: var(--text); }
+.search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: var(--text); text-overflow: ellipsis; }
 .search input:focus-visible { outline: none; box-shadow: none; }
-.search:focus-within { box-shadow: 0 0 0 2px var(--focus-ring); }
+.search:focus-within { box-shadow: var(--focus-ring); }
 .search .muted { white-space: nowrap; }
 .search-key { font: 12px var(--font-mono); padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--faint); }
 .search:focus-within .search-key, .search:has(input:not(:placeholder-shown)) .search-key { display: none; }
@@ -257,7 +257,22 @@ select { height: 28px; max-width: 240px; }
 /* Row 2: the tabs; search and the mode's buttons sit on the right of the same line. */
 .tabrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 24px; }
 .row-tools { display: flex; align-items: center; gap: 2px; margin: 0 -8px 0 auto; padding: 6px 0; }
-/* While it reads, 刷新 gives its place to the progress pill: one thing on screen, not two. */
+/* The progress pill sits left of the search, so the search, 刷新 and 导出 stay where they are when it comes and goes. */
+.row-tools .activity { order: -1; margin-right: 8px; }
+/* Row 2 stays one line when the pill needs room: the search gets narrower instead of the whole group dropping a line. */
+@media (min-width: 1100px) {
+  .tabrow { flex-wrap: nowrap; }
+  .tabrow .tabs { flex: none; }
+  .row-tools { min-width: 0; }
+  /* The search gives way first, down to 160px; only then is the pill's line cut (the huge factor keeps the pill's share
+     of the squeeze under a pixel). */
+  .row-tools .search { flex: 0 100000 280px; min-width: 160px; }
+}
+/* 暂停粗看 / 暂停细看 is row 3's button; the pill carries it only while row 3 does not show it (another tab or folder, a
+   folded header). */
+.main:not(.head-folded) .activity .in-row3 { display: none; }
+.main:not(.head-folded) .activity:has(.in-row3) { padding-right: 12px; }
+/* While it reads, 刷新 is hidden: the pill says it, one thing on screen, not two. */
 .row-tools:has(.activity:not([hidden])) .act-btn[aria-busy="true"] { display: none; }
 .tabs { display: flex; flex: 0 1 auto; min-width: 0; min-height: 40px; align-items: center; gap: 2px; }
 .tabs button { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-pill); background: none; color: var(--text-2); font-variant-numeric: tabular-nums; }
@@ -379,6 +394,8 @@ select { height: 28px; max-width: 240px; }
 .sel-actions .danger::before { content: ""; position: absolute; left: -12px; top: 8px; height: 16px; border-left: 1px solid var(--border-strong); }
 
 .list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -8px; padding: calc(var(--head-h, 0px) + 8px) 8px 80px; }
+/* With the selection bar up (72px from the bottom), the last card stops 32px above it, scrolled to by J / K too. */
+.listpane:has(.selbar) .list { padding-bottom: 104px; scroll-padding-bottom: 104px; }
 /* Two card states. Current (hover or J/K) is the dark ring; selected (a click on the card or X) is the blue outline and tint. Both can show at once. */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
 /* Current: a dark ring, so it reads at a glance; selected (below) swaps the ring for blue. */
@@ -519,8 +536,11 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 .card-foot .spacer { flex: 1; }
 
 .k-faint { padding: 0; border: 0; background: none; color: var(--faint); font: inherit; font-size: var(--fs-xs); }
-/* 关注's 分组管理 in the same dialog: name, count, 删除. */
-.tag-row.group-row { grid-template-columns: minmax(0, 1fr) 6em auto; }
+/* 关注's 分组管理 (the rows' grid is tags.css .tag-row). B站's two fixed groups head the list on the same grid: grey, read-only, 「B站 固定」 where 删除 would be. */
+.group-row.fixed { border-radius: var(--radius-sm); background: var(--surface-muted); color: var(--text-2); }
+.group-row.fixed .fixed-name { padding: 4px 8px; border: 1px solid transparent; }
+.group-row.fixed .fixed-name small { display: block; color: var(--muted); font-size: var(--fs-xs); }
+.group-row.fixed .fixed-why { font-size: var(--fs-xs); color: var(--faint); text-align: center; cursor: default; }
 
 /* viewer: the video page next to the list */
 /* Its tag lines: 「视频标签」 (收藏夹) and 「UP 标签」 (the UP and its tags; 收藏夹 for a followed UP, and 关注). */
@@ -606,6 +626,19 @@ button.icon { width: 26px; height: 24px; padding: 0; }
 
 .form-error { margin: 4px 0 0; color: var(--danger); font-size: var(--fs-xs); }
 .confirm-body ul { margin: 0; padding-left: 18px; }
+/* Every confirm spaces its paragraphs and its list of names the same: 8px apart, none above the first or under the last. */
+.confirm-body > :is(p, ul) { margin: 8px 0 0; }
+.confirm-body > :first-child { margin-top: 0; }
+/* A confirm's sentences (取消勾选收藏夹): no gap under the title, what is lost on its own line in the text color. */
+.confirm-body .lead { margin: 0; color: var(--text-2); }
+.confirm-body :is(p, ul) + .lead { margin-top: 6px; }
+.confirm-body .conseq { margin: 6px 0 0; color: var(--text); font-weight: 600; }
+/* 移动 / 复制: what is moved is one line, a details.fold (tokens.css) with the first name and 「等 N 个」; it opens into the list, which scrolls in its box. */
+.transfer-list .first { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transfer-list .n { flex: none; margin-left: 8px; color: var(--faint); font-size: var(--fs-xs); font-weight: 400; }
+.transfer-list .confirm-body { max-height: 150px; margin-top: 6px; padding: 8px 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.transfer-list .confirm-body p { margin: 4px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+#transferDialog .dialog-actions .spacer { min-width: 24px; }
 /* 判断标准: the criteria on the left, as tall as the column; the folder's AI platform and its two switches on the right. The
    list stops at about five rows and scrolls inside, so the switches stay in view. */
 dialog.crit-dialog { width: min(780px, calc(100% - 32px)); }
@@ -639,17 +672,26 @@ dialog .crit-switch .name { color: var(--text); font-size: var(--fs-sm); font-we
 /* 所有收藏夹's runs: each folder's 判断标准 under its name. */
 .crit-row { display: grid; gap: 4px; margin-top: 8px; }
 .help-cols { display: grid; gap: 24px 32px; }
-.help-cols h2 { margin: 0 0 4px; }
+#helpDialog h2 { margin: 0 0 4px; }
+/* Two columns in the 分拣台; 摘读记录's help is the keys alone and keeps the dialog's own width. */
 @media (min-width: 760px) {
-  #helpDialog { width: min(920px, calc(100% - 32px)); }
+  #helpDialog:has(.help-cols) { width: min(920px, calc(100% - 32px)); }
   .help-cols { grid-template-columns: 1.2fr 1fr; }
 }
-/* The four-step notes are what the dialog is for, so they read as body text; the key column is key caps. */
 #helpDialog .stack { gap: 8px; }
-#helpDialog .stack:first-child .dialog-hint { color: var(--text); }
-.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; align-items: center; margin: 0; }
-.keys dt { display: flex; gap: 4px; }
-.keys dd { margin: 0; }
+/* No entry ends with a character or two alone on its last line. */
+#helpDialog :is(dd, small, p, li) { text-wrap: pretty; }
+/* A group's name over its keys or facts. */
+#helpDialog h3 { margin: 10px 0 0; font-size: var(--fs-xs); color: var(--muted); }
+#helpDialog h2 + h3 { margin-top: 0; }
+/* A key's caps and a fact's word sit on the first line of what they explain; the caps column is one width in every group. */
+.keys { display: grid; grid-template-columns: 84px 1fr; gap: 6px 12px; align-items: baseline; margin: 0; }
+.keys dt { display: flex; align-items: baseline; gap: 4px; }
+.keys dd, .facts dd { margin: 0; }
+.facts { display: grid; grid-template-columns: 7.5em 1fr; gap: 8px 12px; align-items: baseline; margin: 0; }
+.facts.wide-term { grid-template-columns: 10.5em 1fr; }
+.facts dt { font-weight: 600; }
+:is(.keys, .facts) small { display: block; font-size: var(--fs-xs); color: var(--faint); }
 .keys kbd { min-width: 1.6em; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); font: 600 var(--fs-xs)/1.3 ui-monospace, Menlo, monospace; text-align: center; }
 
 @media (max-width: 899px) {
@@ -660,7 +702,7 @@ dialog .crit-switch .name { color: var(--text); font-size: var(--fs-sm); font-we
 .field-row input[type="text"] { flex: 1; min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
 .steps { margin: 0 0 4px; padding-left: 20px; }
-.steps li { margin: 2px 0; }
+.steps li { margin: 4px 0; }
 
 .recent-unfav { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--border); }
 .recent-unfav h3 { margin: 0 0 6px; font-size: var(--fs-sm); }
@@ -669,19 +711,32 @@ dialog .crit-switch .name { color: var(--text); font-size: var(--fs-sm); font-we
 .recent-batch { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
 .recent-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 收藏夹设置 and 关注设置: folders (or 更新状态) on the left, the rest on the right (the first run asks only for folders).
-   The rows' own rules are in tags.css, which 摘读记录设置 shares. */
+/* 收藏夹设置: folders and 标签 on the left, the rest on the right (the first run asks only for folders). 关注设置 is a
+   single column (dialog.set-single). The rows' own rules are in tags.css, which 摘读记录设置 shares. */
 .settings-cols { display: grid; gap: 16px 24px; }
 .set-head { display: flex; align-items: baseline; gap: 10px; }
 .set-head h3 { margin-right: auto; }
 .folder-toggles { display: grid; align-content: start; gap: 2px; max-height: 220px; overflow-y: auto; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); }
 .folder-toggles .toggle { padding: 3px 0; }
 .folder-toggles .muted { margin-left: auto; font-size: var(--fs-xs); }
-dialog:has(.settings-ai:not([hidden])) { width: min(800px, calc(100% - 32px)); }
+/* 收藏夹设置: the folders and 标签 on the left, 请求和 AI 参数 and 高级 (the two 输出上限, closed) on the right, both columns
+   ending on one line. The first open (.settings-ai hidden) asks only for folders. */
+#settingsDialog:has(.settings-ai:not([hidden])) { width: min(840px, calc(100% - 32px)); }
+.st-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.st-left:has(+ .settings-ai[hidden]) .st-tags { display: none; }
+/* 高级 is a details.fold (tokens.css) in a card. */
+.st-adv summary .hint { margin-left: 8px; font-size: var(--fs-xs); font-weight: 400; color: var(--faint); }
 @media (min-width: 640px) {
-  .settings-cols:has(.settings-ai:not([hidden])) { grid-template-columns: 1fr 1.15fr; }
-  /* The folder list runs as tall as the right column and scrolls inside. */
-  .settings-cols:has(.settings-ai:not([hidden])) .folder-toggles { flex: 1 1 0; min-height: 200px; max-height: none; }
+  #settingsDialog .settings-cols:has(.settings-ai:not([hidden])) { grid-template-columns: 1fr 1fr; }
+  .st-folders { flex: 1 1 auto; }
+  /* The folder list takes what is left of the left column: it grows with the right one and scrolls inside. On its own
+     it shows three rows, or four and a half when there are more to scroll to. */
+  #settingsDialog .settings-cols:has(.settings-ai:not([hidden])) .folder-toggles { flex: 1 1 0; height: 0; min-height: 90px; max-height: none; }
+  #settingsDialog .settings-cols:has(.settings-ai:not([hidden])) .folder-toggles:has(> :nth-child(4)) { min-height: 129px; }
+  /* What the left column is taller by is shared among the right card's rows, so 高级 sits right under it. */
+  #settingsDialog .settings-ai > .set-group, #settingsDialog .settings-ai > .set-group .set-card { flex: 1; }
+  #settingsDialog .settings-ai > .set-group .set-card { display: flex; flex-direction: column; }
+  #settingsDialog .settings-ai > .set-group .set-row { flex: 1; }
 }
 
 .pick-folders { max-width: 420px; margin: 40px auto; text-align: center; }

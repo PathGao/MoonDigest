@@ -23,8 +23,9 @@
   const SEEN_GAP_MS = 10 * 60 * 1000;
   const SEEN_KEEP_DAYS = 365;
   const SEEN_MAX = 5000;
-  // The same caps in words: the 数据与存储 row and the 观看进度 hint on the options page.
-  const SEEN_LIMITS_TEXT = `最多 ${SEEN_GAP_MS / 60000} 分钟一次，留最近 ${SEEN_KEEP_DAYS % 365 ? `${SEEN_KEEP_DAYS} 天` : `${SEEN_KEEP_DAYS / 365} 年`}、最多 ${SEEN_MAX} 个`;
+  // The same caps in words: SEEN_KEEP_TEXT under the 数据与存储 row's 上限, SEEN_LIMITS_TEXT in the 观看进度 hint on the options page.
+  const SEEN_KEEP_TEXT = SEEN_KEEP_DAYS % 365 ? `${SEEN_KEEP_DAYS} 天` : `${SEEN_KEEP_DAYS / 365} 年`;
+  const SEEN_LIMITS_TEXT = `最多 ${SEEN_GAP_MS / 60000} 分钟一次，留最近 ${SEEN_KEEP_TEXT}、最多 ${SEEN_MAX} 个`;
 
   // chrome.storage key names more than one file uses (local unless marked sync), written only here; storageUsage counts
   // the capped ones.
@@ -312,59 +313,74 @@
     return `${(value / 1024 / 1024).toFixed(1)} MB`;
   };
 
-  // Rows for the options page "数据与存储" section. usage carries the counts read from storage;
-  // a missing count renders as "–".
+  // Rows for the options page "数据与存储" section, in the order shown: what has a cap first. usage (and usageNote, what
+  // is not counted) carries the counts read from storage, a missing count renders as "–"; cap and capNote are the limit,
+  // keeps says in its place why there is none. perRequest rows are caps on one AI request and have no usage.
   function describe(usage = {}) {
     return [
       {
         label: "字幕缓存",
-        usage: `${count(usage.subtitleCache)} / ${SUBTITLE_CACHE_ENTRIES} 条`,
-        rule: `只留最近 ${SUBTITLE_CACHE_DAYS} 天内最新的 ${SUBTITLE_CACHE_ENTRIES} 条，多出来的自动删最旧的。`
+        usage: `${count(usage.subtitleCache)} 条`,
+        cap: `${SUBTITLE_CACHE_ENTRIES} 条`,
+        capNote: `${SUBTITLE_CACHE_DAYS} 天`,
+        rule: "多出来的和过期的自动删，先删最旧的。"
       },
       {
         label: "AI 对话",
-        usage: `${count(usage.aiConversations)} / ${AI_CONVERSATIONS} 段${usage.aiConversationsStarred ? `，星标 ${usage.aiConversationsStarred} 段不计` : ""}`,
-        rule: `超过 ${AI_CONVERSATIONS} 段自动删最旧的，加了星标的记录的对话不算在内、不删。在「摘读记录」页按视频和网页查看、下载或删除。`
+        usage: `${count(usage.aiConversations)} 段`,
+        usageNote: usage.aiConversationsStarred ? `星标 ${usage.aiConversationsStarred} 段不计` : "",
+        cap: `${AI_CONVERSATIONS} 段`,
+        rule: "超过自动删最旧的，加了星标的记录的对话不算在内、不删。在「摘读记录」页按视频和网页查看、下载或删除。"
       },
       {
-        label: "AI 每次请求读的字幕或网页正文",
-        usage: `最多 ${chars(AI_SUBTITLE_MAX_CHARS)}`,
-        rule: "侧边栏和分拣台细看都按这个上限读。更长的字幕或网页正文按行均匀抽取，侧边栏会提示。"
-      },
-      {
-        label: "AI 每次请求带的历史",
-        usage: `最多 ${chars(AI_HISTORY_MAX_CHARS)}`,
-        rule: "超出时丢掉最早的几轮，侧边栏会提示。"
+        label: MdgErrors.LABEL.seen,
+        usage: `${count(usage.seen)} 个视频`,
+        usageNote: usage.seenExempt ? `勾选收藏夹里的 ${usage.seenExempt} 个不计` : "",
+        cap: `${SEEN_MAX} 个`,
+        capNote: SEEN_KEEP_TEXT,
+        rule: `「封面显示」不是「关」时读 B站历史记录，最多 ${SEEN_GAP_MS / 60000} 分钟一次。勾选收藏夹里的视频不算在内、不删。选「关」时全部删掉。`
       },
       {
         label: "分拣结果（粗看 + 细看）",
         usage: `${count(usage.triageResults)} 条`,
-        rule: "不自动删。视频离开你勾选的所有收藏夹后进分拣台的「已出分拣范围」，在那里查看、导出和清理。"
-      },
-      {
-        label: "收藏夹快照",
-        usage: `${count(usage.folderSnapshots)} 个收藏夹，约 ${size(usage.folderSnapshotSize)}`,
-        rule: "每次刷新自动更新，取消勾选或在 B站删掉的收藏夹会被移除。"
+        keeps: "不自动删",
+        rule: "视频离开你勾选的所有收藏夹后进分拣台的「已出分拣范围」，在那里查看、导出和清理。"
       },
       {
         label: MdgErrors.LABEL.removed,
         usage: `${count(usage.triageRemoved)} 个视频`,
-        rule: "收藏夹里离开分拣范围的视频，不含关注的 UP 主。不自动删。在分拣台的「已出分拣范围」里查看、导出和清理。"
+        keeps: "不自动删",
+        rule: "收藏夹里离开分拣范围的视频，不含关注的 UP 主。在分拣台的「已出分拣范围」里查看、导出和清理。"
       },
       {
         label: "备注",
         usage: `${count(usage.triageNotes)} 条`,
-        rule: "不自动删。在侧边栏、分拣台或摘读记录页里修改。"
+        keeps: "不自动删",
+        rule: "在侧边栏、分拣台或摘读记录页里修改。"
       },
       {
-        label: MdgErrors.LABEL.seen,
-        usage: `${count(usage.seen)} / ${SEEN_MAX} 个视频${usage.seenExempt ? `，勾选收藏夹里的 ${usage.seenExempt} 个不计` : ""}`,
-        rule: `「封面显示」不是「关」时读 B站历史记录，${SEEN_LIMITS_TEXT}，勾选收藏夹里的视频不算在内、不删。选「关」时全部删掉。`
+        label: "收藏夹快照",
+        usage: `${count(usage.folderSnapshots)} 个收藏夹`,
+        usageNote: `约 ${size(usage.folderSnapshotSize)}`,
+        keeps: "跟着勾选",
+        rule: "每次刷新自动更新，取消勾选或在 B站删掉的收藏夹会被移除。"
       },
       {
         label: "本地数据合计",
         usage: `约 ${size(usage.totalSize)}`,
         rule: "这些数据和其他记录都存在这台电脑的浏览器里。设置存在 Chrome 的同步存储里，不算在内。"
+      },
+      {
+        label: "读的字幕或网页正文",
+        perRequest: true,
+        cap: chars(AI_SUBTITLE_MAX_CHARS),
+        rule: "侧边栏和分拣台细看都按这个上限读。更长的字幕或网页正文按行均匀抽取，侧边栏会提示。"
+      },
+      {
+        label: "带的历史",
+        perRequest: true,
+        cap: chars(AI_HISTORY_MAX_CHARS),
+        rule: "超出时丢掉最早的几轮，侧边栏会提示。"
       }
     ];
   }

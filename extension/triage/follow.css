@@ -105,3 +105,5 @@ a.fw-title:hover { background: none; color: var(--link); text-decoration: underl
 .fw-video.fw-target:not(.playing) { outline: 2px dashed var(--border-strong); outline-offset: 2px; }
 .viewer-line .name { color: var(--text); font-weight: 600; text-decoration: none; }
 .viewer-line .name:hover { color: var(--link); }
+/* 加进 / 移到分组: the line under the target explains what the target does; it is no warning (收藏夹's is one). */
+body.follow-mode #transferUnchosen { color: var(--muted); font-size: var(--fs-xs); }

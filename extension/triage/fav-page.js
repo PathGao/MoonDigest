@@ -11,7 +11,7 @@ let modeKeys = null;
 // 关注's 「UP 标签」 line, redrawn with the 「视频标签」 line.
 let viewerHook = null;
 globalThis.MoonTriage = {
-  openViewer, closeViewer, toast, askConfirm, send, openOptions, store, aiError: (error, code) => handleAiError(error, code), hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
+  openViewer, closeViewer, toast, askConfirm, send, openOptions, store, aiError: (error, code) => handleAiError(error, code), aiRemedy, hold: (r) => THROTTLES[r.code] || null, viewing: () => S.viewing,
   // The playing 收藏夹 video's UP as { mid, name } (mid "" on items saved before it was stored); null in 关注 or with
   // nothing playing.
   viewingUp() {
@@ -585,7 +585,8 @@ function bindEvents() {
     const unticked = ticksShown.filter((id) => !ticked.includes(id));
     if (unticked.length) {
       const names = unticked.map((id) => `「${esc(folderName(id))}」`).join("");
-      if (!(await askConfirm(`取消勾选 ${unticked.length} 个收藏夹？`, `<p>${names}不再参与分拣：${MdgErrors.TEXT.foldersLeave}</p>`, "取消勾选", { danger: true }))) {
+      const many = unticked.length > 1;
+      if (!(await askConfirm(`取消勾选 ${unticked.length} 个收藏夹？`, `<p class="lead">${names}不再参与分拣，${many ? "它们" : "它"}的视频会进「${REMOVED_NAME}」。</p><p class="conseq">${many ? `这 ${unticked.length} 个` : "这个"}收藏夹的取消收藏记录会被删除。</p>`, "取消勾选", { danger: true }))) {
         toast("收藏夹的勾选没有改");
         return;
       }
@@ -724,6 +725,8 @@ function openSettings(scrollToLimits = false, firstRun = false) {
   el.tagLimitInput.value = tagLimit();
   el.aiNewTagMaxInput.value = S.settings.triageAiNewTagMax;
   el.aiRemoveTagsInput.checked = S.settings.triageAiRemoveTags === true;
+  // 高级 opens by itself when it holds a number, or when a truncated answer sent the user here to raise one.
+  el.settingsAdv.open = scrollToLimits || Boolean(el.titleMaxInput.value || el.analyzeMaxInput.value);
   renderTokenHints();
   settingsShown = settingsFields();
   ticksShown = S.allFolders.map((f) => String(f.id)).filter((id) => S.included.includes(id));

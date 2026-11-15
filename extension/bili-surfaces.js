@@ -35,7 +35,7 @@
     space: "UP 空间的视频卡"
   };
   const { LABEL } = MdgErrors;
-  const COLS = { verdict: LABEL.aiVerdict, vtags: LABEL.videoTags, ups: "UP 标签", plus: "「+ UP 标签」", seen: LABEL.seen };
+  const COLS = { verdict: LABEL.aiVerdict, vtags: LABEL.videoTags, ups: LABEL.upTags, plus: LABEL.upTagAdd, seen: LABEL.seen };
   // Which cells a surface offers; the others are not for the user to turn on.
   function allowed(key, col) {
     const r = SURFACES[key];

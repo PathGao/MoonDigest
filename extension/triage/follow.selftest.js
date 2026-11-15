@@ -193,17 +193,16 @@ const base = () => ({ list: null, last: null, content: {}, people: {}, tags: [],
 
 // ----- 关注分组 writes: the follow-group-move requests from where each UP is to where it should be -----
 {
-  // 移到 / 复制到 / ★ as the wanted groups.
+  // 加进 / 移到 / ★ as the wanted groups.
   assert.deepStrictEqual(plain(t.regrouped([7], 7, 8)), [8], "move");
   assert.deepStrictEqual(plain(t.regrouped([7], null, 8)), [7, 8], "copy");
   assert.deepStrictEqual(plain(t.regrouped([7, 8], null, 8)), [7, 8], "already there");
   assert.deepStrictEqual(plain(t.regrouped([-10, 7], -10, 0)), [7], "out of 特别关注 to 默认分组");
   assert.deepStrictEqual(plain(t.regrouped([], 0, 7)), [7], "from 默认分组");
-  // 特别关注 is a flag on top of the groups: 默认分组 → 特别关注 adds, the UP stays in 默认分组; the words say so.
-  assert.strictEqual(t.groupMoveLabel(0, -10, true, { groups: [] }), "加进「特别关注」", "默认分组 → 特别关注 is an add");
-  assert.strictEqual(t.groupMoveLabel(0, 7, true, { groups: [{ id: 7, name: "数码" }] }), "移到「数码」");
-  assert.strictEqual(t.groupMoveLabel(7, -10, true, { groups: [] }), "移到「特别关注」");
-  assert.strictEqual(t.groupMoveLabel(null, -10, false, { groups: [] }), "复制到「特别关注」");
+  // B站's groups are tags on an UP: what is no move adds one more group, and the words say so.
+  assert.strictEqual(t.groupMoveLabel(7, false, { groups: [{ id: 7, name: "数码" }] }), "加进「数码」");
+  assert.strictEqual(t.groupMoveLabel(-10, true, { groups: [] }), "移到「特别关注」");
+  assert.strictEqual(t.groupMoveLabel(-10, false, { groups: [] }), "加进「特别关注」");
   const cur = { a: [7], b: [7], c: [7, 8], d: [], e: [-10] };
   const calls = (want, mids = Object.keys(want), size) => plain(t.groupCalls(mids, (m) => cur[m], (m) => want[m], size));
   const mv = (mids, from, to) => ({ type: "follow-group-move", mids, from, to });
@@ -445,10 +444,9 @@ assert.ok(/render\(\);\s*if \(up\) \{\s*setCur\(up, false\);\s*E\.list\.querySel
   assert.ok(/back: \(\) => groupCalls\(done, \(m\) => groupsOf\(m, D\), \(m\) => before\[m\]\)/.test(rg) && /ask: \[`在 B站撤销/.test(rg) && rg.includes("groups: true"), "U puts back the groups they had, asked for 2+");
   assert.ok(/async function starOne\(mid\) \{[\s\S]*?await regroup\(\[mid\],[^\n]*SPECIAL/.test(source), "★ is a move of group -10");
   const mc = fn("moveOrCopy");
-  assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}到分组`,\s*n: mids\.length,\s*hows: \[how\],/.test(mc), "the batch confirm: 在 B站…, the count on its one button");
+  assert.ok(/UI\.askTransfer\(\{\s*title: `在 B站把这 \$\{mids\.length\} 个 UP 主\$\{verb\}分组`,\s*n: mids\.length,\s*hows: \[how\],\s*verbs: \{ copy: "加进", move: "移到" \},/.test(mc), "the batch confirm: 在 B站…, the count on its one button, in 关注's words");
   assert.ok(mc.indexOf("createGroup(") < mc.indexOf("regroup("), "新建分组… first");
-  assert.ok(mc.includes("const label = groupMoveLabel(move ? from : null, to, move, D);") && mc.includes("放进自己建的分组后，就不在默认分组里了。"), "toast and U use the add words");
-  assert.ok(/note: \(v\) => \(v === String\(SPECIAL\) \? `\$\{move && from === 0 \? "还留在默认分组里/.test(mc), "the dialog says 特别关注 keeps them in 默认分组");
+  assert.ok(mc.includes("const label = groupMoveLabel(to, move, D);"), "toast and U use the same words");
   const del = fn("deleteGroup");
   assert.ok(/askConfirm\([\s\S]*?\);\s*if \(!ok\) return;\s*if \(W\.busy\(\)\)[^\n]*\n\s*const r = await send\(\{ type: "follow-group-delete"/.test(del) && del.includes("默认分组") && del.includes("不能按 U 撤销") && del.includes("T.dropModeUndo((step) => step.groups)"), "删除: confirm first, members → 默认分组, no U");
   assert.ok(/T\.pushUndo\(\{\s*kind: "mode",\s*groups: true,\s*undo: async \(\) => \(\(await renameGroup\(\{ id: g\.id, name \}, old, true\)\)/.test(fn("renameGroup")), "改名: U renames back");
@@ -629,7 +627,7 @@ async function followPage({ store = {}, sync = {}, handlers = {}, setup = () => 
   Object.assign(ctx.MoonTriage, { toast, askConfirm });
   setup(ctx);
   const follow = fs.readFileSync(path.join(__dirname, "follow.js"), "utf8").replace(/^import "\.\/triage\.js";.*$/m, "");
-  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, D: () => D, relationRun, pushWriteUndo, render, refollow, regroup, pickSide, aiTags, AI, manageTags, openSettings };\n})()`, ctx);
+  await vm.runInContext(`(async () => {\n${follow}\n;globalThis.FW = { F, E, W, D: () => D, relationRun, pushWriteUndo, render, refollow, regroup, pickSide, aiTags, AI, manageTags, manageGroups, moveOrCopy, openSettings };\n})()`, ctx);
   const settle = async (n = 30) => {
     for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 1));
   };
@@ -805,7 +803,13 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     F.sel.delete("u2");
     p.FW.render();
     const bar = E.sel.innerHTML;
-    assert.ok(!bar.includes("AI 打标签") && bar.includes(">移动选中的 1 个到分组…<") && bar.includes(">复制选中的 1 个到分组…<"), bar);
+    assert.ok(!bar.includes("AI 打标签") && bar.includes(">加进分组…<") && bar.includes(">取消关注<"), bar);
+    // 移到分组… is there only in a group one can leave: not in 全部 or 默认分组 (absent, not disabled).
+    const groupBtns = (s) => ((F.side = s), p.FW.render(), [">加进分组…<", ">移到分组…<"].map((b) => E.sel.innerHTML.includes(b)));
+    const at = F.side;
+    assert.deepStrictEqual(["all", "g:0", "g:-10", "g:5"].map(groupBtns), [[true, false], [true, false], [true, true], [true, true]]);
+    F.side = at;
+    p.FW.render();
     const running = p.FW.relationRun([{ type: "follow-relation", mid: "u2", act: 2 }], "取消关注");
     await p.until(() => release);
     assert.ok(E.sel.innerHTML.includes('disabled title="取消关注还在跑，等它完成"'), E.sel.innerHTML);
@@ -833,16 +837,16 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     F.tagState = "tagged";
     p.FW.render();
     assert.ok(p.$("fwBarR").innerHTML.includes('aria-label="清理选中的 1 个" disabled title="选中的都被筛选隐藏了"'), p.$("fwBarR").innerHTML);
-    // J14: the bar's buttons count the whole hidden selection too, off with why.
-    assert.ok(E.sel.innerHTML.includes('aria-label="重新关注选中的 1 个" disabled title="选中的都被筛选隐藏了"'), E.sel.innerHTML);
+    // J14: the bar's buttons are off with why too.
+    assert.ok(E.sel.innerHTML.includes('aria-label="重新关注" disabled title="选中的都被筛选隐藏了"'), E.sel.innerHTML);
     const asked = p.asked.length;
     p.click("followMain", "[data-fw]", { fw: "clean" });
     await p.settle();
     assert.strictEqual(p.asked.length, asked, "no 清理 confirm for a hidden selection");
     F.tagState = "";
-    // K1: none of the selection can take it: the count is the selection's, never 0, off with why.
+    // K1: none of the selection can take it: off with why.
     p.FW.render();
-    assert.ok(E.sel.innerHTML.includes('aria-label="取消关注选中的 1 个" disabled title="选中的都已取消关注"'), E.sel.innerHTML);
+    assert.ok(E.sel.innerHTML.includes('aria-label="取消关注" disabled title="选中的都已取消关注"'), E.sel.innerHTML);
   }
 
   // J11: ✦ AI 打标签 with no UP 主 here is off and says why, as 收藏夹's in an empty folder.
@@ -1127,6 +1131,41 @@ const p0Throttled = () => vm.runInContext("MdgErrors.TEXT.biliThrottled", ctx);
     });
     const { done } = await p.FW.regroup(["u1", "u2"], () => [5], "移到「五」");
     assert.deepStrictEqual([plain(done), p.ctx.S.modeUndo.length], [["u1"], 1]);
+  }
+
+  // 分组管理 heads its list with B站's two fixed groups, read-only: no data-id, field or 删除 for the dialog to act on.
+  {
+    const rowsOf = ({ manageGroups: m }) => m.tags().map((g) => m.row(g, m.count(g.id)));
+    const p = await followPage({ store: page({ follow_groups: [{ id: 5, name: "五", count: 1 }], follow_list: { list: ["u1", "u2"], groups: { u1: [5] } } }) });
+    const [def, star, own, ...more] = rowsOf(p.FW);
+    assert.ok(def.includes("默认分组") && def.includes("1 个 UP 主") && def.includes("B站 固定") && star.includes("★ 特别关注") && star.includes("0 个 UP 主"), def + star);
+    assert.ok(![def, star].some((r) => /data-id|<input|<button|还没有自己建的分组/.test(r)) && own.includes('data-id="5"') && own.includes("data-tag-del") && !more.length, own);
+    assert.ok(rowsOf((await followPage({ store: page() })).FW).at(-1).endsWith('<p class="muted">还没有自己建的分组</p>'), "no group of your own: said under the fixed two");
+
+    // 加进 / 移到分组: one line under the target. 默认分组 is being in none of your own groups, so the ones only there (u2)
+    // leave it by joining one; 特别关注 takes nobody out of it; a move says the group it leaves.
+    const asks = [];
+    p.ctx.TriageUi.askTransfer = async (o) => (asks.push(o), null);
+    const note = async (side, how, target, mids = ["u1", "u2"]) => ((p.FW.F.side = side), await p.FW.moveOrCopy(mids, how), asks.at(-1).note(target));
+    assert.strictEqual(await note("g:0", "copy", "5", ["u2"]), "加进分组后，就不在默认分组里了。");
+    assert.deepStrictEqual([asks.at(-1).title, asks.at(-1).verbs.copy], ["在 B站把这 1 个 UP 主加进分组", "加进"]);
+    assert.strictEqual(await note("g:0", "copy", "-10", ["u2"]), "特别关注的 UP 主发视频，手机 B站会推送。");
+    assert.strictEqual(await note("all", "copy", "5"), "其中 1 个只在默认分组，加进分组后，就不在默认分组里了。");
+    assert.strictEqual(await note("g:5", "copy", "-10", ["u1"]), "特别关注的 UP 主发视频，手机 B站会推送。");
+    assert.strictEqual(await note("g:5", "move", "0", ["u1"]), "从「五」移走。不在别的分组的会回到默认分组，还关注着。");
+    assert.strictEqual(await note("g:5", "move", "-10", ["u1"]), "从「五」移走。特别关注的 UP 主发视频，手机 B站会推送。");
+    assert.strictEqual(asks.at(-1).title, "在 B站把这 1 个 UP 主移到分组");
+    const asked = asks.length;
+    for (const side of ["all", "g:0"]) ((p.FW.F.side = side), await p.FW.moveOrCopy(["u2"], "move"));
+    assert.strictEqual(asks.length, asked, "no move out of 全部 or 默认分组");
+    assert.ok(asks.every((o) => !o.how), "nothing in the dialog's second hint line");
+    // 加进 a group everyone picked is already in: nothing goes to B站 and a toast says so (it used to throw on the pill's line).
+    p.ctx.TriageUi.askTransfer = async () => ({ target: { id: "5" } });
+    const groupWrites = () => p.sent.filter((m) => /^follow-group/.test(m.type)).length;
+    const wrote = groupWrites();
+    p.FW.F.side = "all";
+    await p.FW.moveOrCopy(["u1"], "copy");
+    assert.deepStrictEqual([groupWrites() - wrote, p.toasts.at(-1)], [0, "选中的都已经在「五」里了"]);
   }
 
   // The head's refresh error, as 收藏夹's: 刷新失败：reason, B站限流 in MdgErrors' words.
