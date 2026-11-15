@@ -104,6 +104,14 @@ const texts = [S.DEFAULTS.playerAiQuickPrompt, ...S.DEFAULTS.aiPresetPrompts, S.
 for (const t of texts) {
   for (const file of sources) assert.ok(!read(file).includes(t), `${file} writes 「${t}」 itself`);
 }
+// docs/OFFICIAL_PROMPTS.md is the copy users paste from: it has every default in full.
+{
+  const doc = read("../docs/OFFICIAL_PROMPTS.md");
+  const D = S.DEFAULTS;
+  for (const t of [D.aiSystemPrompt, D.playerAiQuickPrompt, [...D.aiPresetPrompts].join("\n"), D.webAiSystemPrompt, D.webAiSummaryPrompt, [...D.webAiPresetPrompts].join("\n")]) {
+    assert.ok(doc.includes("```text\n" + t + "\n```"), `docs/OFFICIAL_PROMPTS.md lacks today's 「${t.slice(0, 20)}」`);
+  }
+}
 // A stored copy of a default an earlier version shipped reads as today's; an edited one stays (C: the settings page saves
 // every field, so an untouched prompt is stored too).
 {
