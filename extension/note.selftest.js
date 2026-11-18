@@ -485,13 +485,19 @@ assert.strictEqual(N.buildTriageSummary({ status: "done", verdict: "must", reaso
 assert.strictEqual(N.buildTriageSummary({ status: "done", oneLiner: "一句话", points: ["a", "", ""] }), "> 一句话\n\n- a\n\nAI 判断：拿不准", "padded empty points are dropped");
 assert.strictEqual(
   N.renderMarkdown("<think>x</think>## 标题\n\n**粗** <b>\n\n- a\n- b"),
-  "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li>a</li><li>b</li></ul>",
+  "<h4>标题</h4><p><strong>粗</strong> &lt;b&gt;</p><ul><li lang=\"en\">a</li><li lang=\"en\">b</li></ul>",
   "markdown renders, raw HTML is escaped, think is stripped"
+);
+// #487: a block with no Chinese is marked English, so its quote marks keep the English font; a Chinese one keeps the page's zh-CN.
+assert.strictEqual(
+  N.renderMarkdown("He said “fine”\n\n他说“好”，then left\n\n## “Intro”\n\n| 列 | col |\n|---|---|\n| 值 | “v” |"),
+  '<p lang="en">He said “fine”</p><p>他说“好”，then left</p><h4 lang="en">“Intro”</h4>' +
+    '<table><thead><tr><th>列</th><th lang="en">col</th></tr></thead><tbody><tr><td>值</td><td lang="en">“v”</td></tr></tbody></table>'
 );
 // A24, A25: a fence's language line is not code; numbered items are one list.
 assert.strictEqual(N.renderMarkdown("```python\nprint(1)\n```"), "<pre><code>print(1)\n</code></pre>");
-assert.strictEqual(N.renderMarkdown("1. a\n2. b\n\n3. c"), "<ol><li>a</li><li>b</li><li>c</li></ol>");
-assert.strictEqual(N.renderMarkdown("1. a\n1. b"), "<ol><li>a</li><li>b</li></ol>");
+assert.strictEqual(N.renderMarkdown("1. a\n2. b\n\n3. c"), '<ol><li lang="en">a</li><li lang="en">b</li><li lang="en">c</li></ol>');
+assert.strictEqual(N.renderMarkdown("1. a\n1. b"), '<ol><li lang="en">a</li><li lang="en">b</li></ol>');
 {
   const p2 = { title: "合集", site: "bilibili", videoId: "BV1GJ411x7h7", url: "https://www.bilibili.com/video/BV1GJ411x7h7/?p=2&t=5", pageIndex: 2, pageCount: 3 };
   assert.strictEqual(N.buildAiConversationFilename(p2), "【AI笔记】合集 P2.md");
@@ -527,7 +533,7 @@ assert.strictEqual(N.renderMarkdown("\\(x\\) 和 $y$"), "<p>\\(x\\) 和 $y$</p>"
   assert.ok(!md("```python\nx = '$a$'\ny = '\\(b\\)'\n").includes("<math"), "a fence still streaming keeps its LaTeX");
   assert.ok(md("\\[ a\n\n```\ncode \\] here\n```").includes("<pre><code>code \\] here"), "display math stops at a blank line");
   assert.ok(md("[x](https://a.com/$b$)").includes('<a href="#"'), "no formula inside an href");
-  assert.strictEqual(md("\u00030\u0003 plain"), "<p>0 plain</p>", "a placeholder character in the answer is dropped");
+  assert.strictEqual(md("\u00030\u0003 plain"), '<p lang="en">0 plain</p>', "a placeholder character in the answer is dropped");
 }
 // 详情 › 笔记标签 shows the tags the note gets: none when the setting is cleared, plus the 分拣台 tags, from one function.
 assert.deepStrictEqual([...N.noteTags({ userTags: ["学 习"] }, { tags: "" })], ["学_习"]);
@@ -589,7 +595,7 @@ assert.ok(!/payload\.tags \|\| "MoonDigest"/.test(PS.text(PS.own("popup.html")))
   // C213-C215: inline code blocks keep their text, #### is a heading, and code spans are left unformatted.
   assert.strictEqual(N.renderMarkdown("看 ```x = 1``` 这里"), "<p>看 <code>x = 1</code> 这里</p>");
   assert.strictEqual(N.renderMarkdown("#### 四级\n##### 五级"), "<h6>四级</h6><h6>五级</h6>");
-  assert.strictEqual(N.renderMarkdown("`**a** [b](https://x)` **c**"), "<p><code>**a** [b](https://x)</code> <strong>c</strong></p>");
+  assert.strictEqual(N.renderMarkdown("`**a** [b](https://x)` **c**"), '<p lang="en"><code>**a** [b](https://x)</code> <strong>c</strong></p>');
 }
 // A web page's note: its own frontmatter, the body Defuddle read, the AI 问答 between the markers; under {{site}} = 网页.
 {

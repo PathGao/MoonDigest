@@ -890,12 +890,15 @@
 
     const lines = escaped.split("\n");
     const out = [];
+    // Each block says its own language, so an English one keeps English quote marks (MdgCommon.textLang).
+    const lang = (text) => (MdgCommon.textLang(text) ? ' lang="en"' : "");
     let listType = "";
     let paraBuf = [];
 
     const flushPara = () => {
       if (paraBuf.length) {
-        out.push(`<p>${renderInline(paraBuf.join(" "))}</p>`);
+        const para = paraBuf.join(" ");
+        out.push(`<p${lang(para)}>${renderInline(para)}</p>`);
         paraBuf = [];
       }
     };
@@ -943,7 +946,7 @@
         .replace(/^\|/, "")
         .replace(/\|$/, "")
         .split("|")
-        .map((cell) => renderInline(cell.trim()));
+        .map((cell) => ({ lang: lang(cell), html: renderInline(cell.trim()) }));
 
     for (let index = 0; index < lines.length; index += 1) {
       const rawLine = lines[index];
@@ -962,7 +965,7 @@
         flushPara();
         closeList();
         const level = Math.min(6, heading[1].length + 2);
-        out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+        out.push(`<h${level}${lang(heading[2])}>${renderInline(heading[2])}</h${level}>`);
         continue;
       }
 
@@ -986,8 +989,8 @@
           index += 1;
         }
         out.push(
-          `<table><thead><tr>${headers.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead><tbody>${
-            bodyRows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")
+          `<table><thead><tr>${headers.map((cell) => `<th${cell.lang}>${cell.html}</th>`).join("")}</tr></thead><tbody>${
+            bodyRows.map((row) => `<tr>${row.map((cell) => `<td${cell.lang}>${cell.html}</td>`).join("")}</tr>`).join("")
           }</tbody></table>`
         );
         continue;
@@ -997,7 +1000,7 @@
       if (ul) {
         flushPara();
         openList("ul");
-        out.push(`<li>${renderInline(ul[1])}</li>`);
+        out.push(`<li${lang(ul[1])}>${renderInline(ul[1])}</li>`);
         continue;
       }
 
@@ -1006,7 +1009,7 @@
         flushPara();
         const orderNumber = Number(ol[1]) || 1;
         openList("ol", orderNumber);
-        out.push(`<li>${renderInline(ol[2])}</li>`);
+        out.push(`<li${lang(ol[2])}>${renderInline(ol[2])}</li>`);
         continue;
       }
 

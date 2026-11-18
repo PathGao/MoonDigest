@@ -36,6 +36,11 @@ assert.deepStrictEqual(["", "12:3x", "1::2", "-1:00", "1.5:00", null].map(C.pars
 // C383: one count parser for YouTube's and B站's texts; thousands separators are dropped, not read as the end.
 assert.deepStrictEqual(["322K", "1.2M", "1,234", "12.5万", "1.2亿", "3萬", 2505, "2505"].map(C.parseCount), [322000, 1200000, 1234, 125000, 120000000, 30000, 2505, 2505]);
 assert.deepStrictEqual(["-", "", null, undefined].map(C.parseCount), [0, 0, 0, 0]);
+assert.deepStrictEqual(
+  ["He said “fine”", "他说“好”", "他说 fine", "ラーメン “ok”", "한국어 “ok”", "“…”", "", "123"].map(C.textLang),
+  ["en", "", "", "", "", "", "", ""],
+  "English only when there are Latin letters and no CJK"
+);
 
 assert.deepStrictEqual(Object.keys(C.SUBTITLE_LANGS), ["zh-Hans", "zh-Hant", "en", "ja"]);
 assert.ok(Object.values(C.PAGES).every((p) => fs.existsSync(path.join(__dirname, p))), "every page path exists");

@@ -85,5 +85,11 @@
     };
   }
 
-  globalThis.MdgCommon = Object.freeze({ localDate, fileName, parseTimestamp, parseCount, sleep, latest, isStale, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
+  // The language a block of text is shown in: "en" when it has Latin letters and no Chinese, Japanese or Korean, ""
+  // otherwise (the page's zh-CN stands). The quote marks and ellipsis are the same characters in Chinese and English but
+  // take a Chinese font only in Chinese text (tokens.css, #487), so English blocks are marked lang="en".
+  const textLang = (text) =>
+    /[A-Za-z]/.test(text) && !/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text) ? "en" : "";
+
+  globalThis.MdgCommon = Object.freeze({ localDate, textLang, fileName, parseTimestamp, parseCount, sleep, latest, isStale, PAGES, SUBTITLE_LANGS, READER_PARAM, CHAT_PORT });
 })();

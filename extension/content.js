@@ -1872,6 +1872,8 @@ function renderReadingView() {
 
   if (titleNode) {
     titleNode.textContent = state.title || READER_NAME;
+    if (MdgCommon.textLang(titleNode.textContent)) titleNode.lang = "en";
+    else titleNode.removeAttribute("lang");
   }
   renderReadingPageTitle();
   if (metaNode) {
@@ -1893,7 +1895,7 @@ function renderReadingView() {
             <span class="mdg-reading-chapter-time">${escapeHtml(
               formatCompactTimestamp(item.from, withHours)
             )}</span>
-            <span class="mdg-reading-chapter-title">${escapeHtml(item.title)}</span>
+            <span class="mdg-reading-chapter-title"${MdgCommon.textLang(item.title) ? ' lang="en"' : ""}>${escapeHtml(item.title)}</span>
           </button>
         `
       )
@@ -1917,7 +1919,7 @@ function renderReadingView() {
             <span class="mdg-reading-time">${escapeHtml(
               formatCompactTimestamp(item.from, withHours)
             )}</span>
-            <span class="mdg-reading-text">${escapeHtml(item.content)}</span>
+            <span class="mdg-reading-text"${MdgCommon.textLang(item.content) ? ' lang="en"' : ""}>${escapeHtml(item.content)}</span>
           </button>
         `
       )
