@@ -3,6 +3,26 @@
   box-sizing: border-box;
 }
 
+/* #487: the quote marks and ellipsis are the same characters in Chinese and English. Segoe UI and SF have them, so Chinese
+   text got narrow Latin ones. This face gives just those characters a Chinese font; it comes first in --font-sans, and
+   English blocks (lang="en", MdgCommon.textLang) use --font-sans-en without it. */
+@font-face {
+  font-family: "MdgCjkPunct";
+  src: local("PingFangSC-Regular"), local("PingFang SC Regular"), local("MicrosoftYaHei"), local("Microsoft YaHei");
+  unicode-range: U+2018-2019, U+201C-201D, U+2026;
+}
+
+@font-face {
+  font-family: "MdgCjkPunct";
+  font-weight: 600 900;
+  src: local("PingFangSC-Semibold"), local("PingFang SC Semibold"), local("MicrosoftYaHei-Bold"), local("Microsoft YaHei Bold");
+  unicode-range: U+2018-2019, U+201C-201D, U+2026;
+}
+
+[lang="en"] {
+  font-family: var(--font-sans-en);
+}
+
 :root {
   color-scheme: light dark;
 
@@ -61,8 +81,9 @@
   --fs-lg: 15px;
   --fs-xl: 19px;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue",
+  --font-sans-en: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue",
     Arial, sans-serif;
+  --font-sans: "MdgCjkPunct", var(--font-sans-en);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Over a cover image, the same in both themes: text and chips on the picture, the 看完了 veil and its faint mark, the

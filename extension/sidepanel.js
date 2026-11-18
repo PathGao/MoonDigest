@@ -147,7 +147,19 @@ async function init() {
   await consumePendingPlayerAiQuickAction();
 }
 
+// The box says the language of what is in it, as each message does (MdgCommon.textLang): typed or put there by code.
+function setLang(node, text) {
+  if (MdgCommon.textLang(text)) node.lang = "en";
+  else node.removeAttribute("lang");
+}
+
+function setInput(text) {
+  els.input.value = text;
+  setLang(els.input, text);
+}
+
 function bindEvents() {
+  els.input.addEventListener("input", () => setLang(els.input, els.input.value));
   els.input.addEventListener("keydown", (e) => {
     if (MdgTyping.composing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
@@ -527,7 +539,7 @@ async function refreshProvidersAndPrefsAfterExternalChange() {
   // AI 总结 filled in and not edited since follows the setting, so the box shows what the button sends.
   const summary = summaryPrompt(state.view().context);
   if (previousSummary && summary && els.input.value.trim() === previousSummary.trim()) {
-    els.input.value = summary;
+    setInput(summary);
   }
   if (state.view().streaming) {
     return;
@@ -610,7 +622,7 @@ async function handlePlayerAiQuickActionRequest(value, { fromStorageChange = tru
 // user. The panel's own AI 总结 button sends (sendSummary).
 function fillPrompt(prompt) {
   if (!els.input.value.trim()) {
-    els.input.value = prompt;
+    setInput(prompt);
   }
   els.input.focus();
   const end = els.input.value.length;
@@ -675,7 +687,7 @@ async function runEffect(effect) {
       const typed = els.input.value.trim() ? els.input.value : "";
       drafts.delete(effect.from);
       if (typed && effect.from !== effect.to) drafts.set(effect.from, typed);
-      els.input.value = drafts.get(effect.to) || "";
+      setInput(drafts.get(effect.to) || "");
       drafts.delete(effect.to);
       return;
     }
@@ -1444,7 +1456,7 @@ function renderPreviousVideoBar() {
     ? conversation.messages
         .map((message) =>
           message.role === "user"
-            ? `<div class="sp-msg sp-msg-user">${escapeHtml(message.content)}</div>`
+            ? `<div class="sp-msg sp-msg-user"${MdgCommon.textLang(message.content) ? ' lang="en"' : ""}>${escapeHtml(message.content)}</div>`
             : `<div class="sp-msg sp-msg-assistant"><div class="sp-msg-assistant-body">${renderMarkdown(message.content)}</div></div>`
         )
         .join("")
@@ -1863,11 +1875,11 @@ async function sendMessage(prompt, { onStart = null, replaces = [] } = {}) {
       if (id && !state.view().saved.some((c) => c.id === id)) return;
       if (!drafts.get(draftKey)) drafts.set(draftKey, text);
     } else if (typed && !els.input.value.trim()) {
-      els.input.value = text;
+      setInput(text);
     }
   };
   if (typed) {
-    els.input.value = "";
+    setInput("");
   }
   const hidden = [suggestionsNode, ...els.messages.querySelectorAll(".sp-center-error"), ...replaces].filter((node) => node && !node.hidden);
   for (const node of hidden) node.hidden = true;
@@ -1967,6 +1979,7 @@ function appendUserMessage(text) {
   const node = document.createElement("div");
   node.className = "sp-msg sp-msg-user";
   node.textContent = text;
+  setLang(node, text);
   els.messages.appendChild(node);
   return node;
 }

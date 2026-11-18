@@ -5,6 +5,28 @@
  * The reading view ignores the host: its readerTheme is the user's explicit choice (light base, dark set, paper override).
  * Reader mode also sets the tokens on html because the transcript moves into #mdg-reading-inline-host in the host DOM.
  */
+/* #487: the quote marks and ellipsis are the same characters in Chinese and English. Segoe UI and SF have them, so Chinese
+   text got narrow Latin ones. This face gives just those characters a Chinese font; it comes first in --mdg-font-sans, and
+   English blocks (lang="en", MdgCommon.textLang) use --mdg-font-sans-en without it. */
+@font-face {
+  font-family: "MdgCjkPunct";
+  src: local("PingFangSC-Regular"), local("PingFang SC Regular"), local("MicrosoftYaHei"), local("Microsoft YaHei");
+  unicode-range: U+2018-2019, U+201C-201D, U+2026;
+}
+
+@font-face {
+  font-family: "MdgCjkPunct";
+  font-weight: 600 900;
+  src: local("PingFangSC-Semibold"), local("PingFang SC Semibold"), local("MicrosoftYaHei-Bold"), local("Microsoft YaHei Bold");
+  unicode-range: U+2018-2019, U+201C-201D, U+2026;
+}
+
+/* Only our own nodes: a global [lang="en"] rule would restyle the host page (YouTube's html is lang="en"). */
+#mdg-reading-view [lang="en"],
+#mdg-reading-inline-host [lang="en"] {
+  font-family: var(--mdg-font-sans-en);
+}
+
 :where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-view, html[data-mdg-reader-mode="1"]) {
   color-scheme: light;
   --mdg-bg: #f6f7f8;
@@ -54,7 +76,8 @@
   --mdg-fs-md: 14px;
   --mdg-fs-lg: 15px;
   --mdg-fs-xl: 19px;
-  --mdg-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --mdg-font-sans-en: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --mdg-font-sans: "MdgCjkPunct", var(--mdg-font-sans-en);
   --mdg-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --mdg-on-image: #fff;
   --mdg-cover-chip: rgba(0, 0, 0, 0.55);

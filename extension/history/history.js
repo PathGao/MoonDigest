@@ -558,7 +558,7 @@ async function closeNote() {
 
 function renderConversation(conv, index, total) {
   const turns = MdgNote.buildConversationTurns(conv.messages, 0)
-    .map((t) => `<p class="turn-q">问：${esc(t.prompt)}</p><div class="turn-a">${MdgNote.renderMarkdown(t.answer)}</div>`)
+    .map((t) => `<p class="turn-q">问：<span${MdgCommon.textLang(t.prompt) ? ' lang="en"' : ""}>${esc(t.prompt)}</span></p><div class="turn-a">${MdgNote.renderMarkdown(t.answer)}</div>`)
     .join("");
   return `${total > 1 ? `<p class="conv-sep">对话 ${index + 1} · ${esc(formatTime(conv.updatedAt))}</p>` : ""}${turns}`;
 }

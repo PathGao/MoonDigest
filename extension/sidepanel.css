@@ -1419,6 +1419,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   outline: none;
 }
 
+/* font: inherit above outranks tokens.css's [lang="en"] rule. */
+#spInput[lang="en"] {
+  font-family: var(--font-sans-en);
+}
+
 .sp-non-video-context #spInput {
   min-height: 72px;
 }
