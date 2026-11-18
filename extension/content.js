@@ -356,8 +356,6 @@ const readerStepper = (settingKey) => READER_STEPPERS.find((stepper) => stepper.
 // An extension reload or update leaves the previous copy running in its own isolated world with a
 // dead chrome.runtime. Ask it to stand down; v2.0.0 and older can't and still hold their root.
 document.dispatchEvent(new Event("mdg-content-superseded"));
-// 3.5.x and older listen for the name from before the rename. Remove after 3.6.
-document.dispatchEvent(new Event("boc-content-superseded"));
 const predecessorStillRunning = Boolean(document.getElementById(ids.root));
 document.addEventListener("mdg-content-superseded", standDown, { once: true });
 // What a superseded copy stops (standDown): the page listeners, observers and the URL watcher hang off this signal.
