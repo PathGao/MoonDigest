@@ -334,10 +334,11 @@ body {
   resize: vertical;
 }
 
+/* Blue like #spInput:focus, the side panel's exception to the gray ring (DESIGN.md). */
 .sp-note-input:focus {
   outline: none;
-  border-color: var(--text-2);
-  box-shadow: var(--focus-ring);
+  border-color: var(--action);
+  box-shadow: none;
 }
 
 /* The keys that save, under the box while it is open. */
@@ -1428,10 +1429,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   min-height: 72px;
 }
 
+/* The side panel's exception to the gray focus ring (DESIGN.md), shared with .sp-note-input. */
 #spInput:focus {
-  border-color: var(--text-2);
+  border-color: var(--action);
   background: var(--surface);
-  box-shadow: var(--focus-ring);
+  box-shadow: none;
 }
 
 /* Fixed width, so turning into 停止 never moves anything. Blue only once there is something to send. */
