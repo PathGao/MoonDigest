@@ -182,7 +182,12 @@ html[data-mdg-reader-mode="1"][data-mdg-reader-theme="dark"] {
 }
 :where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(a):focus-visible { outline-offset: 2px; border-radius: 4px; box-shadow: none; }
 
-:where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(select, textarea, input[type="text"]):focus-visible {
+:where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(textarea, input[type="text"]):focus-visible {
+  outline: none;
+  border-color: var(--mdg-action);
+  box-shadow: none;
+}
+:where(#mdg-root, .mdg-confirm-overlay, #mdg-reading-inline-host) :where(select):focus-visible {
   outline: none;
   border-color: var(--mdg-text-2);
   box-shadow: var(--mdg-focus-ring);

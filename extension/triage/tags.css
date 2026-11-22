@@ -89,7 +89,7 @@ dialog:has(> form > .dlg-body) > form > .dlg-body ~ .dialog-actions { border-top
 .tp-pop .tp-foot { display: none; }
 /* In the popover the filter is a boxed field, as the dialogs' inputs. */
 #tagPicker.tp-pop .tp-input { width: calc(100% - 16px); height: 28px; margin: 8px 8px 0; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--field-bg); }
-#tagPicker.tp-pop .tp-input:focus-visible { border-color: var(--text-2); }
+#tagPicker.tp-pop .tp-input:focus-visible { border-color: var(--action); }
 .picker-opt.tp-new { grid-column: 1 / -1; border-style: dashed; border-color: var(--border-strong); font-weight: 500; }
 /* 「+ 标签 T」 (shared.js tagPlusBtn) on cards and the viewer line: quiet, a dashed outline on hover; T is a faint letter
    after the word, as the card keys. button. to win over tokens.css button.quiet. */

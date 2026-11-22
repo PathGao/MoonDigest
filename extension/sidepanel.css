@@ -334,7 +334,6 @@ body {
   resize: vertical;
 }
 
-/* Blue like #spInput:focus, the side panel's exception to the gray ring (DESIGN.md). */
 .sp-note-input:focus {
   outline: none;
   border-color: var(--action);
@@ -1429,7 +1428,7 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   min-height: 72px;
 }
 
-/* The side panel's exception to the gray focus ring (DESIGN.md), shared with .sp-note-input. */
+/* :focus, not tokens.css's :focus-visible, plus the white fill; same blue edge. */
 #spInput:focus {
   border-color: var(--action);
   background: var(--surface);
