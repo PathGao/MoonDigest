@@ -1057,9 +1057,16 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: flex;
 }
 
+/* Inside the box, at the bottom left across from 停止, so showing it never moves the layout. */
 .sp-generating {
+  position: absolute;
+  left: 13px;
+  bottom: 8px;
+  height: 30px;
+  line-height: 30px;
   color: var(--muted);
   font-size: var(--fs-xs);
+  pointer-events: none;
 }
 
 .sp-generating[hidden] {
@@ -1411,8 +1418,9 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   field-sizing: content;
   min-height: 94px;
   max-height: 320px;
-  /* Room on the right for the send button that sits inside the box. */
-  padding: 10px 76px 10px 12px;
+  /* Room on the right for the send button that sits inside the box, and below for the row it shares with 正在生成…,
+     kept while idle too so the box never grows when that line shows. */
+  padding: 10px 76px 40px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: var(--field-bg);
