@@ -507,6 +507,12 @@ body {
   scroll-behavior: smooth;
 }
 
+/* Room at the end of the conversation for the floating Obsidian status, so it covers no answer; inside the scroll
+   area, so the layout keeps its height. */
+.sp-messages:has(~ .sp-footer > .sp-sync-status:not([hidden])) {
+  padding-bottom: 60px;
+}
+
 /* What a question waiting for its video hides (the empty state, 重试's failed turn), back if it is not sent. */
 .sp-messages > [hidden] {
   display: none;
@@ -976,13 +982,29 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: flex;
 }
 
+/* Floats over the bottom of the conversation, as .sp-context-notice does at the top, so it never moves the layout. */
 .sp-sync-status {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 1;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 0 4px 4px;
-  color: var(--muted);
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-muted) 96%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
   font-size: var(--fs-xs);
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+.sp-sync-status.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 .sp-sync-status button {
@@ -1057,9 +1079,16 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: flex;
 }
 
+/* Inside the box, at the bottom left across from 停止, so showing it never moves the layout. */
 .sp-generating {
+  position: absolute;
+  left: 13px;
+  bottom: 8px;
+  height: 30px;
+  line-height: 30px;
   color: var(--muted);
   font-size: var(--fs-xs);
+  pointer-events: none;
 }
 
 .sp-generating[hidden] {
@@ -1411,8 +1440,9 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   field-sizing: content;
   min-height: 94px;
   max-height: 320px;
-  /* Room on the right for the send button that sits inside the box. */
-  padding: 10px 76px 10px 12px;
+  /* Room on the right for the send button that sits inside the box, and below for the row it shares with 正在生成…,
+     kept while idle too so the box never grows when that line shows. */
+  padding: 10px 76px 40px 12px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: var(--field-bg);
