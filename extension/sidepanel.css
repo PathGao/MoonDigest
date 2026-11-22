@@ -507,6 +507,12 @@ body {
   scroll-behavior: smooth;
 }
 
+/* Room at the end of the conversation for the floating Obsidian status, so it covers no answer; inside the scroll
+   area, so the layout keeps its height. */
+.sp-messages:has(~ .sp-footer > .sp-sync-status:not([hidden])) {
+  padding-bottom: 60px;
+}
+
 /* What a question waiting for its video hides (the empty state, 重试's failed turn), back if it is not sent. */
 .sp-messages > [hidden] {
   display: none;
