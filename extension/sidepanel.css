@@ -1384,6 +1384,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   font-size: var(--fs-xs);
 }
 
+/* Its border outranks tokens.css's blue focus edge. */
+.sp-preset-input:focus-visible {
+  border-color: var(--action);
+}
+
 .sp-preset-add-btn {
   height: 30px;
   padding: 0 12px;

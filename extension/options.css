@@ -53,6 +53,11 @@ textarea {
   border-radius: var(--radius-sm);
 }
 
+/* The border above outranks tokens.css's blue focus edge, so repeat it here. */
+:is(input[type="text"], input[type="password"], input[type="number"], textarea):focus-visible {
+  border-color: var(--action);
+}
+
 input[type="text"],
 input[type="password"],
 select {

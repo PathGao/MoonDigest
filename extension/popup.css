@@ -270,6 +270,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Its border outranks tokens.css's blue focus edge. */
+#preview:focus-visible {
+  border-color: var(--action);
+}
+
 #preview[hidden] {
   display: none;
 }
