@@ -169,8 +169,8 @@ button.link:hover { color: var(--link-hover); text-decoration: underline; }
 button.quiet { height: 28px; padding: 0 8px; border: 0; background: none; color: var(--text-2); }
 button.quiet:hover { background: var(--field-bg); color: var(--text); }
 
-/* Keyboard focus is one neutral ring on every control: a --text-2 line on the control's edge and a soft halo, the same
-   as a focused text field below (which also shows it on a click). Pink stays for what is selected or current. */
+/* Keyboard focus is one neutral ring on every control: a --text-2 line on the control's edge and a soft halo. Text
+   fields (below) are the exception, a blue edge that also shows on a click. Pink stays for what is selected or current. */
 :where(input, select, textarea, button, summary, a):focus-visible {
   outline: 1px solid var(--text-2);
   outline-offset: -1px;
@@ -199,7 +199,13 @@ button.quiet:hover { background: var(--field-bg); color: var(--text); }
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1C12 7 17 12 23 12C17 12 12 17 12 23C12 17 7 12 1 12C7 12 12 7 12 1Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
-:where(input[type="text"], input[type="password"], input[type="number"], select, textarea):focus-visible {
+/* A box you type in shows the Bilibili blue edge and no halo; a dropdown keeps the gray ring. */
+:where(input[type="text"], input[type="password"], input[type="number"], textarea):focus-visible {
+  outline: none;
+  border-color: var(--action);
+  box-shadow: none;
+}
+:where(select):focus-visible {
   outline: none;
   border-color: var(--text-2);
   box-shadow: var(--focus-ring);

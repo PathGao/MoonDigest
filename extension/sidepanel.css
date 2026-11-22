@@ -336,8 +336,8 @@ body {
 
 .sp-note-input:focus {
   outline: none;
-  border-color: var(--text-2);
-  box-shadow: var(--focus-ring);
+  border-color: var(--action);
+  box-shadow: none;
 }
 
 /* The keys that save, under the box while it is open. */
@@ -1384,6 +1384,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   font-size: var(--fs-xs);
 }
 
+/* Its border outranks tokens.css's blue focus edge. */
+.sp-preset-input:focus-visible {
+  border-color: var(--action);
+}
+
 .sp-preset-add-btn {
   height: 30px;
   padding: 0 12px;
@@ -1428,10 +1433,11 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   min-height: 72px;
 }
 
+/* :focus, not tokens.css's :focus-visible, plus the white fill; same blue edge. */
 #spInput:focus {
-  border-color: var(--text-2);
+  border-color: var(--action);
   background: var(--surface);
-  box-shadow: var(--focus-ring);
+  box-shadow: none;
 }
 
 /* Fixed width, so turning into 停止 never moves anything. Blue only once there is something to send. */

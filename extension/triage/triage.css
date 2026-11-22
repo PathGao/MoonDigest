@@ -59,7 +59,7 @@ select { height: 28px; max-width: 240px; }
 .search-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; color: var(--text); text-overflow: ellipsis; }
 .search input:focus-visible { outline: none; box-shadow: none; }
-.search:focus-within { box-shadow: var(--focus-ring); }
+.search:focus-within { box-shadow: inset 0 0 0 1px var(--action); }
 .search .muted { white-space: nowrap; }
 .search-key { font: 12px var(--font-mono); padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--faint); }
 .search:focus-within .search-key, .search:has(input:not(:placeholder-shown)) .search-key { display: none; }
