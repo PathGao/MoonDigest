@@ -976,13 +976,29 @@ body:has(#spInput:not(:placeholder-shown)) .sp-summary-btn {
   display: flex;
 }
 
+/* Floats over the bottom of the conversation, as .sp-context-notice does at the top, so it never moves the layout. */
 .sp-sync-status {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 8px);
+  z-index: 1;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 0 4px 4px;
-  color: var(--muted);
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-muted) 96%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
   font-size: var(--fs-xs);
-  line-height: 1.4;
+  line-height: 1.35;
+}
+
+.sp-sync-status.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 .sp-sync-status button {
