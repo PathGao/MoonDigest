@@ -52,32 +52,33 @@
 
 ## 给 AI agent 用
 
-Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。用 MCP 并在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」后，agent 还能借你的登录搜 B站和 YouTube 视频，读你的收藏夹、关注、观看历史和分拣台里的标签、备注，并直接修改：在 B站移动、复制、取消收藏视频，新建、改名、删除收藏夹；写分拣台的 AI 判断、保留、备注和标签；改 B站稍后再看、YouTube 稍后观看和 YouTube 播放列表。修改不逐次问你；对 B站收藏夹和分拣台的每次修改都记在本地，在设置 → MCP 或分拣台里可以撤销。两种接法：
+Agent 碰到视频通常只能看标题和封面。装了 MoonDigest，agent 能借你浏览器的登录状态拿到视频的字幕、章节、简介和热门评论，还能截取任意一秒的画面。不下载视频，不花 AI 额度，读不到你的 Key 和 AI 对话。用 MCP 并在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」后，agent 还能借你的登录搜 B站和 YouTube 视频，读你的收藏夹、关注、观看历史和分拣台里的标签、备注，并直接修改：在 B站移动、复制、取消收藏视频，新建、改名、删除收藏夹；写分拣台的 AI 判断、保留、备注和标签；改 B站稍后再看、YouTube 稍后观看和 YouTube 播放列表。修改不逐次问你；对 B站收藏夹和分拣台的每次修改都记在本地，在设置 → MCP 或分拣台里可以撤销。
 
-- **skill**（agent 能操控浏览器，如 ego、Claude in Chrome、Playwright）：
+两种接法，选一种就够：
 
-  ```sh
-  git clone https://github.com/PathGao/MoonDigest.git
-  mkdir -p ~/.claude/skills && cp -r MoonDigest/skills/moondigest ~/.claude/skills/
+- **MCP**（推荐）：Claude Code、Codex、OpenCode、Cursor 等支持 MCP 的 agent 都能用，agent 不用会操控浏览器。要 Node 20+。把这段粘给 agent，让它自己装：
+
+  ```text
+  把 MoonDigest 的 MCP 服务加进你的 MCP 配置：名字 moondigest，stdio，命令 npx -y moondigest-mcp@latest。装完告诉我要不要重启你。
   ```
 
-- **MCP**（Claude Code、Cursor、Codex 等）：在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」（用时再开，不用时关掉），再装服务（要 Node 20+）：
+  再在设置 → MCP 打开「允许 Agent 使用我的 B站和 YouTube 账号」（用时再开，不用时关掉）。设置 → MCP 里也有这段话，带复制按钮。MCP 服务用 `@latest` 每次随 agent 启动取最新版。
 
-  ```sh
-  claude mcp add moondigest -- npx -y moondigest-mcp@latest
+- **skill**：不想装 MCP（没有 Node，或不想让 agent 用你的账号），而 agent 能操控浏览器（如 ego、Claude in Chrome、Playwright）时用。只能读 agent 打开的那个视频页。把这段粘给 agent：
+
+  ```text
+  把 https://github.com/PathGao/MoonDigest 仓库里的 skills/moondigest 文件夹装成你的 skill。
   ```
 
-  Cursor、Codex 的配置和注意事项见 [mcp/README.md](mcp/README.md)，设置 → MCP 里也有各客户端的安装命令。插件会自动更新，MCP 服务不会：以前装过的，在 `MoonDigest` 目录里 `git pull` 后重开 agent，才能用上新工具。
+  skill 也不想装，就把这段提示词粘给 agent：
 
-不装 skill 也行，把这段提示词粘给 agent（用 MCP 时把第 1、2 步换成 get_video、get_frame，找视频用 search_videos）：
-
-```text
-需要了解 B站 或 YouTube 视频的内容时，包括查资料时搜到的视频，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
-1. 在视频页执行文档里的 JS，用 moondigest-get 拿字幕、章节、简介和评论。
-2. 按章节读字幕。要核对画面（图表、代码、屏幕上的文字）时，用 moondigest-frame 跳到对应秒数截一帧，图片别直接打印进上下文。
-3. 查资料搜到多个视频时，挑最相关的几个读，只引用或推荐真正讲了我要的内容的。结论带上时间戳（mm:ss）和能跳到那一刻的链接。
-4. 没字幕、没登录 B站 或被限流时，告诉我原因，不要反复重试，一次只读一个视频。
-```
+  ```text
+  需要了解 B站 或 YouTube 视频的内容时，包括查资料时搜到的视频，用浏览器打开视频页，不要只看标题和封面，也不要下载视频。浏览器里装了 MoonDigest 扩展，按 https://github.com/PathGao/MoonDigest/blob/main/skills/moondigest/SKILL.md 的步骤做：
+  1. 在视频页执行文档里的 JS，用 moondigest-get 拿字幕、章节、简介和评论。
+  2. 按章节读字幕。要核对画面（图表、代码、屏幕上的文字）时，用 moondigest-frame 跳到对应秒数截一帧，图片别直接打印进上下文。
+  3. 查资料搜到多个视频时，挑最相关的几个读，只引用或推荐真正讲了我要的内容的。结论带上时间戳（mm:ss）和能跳到那一刻的链接。
+  4. 没字幕、没登录 B站 或被限流时，告诉我原因，不要反复重试，一次只读一个视频。
+  ```
 
 接口说明见 [docs/AGENT.md](docs/AGENT.md)。
 

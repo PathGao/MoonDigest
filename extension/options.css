@@ -433,22 +433,11 @@ main {
   margin: 0 0 4px 19px;
 }
 
-/* MCP: a tab per client with its install command shown whole and 复制, then the Agent's changes (each with 撤销). */
+/* MCP: the install prompt shown whole with 复制, then the Agent's changes (each with 撤销). */
 .name-line {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.kind-tabs.mcp-tabs {
-  gap: 24px;
-  margin-top: 10px;
-}
-
-.mcp-tabs button {
-  height: 38px;
-  font-size: var(--fs-md);
-  line-height: 38px;
 }
 
 .mcp-panel {
@@ -456,14 +445,7 @@ main {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px 8px;
   align-items: start;
-  margin-top: 12px;
-}
-
-.mcp-panel .where {
-  grid-column: 1 / -1;
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
+  margin-top: 10px;
 }
 
 .mcp-panel pre {
