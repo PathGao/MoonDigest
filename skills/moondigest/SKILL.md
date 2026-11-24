@@ -95,13 +95,7 @@ The page messages cannot read the user's favorites, follows or watch history, re
 
 When a task needs one of these and you cannot do it through MoonDigest, tell the user which case it is. Do not script Bilibili's API in the browser to get around it: you would have no undo record, no rate limiting, and no check that a subtitle belongs to its video.
 
-- You have no `moondigest` tools: the MCP server is not installed in this client. Give the user the command (Node 20 or newer; other clients' forms are in the extension's 设置 → MCP, with a copy button):
-
-  ```sh
-  claude mcp add moondigest -- npx -y moondigest-mcp@latest
-  ```
-
-  MoonDigest's 设置 → MCP (Settings → MCP) lists the command for Claude Code, Codex, Cursor and Claude desktop, each with a copy button, and says whether the extension is connected.
+- You have no `moondigest` tools: the MCP server is not installed in this client. Offer to add it to your own MCP config: name `moondigest`, stdio, command `npx -y moondigest-mcp@latest` (needs Node 20 or newer). The tools appear after the client restarts or reloads its MCP servers. MoonDigest's 设置 → MCP (Settings → MCP) also has this request for the user to copy, and says whether the extension is connected.
 - A tool answers `NOT_CONNECTED`: the server is installed but the extension is not connected, because the switch is off or that browser is closed. Ask the user to open the browser that has MoonDigest and turn on 设置 → MCP → 允许 Agent 使用我的 B站和 YouTube 账号. Say what it enables: you can then read and change their Bilibili and YouTube account through MoonDigest (favorites, follows, history, 分拣台 results), every change is recorded, and they can undo it in that same settings section. The extension connects within a minute.
 - The tools work but none does what the task needs: say MoonDigest does not support it. Do not pretend it does.
 

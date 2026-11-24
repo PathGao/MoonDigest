@@ -69,35 +69,27 @@ MCP 客户端 ──stdio──> moondigest-mcp ──> 共用的 moondigest-mcp
 
 需要 Node 20 或更高版本。
 
-Claude Code：
+最省事的是让 agent 自己装：告诉它「把 MoonDigest 的 MCP 服务加进你的 MCP 配置：名字 moondigest，stdio，命令 `npx -y moondigest-mcp@latest`」。它知道自己的配置写在哪。
+
+也可以自己在终端运行：
 
 ```sh
-claude mcp add moondigest -- npx -y moondigest-mcp@latest
+claude mcp add moondigest -- npx -y moondigest-mcp@latest      # Claude Code
+codex mcp add moondigest -- npx -y moondigest-mcp@latest       # Codex
+opencode mcp add moondigest -- npx -y moondigest-mcp@latest    # OpenCode
 ```
 
-`@latest` 让 `npx` 每次随 Agent 启动取最新版，服务跟着插件一起更新，不用手动升级。插件的设置 → MCP 里有各客户端的这条命令，带复制按钮。
-
-Cursor（`~/.cursor/mcp.json` 或项目里的 `.cursor/mcp.json`）：
+用 JSON 配置的客户端（Cursor、Claude 桌面版、Gemini CLI 等）加这一项：
 
 ```json
-{
-  "mcpServers": {
-    "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
-  }
-}
+"moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
 ```
 
-Codex（`~/.codex/config.toml`）：
-
-```toml
-[mcp_servers.moondigest]
-command = "npx"
-args = ["-y", "moondigest-mcp@latest"]
-```
+`@latest` 让 `npx` 每次随 Agent 启动取最新版，服务跟着插件一起更新，不用手动升级。插件的设置 → MCP 里有让 agent 自己装的那段话，带复制按钮。
 
 改代码时用本地的一份：克隆仓库，在 `mcp/` 里 `npm install`，把上面的 `npx` 和参数换成 `node` 和 `/path/to/MoonDigest/mcp/server.js`。
 
-最后在 MoonDigest 的「设置 → MCP」打开「允许 Agent 使用我的 B站和 YouTube 账号」。这一节还列出各客户端的安装命令（带「复制」按钮，路径要换成你电脑上 MoonDigest 文件夹的位置），并写明现在是否已连接。
+最后在 MoonDigest 的「设置 → MCP」打开「允许 Agent 使用我的 B站和 YouTube 账号」。这一节还有让 agent 自己装的那段话（带「复制」按钮），并写明现在是否已连接。
 
 ### 安全模型
 
@@ -210,35 +202,27 @@ Two tools work on your own YouTube collections. MoonDigest has no pages for them
 
 Needs Node 20 or later.
 
-Claude Code:
+The easiest way is to let the agent do it: tell it "add the MoonDigest MCP server to your MCP config: name moondigest, stdio, command `npx -y moondigest-mcp@latest`". It knows where its own config lives.
+
+Or run it yourself in a terminal:
 
 ```sh
-claude mcp add moondigest -- npx -y moondigest-mcp@latest
+claude mcp add moondigest -- npx -y moondigest-mcp@latest      # Claude Code
+codex mcp add moondigest -- npx -y moondigest-mcp@latest       # Codex
+opencode mcp add moondigest -- npx -y moondigest-mcp@latest    # OpenCode
 ```
 
-With `@latest`, `npx` takes the newest version each time the agent starts, so the server keeps up with the extension and never needs a manual update. The extension's 设置 → MCP shows this command for each client, with a copy button.
-
-Cursor (`~/.cursor/mcp.json` or the project's `.cursor/mcp.json`):
+Clients configured in JSON (Cursor, Claude desktop, Gemini CLI, …) take this entry:
 
 ```json
-{
-  "mcpServers": {
-    "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
-  }
-}
+"moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
 ```
 
-Codex (`~/.codex/config.toml`):
-
-```toml
-[mcp_servers.moondigest]
-command = "npx"
-args = ["-y", "moondigest-mcp@latest"]
-```
+With `@latest`, `npx` takes the newest version each time the agent starts, so the server keeps up with the extension and never needs a manual update. The extension's 设置 → MCP has the sentence to give the agent, with a copy button.
 
 To work on the code, use a local copy: clone the repository, run `npm install` in `mcp/`, and replace `npx` and its arguments above with `node` and `/path/to/MoonDigest/mcp/server.js`.
 
-Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's 设置 → MCP. That section also lists the install command for each client (with a 复制 button; replace the path with where your MoonDigest folder is) and says whether the extension is connected now.
+Then turn on 允许 Agent 使用我的 B站和 YouTube 账号 in MoonDigest's 设置 → MCP. That section also has the sentence to give the agent (with a 复制 button) and says whether the extension is connected now.
 
 ### Security model
 

@@ -281,7 +281,7 @@
           <div class="row">
             <div class="lab">
               <label class="name" for="mcpAccess">允许 Agent 使用我的 B站和 YouTube 账号</label>
-              <p class="hint">打开后，Claude Code、Cursor、Codex 等 Agent 能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录读视频，读和改你的收藏夹、YouTube 播放列表和分拣结果。每次修改都记在「Agent 最近的修改」里，可以撤销。</p>
+              <p class="hint">打开后，Claude Code、Codex、OpenCode、Cursor 等 Agent 能通过本机的 <a href="https://github.com/PathGao/MoonDigest/blob/main/mcp/README.md" target="_blank">MCP 服务</a>用你的登录读视频，读和改你的收藏夹、YouTube 播放列表和分拣结果。每次修改都记在「Agent 最近的修改」里，可以撤销。</p>
               <details class="fold">
                 <summary>能读什么、能改什么</summary>
                 <dl class="legend">
@@ -297,14 +297,12 @@
           <div class="row wide">
             <div class="lab">
               <div class="name-line"><span class="name">安装</span><span id="mcpPill" class="pill" hidden></span></div>
-              <p class="hint">选你用的 Agent，把 MCP 服务加进去。要先装好 Node 20 或更高版本。</p>
-              <div class="kind-tabs mcp-tabs" role="tablist" aria-label="Agent" id="mcpTabs"></div>
-              <div class="mcp-panel" role="tabpanel" id="mcpPanel">
-                <p class="where" id="mcpWhere"></p>
+              <p class="hint">把这段粘给你用的 Agent（Claude Code、Codex、OpenCode、Cursor 等都行），它会自己把 MCP 服务加进去。要先装好 Node 20 或更高版本。</p>
+              <div class="mcp-panel">
                 <pre id="mcpCmd"></pre>
                 <button type="button" class="sm" id="mcpCopy">复制</button>
               </div>
-              <p class="hint">Agent 说 MCP 服务比插件旧时，用这里的命令重新添加一次，再重启 Agent。<span id="mcpStatusText"></span></p>
+              <p class="hint">Agent 说 MCP 服务比插件旧时，把这段再发给它一次，再重启 Agent。<span id="mcpStatusText"></span></p>
             </div>
           </div>
           <div class="row wide">

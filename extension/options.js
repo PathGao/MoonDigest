@@ -62,22 +62,8 @@ let busyButton = null;
 
 // 设置 → MCP. @latest: npx then takes the newest moondigest-mcp each time the Agent starts, so the server keeps up with
 // the extension without the user updating it.
-const MCP_NPX = "npx -y moondigest-mcp@latest";
-const MCP_JSON = `{
-  "mcpServers": {
-    "moondigest": {
-      "command": "npx",
-      "args": ["-y", "moondigest-mcp@latest"]
-    }
-  }
-}`;
-// One tab per client: name, what 复制 copies (shown whole), where it goes, what the status calls it.
-const MCP_INSTALL = [
-  ["Claude Code", `claude mcp add moondigest -- ${MCP_NPX}`, "在终端运行", "命令"],
-  ["Codex", `[mcp_servers.moondigest]\ncommand = "npx"\nargs = ["-y", "moondigest-mcp@latest"]`, "写进 ~/.codex/config.toml", "的配置"],
-  ["Cursor", MCP_JSON, "写进 ~/.cursor/mcp.json", "的配置"],
-  ["Claude 桌面版", MCP_JSON, "写进 claude_desktop_config.json", "的配置"]
-];
+// What 复制 copies: the user pastes it to their Agent, which knows where its own MCP config lives.
+const MCP_PROMPT = "把 MoonDigest 的 MCP 服务加进你的 MCP 配置：名字 moondigest，stdio，命令 npx -y moondigest-mcp@latest。装完告诉我要不要重启你。";
 // Why an undo stopped with videos left (agent-writes.js restOf): what the user can do about it.
 const MCP_UNDO_STOP = {
   THROTTLED: "网站在限流，过一会儿再点撤销",
@@ -716,19 +702,9 @@ function validateNoteExtras() {
 
 // ---------- MCP ----------
 function renderMcpInstall() {
-  elements.mcpTabs.innerHTML = MCP_INSTALL.map(([name], i) => `<button type="button" role="tab" aria-controls="mcpPanel" data-i="${i}">${escapeHtml(name)}</button>`).join("");
-  let at = 0;
-  const show = (tab) => {
-    at = Number(tab.dataset.i);
-    selectTab(tab);
-    elements.mcpWhere.textContent = `${MCP_INSTALL[at][2]}：`;
-    elements.mcpCmd.textContent = MCP_INSTALL[at][1];
-  };
-  initTabs(elements.mcpTabs, show);
-  show(elements.mcpTabs.firstElementChild);
+  elements.mcpCmd.textContent = MCP_PROMPT;
   elements.mcpCopy.addEventListener("click", async () => {
-    const [name, text, , what] = MCP_INSTALL[at];
-    await navigator.clipboard.writeText(text).then(() => setStatus(`已复制：${name}${what}`), () => setStatus(MdgErrors.TEXT.noClipboard, true));
+    await navigator.clipboard.writeText(MCP_PROMPT).then(() => setStatus("已复制，粘给你用的 Agent"), () => setStatus(MdgErrors.TEXT.noClipboard, true));
   });
 }
 function showMcpStatus(status) {
