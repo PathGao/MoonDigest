@@ -1529,12 +1529,12 @@ async function showNoSubtitleState(run, { failure = "", needLogin = false } = {}
   setStatus(readDoneText(`${label}。`, then), Boolean(failure || state.commentsFailure));
 }
 
-// The popup's status after a read: what happened on the first line (the subtitle, then comments that failed), then
-// what it changed or what to do (then: the mismatch warning, what stands in for no subtitle, or 登录), then why the
+// The popup's status after a read, two lines at most: what happened (the subtitle, then comments that failed), then
+// what it changed or what to do (then: the mismatch warning, what stands in for no subtitle, or 登录) and why the
 // comments failed. Never what the buttons can do: they are lit already.
 function readDoneText(first, then = "") {
   const failed = state.commentsFailure;
-  return [first + (failed ? MdgErrors.TEXT.commentsReadFailed : ""), then, failed && `${failed}。`].filter(Boolean).join("\n");
+  return [first + (failed ? MdgErrors.TEXT.commentsReadFailed : ""), then + (failed ? `${failed}。` : "")].filter(Boolean).join("\n");
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {

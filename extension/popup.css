@@ -159,7 +159,7 @@ body {
   line-height: 1.4;
   color: var(--ok);
   overflow-wrap: anywhere;
-  /* A read's status is two lines: what it found, then what the note can do. */
+  /* A status is at most two lines: what happened, then what it changed or what to do. */
   white-space: pre-line;
 }
 
