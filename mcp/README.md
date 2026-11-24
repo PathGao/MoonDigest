@@ -76,10 +76,9 @@ MCP 客户端 ──stdio──> moondigest-mcp ──> 共用的 moondigest-mcp
 ```sh
 claude mcp add moondigest -- npx -y moondigest-mcp@latest      # Claude Code
 codex mcp add moondigest -- npx -y moondigest-mcp@latest       # Codex
-opencode mcp add moondigest -- npx -y moondigest-mcp@latest    # OpenCode
 ```
 
-用 JSON 配置的客户端（Cursor、Claude 桌面版、Gemini CLI 等）加这一项：
+用 JSON 配置的客户端（Cursor、Claude 桌面版、Gemini CLI 等）在 `mcpServers` 里加这一项：
 
 ```json
 "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
@@ -209,10 +208,9 @@ Or run it yourself in a terminal:
 ```sh
 claude mcp add moondigest -- npx -y moondigest-mcp@latest      # Claude Code
 codex mcp add moondigest -- npx -y moondigest-mcp@latest       # Codex
-opencode mcp add moondigest -- npx -y moondigest-mcp@latest    # OpenCode
 ```
 
-Clients configured in JSON (Cursor, Claude desktop, Gemini CLI, …) take this entry:
+Clients configured in JSON (Cursor, Claude desktop, Gemini CLI, …) take this entry under `mcpServers`:
 
 ```json
 "moondigest": { "command": "npx", "args": ["-y", "moondigest-mcp@latest"] }
