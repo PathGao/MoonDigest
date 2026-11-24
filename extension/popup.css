@@ -159,6 +159,8 @@ body {
   line-height: 1.4;
   color: var(--ok);
   overflow-wrap: anywhere;
+  /* A status is at most two lines: what happened, then what it changed or what to do. */
+  white-space: pre-line;
 }
 
 .status::before {
@@ -169,6 +171,10 @@ body {
   border-radius: 50%;
   background: currentColor;
   transform: translateY(-1px);
+}
+
+.status:empty {
+  display: none;
 }
 
 .video-text > .status:first-child {

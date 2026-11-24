@@ -478,7 +478,7 @@ const NO_SUB = "无字幕";
 function noSubBadge(it) {
   if (!noSubtitle(it)) return "";
   const a = S.analyses[it.bvid];
-  const label = a.needLogin ? "未登录无字幕" : a.subtitleFailure ? "字幕抓取失败" : NO_SUB;
+  const label = a.needLogin ? "未登录无字幕" : a.subtitleFailure ? "字幕读取失败" : NO_SUB;
   const why = `${MdgErrors.subtitleMissing({ subtitleNeedLogin: a.needLogin, subtitleFailure: a.subtitleFailure })}，按简介和评论判断`;
   return `<span class="badge none" title="${esc(why)}">${label}</span>`;
 }

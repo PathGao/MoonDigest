@@ -684,7 +684,7 @@ async function triageAnalyze({ bvid, force, criteria, folder, aiProviderId, thin
   let source = "meta";
   let subtitle = "";
   // Throttling reaches the page so it backs off; a failed track list or download falls back to comments and the card
-  // says 字幕抓取失败 with the reason. A subtitle that does not match the video's length is used with the video page's warning.
+  // says 字幕读取失败 with the reason. A subtitle that does not match the video's length is used with the video page's warning.
   const got = await MdgSites.loadSubtitle(site, ref, m, TRIAGE_BILI_IO);
   if (got.body.length) {
     source = "subtitle";
@@ -871,7 +871,7 @@ async function triageBuildNote(bvid, settings) {
   ref.url = site.canonicalUrl(bvid, meta.pageCount > 1 ? meta.pageIndex : 1);
   // Tracks are tried in order like on the video page (MdgSites.loadSubtitle). Throttling rejects, so the caller waits
   // and tries again. A failed track list or download writes the note without subtitles, as the video page does: the
-  // note opens with 字幕抓取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
+  // note opens with 字幕读取失败（原因）. subtitleWarning, which the callers show, is the video page's sentence for that
   // or for a subtitle that does not match the video's length (kept, not cached).
   const found = await MdgSites.loadSubtitle(site, ref, meta, io);
   const { track, body, bundle } = found;

@@ -473,7 +473,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     vm.runInContext("els.input.disabled = false; activeStream = null", ctx);
     await ctx.act({ type: "SUMMARY", prompt: "总结", ref: { site: "bilibili", videoId: "BV1xx411c7mD", url: video.url, title: "t" } });
     assert.strictEqual(pendingAtLoad, true);
-    assert.strictEqual(ctx.followupBlockReason(), "正在读取视频字幕…");
+    assert.strictEqual(ctx.followupBlockReason(), "正在读取字幕…");
     ctx.hydratePinnedConversationContext = real.hydratePinnedConversationContext;
     const realResolve = ctx.resolveConversationContext;
     ctx.resolveConversationContext = async () => ({ ok: false, error: "x" });
@@ -700,7 +700,7 @@ const tick = () => new Promise((r) => setImmediate(r));
     };
     assert.deepStrictEqual(
       [intro({}), intro({ subtitleFailure: "网络断了" }), intro({ subtitleNeedLogin: true })],
-      ["视频没有字幕，AI 只能读标题、简介和评论。", "字幕抓取失败：网络断了，AI 只能读标题、简介和评论。", "未登录 B站，拿不到字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。"]
+      ["视频没有字幕，AI 只能读标题、简介和评论。", "字幕读取失败：网络断了，AI 只能读标题、简介和评论。", "未登录 B站，拿不到字幕，AI 只能读标题、简介和评论。登录 B站后刷新网页。"]
     );
   }
 
@@ -1508,7 +1508,7 @@ const tick = () => new Promise((r) => setImmediate(r));
       assert.strictEqual(ctx.suggestionsContent().html.includes('data-act="retry"'), retry, JSON.stringify(extra));
     }
     const html = (show({ ...video, subtitleMarkdown: "", subtitleFailure: "超时" }), ctx.suggestionsContent().html);
-    assert.ok(html.includes("字幕抓取失败：超时") && html.includes(`>${ctx.MdgErrors.LABEL.retry}</button>`), html);
+    assert.ok(html.includes("字幕读取失败：超时") && html.includes(`>${ctx.MdgErrors.LABEL.retry}</button>`), html);
   }
 
   // J18: the side panel's sentences are the shared ones.

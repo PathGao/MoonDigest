@@ -368,7 +368,7 @@ async function resolveAiSidepanelContext(contextRef) {
   const meta = await site.fetchMeta(videoRef, io);
   // Like the video page: the chosen track first, then the others (MdgSites.loadSubtitle). A B站 limit fails the
   // follow-up; a failed track list or download, like tracks with only empty bodies, leaves the AI the title, description
-  // and comments, with the reason in subtitleFailure (the side panel and the AI read it as 字幕抓取失败).
+  // and comments, with the reason in subtitleFailure (the side panel and the AI read it as 字幕读取失败).
   const found = await MdgSites.loadSubtitle(site, videoRef, meta, io, {
     prefer: { previousId: ref.selectedSubtitleId, previousUrl: ref.selectedSubtitleUrl, previousLang: ref.subtitleLang }
   });

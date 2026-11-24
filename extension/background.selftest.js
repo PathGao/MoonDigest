@@ -519,18 +519,18 @@ process.on("exit", (code) => {
   // The shared sentence (MdgErrors.subtitleMissing), told to the user too, like the login and failure branches.
   assert.match(none, /^视频没有字幕。你拿不到/m);
   assert.match(none, /告诉用户：视频没有字幕。/);
-  assert.doesNotMatch(none, /抓取失败/);
+  assert.doesNotMatch(none, /读取失败/);
   const failed = systemFor({ subtitleFailure: "YouTube 拒绝了字幕请求" });
-  assert.match(failed, /字幕抓取失败：YouTube 拒绝了字幕请求。/);
+  assert.match(failed, /字幕读取失败：YouTube 拒绝了字幕请求。/);
   assert.match(failed, /以下仅基于简介和评论/);
   assert.doesNotMatch(failed, /这个视频没有字幕/);
   assert.match(failed, /以下是视频简介：\n\n简介/);
-  assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /抓取失败/);
+  assert.doesNotMatch(systemFor({ subtitleMarkdown: "字幕", subtitleFailure: "旧失败" }), /读取失败/);
   // The user is told too, under the reply: no subtitles, or they failed to load.
   const noticesFor = (extra) => [...ctx.buildAiMessages({ context: { isVideoContext: true, title: "T", ...extra }, userPrompt: "q" }).notices];
   // The three states read as on every other entry (MdgErrors.subtitleMissing).
   assert.deepStrictEqual(noticesFor({}), ["视频没有字幕，只根据标题、简介和评论回答"]);
-  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕抓取失败：429，只根据标题、简介和评论回答"]);
+  assert.deepStrictEqual(noticesFor({ subtitleFailure: "429" }), ["字幕读取失败：429，只根据标题、简介和评论回答"]);
   assert.deepStrictEqual(noticesFor({ subtitleFailure: "要登录", subtitleNeedLogin: true }), ["未登录 B站，拿不到字幕，只根据标题、简介和评论回答"]);
   assert.match(systemFor({ subtitleNeedLogin: true }), /未登录 B站，拿不到字幕。视频本身可能有字幕/);
   assert.deepStrictEqual(noticesFor({ subtitleMarkdown: "字幕" }), [], "with subtitles there is nothing to say");
@@ -1023,7 +1023,7 @@ process.on("exit", (code) => {
   routes = { ...sidepanelRoutes(100), [subUrl]: { body: [] } };
   const empty = await historyContext();
   assert.deepStrictEqual([lines(empty), empty.subtitleMarkdown, empty.subtitleFailure], [0, "", "字幕文件为空"]);
-  // A failed download or track list (not a limit) answers like the video page: no subtitle, and why, for 字幕抓取失败.
+  // A failed download or track list (not a limit) answers like the video page: no subtitle, and why, for 字幕读取失败.
   const dropConn = () => new TypeError("Failed to fetch");
   routes = { ...sidepanelRoutes(100), [subUrl]: dropConn() };
   const dropped = await historyContext();

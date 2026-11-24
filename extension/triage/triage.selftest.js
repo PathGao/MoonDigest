@@ -724,7 +724,7 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
     t.S.analyses.BV1.needLogin = true;
     assert.ok(row().startsWith('<span class="badge none" title="未登录 B站，拿不到字幕，按简介和评论判断">未登录无字幕</span>'), row());
     t.S.analyses.BV1 = { status: "done", source: "meta", verdict: "keep", subtitleFailure: "网络断了" };
-    assert.ok(row().startsWith('<span class="badge none" title="字幕抓取失败：网络断了，按简介和评论判断">字幕抓取失败</span>'), row());
+    assert.ok(row().startsWith('<span class="badge none" title="字幕读取失败：网络断了，按简介和评论判断">字幕读取失败</span>'), row());
     t.S.decisions.BV1 = { action: "keep", at: 1 };
     assert.ok(row().startsWith('<span class="badge none"'), "first on a decided card too");
     delete t.S.decisions.BV1;
@@ -4376,9 +4376,9 @@ const unfavOnlyOf = (d) => Object.fromEntries(Object.entries(d).filter(([, v]) =
 
       // A note written without its subtitle, or with one that may not match, is listed with the warning, in amber.
       calls = [];
-      fail = (b) => (b === "BV803" ? { ok: true, data: { path: "BV803.md", title: "BV803", subtitleWarning: "字幕抓取失败：网络断了。" } } : null);
+      fail = (b) => (b === "BV803" ? { ok: true, data: { path: "BV803.md", title: "BV803", subtitleWarning: "字幕读取失败：网络断了。" } } : null);
       await t.runWrite();
-      assert.strictEqual(t.el.writeFailed.innerHTML, '<li class="warn">视频803：字幕抓取失败：网络断了。</li>');
+      assert.strictEqual(t.el.writeFailed.innerHTML, '<li class="warn">视频803：字幕读取失败：网络断了。</li>');
       assert.ok(!t.el.writeFailed.hidden && t.S.write.text === "逐个视频笔记完成：写入 3 篇", "written, not failed");
       assert.deepStrictEqual(plain(t.activityState()), { text: "逐个视频笔记完成：写入 3 篇", finished: true });
 

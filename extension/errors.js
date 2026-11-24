@@ -108,7 +108,7 @@
     // The page lost focus while the note was prepared, or the browser refused (Chrome's English NotAllowedError).
     noClipboard: "无法访问剪贴板，点一下页面再试",
     // The side panel while the video page reads the subtitle for it.
-    subtitleReading: "正在读取视频字幕…",
+    subtitleReading: "正在读取字幕…",
     // 分拣台's 收藏夹设置 / 关注设置 and their AI 参数; a failure is followed by 「：原因」.
     settingsSaved: "设置已保存",
     settingsSaveFailed: "保存设置失败",
@@ -124,7 +124,7 @@
     reloadRetry: "请刷新网页后重试",
     // The video page's copy of the extension did not answer, or could not be put there (code PAGE_SILENT, pageSilent):
     // the popup, 专注模式, the side panel and the background's writes. Only reloading the page helps.
-    pageSilent: "视频页没有回应，请刷新网页后重试",
+    pageSilent: "视频页没有回应。\n请刷新网页后重试",
     // 摘读记录 and the settings page's AI platform row; followed by 「：原因」.
     deleteFailed: "删除失败",
     // Waiting for the first data: 摘读记录's list, the side panel's chip.
@@ -147,9 +147,12 @@
     // not open, the side panel's jump to a time).
     tabClosed: "标签页已关闭",
     tabLoadTimeout: "标签页加载超时",
-    // A note read and ready (the video page's read for the popup, the popup's read of a web page): what its exits can do.
-    readDone: "读取完成，可以复制或下载。",
-    readDoneObsidian: "读取完成，可以复制、下载或写入 Obsidian。",
+    // The popup's status after a read. Only what the buttons cannot show: they are lit already, so no 「可以复制或下载」.
+    // A video read's second line, if any, says what it changed or what to do (content.js readDoneText).
+    notReadYet: "还没读取，点「刷新」开始。",
+    readDone: "网页读取完成。",
+    subtitleRead: "字幕读取完成。",
+    commentsReadFailed: "评论读取失败。",
     // YouTube's HTTP 429 on a subtitle, after the video page's one wait; B站's is biliThrottled.
     ytThrottled: "YouTube 限流，请稍后再试",
     // Tags and 保留 marks are MoonDigest's own (B站 pages' UP tag picker, 关注's 标签管理 and 帮助, 收藏夹's 保留).
@@ -265,7 +268,7 @@
   // context, 分拣台, notes), without a full stop. subtitleNeedLogin is its own state (B站 hides subtitles from a
   // logged-out viewer), not a failure; subtitleFailure is why the fetch failed. A state, never an instruction.
   const subtitleMissing = ({ subtitleNeedLogin = false, subtitleFailure = "" } = {}) =>
-    subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕抓取失败：${subtitleFailure}` : "视频没有字幕";
+    subtitleNeedLogin ? "未登录 B站，拿不到字幕" : subtitleFailure ? `字幕读取失败：${subtitleFailure}` : "视频没有字幕";
 
   // Error code (or a situation without one: PAGE_*, SUBTITLE_*) → what every entry shows: text replaces the background's
   // words; action is the button beside the error, "settings" (去设置), "grant" (授权), "grantPage" (允许读取网页) or
