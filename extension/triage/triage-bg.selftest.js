@@ -697,7 +697,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   assert.ok(prompt.includes("未登录 B站，拿不到字幕。视频本身可能有字幕，不要说视频没有字幕。\n热门评论："), prompt);
   routes = { ...baseRoutes(), [subUrl]: { body: [] } };
   assert.strictEqual((await analyze()).needLogin, undefined, "a bad subtitle is not a login problem");
-  assert.ok(prompt.includes("字幕抓取失败：字幕文件为空。视频本身可能有字幕，不要说视频没有字幕。"));
+  assert.ok(prompt.includes("字幕读取失败：字幕文件为空。视频本身可能有字幕，不要说视频没有字幕。"));
   assert.strictEqual(["../background.js", "triage-bg.js"].map((f) => fs.readFileSync(path.join(__dirname, f), "utf8").split("视频本身可能有字幕").length - 1).join(), "0,1", "the reminder is written once (aiSubtitleMissing)");
 
   // A subtitle up to the cap goes in whole; a longer one is sampled down to the cap.
@@ -740,7 +740,7 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   routes = { ...baseRoutes(), [subUrl]: http412 };
   await assert.rejects(analyze(), (e) => e.code === "THROTTLED");
   assert.strictEqual("triage_analysis_BVa" in store, false);
-  // A failed download: judged on the description and comments, and the card says 字幕抓取失败 with the reason.
+  // A failed download: judged on the description and comments, and the card says 字幕读取失败 with the reason.
   routes = { ...baseRoutes(), [subUrl]: new TypeError("Failed to fetch") };
   const failedSub = await analyze();
   assert.deepStrictEqual([failedSub.source, failedSub.subtitleFailure], ["meta", "网络断了"]);
@@ -764,10 +764,10 @@ assert.throws(() => t.triageParseCommand('{"new_tags":[', cmdItems, cmdTags, {})
   await assert.rejects(buildNote(), (e) => e.code === "THROTTLED" && !t.MdgSites.isBiliVideoGone(e.code));
   routes = { ...baseRoutes(), [subUrl]: Object.assign(new Error("HTTP 403"), { status: 403 }) };
   const noSub = await buildNote();
-  assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕抓取失败：B站请求失败 HTTP 403。"]);
-  assert.ok(noSub.markdown.includes("> 字幕抓取失败：B站请求失败 HTTP 403，以下为简介与热门评论。"), noSub.markdown);
+  assert.deepStrictEqual([noSub.body.length, noSub.subtitleWarning], [0, "字幕读取失败：B站请求失败 HTTP 403。"]);
+  assert.ok(noSub.markdown.includes("> 字幕读取失败：B站请求失败 HTTP 403，以下为简介与热门评论。"), noSub.markdown);
   routes = listDown();
-  assert.deepStrictEqual([(await buildNote()).body.length, (await buildNote()).subtitleWarning], [0, "字幕抓取失败：网络断了。"]);
+  assert.deepStrictEqual([(await buildNote()).body.length, (await buildNote()).subtitleWarning], [0, "字幕读取失败：网络断了。"]);
   // Not logged in: its own sentence on the result list and in the note, which says no more than that.
   routes = { ...baseRoutes(), "/x/player/wbi/v2": { code: 0, data: { subtitle: { subtitles: [] }, need_login_subtitle: true } } };
   const loggedOut = await buildNote();

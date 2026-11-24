@@ -19,7 +19,7 @@ const VIDEO_SWITCHED = `视频已切换，${MdgErrors.TEXT.reloadRetry}`;
 const NO_PLAYER = "当前页面没有找到可联动的视频播放器。";
 globalThis.__MDG_CONTENT_SCRIPT_LOADED__ = MDG_VERSION;
 // The popup's status line before a read: on load, and after a video change cleared the last video's.
-const STATUS_READY = "准备就绪，点击「刷新」开始。";
+const STATUS_READY = MdgErrors.TEXT.notReadYet;
 // The video page's reads: a video change ends the run in flight, so nothing waiting on it writes the new video's state.
 const clipRuns = MdgCommon.latest();
 // Focus mode's entries: an entry or a close (stepReader) ends the run, so a closed entry's late steps stop.
@@ -1159,7 +1159,7 @@ async function runRefreshClip() {
     }
     logInfo("[MDG] selected subtitle track", { id: found.track.id, lang: found.track.lang, label: found.track.label });
     await showSubtitle(found, run);
-    setStatus(state.subtitleWarning + readDoneText(), Boolean(state.commentsFailure));
+    setStatus(readDoneText(MdgErrors.TEXT.subtitleRead, state.subtitleWarning), Boolean(state.commentsFailure));
   } catch (error) {
     const action = readFailureAction(error, run.alive, metaLoaded);
     if (action === "ignore") {
@@ -1300,7 +1300,7 @@ async function switchSubtitle(url) {
     throw MdgCommon.isStale(error) ? new Error(VIDEO_SWITCHED) : error;
   }
   if (!pick.alive) return;
-  setStatus(`${state.subtitleWarning}字幕切换完成。`);
+  setStatus(["字幕切换完成。", state.subtitleWarning].filter(Boolean).join("\n"));
   // The side panel shows the track too: one picked here (popup, 专注模式, the panel itself) is drawn there.
   chrome.runtime.sendMessage({ type: "mdg-subtitle-changed" })?.catch?.(() => {});
 }
@@ -1507,7 +1507,6 @@ async function showNoSubtitleState(run, { failure = "", needLogin = false } = {}
   state.subtitleFailure = failure;
   state.subtitleNeedLogin = needLogin;
   const label = MdgErrors.subtitleMissing(state);
-  const hint = needLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : "";
   state.selectedSubtitleId = "";
   state.selectedSubtitleUrl = "";
   state.selectedSubtitleLang = "";
@@ -1525,13 +1524,17 @@ async function showNoSubtitleState(run, { failure = "", needLogin = false } = {}
   setStatus(`${label}，正在读取评论…`);
   await refreshDerivedContent();
   run.check();
-  setStatus(`${label}。${readDoneText()}${hint}`, Boolean(failure || state.commentsFailure));
+  const standIns = MdgNote.subtitleStandIns(String(state.description || "").trim(), state.hotComments?.length);
+  const then = needLogin ? `${MdgErrors.TEXT.subtitleLoginHint}。` : standIns.length ? `已经用${standIns.join("和")}代替。` : "";
+  setStatus(readDoneText(`${label}。`, then), Boolean(failure || state.commentsFailure));
 }
 
-// The popup's status after a read, with or without a subtitle: what the note can do, and a comment read that failed.
-function readDoneText() {
-  const comments = state.commentsFailure ? `评论读取失败：${state.commentsFailure}。` : "";
-  return comments + (state.settings.obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
+// The popup's status after a read: what happened on the first line (the subtitle, then comments that failed), then
+// what it changed or what to do (then: the mismatch warning, what stands in for no subtitle, or 登录), then why the
+// comments failed. Never what the buttons can do: they are lit already.
+function readDoneText(first, then = "") {
+  const failed = state.commentsFailure;
+  return [first + (failed ? MdgErrors.TEXT.commentsReadFailed : ""), then, failed && `${failed}。`].filter(Boolean).join("\n");
 }
 
 function cleanupReaderFloatingArtifacts(playerHost = state.readingPlayerHost) {

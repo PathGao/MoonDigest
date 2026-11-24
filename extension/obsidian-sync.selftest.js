@@ -155,8 +155,8 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["conversation", "N/youtube/【AI笔记】Y.md", "已写入 Obsidian：N/youtube/【AI笔记】Y.md（单独的 AI 笔记）"]);
   assert.ok(vault.get(resp.path).includes("[[N/youtube/Y|Y]]") && vault.get(resp.path).includes("## q"));
   // The video page open: its note, its cover, and the result starts with its subtitle state (G3) as for a built note.
-  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕抓取失败：网络断了。" } });
-  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["full", "N/youtube/Y.md", "字幕抓取失败：网络断了。已写入 Obsidian：N/youtube/Y.md"]);
+  resp = await write({ ref: yt, conversation: conversation("q"), page: { markdown: "# 页面笔记", cover: "", warning: "字幕读取失败：网络断了。" } });
+  assert.deepStrictEqual([resp.kind, resp.path, resp.text], ["full", "N/youtube/Y.md", "字幕读取失败：网络断了。已写入 Obsidian：N/youtube/Y.md"]);
   assert.ok(vault.get("N/youtube/Y.md").startsWith("# 页面笔记") && vault.get("N/youtube/Y.md").includes("### 问：q"));
   // A2: the page closed again, the recorded note is asked about, not passed by for a conversation note; 只更新 AI 问答
   // works without the page, 整篇覆盖 says it needs it.
@@ -240,7 +240,7 @@ const write = (extra) => send({ type: "write-video-note", ...extra });
   // An entry recorded before the 分 P was: one build finds it by the cid, and records the 分 P for the next run. Only the
   // AI 问答 changed, so the subtitle warning of that build is not reported.
   delete local[PATHS][key].pageIndex;
-  warn = "字幕抓取失败：网络断了。";
+  warn = "字幕读取失败：网络断了。";
   resp = await write({ ref: { ...bili, cid: "" }, conversation: conversation("补"), mode: "ai" });
   assert.deepStrictEqual([resp.text, builds, local[PATHS][key].pageIndex], [`已更新 AI 问答：${notePath}`, 1, 1]);
   warn = "";

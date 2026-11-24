@@ -35,8 +35,8 @@ let webNote = null;
 let webTabId = 0; // the web page's tab, which 刷新 reads again; 0 on a video page
 // Set from the tab's URL in init(): a content script that still answers on a non-video page must not re-enable the tools.
 let onVideoPage = true;
-// The settings asked for as the popup opens: a web page's read says 写入 Obsidian only when it is on. null again after a
-// failed read, so the next use asks again.
+// The settings asked for as the popup opens (写入 Obsidian shows when it is on, 下载字幕 takes its format). null again
+// after a failed read, so the next use asks again.
 let settingsLoad = null;
 const setDisabledReason = MdgErrors.setReason;
 // After 专注模式 or the side panel opened: long enough for the status to show before the popup closes.
@@ -255,13 +255,7 @@ async function readWebNote(tabId) {
   }
   webNote = { ref: resp.ref, filename: resp.filename, markdown: resp.content };
   tools.forEach((button) => setDisabledReason(button, ""));
-  // As the video page says it after its read.
-  try {
-    const { obsidianEnabled } = await (settingsLoad || getSettingsFromRuntime());
-    setStatus(obsidianEnabled ? MdgErrors.TEXT.readDoneObsidian : MdgErrors.TEXT.readDone);
-  } catch (error) {
-    setStatus(settingsFailed(error), true);
-  }
+  setStatus(MdgErrors.TEXT.readDone);
 }
 
 async function openOptions() {
@@ -313,7 +307,7 @@ function render(payload, { preserveStatus = false } = {}) {
   latestPayload = payload;
 
   if (!preserveStatus) {
-    setStatus(String(payload.status || "准备就绪"), payload.statusError === true);
+    setStatus(String(payload.status || MdgErrors.TEXT.notReadYet), payload.statusError === true);
   }
 
   setText(el.propTitle, payload.title || "-");

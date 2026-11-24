@@ -996,7 +996,7 @@ const settle = async () => {
       }
       Object.assign(state, was);
     }
-    // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕抓取失败.
+    // G1: a limit is no subtitle failure: the read fails (red, 重试), no note or comment read, nothing says 字幕读取失败.
     {
       const site = t.currentSite;
       const derived = t.refreshDerivedContent;
@@ -1099,7 +1099,7 @@ const settle = async () => {
     [sent, choice] = [[], ""];
     Object.assign(state, { subtitleFailure: "网络断了", subtitleNeedLogin: false, subtitleWarning: "" });
     await t.sendToObsidian();
-    assert.strictEqual(sent[0].page.warning, "字幕抓取失败：网络断了。");
+    assert.strictEqual(sent[0].page.warning, "字幕读取失败：网络断了。");
     state.subtitleFailure = "";
     // A failed write answers the popup and the side panel with the reason and code, not a success.
     t.sendRuntimeMessage = async () => ({ ok: false, error: t.MdgErrors.TEXT.obsidianDown, code: "OBSIDIAN_DOWN" });
@@ -1270,7 +1270,7 @@ const settle = async () => {
     const say = (fields) => (Object.assign(state, { subtitleFetchState: "empty", subtitleFailure: "", subtitleNeedLogin: false, ...fields }), t.getReadingTranscriptPlaceholderText());
     assert.deepStrictEqual(
       [say({}), say({ subtitleFailure: "网络断了" }), say({ subtitleNeedLogin: true })],
-      ["视频没有字幕。", "字幕抓取失败：网络断了。", "未登录 B站，拿不到字幕。登录 B站后刷新网页。"]
+      ["视频没有字幕。", "字幕读取失败：网络断了。", "未登录 B站，拿不到字幕。登录 B站后刷新网页。"]
     );
     Object.assign(state, saved);
   }
@@ -1323,7 +1323,7 @@ const settle = async () => {
     Object.assign(state, { subtitles: [{ id: "1", url: "u1", label: "中文" }, { id: "2", url: "u2", label: "English" }], selectedSubtitleId: "", selectedSubtitleUrl: "", subtitleFetchState: "empty", subtitleFailure: "网络断了", subtitleNeedLogin: false });
     const select = {};
     t.renderSubtitleOptions(select);
-    assert.match(select.innerHTML, /^<option value="" selected disabled>字幕抓取失败：网络断了<\/option>/);
+    assert.match(select.innerHTML, /^<option value="" selected disabled>字幕读取失败：网络断了<\/option>/);
     assert.ok(!t.getPopupPayload().subtitleOptions.some((o) => o.selected), "the popup gets no selected track");
     Object.assign(state, { selectedSubtitleId: "2", selectedSubtitleUrl: "u2" });
     t.renderSubtitleOptions(select);
@@ -1557,7 +1557,7 @@ const settle = async () => {
       Object.assign(state, { settings: { includeHotCommentsInNote: true }, hotComments: [], subtitleFetchState: "ready" });
       t.fetchHotComments = async () => Promise.reject(Object.assign(new Error(t.MdgErrors.TEXT.biliThrottled), { code: "THROTTLED" }));
       await real.refreshDerivedContent();
-      assert.ok(t.readDoneText().startsWith(`评论读取失败：${t.MdgErrors.TEXT.biliThrottled}。`), t.readDoneText());
+      assert.strictEqual(t.readDoneText("字幕读取完成。"), `字幕读取完成。评论读取失败。\n${t.MdgErrors.TEXT.biliThrottled}。`);
       const ok = gate([{ uname: "a", message: "好" }]);
       let fail;
       const failing = new Promise((_, reject) => (fail = reject));
@@ -1749,12 +1749,12 @@ const settle = async () => {
 
   // A video change clears the last video's status line with its data: the popup's 读取完成 was the old video's.
   {
-    Object.assign(state, { videoId: "BVold", statusText: "读取完成，可以复制或下载。", statusError: true });
+    Object.assign(state, { videoId: "BVold", statusText: "笔记已备好，可以复制或下载。", statusError: true });
     const stub = t.setStatus;
     t.setStatus = real.setStatus;
     t.videoChanged();
     t.setStatus = stub;
-    assert.deepStrictEqual([state.videoId, state.statusText, state.statusError], ["", "准备就绪，点击「刷新」开始。", false]);
+    assert.deepStrictEqual([state.videoId, state.statusText, state.statusError], ["", "还没读取，点「刷新」开始。", false]);
   }
   console.log("content selftest: all passed");
 })().catch((e) => {

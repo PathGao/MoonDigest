@@ -51,8 +51,8 @@ assert.deepStrictEqual(new Set(Object.values(state())), new Set(["当前网页�
 vm.runInContext("onVideoPage = true", ctx);
 
 // A19: tracks listed, none loaded: the dropdown shows the reason, not the first track as the current one.
-ctx.render({ markdown: "# t", subtitleMissing: "字幕抓取失败：网络断了", subtitleOptions: [{ url: "u1", optionLabel: "中文" }, { url: "u2", optionLabel: "English" }] }, { preserveStatus: true });
-assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="" selected disabled>字幕抓取失败：网络断了<\/option><option value="u1"/);
+ctx.render({ markdown: "# t", subtitleMissing: "字幕读取失败：网络断了", subtitleOptions: [{ url: "u1", optionLabel: "中文" }, { url: "u2", optionLabel: "English" }] }, { preserveStatus: true });
+assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="" selected disabled>字幕读取失败：网络断了<\/option><option value="u1"/);
 ctx.render({ markdown: "# t", subtitleOptions: [{ url: "u1", optionLabel: "中文", selected: true }] }, { preserveStatus: true });
 assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected>/, "a loaded track: no placeholder");
 
@@ -60,7 +60,7 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
 {
   let red;
   ctx.el.status.classList = { toggle: (c, on) => c === "is-error" && (red = on) };
-  ctx.render({ status: "字幕抓取失败：网络断了，正在读取评论…" });
+  ctx.render({ status: "字幕读取失败：网络断了，正在读取评论…" });
   assert.strictEqual(red, false);
   ctx.render({ status: "读取视频失败：x。", statusError: true });
   assert.strictEqual(red, true);
@@ -94,7 +94,7 @@ assert.match(ctx.el.subtitleSelect.innerHTML, /^<option value="u1"[^>]* selected
   ctx.chrome.runtime.sendMessage = send;
 })().catch((e) => (console.error(e), process.exit(1)));
 
-// B1: opening on a web page reads nothing: no 抓取失败, the status says why, and 刷新 is disabled with that reason.
+// B1: opening on a web page reads nothing: no 读取失败, the status says why, and 刷新 is disabled with that reason.
 // After B2 (promises only), which stubs MdgDownload too.
 setTimeout(() => (async () => {
   const fetched = [];

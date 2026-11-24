@@ -126,7 +126,7 @@ async function runWrite(md = false) {
   S.write = { md, mediaId: String(S.mediaId), text: "" };
   const written = [];
   const failed = [];
-  // Notes written without their subtitle (字幕抓取失败) or with one that may not match the video: amber, like any
+  // Notes written without their subtitle (字幕读取失败) or with one that may not match the video: amber, like any
   // reminder that does not stop the run (DESIGN.md 琥珀), under the red failures.
   const warned = [];
   const showFailed = () => {

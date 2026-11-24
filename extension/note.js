@@ -78,7 +78,7 @@
     );
     if (!hasSubtitles) {
       // Names only what the note goes on to show.
-      const follows = [intro && "简介", hotCommentLines.length && "热门评论"].filter(Boolean).join("与");
+      const follows = subtitleStandIns(intro, hotCommentLines.length).join("与");
       lines.push(`> ${MdgErrors.subtitleMissing(meta)}${follows ? `，以下为${follows}` : ""}。`, "");
     }
     lines.push(...noteSections.before_intro);
@@ -105,6 +105,11 @@
     const markdown = lines.join("\n").trimEnd();
     const aiSection = on.includeAiChatInNote ? buildAiSection(meta.aiTurns) : "";
     return aiSection ? `${markdown}\n\n${aiSection}` : markdown;
+  }
+
+  // What a note and the AI read in place of a missing subtitle (the popup says it too).
+  function subtitleStandIns(intro, hasComments) {
+    return [intro && "简介", hasComments && "热门评论"].filter(Boolean);
   }
 
   // ---- AI 问答 section: the side panel conversation inside the video note ----
@@ -1111,6 +1116,7 @@
     buildMarkdown(meta, body, { ...settings, includeHotCommentsInNote: false, playerEmbed: false, includeTimestampInBody: true, includeAiChatInNote: false }, ref);
 
   globalThis.MdgNote = {
+    subtitleStandIns,
     buildMarkdown,
     noteTags,
     buildAiContext,

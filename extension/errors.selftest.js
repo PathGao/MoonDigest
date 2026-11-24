@@ -78,10 +78,10 @@ assert.strictEqual(E.messageOf(null, "兜底"), "兜底");
   // No subtitle: three states, one sentence each, built only here (the note, the card, the AI and every page use it).
   assert.deepStrictEqual(
     [E.subtitleMissing(), E.subtitleMissing({ subtitleFailure: "网络断了" }), E.subtitleMissing({ subtitleNeedLogin: true, subtitleFailure: "x" })],
-    ["视频没有字幕", "字幕抓取失败：网络断了", "未登录 B站，拿不到字幕"]
+    ["视频没有字幕", "字幕读取失败：网络断了", "未登录 B站，拿不到字幕"]
   );
   for (const file of [...sources, "note.js"]) {
-    assert.ok(!/拿不到字幕|字幕抓取失败[：（]\$\{|无字幕[，。]/.test(read(file)), `${file} words a missing subtitle itself; use MdgErrors.subtitleMissing`);
+    assert.ok(!/拿不到字幕|字幕读取失败[：（]\$\{|无字幕[，。]/.test(read(file)), `${file} words a missing subtitle itself; use MdgErrors.subtitleMissing`);
   }
   // openSidepanel: Chromium's "API Unavailable" (side panel turned off) and a missing API say the same sentence; any other
   // rejection passes on as it is.
